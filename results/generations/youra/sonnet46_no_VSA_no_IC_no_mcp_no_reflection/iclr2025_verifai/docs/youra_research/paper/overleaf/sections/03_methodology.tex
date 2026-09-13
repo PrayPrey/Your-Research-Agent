@@ -1,0 +1,86 @@
+\section{Methodology}
+
+\subsection{Overview}
+
+If repair is bounded by how easily a model can extract one actionable signal rather than by how much the feedback says, then the experiment has to do two things prior work has not. It must vary feedback content while holding everything else fixed, so that any difference in repair outcome is attributable to the verifier and nothing else. And it must measure what each signal cost to produce, so that correctness can be priced rather than merely ranked.
+
+The design is a single-factor comparison. One backbone generates all solutions. One prompt template carries all feedback. One repair budget applies to every condition. The only thing that changes across conditions is which verifier's text gets pasted into the template --- and we instrument the wall-clock time each verifier takes to produce that text.
+
+We decompose the question into five sub-experiments that run in dependency order, each establishing a precondition for the next: verifier activation (does every category produce signal at all), failure characterization (what has to be repaired), specificity measurement (do the categories differ), repair measurement (does specificity help), and overhead measurement (what does it cost).
+
+\subsection{The Generate-Verify-Repair Loop}
+
+All conditions share one loop. GPT-4o-mini generates a candidate solution from the problem prompt. The solution is evaluated against the benchmark's ground-truth test suite to determine pass or fail. On failure, the assigned verifier runs against the solution and returns a feedback string, which is inserted into a fixed template along with the problem statement and the previous solution. The model returns a revised solution, and the cycle repeats until the solution passes or the budget is exhausted.
+
+\textbf{Rationale for a shared template.} Prior single-category studies each phrase their feedback differently, which means any cross-paper comparison is partly a comparison of prompt engineering. Fixing the template --- problem statement, previous solution, then the verbatim verifier output under a standard preamble --- makes the verifier's text the only varying input. It also means we inject raw tool output rather than a curated summary, which is both the honest baseline (it is what an engineer wiring up a verifier gets by default) and, as Section 6 discusses, a design decision that interacts with our main finding.
+
+\subsection{The Four Feedback Categories}
+
+Each category is a thin adapter over a standard tool, chosen so that the comparison is between formalism levels rather than between implementations.
+
+\textbf{Execution monitoring.} The solution and its tests are written to a temporary file and run in a subprocess with a 5-second timeout. The captured stderr is parsed into a short natural-language report: an assertion failure yields the failing assertion lines plus a directive to fix the logic; an uncaught exception yields the exception lines plus a directive to fix the runtime error. Output is short and grounded in Python's own error vocabulary.
+
+\textbf{Static analysis.} Pyright runs with \texttt{--outputjson}, and the full JSON diagnostic record is the feedback. This includes every diagnostic the tool emits at any severity --- type errors alongside unused imports, missing return annotations, and style-level notes. We deliberately do not filter it, because filtering would embed our own judgment about which diagnostic matters and that judgment is precisely what we are testing the model's ability to make.
+
+\textbf{Type checking.} mypy runs with \texttt{--no-error-summary --ignore-missing-imports}, producing terse line-referenced error text. Kept distinct from Pyright despite the overlap in purpose, because the two differ by orders of magnitude in output volume and that difference is the independent variable.
+
+\textbf{SMT solving.} GPT-4o-mini is prompted to translate the problem's docstring and I/O examples into Z3 constraints; the constraints are checked with a 30-second timeout; a SAT result yields a counterexample model, UNSAT a short sentinel. When no constraints can be extracted, the adapter returns an explicit ``No Z3 constraints extractable'' string, which is itself the feedback the model receives. This fallback path matters: it is what makes the 6.3\% coverage result in Section 5 measurable rather than a silent failure.
+
+\textbf{Rationale for including a category that mostly fails.} We could have dropped SMT once the pilot returned 0/20. Keeping it as a measured condition converts an implementation disappointment into a reportable boundary on what constraint synthesis can do at this model tier, which is one of the paper's contributions.
+
+\subsection{Operationalizing Specificity}
+
+Specificity is measured as the character count of the feedback string, with the count of distinct structured fields as a secondary measure. Character count is cheap, fully reproducible, and requires no judgment call about which parts of a diagnostic are semantically load-bearing.
+
+\textbf{Rationale, and its limit.} We state plainly that this proxy conflates two things: how semantically precise a diagnostic is about the actual defect, and how verbose the tool's output format happens to be. Pyright's 24,358-character mean reflects a JSON serialization of a full diagnostic tree, not 24,358 characters of insight about the failing test. This confound is not incidental to our results --- it is one of the two leading explanations for the inverse correlation we report, and Section 6 treats it as a limitation on the theoretical interpretation rather than on the practical finding.
+
+\subsection{Truncation}
+
+Pyright's output routinely exceeds what fits in a repair prompt alongside the problem statement and prior solution, so all feedback is truncated to the first 4,000 characters before injection.
+
+\textbf{Rationale.} Some bound is unavoidable, and 4,000 characters preserves the full output of three of the four categories --- execution monitoring's 202-character mean, mypy's 49, and Z3's 2 all pass through untouched. Only Pyright is cut, and it is cut heavily, losing roughly five sixths of its output. We flag this as a confound rather than a solved problem: a naive prefix truncation can discard the decisive diagnostic if it appears late in the JSON. Whether Pyright underperforms because of what truncation removed or because of what it left behind is a question we can pose but not settle with this design, and Section 7 proposes the experiment that would.
+
+\subsection{The Efficiency Metric}
+
+The primary dependent variable is the correctness-per-overhead efficiency ratio:
+
+\begin{equation}
+\text{efficiency ratio} = \frac{\Delta\text{pass@1}}{\text{mean wall-clock seconds per verifier call}}
+\end{equation}
+
+where $\Delta$pass@1 is the pass@1 improvement over no-feedback vanilla generation, in percentage points, and the denominator is the mean time to produce one feedback string, measured with \texttt{time.perf\_counter()} around the verifier call.
+
+\textbf{Rationale.} This is the metric the field has been missing, and it is the reason our conclusions differ from a correctness-only reading of the same data. Under correctness alone, execution monitoring wins outright. Dividing by cost changes the winner, because a tool that is 17 times faster and only about twice as weak comes out ahead on anything measured per second. Both numbers are true simultaneously and answer different deployment questions, which is why we report the ratio alongside its numerator rather than in place of it.
+
+\subsection{Controls}
+
+\begin{table}[h]
+\centering
+\caption{Experimental controls.}
+\label{tab:controls}
+\begin{tabular}{lll}
+\toprule
+Variable & Setting & Why \\
+\midrule
+Backbone & GPT-4o-mini, all conditions & Removes model capability as a confound \\
+Generation temperature & 0.2 & Mild diversity, matches standard pass@1 protocol \\
+Repair temperature & 0.0 & Deterministic repair, following Self-Repair \\
+Repair budget & 3 iterations, early stop on pass & Bounds cost; prior work reports diminishing returns \\
+Problem set & Identical 421 problems, all conditions & Paired comparison \\
+Failing set & Identical 126 solutions, all conditions & Every category repairs the same failures \\
+Prompt template & Fixed across categories & Isolates verifier text as sole varying input \\
+Feedback truncation & 4,000 characters & Uniform rule; binds only on Pyright \\
+Seed & 1 & Reproducible sampling and bootstrap \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The paired design is what gives the comparison its power: because all four categories attempt repair on the same 126 failing solutions, differences in repair rate cannot be explained by one category drawing easier problems. The one place this breaks down is SMT, which produces real constraints for only 8 of the 126 --- a selection effect we address directly in Section 6.
+
+\subsection{Statistical Procedure}
+
+Feedback volume differences across categories are tested with Kruskal-Wallis (the distributions are heavily skewed and unequal in variance), with Dunn post-hoc tests under Bonferroni correction and $\varepsilon^2$ as the effect size. The specificity-repair relationship is tested with Spearman's $\rho$ over category-level means, which is rank-based and therefore insensitive to the extreme scale differences between 2 and 24,358 characters. Per-category repair rates carry bootstrap confidence intervals (1,000 resamples); efficiency ratios use bias-corrected and accelerated bootstrap intervals (10,000 resamples), since ratio statistics are not normally distributed. Overhead distributions are compared with Kruskal-Wallis and pairwise Mann-Whitney. All tests use $\alpha = 0.05$.
+
+\subsection{Implementation}
+
+Verifiers are wrapped behind a common \texttt{BaseVerifierAdapter.get\_feedback(solution, problem)} interface so the repair loop is agnostic to category. Repair runs use a 4-worker thread pool parallelized at the problem level, with categories run sequentially within each problem so that timing measurements are not contaminated by contention. The runner writes atomic JSON checkpoints after each problem, making the experiment resumable across API failures. Timeouts are 5s for execution, 10s each for Pyright and mypy, and 30s for Z3.

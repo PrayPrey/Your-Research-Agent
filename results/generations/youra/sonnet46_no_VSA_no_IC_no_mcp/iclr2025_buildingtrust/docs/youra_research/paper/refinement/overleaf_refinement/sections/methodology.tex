@@ -1,0 +1,72 @@
+
+\subsubsection{3.1 ECE Measurement Protocol}
+
+Expected Calibration Error is computed using the 15-bin equal-width formulation of Guo et al. [2017]:
+
+$$\text{ECE} = \sum_{b=1}^{B} \frac{|B_b|}{n} \left| \text{acc}(B_b) - \text{conf}(B_b) \right|$$
+
+where $B = 15$ bins partition $[0, 1]$ by predicted confidence, $|B_b|$ is the number of examples in bin $b, n$ is the total number of examples, $\text{acc}(B_b)$ is empirical accuracy in bin $b$, and $\text{conf}(B_b)$ is mean predicted confidence in bin $b$.
+
+\textbf{Confidence extraction.} For multiple-choice tasks (NLI formatted with options A/B/C; binary tasks with Yes/No), log-probabilities of the answer-option tokens are extracted from the model's vocabulary and softmax is applied over the answer tokens to obtain a confidence distribution. The predicted label is the argmax; confidence is the maximum softmax probability. This logit-based protocol is model-agnostic and does not require verbalization or sampling.
+
+\textbf{Bin count stability.} An ablation study confirmed that ECE computed with 10, 15, and 20 bins agrees to within 0.003 for AdvGLUE MNLI across bin counts. Fifteen bins follow the Guo et al. [2017] standard.
+
+\textbf{Delta ECE ($\Delta ECE)$.} The primary outcome variable is $\Delta ECE$ = ECE(adversarial split) - ECE(clean split). Positive $\Delta ECE$ indicates calibration degradation; negative $\Delta ECE$ indicates calibration improvement.
+
+\subsubsection{3.2 Benchmark Selection}
+
+Benchmarks are selected to span two adversarial construction methods and two task types:
+
+\textbf{Construction method dimension:}
+\begin{itemize}
+\item \textit{Human-adversarial (AdvGLUE):} Human annotators craft perturbations targeting existing base language models. Examples are designed to maintain labels while exploiting model weaknesses.
+\item \textit{Model-in-the-loop adversarial (ANLI):} Human annotators write NLI examples that fool the current round's model, which is then retrained. Three rounds (R1 < R2 < R3) of increasing difficulty.
+\end{itemize}
+
+\textbf{Task type dimension:}
+\begin{itemize}
+\item \textit{NLI (3-class entailment):} AdvGLUE MNLI (human-adversarial), ANLI R1/R2/R3 (model-in-loop). Three answer options.
+\item \textit{Binary classification:} AdvGLUE QQP (paraphrase detection, n=78). Two answer options. AdvGLUE SST-2 (sentiment, n=148) was computed and available but excluded from the primary cell set as a second binary task redundant with QQP for the construction-method $\times$ task-type factorial; results are consistent with QQP.
+\end{itemize}
+
+\textbf{Clean baselines.} GLUE MNLI (n=200, subsampled with seed=1, ECE=0.279) serves as the clean baseline for all NLI adversarial splits. GLUE QQP (n=200) serves as the clean baseline for AdvGLUE QQP.
+
+\subsubsection{3.3 Model Selection and RLHF Comparison}
+
+\textbf{Primary model:} Llama-2-7b-hf (base, HuggingFace checkpoint \texttt{meta-llama/Llama-2-7b-hf}, SHA \texttt{01c7f73d}) is the primary model for core calibration experiments (RQ1--RQ3). This model has no RLHF alignment, provides full logit access, and was within computational range for CPU-based pilot experiments.
+
+\textbf{RLHF comparison:} Llama-2-7b-chat (RLHF-aligned, \texttt{meta-llama/Llama-2-7b-chat-hf}) is compared against Llama-2-7b-hf base in the RLHF moderation experiment (RQ4). Using the same 7b parameter family isolates the effect of RLHF fine-tuning from model scale. The comparison covers ANLI R1/R2/R3 and AdvGLUE MNLI.
+
+\textbf{$\Delta \Delta ECE$.} For the RLHF comparison, $\Delta \Delta ECE = \Delta ECE(base) - \Delta ECE(chat)$. Positive $\Delta \Delta ECE$ indicates base has higher adversarial ECE than chat (RLHF moderation). Negative $\Delta \Delta ECE$ indicates chat has higher adversarial ECE (alignment tax).
+
+\textbf{Inference.} All models use HuggingFace \texttt{AutoModelForCausalLM}. RQ1--RQ3 executed on CPU (1TB RAM) in float32. RQ4 executed on $5\times$ NVIDIA H100 NVL (95GB each) in bfloat16. Chat models use the Llama-2 chat template; base models use raw multiple-choice format.
+
+\subsubsection{3.4 Label Preservation Verification}
+
+Before interpreting $\Delta ECE$ as a calibration signal, the alternative explanation that $\Delta ECE$ reflects label noise is ruled out by computing the label preservation rate: the fraction of adversarial examples where the adversarial label matches the original clean label. For AdvGLUE, labels are human-verified by construction. For ANLI, labels are assigned by human annotators who maintain the entailment relationship while adversarially perturbing the hypothesis. Both datasets preserve labels by construction; the measurement below confirms this.
+
+\subsubsection{3.5 JSONL Cache Architecture}
+
+A per-example JSONL caching strategy enables multiple downstream analyses without repeated model inference. For each example in each (model, task, split) cell, a JSONL record is written with fields: \texttt{\{confidence, pred\textbackslash \_label, true\textbackslash \_label, correct, model\textbackslash \_id, task, split\}}. The RQ1 JSONL caches (H-E1) are reused by RQ2 (label preservation and stratum analysis), RQ3 (per-cell $\Delta ECE)$, and RQ4 (RLHF comparison, which runs new inference only for the chat model). This reduces total inference cost from approximately 5 model runs to approximately 2 (base + chat).
+
+\subsubsection{3.6 Experimental Cell Design}
+
+\begin{table*}[htbp]
+\centering
+\resizebox{\dimexpr 2\columnwidth+\columnsep\relax}{!}{%
+\begin{tabular}{lllll}
+\toprule
+Cell & Task & Construction Method & n (adv) & Model(s) \\
+\midrule
+AdvGLUE MNLI & NLI (3-class) & Human-adversarial & 121 & 7b-base, 7b-chat \\
+ANLI R1 & NLI (3-class) & Model-in-loop (easy) & 200 & 7b-base, 7b-chat \\
+ANLI R2 & NLI (3-class) & Model-in-loop (medium) & 200 & 7b-base, 7b-chat \\
+ANLI R3 & NLI (3-class) & Model-in-loop (hard) & 200 & 7b-base, 7b-chat \\
+AdvGLUE QQP & Paraphrase (binary) & Human-adversarial & 78 & 7b-base \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+Clean baseline for all NLI cells: GLUE MNLI (n=200, ECE=0.279). Clean baseline for QQP: GLUE QQP (n=200).
+

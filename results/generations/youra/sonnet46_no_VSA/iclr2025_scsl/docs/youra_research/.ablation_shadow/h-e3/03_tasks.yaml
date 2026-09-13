@@ -1,0 +1,177 @@
+budget_summary:
+  epics: 6
+  setup: 1
+  subtasks: 5
+  total: 12
+metadata:
+  created_at: '2026-08-04'
+  hypothesis_id: h-e3
+  tier: LIGHT
+  total_budget: 15
+tasks:
+- description: 'Install required Python packages: torch>=2.0, torchvision>=0.15, numpy,
+    scipy, scikit-learn, pandas, Pillow, matplotlib, tqdm. Verify torch.func.vmap
+    and vjp availability (requires PyTorch>=2.0).'
+  id: T-0
+  priority: 94
+  reference_files:
+  - file: docs/youra_research/h-e3/03_prd.md
+    section: Section 7.1 Python Packages
+  status: todo
+  title: Environment Setup
+  type: setup
+- complexity: 7
+  description: Implement config.py (all constants, PathConfig, TrainConfig, MetricConfig,
+    set_seed, ensure_dirs, ckpt_path) and data.py (WaterbirdsDataset reading metadata.csv,
+    get_train_loader, get_eval_loader with shuffle=False). Verify minority_mask =
+    (group==1)|(group==3) shape (4795,).
+  id: A-1
+  priority: 93
+  reference_files:
+  - file: docs/youra_research/h-e3/03_architecture.md
+    section: Config (code/config.py), Data (code/data.py)
+  - file: docs/youra_research/h-e3/03_config.md
+    section: C-2-1, C-5-1
+  status: todo
+  title: Setup & Data
+  type: data-pipeline
+- complexity: 10
+  description: 'Implement train_erm.py: build_model (resnet50 IMAGENET1K_V1, fc=Linear(2048,2)),
+    save_checkpoint, load_checkpoint, train_one_epoch (SGD+cosine), run_training.
+    CRITICAL: save t=0 checkpoint BEFORE for epoch in range(1, n_epochs+1). See L-2-1
+    for exact sequence.'
+  id: A-2
+  priority: 90
+  reference_files:
+  - file: docs/youra_research/h-e3/03_architecture.md
+    section: ERM Training (code/train_erm.py)
+  - file: docs/youra_research/h-e3/03_logic.md
+    section: 'L-2-1: Checkpoint Save at t=0 Logic'
+  - file: docs/youra_research/h-e3/03_config.md
+    section: 'C-2-1: Training Hyperparameter Schema'
+  status: todo
+  title: ERM Training
+  type: training
+- description: 'save_checkpoint(model, seed, epoch=0) BEFORE range(1, n_epochs+1).
+    build_model returns resnet50(IMAGENET1K_V1) with fc replaced by Linear(2048,2)
+    (fc NOT pretrained). Verify: save before any optimizer.step() call.'
+  id: L-2-1
+  parent: A-2
+  priority: 89
+  reference_files:
+  - file: docs/youra_research/h-e3/03_logic.md
+    section: L-2-1
+  status: todo
+  title: t=0 Checkpoint Save Implementation
+  type: subtask
+- complexity: 14
+  description: 'Implement compute_traces.py: verify_architecture, model_backbone_forward
+    (Sequential[:-1] + squeeze), compute_batch_hvp (reverse-over-reverse vmap+vjp),
+    compute_per_sample_fc_trace (K-probe loop, batch accumulation), compute_traces_for_checkpoint,
+    compute_hutchinson_cv. See L-3-1 through L-3-4.'
+  id: A-3
+  priority: 85
+  reference_files:
+  - file: docs/youra_research/h-e3/03_architecture.md
+    section: Hutchinson Trace (code/compute_traces.py)
+  - file: docs/youra_research/h-e3/03_logic.md
+    section: 'A-3: Hutchinson Trace'
+  status: todo
+  title: Hutchinson Trace
+  type: model
+- description: 'fc_loss_single(params, feat, target): functional_call on model.fc,
+    F.cross_entropy. compute_batch_hvp: hvp_single = grad(vJp)(fc_params) where vJp=sum(g*v);
+    vmap(hvp_single)(features, targets) -> [B]. Rademacher v: randint(0,2)*2-1.'
+  id: L-3-1
+  parent: A-3
+  priority: 84
+  reference_files:
+  - file: docs/youra_research/h-e3/03_logic.md
+    section: L-3-1
+  status: todo
+  title: HVP via vmap+vjp (reverse-over-reverse)
+  type: subtask
+- description: 'compute_per_sample_fc_trace: for each batch, features=model_backbone_forward;
+    K-probe loop with batch_traces += vHv/K; all_traces.append(batch_traces.detach().cpu());
+    return torch.cat(all_traces) shape [N=4795]. Loader MUST be non-shuffled.'
+  id: L-3-2
+  parent: A-3
+  priority: 83
+  reference_files:
+  - file: docs/youra_research/h-e3/03_logic.md
+    section: L-3-2
+  status: todo
+  title: Batch Accumulation Loop
+  type: subtask
+- description: 'verify_architecture: assert isinstance(model.fc, nn.Linear), out_features==2,
+    in_features==2048. model_backbone_forward: nn.Sequential(*list(model.children())[:-1])(x)
+    -> [B,2048,1,1] -> squeeze(-1).squeeze(-1) -> [B,2048].'
+  id: L-3-3
+  parent: A-3
+  priority: 82
+  reference_files:
+  - file: docs/youra_research/h-e3/03_logic.md
+    section: L-3-3
+  status: todo
+  title: Architecture Verification + Feature Extraction
+  type: subtask
+- description: 'compute_hutchinson_cv: 5 runs, torch.manual_seed(i) per run, run_means=[traces.mean()];
+    cv=std(run_means)/mean(run_means). load_checkpoint: torch.load(path, map_location=device);
+    build_model(); model.load_state_dict(state_dict); model.eval().'
+  id: L-3-4
+  parent: A-3
+  priority: 81
+  reference_files:
+  - file: docs/youra_research/h-e3/03_logic.md
+    section: L-3-4
+  status: todo
+  title: Hutchinson CV + Checkpoint Loading
+  type: subtask
+- complexity: 9
+  description: 'Implement evaluate_trajectory.py: compute_auroc, compute_R, compute_spearman
+    (rising segment only), evaluate_seed (per-seed dict with all checkpoints + t*,
+    rho, cv), check_gate (count seeds passing all 3 criteria), verify_mechanism_activated.
+    Gate: AUROC(t*)>=0.85, AUROC(t=0)<0.70, rho>=0.80 in >=4/5 seeds.'
+  id: A-4
+  priority: 75
+  reference_files:
+  - file: docs/youra_research/h-e3/03_architecture.md
+    section: Evaluation + Figures (code/evaluate_trajectory.py)
+  - file: docs/youra_research/h-e3/03_config.md
+    section: C-4-1, C-4-2
+  status: todo
+  title: Metrics & Gate
+  type: evaluation
+- complexity: 8
+  description: 'Implement run_experiment.py: run_pilot (seed=1, 5 epochs, compute
+    t=0 trace, check AUROC<0.70 or ABORT), main (pilot -> 5-seed training loop ->
+    evaluation -> gate check -> JSON save -> figures). Log all checkpoint messages
+    per LOG_CHECKPOINT_MSG format.'
+  id: A-5
+  priority: 70
+  reference_files:
+  - file: docs/youra_research/h-e3/03_architecture.md
+    section: Orchestration (code/run_experiment.py)
+  - file: docs/youra_research/h-e3/03_config.md
+    section: C-5-1
+  status: todo
+  title: Pilot Gate + Orchestration
+  type: training
+- complexity: 9
+  description: 'Implement 5 required figures in evaluate_trajectory.py: fig1_gate_metrics
+    (bar: AUROC(t=0) vs AUROC(t*), thresholds 0.70/0.85, mean+std), fig2_R_trajectory
+    (R(t) line, mean+std band, t* dashed), fig3_auroc_trajectory (per-seed + mean
+    AUROC(t), dashed 0.70/0.85), fig4_trace_distribution (violin at t*, minority vs
+    majority), fig5_spearman_rising (scatter AUROC vs epoch rising segment, rho annotated).
+    Save to docs/youra_research/h-e3/figures/.'
+  id: A-6
+  priority: 50
+  reference_files:
+  - file: docs/youra_research/h-e3/03_prd.md
+    section: 'FR-7: Visualization'
+  - file: docs/youra_research/h-e3/03_architecture.md
+    section: Evaluation + Figures
+  status: todo
+  title: Figures
+  type: evaluation
+version: '1.0'

@@ -1,0 +1,174 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (Round 1 - FEASIBLE)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-ICL-MechanismTransition-v1
+**Confidence Level:** 0.78
+
+**Main Hypothesis:**
+Under standard transformer training conditions, if model scale increases from 100M to 7B parameters, then the dominant in-context learning (ICL) mechanism transitions from induction heads to function vector (FV) heads, because increased model capacity enables more abstract task representations that shift reliance from surface-level pattern-matching to semantic task encoding.
+
+**Alternative Hypothesis (H0):**
+There is no systematic relationship between model scale and ICL mechanism dominance; the relative contribution of induction heads versus function vector heads remains constant across model scales, or varies due to factors unrelated to capacity (e.g., random architectural variations, training dynamics).
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Model Scale | Independent | Number of parameters in GPT-style transformer | 100M, 500M, 1B, 3B, 7B |
+| Induction Head Contribution | Dependent | ICL accuracy drop (%) when induction heads ablated via TransformerLens | 0-50% drop |
+| FV Head Contribution | Dependent | ICL accuracy drop (%) when FV heads ablated via TransformerLens | 0-50% drop |
+| ICL Accuracy | Dependent | Accuracy on standard ICL benchmarks (linear regression, classification) | 50-95% |
+| Crossover Point | Dependent | Model scale where FV contribution exceeds IH contribution | Between 500M-3B (predicted) |
+| Pretraining Data | Controlled | Identical dataset (e.g., OpenWebText subset) across all scales | Fixed |
+| ICL Task Set | Controlled | Fixed benchmark suite from Garg et al. 2022 | Linear regression, sparse linear, 2-layer NN |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=4 steps):**
+
+```
+Step 1: Induction Head Emergence → Step 2: Pattern Matching Scaffold
+    → Step 3: Capacity-Enabled FV Development → Step 4: FV-Driven ICL Performance
+    → [Outcome: Superior ICL at scale via FV mechanism dominance]
+```
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Olsson et al. 2022 | Induction heads develop at same point as sharp ICL ability increase | Strong |
+| Step 2 → Step 3 | Yin & Steinhardt 2025 | "Many FV heads start as induction heads during training before transitioning" | Strong |
+| Step 3 → Step 4 | Yin & Steinhardt 2025 | FV heads more important in larger models; studied across 12 models | Strong |
+| Step 4 → Outcome | Singh et al. 2024 | Identified subcircuits enabling induction head formation | Medium |
+
+**Key Tension:**
+- **Tension:** Olsson et al. 2022 emphasized induction heads as "the mechanism for the majority of all in-context learning," while Yin & Steinhardt 2025 found FV heads are "primarily" responsible in larger models.
+- **Resolution:** This hypothesis proposes a developmental transition: induction heads ARE primary initially (smaller models), but FV heads become dominant as models scale.
+
+### 1.4 Key Assumptions
+
+1. **TransformerLens Reliability:** Induction heads and FV heads can be reliably identified using TransformerLens.
+   - *If violated:* Need alternative interpretability tools
+
+2. **Gradual Transition:** The transition follows a gradual developmental trajectory rather than abrupt switching.
+   - *If violated:* Developmental framing fails; mechanisms may be discrete
+
+3. **Independent Measurability:** Mechanism contributions can be measured independently via targeted ablation.
+   - *If violated:* Need factorial ablation designs
+
+4. **Cognitive Analogy Validity:** The developmental staging framework provides useful theoretical guidance.
+   - *If violated:* Lose theoretical framing but empirical findings remain valid
+
+### 1.5 Scope & Boundaries
+
+**Applies to:** GPT-style autoregressive transformers, 100M-7B parameters, standard ICL tasks
+
+**Does NOT apply to:** Encoder-only models, non-transformer architectures, models outside 100M-7B range, multi-modal models
+
+**Known Limitations:** Computational cost (~$5K), potential task-specific variations, training dynamics differences
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Mechanism Transition):**
+If model scale increases from 100M to 7B, then FV/IH contribution ratio increases monotonically.
+- *Measurement:* Spearman correlation with scale, expected ρ > 0.8, p < 0.05
+- *Falsification:* ρ < 0.5 or p > 0.10
+
+**Secondary Predictions:**
+
+**P2 (Crossover Point):** A crossover point exists where FV > IH (predicted: 500M-3B range)
+
+**P3 (Task Modulation):** Crossover point shifts to larger scales with increased task complexity
+
+**P4 (Developmental Scaffold):** Attention heads show temporal progression from induction-like to FV-like patterns during training
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if ANY occur:
+1. No monotonic trend in FV/IH ratio with scale
+2. FV contribution never exceeds IH at any scale up to 7B
+3. Larger models show INCREASED induction head reliance
+4. FV heads emerge independently, never passing through induction-like phase
+
+### 1.7 SOTA Baseline
+
+Not applicable - hypothesis targets mechanistic understanding, not performance improvement.
+
+### 1.8 Statistical Verification Design
+
+**Sample Size:** 5 scales × 3 tasks × 3 seeds = 45 conditions
+**Effect Size:** Large (Cohen's d > 0.8 expected)
+**Power:** 0.9, α = 0.05
+**Tests:** Spearman correlation, paired comparisons with Bonferroni correction
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does the induction head to FV head transition exist as a measurable phenomenon across model scales?"
+- Maps to: P1 (primary prediction)
+- Critical: MUST PASS for Phase 2B to proceed
+
+**SH2 (Mechanism):**
+"Is the 4-step causal mechanism the actual pathway for the transition?"
+- Maps to: 4 sub-hypotheses (H-M1 to H-M4)
+- H-M1: Induction emergence enables pattern matching
+- H-M2: Pattern matching scaffolds FV learning
+- H-M3: Increased capacity enables FV development
+- H-M4: FV heads drive superior ICL
+
+**SH3 (Comparison):**
+"Does developmental staging provide better predictions than alternatives?"
+- Maps to: P2, P3, P4
+
+**Total Sub-Hypotheses:** 6 (SH1, H-M1, H-M2, H-M3, H-M4, SH3)
+
+### Readiness Checklist
+
+- [x] Hypothesis in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID: H-ICL-MechanismTransition-v1
+- [x] Confidence level: 0.78
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables operationalized
+- [x] Causal mechanism with evidence (N=4 steps)
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions with violation consequences
+- [x] 4 testable predictions (P1 primary)
+- [x] Falsification criteria defined
+- [x] Baselines identified (Olsson 2022, Yin 2025)
+- [x] SH1, SH2, SH3 defined
+
+### Open Questions
+
+1. **Resources:** Use existing checkpoints (Pythia, GPT-Neo) vs. training from scratch?
+2. **Data:** Which intermediate-scale models have TransformerLens support?
+3. **Priority:** Recommended order: SH1 → H-M3 → H-M2 → SH3
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work (10 sources with citations)
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

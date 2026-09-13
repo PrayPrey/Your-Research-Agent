@@ -1,0 +1,9 @@
+﻿## Title: Temporal Drift Detection for Human-AI Trust Calibration in Healthcare Decision Support
+
+## Motivation:
+In healthcare settings, clinicians interact with AI diagnostic systems repeatedly over months or years, creating complex feedback loops where both parties adapt. Clinicians may develop over-reliance (automation bias) or under-reliance (algorithm aversion) based on accumulated experiences, while AI systems trained on clinician-accepted recommendations may drift toward confirming human biases. Current systems lack mechanisms to detect and address these coevolutionary drifts, potentially degrading care quality over time without either party recognizing the systematic shift.
+
+## Main Idea:
+I propose developing a **Coevolutionary Drift Monitor (CDM)** framework that continuously tracks bidirectional adaptation patterns between clinicians and AI diagnostic systems. The methodology involves: (1) modeling clinician trust trajectories using sequential decision data to identify emerging over/under-reliance patterns; (2) detecting AI recommendation drift by comparing current outputs against held-out baselines; (3) implementing intervention triggers when drift metrics exceed calibrated thresholds.
+
+The framework would be validated through a longitudinal simulation study using retrospective clinical decision data, followed by a prospective pilot in a radiology department. Expected outcomes include quantifiable metrics for trust miscalibration, early warning indicators for problematic adaptation patterns, and targeted recalibration interventions (e.g., personalized AI explanations, trust-resetting cases). This work directly addresses the workshop's focus on dynamic feedback loops in socially impactful domains while providing practical tools for sustainable human-AI collaboration.

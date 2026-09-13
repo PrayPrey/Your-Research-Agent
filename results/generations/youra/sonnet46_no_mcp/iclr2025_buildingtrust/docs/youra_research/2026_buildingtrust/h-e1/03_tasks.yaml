@@ -1,0 +1,328 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  generated_at: "2026-04-30T00:00:00Z"
+  source_documents:
+    - h-e1/03_prd.md
+    - h-e1/03_architecture.md
+    - h-e1/03_logic.md
+    - h-e1/03_config.md
+
+budget_summary:
+  epic_tasks: 6
+  subtasks: 9
+  total: 15
+  within_budget: true
+
+tasks:
+  # ─────────────────────────────────────────────
+  # ENVIRONMENT SETUP (priority 94)
+  # ─────────────────────────────────────────────
+  - id: "SETUP-1"
+    title: "Environment Setup & Dependencies"
+    type: "setup"
+    priority: 94
+    description: >
+      Install all required Python packages (pinned versions from requirements.txt).
+      Verify GPU availability. Set CUDA_VISIBLE_DEVICES to lowest-memory GPU.
+    acceptance_criteria:
+      - "All packages installed: lm_eval>=0.4.0, transformers>=4.36.0, torch>=2.0.0, accelerate>=0.24.0, bitsandbytes>=0.41.0, netcal>=1.3.0, pingouin>=0.5.3, factor_analyzer>=0.4.1, scipy>=1.11.0, numpy>=1.24.0, pandas>=2.0.0, scikit-learn>=1.3.0, matplotlib>=3.7.0, seaborn>=0.12.0, pyyaml>=6.0"
+      - "nvidia-smi shows available GPU"
+      - "CUDA_VISIBLE_DEVICES set"
+    reference_files:
+      - file: "h-e1/03_prd.md"
+        section: "Section 7.1 Python Packages"
+      - file: "h-e1/03_config.md"
+        section: "Environment Configuration / requirements.txt"
+
+  # ─────────────────────────────────────────────
+  # EPIC TASKS (priority 93–50)
+  # ─────────────────────────────────────────────
+  - id: "E-1"
+    title: "Environment & Model Inventory"
+    type: "setup"
+    priority: 93
+    complexity: 6
+    complexity_breakdown: "2+1+1+2 (Module_Size+Dependencies+Algorithm+Integration)"
+    description: >
+      Implement config.py with complete 30-model inventory (HuggingFace IDs, param counts,
+      family labels, requires_4bit flags). Create h-e1/results/ and h-e1/figures/ directories.
+      Verify all 30 model IDs are accessible on HuggingFace Hub.
+    acceptance_criteria:
+      - "config.py contains MODELS list with 30 entries (all HF IDs, params, family, requires_4bit)"
+      - "All config constants defined: TASKS, RESULTS_DIR, FIGURES_DIR, GREEDY_SEED, STOCHASTIC_SEEDS, ECE_BINS, N_BOOTSTRAP, BATCH_SIZE, INDICATORS, GATE_PAIRS, GATE_THRESHOLD, MIN_MODELS"
+      - "Output directories exist: h-e1/results/, h-e1/figures/"
+    reference_files:
+      - file: "h-e1/03_architecture.md"
+        section: "Module Descriptions / Config"
+      - file: "h-e1/03_config.md"
+        section: "config.py Complete Implementation / MODELS list"
+
+  - id: "E-2"
+    title: "LM-Eval Evaluation Pipeline"
+    type: "implementation"
+    priority: 90
+    complexity: 16
+    complexity_breakdown: "3+4+4+5 (Module_Size+Dependencies+Algorithm+Integration)"
+    description: >
+      Implement run_eval.py. Run lm-evaluation-harness v0.4.x on all 30 models:
+      greedy (seed=42) + stochastic (T=0.7, seeds 42/123/456). Handle GPU memory:
+      float16 for <40B models, load_in_4bit=True for >=40B. Use --log_samples flag.
+      Validate >= 25 models succeed; abort if fewer.
+    acceptance_criteria:
+      - "run_model_greedy and run_model_stochastic implemented with correct CLI args"
+      - "run_all_models iterates all 30 models, handles per-model failures, validates N>=25"
+      - "get_batch_size returns correct batch size from BATCH_SIZE config"
+      - "Results saved to h-e1/results/{model_name}/ per model"
+      - "--log_samples flag used (required for ECE/Brier extraction)"
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "E-2 Subtasks / run_eval.py API Signatures"
+      - file: "h-e1/03_architecture.md"
+        section: "Module Descriptions / EvalRunner"
+
+  - id: "E-3"
+    title: "Calibration Metric Extraction"
+    type: "implementation"
+    priority: 80
+    complexity: 10
+    complexity_breakdown: "3+3+2+2 (Module_Size+Dependencies+Algorithm+Integration)"
+    description: >
+      Implement calibration.py. Parse lm-eval --log_samples MMLU jsonl output.
+      Extract per-sample log-probs from filtered_resps field, normalize to probabilities.
+      Compute ECE via netcal.metrics.ECE(n_bins=10) and Brier score.
+      Compute greedy and stochastic (avg over 3 seeds) values per model.
+    acceptance_criteria:
+      - "load_mmlu_samples reads samples_mmlu*.jsonl from lm-eval output"
+      - "compute_ece_brier extracts filtered_resps, normalizes probs, returns (ECE, Brier)"
+      - "extract_calibration_for_model returns dict with ece_greedy, brier_greedy, ece_stochastic, brier_stochastic"
+      - "Stochastic values averaged over 3 seeds (42, 123, 456)"
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "E-3 Subtask / calibration.py API"
+      - file: "h-e1/03_architecture.md"
+        section: "Module Descriptions / CalibrationExtractor"
+
+  - id: "E-4"
+    title: "Score Matrix Assembly"
+    type: "implementation"
+    priority: 75
+    complexity: 9
+    complexity_breakdown: "2+3+2+2 (Module_Size+Dependencies+Algorithm+Integration)"
+    description: >
+      Implement score_matrix.py. Assemble N×8 pandas DataFrame from lm-eval summaries
+      and calibration outputs. Compute AdvGLUE_drop (standard - adversarial accuracy)
+      and ANLI_drop (ANLI R1+R2 avg - ANLI R3). Validate matrix (>=25 rows, no NaN in gate columns).
+    acceptance_criteria:
+      - "build_score_matrix returns DataFrame with columns: [model_id, ECE, Brier, TruthfulQA_pct, AdvGLUE_drop, ANLI_drop, MMLU_acc, HumanEval_pass1]"
+      - "AdvGLUE_drop computed as std_glue_acc - adv_glue_acc"
+      - "ANLI_drop computed as anli_r1r2_avg - anli_r3_acc"
+      - "validate_matrix returns True only if >= 25 rows and no NaN in gate columns"
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "Score Matrix API / data shapes"
+      - file: "h-e1/03_config.md"
+        section: "C-E4-1 subtask"
+      - file: "h-e1/03_prd.md"
+        section: "FR-3 Score Matrix Assembly"
+
+  - id: "E-5"
+    title: "Statistical Analysis"
+    type: "implementation"
+    priority: 70
+    complexity: 15
+    complexity_breakdown: "3+4+5+3 (Module_Size+Dependencies+Algorithm+Integration)"
+    description: >
+      Implement analysis.py. Compute 5×5 partial Spearman correlation matrix (10 pairs)
+      controlling for MMLU_acc using pingouin. Compute BCa bootstrap CIs (10,000 resamples).
+      Run factor analysis (ML estimation, promax rotation) on greedy + stochastic matrices.
+      Compute Tucker's congruence between loading vectors. Run LOO logistic regression (AUC).
+      Evaluate gate conditions.
+    acceptance_criteria:
+      - "compute_partial_corr_matrix returns DataFrame with (x, y, rho, ci_low, ci_high, p_value) for all 10 pairs"
+      - "bca_bootstrap_ci implements bias-corrected and accelerated bootstrap (z0 + jackknife acceleration)"
+      - "run_factor_analysis returns (FactorAnalyzer, loadings, variance_explained, kmo)"
+      - "compute_tucker_congruence returns float congruence coefficient"
+      - "run_loo_logistic returns dict with auc and auc_mmlu_only"
+      - "evaluate_gates returns dict with PASS bool and per-pair results"
+      - "Gate: partial rho(ECE, TruthfulQA_pct | MMLU) >= 0.40 AND rho(ECE, AdvGLUE_drop | MMLU) >= 0.40, both BCa CIs exclude zero"
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "E-5 Subtasks / analysis.py API / BCa pseudo-code"
+      - file: "h-e1/03_prd.md"
+        section: "FR-4 Statistical Analysis / FR-5 Factor Analysis / FR-6 LOO"
+
+  - id: "E-6"
+    title: "Visualization & Reporting"
+    type: "implementation"
+    priority: 60
+    complexity: 10
+    complexity_breakdown: "3+2+2+3 (Module_Size+Dependencies+Algorithm+Integration)"
+    description: >
+      Implement visualize.py and report.py. Generate all 6 required figures (FR-7.1–7.6)
+      saved to h-e1/figures/. Write 04_results.json with full results and 04_validation.md
+      summary report.
+    acceptance_criteria:
+      - "plot_gate_bar: partial rho bar chart vs 0.40 threshold with BCa CI error bars (FR-7.1 mandatory)"
+      - "plot_corr_heatmap: 5x5 heatmap with significance stars (FR-7.2)"
+      - "plot_factor_loadings: loadings bar chart (FR-7.3)"
+      - "plot_tucker_congruence: side-by-side loading plot (FR-7.4)"
+      - "plot_family_scatter: ECE vs TruthfulQA_pct by family (FR-7.5)"
+      - "plot_decoding_invariance: greedy vs T=0.7 scatter (FR-7.6)"
+      - "All figures saved to h-e1/figures/ as PNG"
+      - "04_results.json written with score matrix, corr matrix, factor results, gate evaluation"
+      - "04_validation.md written with human-readable summary"
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "visualize.py API Signatures"
+      - file: "h-e1/03_config.md"
+        section: "C-E6-1 subtask / Figure output configuration"
+      - file: "h-e1/03_prd.md"
+        section: "FR-7 Visualization / FR-8 Results Reporting"
+
+  # ─────────────────────────────────────────────
+  # SUBTASKS — Logic Agent (priority 49–10)
+  # ─────────────────────────────────────────────
+  - id: "L-E2-1"
+    title: "Implement run_model_greedy + run_model_stochastic"
+    type: "subtask"
+    parent_epic: "E-2"
+    priority: 49
+    description: >
+      Implement the two core lm-eval CLI wrappers. Greedy: dtype=float16 for <40B,
+      load_in_4bit=True for >=40B. Stochastic: adds --gen_kwargs temperature=0.7,seed={seed}.
+      Both use --log_samples --tasks {TASKS} --output_path.
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "L-E2-1: run_model_greedy + run_model_stochastic"
+
+  - id: "L-E2-2"
+    title: "Implement run_all_models with error handling"
+    type: "subtask"
+    parent_epic: "E-2"
+    priority: 48
+    description: >
+      Implement run_all_models: iterate 30 models, catch per-model exceptions, log failures,
+      continue. After all models, count successes; if < MIN_MODELS (25), call sys.exit(1).
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "L-E2-2: run_all_models"
+
+  - id: "L-E2-3"
+    title: "Implement get_batch_size and GPU memory guards"
+    type: "subtask"
+    parent_epic: "E-2"
+    priority: 47
+    description: >
+      Implement get_batch_size as dict lookup from BATCH_SIZE config keyed by param range.
+      Add guard logic: if model requires_4bit and bitsandbytes not available, raise with clear message.
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "L-E2-3: get_batch_size"
+
+  - id: "L-E5-1"
+    title: "Implement compute_partial_corr_matrix + bca_bootstrap_ci"
+    type: "subtask"
+    parent_epic: "E-5"
+    priority: 40
+    description: >
+      Implement compute_partial_corr_matrix for all 10 pairs of 5 indicators using
+      pg.partial_corr(method='spearman'). Implement bca_bootstrap_ci with bias correction
+      (z0 via empirical CDF) and acceleration (jackknife leave-one-out).
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "L-E5-1 / BCa bootstrap pseudo-code"
+
+  - id: "L-E5-2"
+    title: "Implement run_factor_analysis + compute_tucker_congruence"
+    type: "subtask"
+    parent_epic: "E-5"
+    priority: 39
+    description: >
+      Implement run_factor_analysis using FactorAnalyzer(n_factors=1, rotation='promax', method='ml').
+      Sign-align dominant loading before Tucker comparison.
+      Implement compute_tucker_congruence wrapping factor_analyzer.utils.calculate_tucker_congruence.
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "L-E5-2 / factor analysis congruence pseudo-code"
+
+  - id: "L-E5-3"
+    title: "Implement run_loo_logistic + evaluate_gates"
+    type: "subtask"
+    parent_epic: "E-5"
+    priority: 38
+    description: >
+      Implement run_loo_logistic: binarize AdvGLUE_drop at 75th percentile, use LeaveOneOut
+      + cross_val_score(scoring='roc_auc'). Compare composite (ECE+TruthfulQA_pct+Brier) vs
+      MMLU-only AUC. Implement evaluate_gates with AND-logic on gate pairs.
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "L-E5-3 / LOO AUC pseudo-code / evaluate_gates"
+
+  - id: "L-E3-1"
+    title: "Implement compute_ece_brier logit extraction"
+    type: "subtask"
+    parent_epic: "E-3"
+    priority: 30
+    description: >
+      Implement compute_ece_brier: read filtered_resps from lm-eval MMLU jsonl (each entry
+      is [log_prob, is_greedy]); softmax over 4 choices gives probs; confidence = max(probs).
+      ECE via netcal.metrics.ECE(n_bins=10).measure(confidences, correctness).
+      Brier = mean((confidence - correctness)**2).
+    reference_files:
+      - file: "h-e1/03_logic.md"
+        section: "L-E3-1 / calibration.py schema"
+
+  # ─────────────────────────────────────────────
+  # SUBTASKS — Config Agent (priority 20–10)
+  # ─────────────────────────────────────────────
+  - id: "C-E4-1"
+    title: "Implement complete MODELS list in config.py"
+    type: "subtask"
+    parent_epic: "E-4"
+    priority: 20
+    description: >
+      Implement the full MODELS list: 30 entries, each with id (short name), hf_id
+      (HuggingFace model ID), params (float in B), family (string), requires_4bit (bool for >=40B).
+      Verify all 30 HF IDs match the model population spec in 03_prd.md Section 4.2.
+    reference_files:
+      - file: "h-e1/03_config.md"
+        section: "C-E4-1 / MODELS list"
+      - file: "h-e1/03_prd.md"
+        section: "Section 4.2 Model Population (N=30)"
+
+  - id: "C-E6-1"
+    title: "Implement figure output configuration"
+    type: "subtask"
+    parent_epic: "E-6"
+    priority: 10
+    description: >
+      Add to config.py: FIGURE_DPI=150, FIGURE_FORMAT='png', FIGURE_NAMES dict mapping
+      each of 6 figures to output filename (e.g. 'gate_bar': 'fig1_gate_bar.png').
+      Ensure figures/ directory creation in main.py.
+    reference_files:
+      - file: "h-e1/03_config.md"
+        section: "C-E6-1 / Figure output configuration"
+
+  # ─────────────────────────────────────────────
+  # FAILSAFE TASK (priority 1)
+  # ─────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: >
+      Verify all Phase 4 outputs exist before marking hypothesis as complete:
+      h-e1/04_results.json, h-e1/04_validation.md, h-e1/figures/ (>=1 figure).
+      Gate evaluation result recorded in 04_results.json (PASS or FAIL with observed rho values).
+    acceptance_criteria:
+      - "04_results.json exists and contains gate_evaluation.PASS field"
+      - "04_validation.md exists"
+      - "At least 1 figure in h-e1/figures/"
+    reference_files:
+      - file: "h-e1/03_prd.md"
+        section: "FR-8 Results Reporting / Section 6.1 Primary Gate"

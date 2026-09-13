@@ -1,0 +1,51 @@
+
+\subsubsection{3.1 Research Hypothesis}
+
+The primary hypothesis (GQA-GroupMax) states: under GQA-based transformer architectures (LLaMA-3, Mistral, Phi-3) performing long-context inference, KV cache eviction decisions made using max-pooling aggregation over Q-head attention scores within each KV-group (GQA-GroupMax) improve LongBench retrieval-task performance by $\geq 1$ point at 50\% cache budget, relative to GroupMean, because max-aggregation preserves the full attention signal from the most attentive Q-head in a group, preventing the 1/G dilution that mean-aggregation applies to minority-head signals.
+
+This paper reports the results of two prerequisite diagnostic experiments. The main performance comparison (H-M2, H-M3) was not executed due to gate failures in H-E1 and H-M1.
+
+\subsubsection{3.2 H-E1: Within-Group Query-Head Attention Diversity}
+
+\textbf{Measurement objective:} Verify that query heads within a GQA group develop sufficiently distinct attention distributions to make GroupMax and GroupMean differ in practice.
+
+\textbf{Metric:} Pairwise cosine similarity of flattened attention weight vectors for all C(G, 2) pairs of query heads sharing a KV head, computed after softmax, per layer, per sample.
+
+\textbf{Gate criterion:} Fraction of layers where median pairwise cosine similarity < 0.9 must be $\geq$ 0.5 for the primary model (LLaMA-3-8B).
+
+\textbf{Implementation:} AttentionDiversityMeter registered as a forward hook on each LlamaAttention module, capturing post-softmax attention weights via \texttt{output\textbackslash \_attentions=True} with \texttt{attn\textbackslash \_implementation=''eager''} (required to suppress FlashAttention, which does not return attention weights). Processing was sequential (batch\_size=1) at max\_len=512 tokens due to the quadratic memory cost of storing full attention tensors (attn\_weights shape: (1, 32, 512, 512) per layer). All 32 layers processed per sample. Unit tests: 19/19 passing.
+
+\textbf{Models and samples:}
+\begin{itemize}
+\item LLaMA-3-8B (meta-llama/Meta-Llama-3-8B), 32 Q-heads, 8 KV-heads, G=4
+\item Mistral-7B-v0.1 (mistralai/Mistral-7B-v0.1), 32 Q-heads, 8 KV-heads, G=4
+\item Phi-3-mini-4k-instruct (microsoft/Phi-3-mini-4k-instruct), 32 Q-heads, 8 KV-heads, G=4
+\end{itemize}
+
+For LLaMA-3-8B: 600 samples processed (250+ confirmed), seed=42, LongBench retrieval subsets (hotpotqa, 2wikimqa, narrativeqa; musique was unavailable in local cache).
+
+\textbf{Figures available:}
+\begin{itemize}
+\item \texttt{/home/PrayPrey/YOURA\textbackslash \_no\textbackslash \_VSA\textbackslash \_no\textbackslash \_IC\textbackslash \_no\textbackslash \_MCP/sonnet46/TEST\textbackslash \_scope/docs/youra\textbackslash \_research/\_archive/20260826T033405\textbackslash \_routing\textbackslash \_recovery/h-e1/figures/fig1\textbackslash \_layer\textbackslash \_median\textbackslash \_bar.png} --- Layer-wise median cosine similarity bar chart
+\item \texttt{/home/PrayPrey/YOURA\textbackslash \_no\textbackslash \_VSA\textbackslash \_no\textbackslash \_IC\textbackslash \_no\textbackslash \_MCP/sonnet46/TEST\textbackslash \_scope/docs/youra\textbackslash \_research/\_archive/20260826T033405\textbackslash \_routing\textbackslash \_recovery/h-e1/figures/fig2\textbackslash \_violin.png} --- Violin plot of similarity distribution per layer
+\item \texttt{/home/PrayPrey/YOURA\textbackslash \_no\textbackslash \_VSA\textbackslash \_no\textbackslash \_IC\textbackslash \_no\textbackslash \_MCP/sonnet46/TEST\textbackslash \_scope/docs/youra\textbackslash \_research/\_archive/20260826T033405\textbackslash \_routing\textbackslash \_recovery/h-e1/figures/fig3\textbackslash \_heatmap.png} --- Layer $\times$ KV-group heatmap
+\item \texttt{/home/PrayPrey/YOURA\textbackslash \_no\textbackslash \_VSA\textbackslash \_no\textbackslash \_IC\textbackslash \_no\textbackslash \_MCP/sonnet46/TEST\textbackslash \_scope/docs/youra\textbackslash \_research/\_archive/20260826T033405\textbackslash \_routing\textbackslash \_recovery/h-e1/figures/fig4\textbackslash \_cdf.png} --- Cumulative distribution of cosine similarity values
+\end{itemize}
+
+\subsubsection{3.3 H-M1: GroupMax vs. GroupMean Score Divergence}
+
+\textbf{Measurement objective:} Quantify whether GroupMax and GroupMean aggregation produce meaningfully different eviction rankings, using Spearman rank correlation as the divergence measure.
+
+\textbf{Metric:} Spearman rank correlation ($\rho$) between flattened GroupMax and GroupMean eviction score vectors, computed per layer per sample, then aggregated to global median and mean.
+
+\textbf{Gate criterion:} Global median Spearman $\rho$ < 0.95 (i.e., PASS if scores are sufficiently different to indicate divergent eviction rankings).
+
+\textbf{Implementation:} GQAEvictionScoreHook registered on each LlamaAttention module. Two hooks per layer (one computing GroupMax, one GroupMean) operate on the same attention weights simultaneously. Score vectors have shape (batch=1, H\_kv=8, T\_kv) --- KV-head granularity, before repeat\_kv(). Spearman correlation computed via torchmetrics.SpearmanCorrCoef. Memory management: hook.clear() called after each sample. Processing at max\_seq\_len=2048 tokens. 99 samples processed on LongBench (hotpotqa, 2wikimqa, narrativeqa). Mechanism activation verified: both hooks fired on all 32 layers, tensor shape confirmed (1, 8, T\_kv), max\_diff between GroupMax and GroupMean > 1e-4 per layer. Unit tests: 26/26 passing.
+
+\textbf{Figures available (h-m1):}
+\begin{itemize}
+\item \texttt{h-m1/figures/h-m1\textbackslash \_gate\textbackslash \_bar.png}
+\item \texttt{h-m1/figures/h-m1\textbackslash \_layer\textbackslash \_heatmap.png}
+\item \texttt{h-m1/figures/h-m1\textbackslash \_divergence\textbackslash \_cdf.png}
+\end{itemize}
+

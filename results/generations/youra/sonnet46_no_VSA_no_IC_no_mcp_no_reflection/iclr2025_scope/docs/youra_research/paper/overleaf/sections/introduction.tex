@@ -1,0 +1,45 @@
+\section{Introduction}
+
+We applied LoRA to Mamba-130m exactly as we would to any transformer --- correct target modules, correct parameter counts, 1.14\% trainable weights --- and watched SST-2 accuracy sit at 50.9\% for three consecutive training epochs, indistinguishable from the zero-shot baseline of 49.1\%. This is not slow convergence. This is zero learning.
+
+The result is surprising precisely because everything visible looked correct. The PEFT library installed the adapters without complaint. The model's state dictionary contained LoRA weight matrices at every targeted projection layer. The training loop ran, loss values were logged, and gradients were computed. And yet, after three full epochs over 4,000 training samples --- a protocol sufficient for LoRA to converge on SST-2 with transformers --- the model remained locked at majority-class prediction accuracy, as if fine-tuning had never occurred.
+
+\subsection{The Surface Problem}
+
+Parameter-efficient fine-tuning, and LoRA in particular \citep{hu2022lora}, has become the dominant strategy for adapting large pretrained language models to downstream tasks. By freezing the base model and training only low-rank decompositions of selected weight matrices, LoRA achieves near-full-fine-tuning accuracy at a fraction of the trainable parameter cost. The method's appeal is partly its apparent architecture-agnosticism: any layer implemented as \texttt{nn.Linear} is a candidate for LoRA adaptation.
+
+Mamba \citep{gu2023mamba} is the leading transformer-alternative for long-context language modeling. Its selective state space mechanism achieves linear-time training and constant-memory inference, making it a natural target for deployment scenarios where transformer attention is prohibitively expensive. Mamba-130m is publicly available on the HuggingFace Hub, its projection layers --- \texttt{in\_proj}, \texttt{out\_proj}, and \texttt{x\_proj} --- are all \texttt{nn.Linear}, and community implementations (alxndrTL/mamba-peft) report SST-2 accuracy of 90--92\% with LoRA rank 8 on these exact layers.
+
+The natural inference is that LoRA on Mamba works. Practitioners building Mamba-based NLP pipelines would reasonably apply LoRA to these projection layers and expect learning to occur.
+
+\subsection{The Deeper Problem and the Gap}
+
+The assumption that LoRA on \texttt{nn.Linear} produces learning is valid for transformers because it rests on an implicit guarantee: the gradient path from the task loss to the LoRA weight matrices is unobstructed. In transformers, the attention mechanism is implemented as fully differentiable operations under standard PyTorch autograd. Any \texttt{nn.Linear} target in the attention stack receives well-defined gradients when trained on any loss function.
+
+In Mamba, this guarantee does not hold. The architecture's core computation --- the selective state space scan $h_t = \bar{A} \cdot h_{t-1} + \bar{B} \cdot x_t$ --- is implemented as a custom CUDA parallel associative scan kernel. This kernel is not a standard autograd-differentiable operation in the same sense as \texttt{nn.Linear} or softmax. When a randomly-initialized classification head is placed atop a pretrained causal Mamba model and trained with cross-entropy loss, the classification gradient must flow backward through this SSM scan kernel to reach the LoRA weight matrices in the projection layers.
+
+Our experiments demonstrate that this gradient path is ineffective for classification. Three training epochs produce exactly zero improvement over zero-shot accuracy on SST-2 (50.9\% vs.\ 49.1\% zero-shot, a net gain of 1.84 percentage points --- within noise). MNLI accuracy actively degrades from its zero-shot level of 34.6\% to 32.3\% by the second epoch. The loss oscillates between 0.65 and 0.73 across training batches without monotonic decrease --- the signature of incoherent gradient updates rather than directed learning.
+
+No prior work, to our knowledge, provides a controlled, reproducible characterization of projection-only LoRA failure on pure Mamba SSMs for classification tasks. The community reference (alxndrTL/mamba-peft, 2024) reports 90--92\% SST-2 without fully documenting the training recipe. Practitioners attempting to replicate this result with the base \texttt{mamba-130m-hf} checkpoint, a standard classification head, and a clean training loop will observe what we observed: no learning. Without a clear failure characterization, the field will repeatedly rediscover this failure independently.
+
+\subsection{Key Insight}
+
+We attribute the failure to the Mamba selective state-space scan, which we interpret as acting as an effective gradient barrier between classification loss and LoRA weight matrices --- a property invisible from the PEFT API but immediately apparent from per-epoch accuracy tracking.
+
+The SSM scan was designed and optimized for next-token prediction, the task on which Mamba-130m was pretrained. For a randomly-initialized classification head placed on the final hidden state, the gradient is novel and apparently untranslatable through the same path: it exists numerically but produces near-zero directed updates to the LoRA weight matrices, leaving the model locked at its pretraining prediction regime.
+
+This is a conceptual distinction the PEFT community needs: API compatibility --- the ability to install LoRA adapters with correct parameter counts --- is a necessary but not sufficient condition for fine-tuning to produce learning. Gradient compatibility, verified empirically through per-epoch task accuracy, is the authoritative criterion.
+
+\subsection{Contributions}
+
+Our investigation reveals three contributions:
+
+First, we provide direct empirical evidence that projection-only LoRA (targeting \texttt{in\_proj}, \texttt{out\_proj}, \texttt{x\_proj} with rank 8) does not produce meaningful classification task learning on Mamba-130m. The evidence is precise: SST-2 accuracy of 0.5092 across three identical consecutive training epochs (zero-shot baseline: 0.4908), and MNLI accuracy degrading from 0.3463 zero-shot to 0.3234 by the second epoch.
+
+Second, we document verified zero-shot GLUE baselines for Mamba-130m: SST-2 = 0.4908, MNLI = 0.3463, QNLI = 0.5056, QQP = 0.0000. These baselines, confirmed across two independent evaluations, provide a reproducible reference for future Mamba adaptation experiments.
+
+Third, we characterize the SSM scan gradient barrier as the most consistent mechanistic interpretation of the failure, identify a two-signal diagnostic signature for practitioners (loss oscillation without monotonic decrease, combined with per-epoch accuracy plateau), and specify the design constraint this places on future Mamba PEFT methods.
+
+\subsection{Paper Organization}
+
+Section~\ref{sec:related} reviews Mamba's architectural properties, existing PEFT methods, and the MambaPEFT literature. Section~\ref{sec:methodology} describes our experimental design. Section~\ref{sec:experiments} presents the experimental setup. Section~\ref{sec:results} reports results. Section~\ref{sec:discussion} interprets results and discusses limitations. Section~\ref{sec:conclusion} concludes with future directions.

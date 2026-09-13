@@ -1,0 +1,10 @@
+﻿# Title
+**Periodic-Aware Diffusion Models for Crystal Structure Generation with Coherent Boundary Conditions**
+
+## Motivation
+Current generative models for materials often struggle with periodic boundary conditions (PBC) inherent to crystalline materials. Unlike molecules with fixed atom counts, crystals extend infinitely through unit cell repetition. Existing diffusion models adapted from molecular generation either ignore periodicity or handle it post-hoc, leading to boundary discontinuities and physically invalid structures. This fundamentally limits their ability to discover novel stable materials, particularly for complex multi-component systems critical for batteries and catalysis.
+
+## Main Idea
+We propose a diffusion framework that natively incorporates periodic symmetry through: (1) **PBC-equivariant denoising networks** using periodic convolutions on toroidal lattice representations, ensuring generated atoms at cell boundaries maintain consistent interactions; (2) **Lattice-coordinate joint diffusion** that simultaneously generates fractional atomic coordinates and lattice parameters, capturing their coupled evolution; (3) **Symmetry-guided sampling** that leverages space group priors to constrain the generative process toward experimentally realizable structures.
+
+The model will be trained on large-scale crystallographic databases (Materials Project, ICSD) and evaluated on: formation energy prediction accuracy, synthesizability scores from existing/unseen chemical spaces, and diversity of generated polymorphs. Expected outcomes include 10x reduction in boundary artifacts and discovery of metastable phases unreachable by traditional structure search. This addresses the critical PBC challenge while providing a foundation for subsequent property optimization.

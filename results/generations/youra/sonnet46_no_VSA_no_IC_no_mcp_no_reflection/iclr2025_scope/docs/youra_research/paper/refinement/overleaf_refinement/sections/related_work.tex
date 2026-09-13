@@ -1,0 +1,35 @@
+
+\subsubsection{2.1 LoRA and Parameter-Efficient Fine-Tuning}
+
+Low-Rank Adaptation (LoRA) [Hu et al., 2022; arXiv:2106.09685] introduced the now-standard approach of decomposing weight updates into low-rank factors: for a frozen weight matrix \texttt{W}, the update is parameterized as \texttt{\$\textbackslash Delta W\$ = BA} where \texttt{B \$\textbackslash in \textbackslash mathbb\{R\}\^{}\{d\textbackslash times r\}\$} and \texttt{A \$\textbackslash in \textbackslash mathbb\{R\}\^{}\{r\textbackslash times k\}\$} with rank \texttt{r ≪ min(d, k)}. The method was validated on GPT-2, GPT-3, and RoBERTa across a range of NLP tasks, achieving performance competitive with full fine-tuning at under 1\% trainable parameter overhead. The original work explicitly targets attention matrices --- all \texttt{nn.Linear} layers in transformer architectures where gradient flow from task loss to LoRA weights is unconditionally guaranteed by the differentiable attention mechanism.
+
+Subsequent PEFT methods extended LoRA's ideas in different directions. AdaLoRA [Zhang et al., 2023; arXiv:2303.10512] introduces adaptive rank allocation across layers, recognizing that not all weight matrices benefit equally from the same rank budget. DoRA [Liu et al., 2024; arXiv:2402.09353] decomposes weight updates into magnitude and direction components. $IA^3$ [Liu et al., 2022; arXiv:2205.05638] applies multiplicative rescaling rather than additive low-rank updates. Each of these methods was designed for and validated on transformer architectures, where the critical assumption --- that gradient flows cleanly to any targeted \texttt{nn.Linear} layer --- is satisfied by construction.
+
+The assumption is implicit, not stated. Because transformers always satisfy it, the PEFT literature has not needed to treat gradient path compatibility as a design criterion. This is the gap our work fills: we show that on Mamba, the \texttt{nn.Linear} classification of projection layers is a necessary but not sufficient condition for LoRA to receive effective classification gradients.
+
+\subsubsection{2.2 Mamba and State-Space Sequence Models}
+
+Structured state space models for sequence modeling have evolved from the foundational S4 architecture [Gu et al., 2022; arXiv:2111.00396]. Mamba [Gu and Dao, 2023; arXiv:2312.00752] introduced input-dependent state transitions via the selective SSM (S6), implemented via a custom CUDA parallel associative scan kernel. The Mamba paper characterizes this mechanism in detail for its modeling capabilities; the gradient path properties of this computation --- specifically, whether and how well it propagates gradients from classification losses placed atop its output --- are not addressed.
+
+When the CUDA extensions are unavailable, Mamba falls back to a sequential Python implementation using standard PyTorch operations. This fallback preserves the same forward-pass behavior but uses autograd-native operations throughout, in contrast to the CUDA kernel's custom backward pass implementation.
+
+Mamba-2 [Dao and Gu, 2024; arXiv:2405.21060] reformulates the state space computation via the Structured State Space Duality (SSD) framework. The broader SSM family includes RWKV [Peng et al., 2023; arXiv:2305.13048] and RetNet [Sun et al., 2023; arXiv:2307.08621]. None of these architectures have been systematically characterized for PEFT gradient compatibility. Our work focuses on Mamba-1 (130m scale) as the architecture for which community PEFT claims exist and which has an accessible pretrained checkpoint.
+
+\subsubsection{2.3 Mamba PEFT: The Prior Claim We Contrast Against}
+
+The primary public reference for LoRA on Mamba is alxndrTL/mamba-peft (2024), a community repository demonstrating SST-2 accuracy of approximately 90--92\% using LoRA rank 8 applied to \texttt{in\textbackslash \_proj}, \texttt{out\textbackslash \_proj}, and \texttt{x\textbackslash \_proj} on Mamba-130m. This is the claim that motivated our systematic investigation and against which our 50.9\% result must be understood.
+
+We do not claim that the mamba-peft result is wrong. We note that it is insufficiently documented to reproduce: the checkpoint used (base \texttt{mamba-130m-hf} versus any instruction-tuned derivative), the classification head design, the prompt format, and the complete learning rate schedule are not fully specified. The 40 percentage-point gap between our result and theirs is an open reproducibility problem, not a refutation. Our result may reflect the failure mode one encounters with the base pretrained checkpoint and a standard training recipe; their result may reflect a specific underdocumented setup that successfully circumvents the gradient barrier.
+
+The discrepancy is precisely the kind of gap that makes documented negative results valuable.
+
+\subsubsection{2.4 Prefix Tuning and Bypass PEFT Strategies}
+
+Li and Liang [2021; arXiv:2101.00190] introduced prefix tuning as an alternative to weight-matrix adaptation: rather than modifying model weights, the method prepends learned continuous token embeddings to the input, steering the frozen model's behavior through its normal forward pass. For Mamba, prefix tuning would steer the SSM's hidden state trajectory through learned input perturbations without requiring classification gradients to propagate backward through the SSM scan computation. This makes prefix tuning a theoretically motivated bypass strategy for the gradient compatibility problem we identify.
+
+\subsubsection{2.5 Negative Results in Machine Learning}
+
+The machine learning community has increasingly recognized the value of documented negative results. Venues including the ML Reproducibility Challenge \citep{Sinha2021} and journals such as ReScience specifically solicit failure characterizations, recognizing that unreported failures contribute to reproducibility failures and wasted compute at scale. Our paper belongs to this tradition: the zero-shot GLUE baselines we document (SST-2 = 0.4908, MNLI = 0.3463, QNLI = 0.5046, QQP = 0.0000) and the diagnostic failure signature we characterize are immediately usable by the practitioner community.
+
+To our knowledge, no prior work provides a controlled, reproducible characterization of where and how projection-only LoRA fails on pure Mamba SSMs for classification tasks.
+

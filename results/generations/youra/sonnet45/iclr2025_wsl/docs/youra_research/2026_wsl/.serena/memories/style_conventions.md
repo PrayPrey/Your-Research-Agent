@@ -1,0 +1,1 @@
+Project is experiment-oriented rather than a polished library. Python uses straightforward imperative scripts, docstrings on major classes/functions, snake_case naming, JSON/YAML/Markdown artifacts for checkpoints and reports. Claims and implementation notes are frequently documented in adjacent `.md` files and should be cross-checked against code/results.

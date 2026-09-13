@@ -1,0 +1,102 @@
+
+\subsubsection{3.1 Experimental Design}
+
+The study is designed to answer three research questions by fixing all variables except training method.
+
+\textbf{Research Questions:}
+\begin{itemize}
+\item \textbf{RQ1 (Difficulty scaling):} Does RLEF produce a statistically significant positive-ordered advantage over SFT across five benchmark difficulty levels?
+\item \textbf{RQ2 (Signal void characterization):} Is SFT's failure at hard difficulty a dataset void or a generalization void?
+\item \textbf{RQ3 (Reward formulation):} Does fraction-of-tests reward produce meaningfully better performance than binary reward?
+\end{itemize}
+
+\textbf{Controlled Variables:}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+Variable & Fixed Value \\
+\midrule
+Base model & DeepSeek-Coder-7B-base (Guo et al., 2024) \\
+Training data & APPS (Hendrycks et al., 2021), `codeparrot/apps` \\
+Evaluation harness & bigcode-evaluation-harness, correctness-only mode \\
+Optimizer & GRPO (Shao et al., 2024), custom SimpleGRPOTrainer \\
+Random seed & 42 throughout \\
+Hardware & $5\times$ NVIDIA H100 NVL (95,830 MiB each) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\subsubsection{3.2 Base Model and Training Data}
+
+\textbf{DeepSeek-Coder-7B-base} \citep{Guo2024DeepSeekCoder} is used as the base model for all three training conditions. The model is first fine-tuned with SFT; RLEF training then initializes from the SFT checkpoint. All conditions share the same SFT starting point, eliminating training initialization as a confound.
+
+\textbf{APPS} provides algorithmic Python problems across introductory, interview, and competition difficulty levels with executable test cases. Following test-case filtering, 4,449 problems are available for full-scale training (500 used in smoke-scale experiments). A key empirical observation described in Section 5.1: APPS competition-level problems have 85.32\% reference solution coverage (308 of 361 problems have at least one reference solution passing all included test cases).
+
+\subsubsection{3.3 Training Methods}
+
+\textbf{SFT Baseline:} HuggingFace Trainer with causal language modeling objective on APPS reference solutions. Hyperparameters: lr=$2\times 10^{-5}$, 3 epochs (1 epoch for smoke scale), effective batch size 16, max\_length=2,048.
+
+\textbf{RLEF-Fraction:} GRPO initialized from the SFT checkpoint with reward equal to the fraction of test cases passing. Implemented via a custom SimpleGRPOTrainer developed for compatibility with PyTorch 2.5.1 (TRL $\geq 1.0.0$ requires PyTorch $\geq 2.6$, which was unavailable in the experimental environment). Code execution uses subprocess sandboxing with a 3.0-second timeout and temporary directory isolation. Hyperparameters: lr=$1\times 10^{-6}$, G=4 generations per prompt (smoke), G=8 (full), max\_new\_tokens=512 (see Section 4.3), $\beta =0.04$ (KL penalty from SFT reference), temperature=0.8, warmup\_steps=10.
+
+The SimpleGRPOTrainer computes group-relative advantages: $A_i$ = (r\_i - mean(r)) / (std(r) + $\epsilon )$, and applies a REINFORCE-style policy gradient update with KL penalty. A RewardMonitorCallback logs per-step rewards stratified by APPS difficulty bucket.
+
+\textbf{RLEF-Binary (Proxy):} An independent full RLEF-Binary training run was not completed due to compute constraints (model loading required more than 10 minutes per run, exceeding session resource limits). Binary reward performance is estimated via per-problem conversion from RLEF-Fraction output. This is an acknowledged limitation; see Section 6.
+
+\textbf{Binary reward function} (\texttt{binary\textbackslash \_reward\textbackslash \_fn}): returns 1.0 if all test cases pass, 0.0 otherwise. \textbf{Fraction reward function} (\texttt{fraction\textbackslash \_reward\textbackslash \_fn}): returns the proportion of test cases passing, in [0.0, 1.0].
+
+\subsubsection{3.4 Evaluation Benchmarks}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Benchmark & Problems & Difficulty Label \\
+\midrule
+HumanEval (Chen et al., 2021) & 164 & Easy \\
+MBPP (Austin et al., 2021) & 374 & Medium-Easy \\
+LiveCodeBench-Easy (Jain et al., 2024) & ~200 & Medium \\
+LiveCodeBench-Medium (Jain et al., 2024) & ~200 & Medium-Hard \\
+LiveCodeBench-Hard (Jain et al., 2024) & ~100 & Hard \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+All evaluation uses bigcode-evaluation-harness in correctness-only mode (pass@1, single generation, greedy decoding). Identical harness parameters are applied across all checkpoints.
+
+\subsubsection{3.5 Statistical Methods}
+
+\textbf{Jonckheere-Terpstra (JT) test:} Tests the ordered alternative hypothesis that $\Delta$ values are non-decreasing across the five difficulty levels. The JT test is appropriate because it tests an a priori ordered hypothesis without requiring strict monotonicity at every adjacent pair. Implemented via pairwise Mann-Whitney U statistic sums, with bootstrap resampling (n=5,000 pseudo-groups per difficulty level, each constructed by Bernoulli resampling from proxy point estimates).
+
+\textbf{Bootstrap confidence intervals:} 95\% BCa intervals for $\Delta$ and $\Delta _ratio$ estimates (n=5,000).
+
+\textbf{Bootstrap comparison for h-m3 (RQ3):} Two-tailed bootstrap test comparing $\Delta _Fraction$ and $\Delta _Binary$ at LiveCodeBench-Hard (n=5,000 Bernoulli simulations).
+
+\textbf{Important caveat:} All statistical values are conditional on smoke-scale proxy estimates rather than independent experimental replications. JT z=+56.10 reflects bootstrap power given the observed $\Delta$ structure; it should be interpreted as consistent with a positive ordered trend given these estimates, not as a result from independent experimental repetitions. This limitation is addressed in Section 6.
+
+\subsubsection{3.6 Sub-Hypothesis Structure}
+
+The study is organized as five sub-experiments testing mechanism validity, failure characterization, reward monitoring, reward ablation, and trend confirmation.
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Hypothesis & Focus & Gate Type & Outcome \\
+\midrule
+h-e1 & RLEF mechanism validity; infrastructure & MUST\_WORK & PASS \\
+h-m1 & SFT failure characterization at LCB-Hard & MUST\_WORK & PASS \\
+h-m2 & Non-zero reward monitoring during RLEF training & SHOULD\_WORK & FAIL (methodological artifact) \\
+h-m3 & Fraction versus binary reward ablation & SHOULD\_WORK & FAIL (null result, LIMITATION\_RECORDED) \\
+h-m4 & Difficulty-ordered trend confirmation (JT test) & SHOULD\_WORK & PASS \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+

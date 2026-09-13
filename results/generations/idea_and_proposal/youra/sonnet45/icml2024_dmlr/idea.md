@@ -1,0 +1,10 @@
+# Research Idea: Construction-Time Ethical Governance for Foundation Model Datasets
+
+## Title
+Construction-Time Ethical Governance via Dataset Bill of Materials (DBOM): Preventing Bias Through Provenance Tracking and Streaming Filters
+
+## Motivation
+Large-scale foundation model datasets (e.g., LAION-5B) face critical ethical challenges: bias sources are untraceable after aggregation, problematic content is discovered months post-release, and corrections require weeks of manual re-curation. Current post-hoc auditing approaches achieve <50% bias source traceability and operate reactively rather than preventively. This research addresses the urgent need for operational governance tools that embed ethical safeguards directly into dataset construction pipelines, shifting from reactive correction to proactive prevention—analogous to "shift-left" security practices in software engineering.
+
+## Main Idea
+We hypothesize that integrating three construction-time mechanisms—(1) Dataset Bill of Materials (DBOM) for graph-based provenance tracking, (2) streaming governance filters for real-time bias/toxicity detection at data ingestion, and (3) DVC version control for reproducible dataset evolution—will dramatically improve ethical governance effectiveness. The causal mechanism: DBOM's graph structure enables efficient traversal from biased samples to problematic sources (>90% traceability vs. <50% baseline); streaming filters prevent problematic data entry before aggregation (100% prevention vs. post-hoc correction); version control accelerates iteration from weeks to days. We will validate through controlled experiments on 10M-100M vision-language samples using NVIDIA Curator, measuring traceability completeness, prevention rates, and iteration velocity against LAION-style post-hoc baselines. Expected impact: open-source toolkit enabling practitioners to adopt prevention-first governance, establishing new standards for responsible foundation model development.

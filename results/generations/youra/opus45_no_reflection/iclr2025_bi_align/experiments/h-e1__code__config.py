@@ -1,0 +1,9 @@
+# H-E1 Configuration
+SEED = 42
+SAMPLE_SIZE = 1000
+DATASET_NAME = "Anthropic/hh-rlhf"
+DATASET_SUBSET = "helpful-base"
+FIGURES_DIR = "outputs/figures/"
+RESULTS_PATH = "outputs/results.json"
+CORRELATION_THRESHOLD = 0.7
+P_VALUE_THRESHOLD = 0.05

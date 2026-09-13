@@ -1,0 +1,87 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Our measurement framework is designed to test a specific claim: that adversarial calibration degradation in LLMs is \textit{conditional} on adversarial construction method, task type, and RLHF alignment. Testing this claim requires treating each of these as explicit independent variables, rather than pooling all ``adversarial'' conditions together.
+
+\subsection{ECE Measurement Protocol}
+
+We measure Expected Calibration Error (ECE) using the 15-bin equal-width formulation of \citet{guo2017calibration}:
+
+\begin{equation}
+\text{ECE} = \sum_{b=1}^{B} \frac{|B_b|}{n} \left| \text{acc}(B_b) - \text{conf}(B_b) \right|
+\end{equation}
+
+where $B = 15$ bins partition $[0, 1]$ by confidence, $|B_b|$ is the number of examples in bin $b$, $n$ is the total number of examples, $\text{acc}(B_b)$ is the empirical accuracy in bin $b$, and $\text{conf}(B_b)$ is the mean predicted confidence in bin $b$.
+
+\textbf{Confidence extraction.} For multiple-choice tasks (NLI, QQP, SST-2 formatted as MC), we extract the log-probabilities of the answer-option tokens from the model's vocabulary (e.g., ``A'', ``B'', ``C'' or ``Yes'', ``No'') and apply softmax over the answer tokens to obtain a confidence distribution. The predicted label is the argmax, and the confidence is the maximum softmax probability. This logit-based protocol is model-agnostic and does not require verbalization or sampling.
+
+\textbf{Rationale for 15-bin ECE.} We verified bin-count stability through an ablation study: ECE computed with 10, 15, and 20 bins agrees to within 0.003 for AdvGLUE MNLI (H-M1 ablation). Fifteen bins follow the \citet{guo2017calibration} standard and provide sufficient resolution without sparse bins for our sample sizes ($n = 78$--$500$ per cell).
+
+\textbf{Delta ECE ($\Delta$ECE).} Our primary outcome variable is $\Delta$ECE $= \text{ECE}(\text{adversarial split}) - \text{ECE}(\text{clean split})$. Positive $\Delta$ECE indicates calibration degradation; negative $\Delta$ECE indicates calibration improvement. We report $\Delta$ECE per experimental cell (model $\times$ task $\times$ split combination).
+
+\subsection{Adversarial Benchmark Selection}
+
+We select benchmarks to span two distinct adversarial construction methods and two task types, enabling factorial analysis:
+
+\textbf{Construction method dimension:}
+\begin{itemize}
+  \item \textit{Human-adversarial (AdvGLUE):} Human annotators craft perturbations targeting existing models. Examples are designed to maintain labels while exploiting model weaknesses.
+  \item \textit{Model-in-the-loop adversarial (ANLI):} Human annotators write NLI examples that fool the \textit{current round's model}, which is then retrained. Three rounds (R1 $<$ R2 $<$ R3) of increasing difficulty. Examples are selected to cause model errors.
+\end{itemize}
+
+\textbf{Task type dimension:}
+\begin{itemize}
+  \item \textit{NLI (3-class entailment):} AdvGLUE MNLI (human-adversarial), ANLI R1/R2/R3 (model-in-loop). Three answer options.
+  \item \textit{Binary classification:} AdvGLUE QQP (paraphrase detection), AdvGLUE SST-2 (sentiment). Two answer options.
+\end{itemize}
+
+\textbf{Clean baselines.} GLUE MNLI ($n=200$, subsampled with seed=1) serves as the clean baseline for all NLI adversarial splits. GLUE QQP and SST-2 serve as clean baselines for their respective AdvGLUE adversarial splits. ANLI was constructed as adversarial MultiNLI, making GLUE MNLI the methodologically correct clean counterpart for all ANLI cells.
+
+\textbf{Cell structure.} Our design produces 5 adversarial cells: \{advglue\_mnli, anli\_r1, anli\_r2, anli\_r3, advglue\_qqp\}, each paired with its clean baseline. The minimum cell size is $n=78$ (AdvGLUE QQP), satisfying our minimum coverage requirement ($\geq$50 examples per cell).
+
+\subsection{Model Selection and RLHF Comparison Design}
+
+\textbf{Primary model:} Llama-2-7b-hf (base) is our primary model for core calibration experiments (H-E1, H-M1, H-M2, H-M3). We selected this model because: (1) it has no RLHF alignment, providing a clean baseline; (2) it has full logit access; (3) it is within computational range for CPU-based pilot experiments.
+
+\textbf{RLHF comparison:} Llama-2-7b-chat (RLHF-aligned) is compared against Llama-2-7b-base in the RLHF moderation experiment (H-C1-V2). We use the same 7b parameter family to isolate the effect of RLHF fine-tuning from model scale.
+
+\textbf{$\Delta\Delta$ECE (delta-delta ECE).} For the RLHF comparison, we define $\Delta\Delta$ECE $= \Delta$ECE(base) $- \Delta$ECE(chat). Positive $\Delta\Delta$ECE means base has higher adversarial ECE than chat (RLHF moderation). Negative $\Delta\Delta$ECE means chat has higher adversarial ECE (alignment tax).
+
+\textbf{Inference.} All models use HuggingFace \texttt{AutoModelForCausalLM} with bfloat16 precision. Chat models use their standard chat template for prompt formatting; base models use raw multiple-choice format.
+
+\subsection{Label Preservation Verification}
+
+Before interpreting $\Delta$ECE as a calibration signal, we must rule out the alternative explanation that $\Delta$ECE reflects label noise --- i.e., that adversarial perturbations change the ground-truth label, making high ECE an artifact of incorrect labels rather than miscalibration.
+
+\textbf{Verification protocol.} For each adversarial split, we compute the label preservation rate as the fraction of adversarial examples where the adversarial label matches the original clean label. For AdvGLUE, labels are human-verified by construction. For ANLI, labels are assigned by human annotators who are instructed to maintain the original entailment relationship while adversarially perturbing the hypothesis.
+
+\textbf{Result.} Label preservation rate $= 1.000$ for all 4 adversarial splits (AdvGLUE MNLI, ANLI R1, R2, R3). This confirms that $\Delta$ECE is a genuine calibration signal, not a label noise artifact.
+
+\subsection{JSONL Cache Architecture}
+
+A key methodological contribution is our per-example JSONL caching strategy, which enables multiple downstream analyses without repeated model inference.
+
+\textbf{JSONL schema.} For each example in each (model, task, split) cell, we write a JSONL record with fields: \texttt{\{confidence, pred\_label, true\_label, correct, model\_id, task, split\}}. Confidence is the max-softmax probability over answer tokens; \texttt{correct} is a binary indicator of correct prediction.
+
+\textbf{Reuse pattern.} The H-E1 JSONL caches are reused by H-M1 (label preservation + stratum analysis), H-M2 (confidence-accuracy decoupling), H-M3 (per-cell $\Delta$ECE), and H-C1-V2 (RLHF comparison, which ran new inference only for the chat model). This reduces total inference cost from $\sim$5 model runs to $\sim$2 (base + chat).
+
+\subsection{Experimental Cell Design Summary}
+
+\begin{table}[h]
+\centering
+\caption{Experimental Cell Design}
+\label{tab:cells}
+\begin{tabular}{llllr}
+\toprule
+Cell & Task & Construction Method & $n$ (adv) & Model(s) \\
+\midrule
+advglue\_mnli & NLI (3-class) & Human-adversarial & 121 & 7b-base, 7b-chat \\
+anli\_r1 & NLI (3-class) & Model-in-loop (easy) & 100 & 7b-base, 7b-chat \\
+anli\_r2 & NLI (3-class) & Model-in-loop (med) & 100 & 7b-base, 7b-chat \\
+anli\_r3 & NLI (3-class) & Model-in-loop (hard) & 100 & 7b-base, 7b-chat \\
+advglue\_qqp & Paraphrase (binary) & Human-adversarial & 78 & 7b-base \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Clean baseline for all NLI cells: GLUE MNLI ($n=200$, ECE$=0.279$). Clean baseline for QQP: GLUE QQP ($n=200$).

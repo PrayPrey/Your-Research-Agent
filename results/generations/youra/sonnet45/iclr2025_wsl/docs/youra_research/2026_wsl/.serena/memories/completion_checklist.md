@@ -1,0 +1,1 @@
+When finishing work here: inspect the relevant hypothesis folder dynamically, verify claims against code plus logs/results, note cross-file inconsistencies, and preserve artifacts in JSON/Markdown without assuming docs match execution. Prefer `rg`, targeted file reads, and result-file provenance checks before concluding.

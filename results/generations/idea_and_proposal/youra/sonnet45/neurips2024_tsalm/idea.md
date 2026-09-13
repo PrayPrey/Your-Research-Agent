@@ -1,0 +1,8 @@
+# Title
+Time Series Complexity Profiling (TSCP): Predicting Foundation Model Necessity Before Training
+
+# Motivation
+Foundation models for time series forecasting are computationally expensive, yet often perform no better than simple linear baselines. Practitioners lack principled guidelines for when to invest in foundation models versus simpler approaches, leading to wasted resources. Current methods require training multiple models post-hoc for comparison. We need a pre-training framework that predicts which model class will succeed based on intrinsic data properties, enabling efficient resource allocation and democratizing access to appropriate modeling choices.
+
+# Main Idea
+We propose TSCP, a lightweight triage system that predicts foundation model performance gains over linear baselines before any training occurs. The core mechanism: extract 6-8 information-theoretic complexity metrics (entropy rate, Lyapunov exponent, Hurst exponent, fractal dimension) from time series data, then use an XGBoost classifier to predict performance gaps and assign problems to three tiers: (1) Linear Sufficient (<5% gap), (2) Marginal Benefit (5-15%), or (3) Foundation Needed (>15%). Training on 60-80 benchmark datasets enables ≥80% prediction accuracy in <10 seconds per series. This achieves 10³-10⁵× computational savings versus training foundation models for every problem, with one-time setup costs amortizing after ~20 problems. The framework provides the first pre-training model selection tool, transforming post-hoc benchmarking into predictive characterization.

@@ -1,0 +1,10 @@
+﻿# Title
+Adaptive Foundation Model Compression via Domain-Aware Pruning for Resource-Constrained Clinical Deployments
+
+# Motivation
+Foundation models show immense potential in healthcare, yet their deployment in clinical settings faces critical barriers: hospital systems operate on limited computational resources, require sub-second response times for clinical decision support, and must comply with strict data privacy regulations that prevent cloud-based inference. Current compression techniques often sacrifice domain-specific performance for general efficiency, making them unsuitable for high-stakes medical applications where both accuracy and speed are non-negotiable.
+
+# Main Idea
+We propose a novel compression framework that selectively prunes foundation models based on clinical domain importance while maintaining reliability guarantees. The methodology involves: (1) **Domain Importance Mapping**: Using a small set of representative clinical cases, identify neurons and attention heads critical for medical reasoning through gradient-based attribution. (2) **Reliability-Aware Pruning**: Compress the model while enforcing constraints on out-of-distribution detection and uncertainty quantification capabilities, ensuring the pruned model can still flag unreliable predictions. (3) **Continual Calibration**: Implement lightweight adaptation mechanisms allowing the compressed model to update on-device using privacy-preserving local data.
+
+Expected outcomes include 5-10× reduction in model size and inference time while preserving >95% clinical task performance and maintaining robust uncertainty estimation. This enables deployment on hospital edge devices, addresses computational constraints and privacy concerns simultaneously, and provides a blueprint for responsible FM deployment in resource-limited critical domains.

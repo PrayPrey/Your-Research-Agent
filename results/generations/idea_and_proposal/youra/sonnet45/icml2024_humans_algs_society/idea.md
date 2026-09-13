@@ -1,0 +1,8 @@
+# Title
+Validating Long-Term Human-Algorithm Feedback Loops Through Cohort-Based Process Mining
+
+# Motivation
+Current feedback loop research faces a temporal validation paradox: theory predicts cumulative amplification over time, yet empirical studies (weeks-scale) show limited effects. This gap leaves critical questions unanswered—do filter bubbles and algorithmic polarization genuinely intensify over months, or do effects plateau quickly? Without long-term validation infrastructure, platforms deploy algorithms blind to potential cumulative harms, and policymakers lack evidence for algorithmic impact assessments now required by emerging regulations (EU AI Act).
+
+# Main Idea
+We propose a phased epidemiological cohort framework integrating 6-12 month randomized controlled trials with automated process mining and personalized time-series modeling. Users are randomly assigned to control (standard algorithm) versus treatment (feedback-enhanced) groups, with passive interaction logging capturing behavioral trajectories. **Phase 1** tests whether content diversity, engagement patterns, and sentiment diverge between groups over time (distinguishing cumulative effects from plateau). **Phase 2** applies process mining algorithms to discover emergent cyclic interaction patterns explaining observed divergence. **Phase 3** trains per-user LSTM models to detect heterogeneous trajectory clusters (amplifiers vs. plateau users). This enables empirical validation of feedback theories, automated discovery of harmful patterns, and precision interventions—providing deployable infrastructure for evidence-based algorithmic governance across recommendation systems, social media, and conversational AI platforms.

@@ -1,0 +1,271 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: "h-m2"
+  hypothesis_type: "MECHANISM"
+  tier: "FULL"
+  total_budget: 30
+  base_hypothesis: "h-m1"
+  created_at: "2026-08-05"
+  description: "Scale vs Permutation Equivariance Ablation — Phase 4 implementation tasks"
+
+tasks:
+  # ── DATA PREPARATION (priority 100-95) ──────────────────────────────────────
+  - id: "D-1"
+    type: "data-preparation"
+    title: "Verify SANE MultiZoo cache (training data for EquiSSL-perm seeds 1-4)"
+    priority: 100
+    description: |
+      Verify SANE MultiZoo dataset cache exists at data/multizoo/ (downloaded in H-M1).
+      If missing, re-run H-M1 data download script.
+      Needed only for training EquiSSL-perm seeds 1-4; EquiSSL uses pre-trained checkpoints.
+    reference_files:
+      - "h-m2/03_prd.md#41-training-dataset-reuse-h-m1"
+    acceptance_criteria:
+      - "data/multizoo/ contains ~30k MLP+CNN checkpoint files"
+      - "MultiZooGraphDataset loads without error (spot-check 10 samples)"
+
+  - id: "D-2"
+    type: "data-preparation"
+    title: "Verify ViT Model Zoo cache (evaluation data)"
+    priority: 99
+    description: |
+      Verify real ViT Model Zoo cache exists at data/vitzoo/ (downloaded in H-M1, 53 checkpoints).
+      Load RealViTZooDataset and confirm 53 graphs with accuracy labels.
+    reference_files:
+      - "h-m2/03_prd.md#42-evaluation-dataset-reuse-h-m1"
+      - "h-m1/code/data/real_vit_zoo_dataset.py"
+    acceptance_criteria:
+      - "len(RealViTZooDataset(...)) == 53"
+      - "All graphs have Data.x shape [n_nodes, 4] and accuracy labels"
+
+  - id: "D-3"
+    type: "data-preparation"
+    title: "Verify checkpoint availability (H-E1 EquiSSL + H-M1 EquiSSL-perm seed 0)"
+    priority: 98
+    description: |
+      Check all required pre-trained checkpoints exist:
+      - h-e1/checkpoints/equissl_best_seed{0..4}.pt (5 files, EquiSSL)
+      - h-m1/checkpoints/equi_perm_seed0.pt (1 file, EquiSSL-perm seed 0)
+      Report which seeds are available/missing.
+    reference_files:
+      - "h-m2/03_prd.md#43-reused-checkpoints"
+    acceptance_criteria:
+      - "All 5 EquiSSL checkpoints loadable with EquiSSLEncoder(symmetry='monomial')"
+      - "equi_perm_seed0.pt loadable with EquiSSLEncoder(symmetry='permutation')"
+
+  # ── ENVIRONMENT SETUP (priority 94) ─────────────────────────────────────────
+  - id: "E-1"
+    type: "setup"
+    title: "Create h-m2 folder structure and config_hm2.py"
+    priority: 94
+    description: |
+      Create output directories and H-M2 config module:
+        h-m2/checkpoints/
+        h-m2/results/
+        h-m2/figures/
+        h-m2/code/evaluation/
+      Write h-m2/code/config_hm2.py with HM2PathConfig and AblationConfig dataclasses.
+      Verify h-m1/code/ is importable via sys.path.insert.
+    reference_files:
+      - "h-m2/03_architecture.md#h-m2-config-override-h-m2codeconfighm2py"
+      - "h-m2/03_config.md"
+    acceptance_criteria:
+      - "All directories created"
+      - "from config_hm2 import HM2PathConfig, AblationConfig works"
+      - "from models.equissl_encoder import EquiSSLEncoder works (h-m1 import)"
+
+  # ── EPIC IMPLEMENTATION TASKS (priority 93-50) ───────────────────────────────
+  - id: "A-2"
+    type: "training"
+    title: "Train EquiSSL-perm seeds 1-4"
+    priority: 90
+    complexity: 12
+    description: |
+      Train EquiSSL-perm (symmetry='permutation') for seeds 1, 2, 3, 4.
+      Seed 0 checkpoint already exists at h-m1/checkpoints/equi_perm_seed0.pt — skip.
+
+      CRITICAL: Use actual train_equi_perm signature from h-m1/code/training/train_equi_perm.py:
+        train_equi_perm(seed, checkpoint_dir, results_dir, multizoo_root, device, epochs)
+      NOT the spec version (model, dataset, config, seed).
+
+      Settings: scale_augment=False (ablation control), perm_augment=True,
+      lr=1e-3, epochs=100, batch_size=64, tau=0.07, lambda_rec=0.1.
+      Save to h-m2/checkpoints/equi_perm_seed{1,2,3,4}.pt.
+    reference_files:
+      - "h-m2/03_prd.md#fr-1-equissl-perm-training-seeds-14"
+      - "h-m2/03_logic.md#train-equi-perm"
+      - "h-m1/code/training/train_equi_perm.py"
+    acceptance_criteria:
+      - "4 checkpoint files created: equi_perm_seed{1..4}.pt"
+      - "Each checkpoint loadable with EquiSSLEncoder(symmetry='permutation')"
+      - "Training completes without NaN loss"
+
+  - id: "A-3"
+    type: "evaluation"
+    title: "Extract embeddings for EquiSSL and EquiSSL-perm (5 seeds each)"
+    priority: 85
+    complexity: 13
+    description: |
+      For each seed in [0,1,2,3,4]:
+        EquiSSL: load h-e1/checkpoints/equissl_best_seed{seed}.pt, symmetry='monomial'
+        EquiSSL-perm seed 0: load h-m1/checkpoints/equi_perm_seed0.pt
+        EquiSSL-perm seeds 1-4: load h-m2/checkpoints/equi_perm_seed{seed}.pt
+        Extract embeddings for all 53 ViT models → shape (53, 128)
+
+      CRITICAL: Use same RealViTZooDataset instance for both models per seed.
+      Store: embeddings_equissl[seed] = np.ndarray(53, 128)
+               embeddings_perm[seed] = np.ndarray(53, 128)
+    reference_files:
+      - "h-m2/03_logic.md#embedding-extraction"
+      - "h-m1/code/evaluation/extract_embeddings.py"
+    acceptance_criteria:
+      - "10 embedding arrays (2 models × 5 seeds), each shape (53, 128)"
+      - "No NaN values in embeddings"
+      - "L2 norms are 1.0 (EquiSSLEncoder normalizes output)"
+
+  - id: "A-4"
+    type: "evaluation"
+    title: "Paired linear probe evaluation (RidgeCV, 5 seeds)"
+    priority: 80
+    complexity: 10
+    description: |
+      For each seed, compute R² for BOTH models using IDENTICAL train/test split:
+        rng = np.random.RandomState(seed)
+        train_idx, test_idx = train_test_split(range(53), test_size=0.2, random_state=rng)
+
+        r2_equissl[seed] = _probe_with_split(z_equissl, labels, train_idx, test_idx)
+        r2_perm[seed] = _probe_with_split(z_perm, labels, train_idx, test_idx)
+
+      CRITICAL: Paired splits are required for valid ΔR² comparison. Do NOT use separate splits.
+      _probe_with_split uses RidgeCV(alphas=[0.1, 1.0, 10.0, 100.0]).
+
+      NOTE: Actual h-m1 evaluate_linear_probe takes list of arrays per seed; H-M2 uses
+      _probe_with_split with explicit indices for paired evaluation.
+    reference_files:
+      - "h-m2/03_logic.md#paired-linear-probe"
+      - "h-m1/code/evaluation/linear_probe.py"
+    acceptance_criteria:
+      - "r2_equissl[0] ≈ 0.2098, r2_perm[0] ≈ 0.2305 (sanity check vs H-M1 seed 0)"
+      - "All 10 R² values in range [-0.5, 1.0]"
+
+  - id: "A-5"
+    type: "evaluation"
+    title: "ΔR² statistical analysis and SHOULD_WORK gate evaluation"
+    priority: 75
+    complexity: 11
+    description: |
+      Compute ΔR² statistics over 5 seeds:
+        delta_r2 = [r2_equissl[s] - r2_perm[s] for s in seeds]
+        mean_delta = np.mean(delta_r2)
+        std_delta = np.std(delta_r2, ddof=1)
+        ci_95 = [mean - 1.96*std/sqrt(5), mean + 1.96*std/sqrt(5)]
+        t_stat, p_value = scipy.stats.ttest_1samp(delta_r2, popmean=0)
+        gate = 'PASS' if mean_delta >= 0.05 else 'DOCUMENT'
+
+      Expected: gate = 'DOCUMENT' (pre-observed seed 0 ΔR² = -0.0207).
+      Save results to h-m2/results/hm2_results.json.
+    reference_files:
+      - "h-m2/03_logic.md#delta-r2-statistics"
+      - "h-m2/03_prd.md#fr-5-r-statistical-analysis"
+    acceptance_criteria:
+      - "mean_delta, std_delta, ci_95, t_stat, p_value all computed"
+      - "gate in ['PASS', 'DOCUMENT']"
+      - "hm2_results.json saved with all values"
+
+  - id: "A-6"
+    type: "evaluation"
+    title: "MMD ratio comparison (secondary metric)"
+    priority: 65
+    complexity: 8
+    description: |
+      For both encoders, compute MMD between high/low accuracy ViT subpopulations:
+        threshold = np.median(accuracy_labels)
+        mmd_equissl = compute_mmd_subpop(z_equissl, accuracy_labels, threshold)
+        mmd_perm = compute_mmd_subpop(z_perm, accuracy_labels, threshold)
+
+      NOTE: Actual h-m1 mmd_eval.py has compute_mmd(z_train, z_vit, n_kernels) —
+      NOT compute_mmd_ratio(z, accuracy_labels, threshold). Wrap with median-split logic.
+      Use h-m1/code/evaluation/mmd_eval.py (NOT h-e1/code/evaluation/mmd.py — doesn't exist).
+    reference_files:
+      - "h-m2/03_prd.md#fr-6-mmd-ratio-comparison-secondary-metric"
+      - "h-m1/code/evaluation/mmd_eval.py"
+    acceptance_criteria:
+      - "mmd_equissl and mmd_perm both computed as positive floats"
+      - "Results added to hm2_results.json"
+
+  - id: "A-7"
+    type: "visualization"
+    title: "Generate 4 ablation figures"
+    priority: 60
+    complexity: 12
+    description: |
+      Save all to h-m2/figures/:
+
+      1. gate_metrics_bar.png — Bar chart: EquiSSL R² vs EquiSSL-perm R² with error bars (std),
+         horizontal line at SANE R²=0.0721, threshold line at SANE+0.05
+
+      2. delta_r2_distribution.png — Per-seed ΔR² scatter + mean±std bar;
+         horizontal line at 0.05 gate threshold; annotate PASS/DOCUMENT
+
+      3. tsne_2x2_panel.png — 2×2 panel: EquiSSL vs EquiSSL-perm × colored by
+         (a) accuracy, (b) L2 norm of weight vector (scale diversity)
+         Use seed 0 embeddings, sklearn TSNE(n_components=2, max_iter=1000)
+
+      4. ablation_ladder.png — Horizontal bar: SANE(0.0721) → EquiSSL-perm → EquiSSL R²
+         showing progression from H-M1+H-M2 combined
+    reference_files:
+      - "h-m2/03_prd.md#fr-7-visualization-4-required-figures"
+      - "h-m2/03_logic.md#figure-generation"
+    acceptance_criteria:
+      - "4 PNG files created in h-m2/figures/"
+      - "No matplotlib rendering errors"
+      - "Figures show correct model labels (EquiSSL, EquiSSL-perm)"
+
+  - id: "A-8"
+    type: "reporting"
+    title: "Write 04_validation.md and orchestrate full pipeline in run_hm2.py"
+    priority: 55
+    complexity: 9
+    description: |
+      Write h-m2/04_validation.md with:
+      - R² table: mean±std for EquiSSL and EquiSSL-perm (5 seeds)
+      - ΔR² analysis: mean, std, 95% CI, t-statistic, p-value
+      - Gate evaluation: PASS or DOCUMENT with interpretation
+      - MMD ratio comparison result
+      - Figure references (4 figures)
+      - Conclusion on scale equivariance vs permutation-only for ViT zoo transfer
+
+      Also write h-m2/run_hm2.py orchestrating steps D-1 through A-7 in order.
+    reference_files:
+      - "h-m2/03_prd.md#fr-9-results-report"
+      - "h-m2/03_architecture.md#runhm2-h-m2runhm2py"
+    acceptance_criteria:
+      - "04_validation.md created with all required sections"
+      - "run_hm2.py executes end-to-end without error (dry-run or actual)"
+      - "Gate result clearly stated (PASS or DOCUMENT)"
+
+  # ── FAILSAFE (priority 1) ────────────────────────────────────────────────────
+  - id: "F-1"
+    type: "failsafe"
+    title: "Pipeline continuation checkpoint"
+    priority: 1
+    description: |
+      Final checkpoint: verify all outputs exist and update verification_state.yaml.
+      Gate result (PASS or DOCUMENT) determines pipeline continuation.
+      SHOULD_WORK gate: even if DOCUMENT, continue to H-M3.
+    reference_files:
+      - "docs/youra_research/verification_state.yaml"
+    acceptance_criteria:
+      - "h-m2/04_validation.md exists"
+      - "h-m2/results/hm2_results.json exists with gate field"
+      - "verification_state.yaml updated"
+
+budget_summary:
+  data_preparation: 3
+  environment_setup: 1
+  epic_tasks: 7
+  failsafe: 1
+  total: 12
+  tier_max: 30
+  within_budget: true

@@ -1,0 +1,1 @@
+Purpose: research workspace for the 2026-03-19 CAWE/weight-space-learning experiment sequence (`h-e1`, `h-m-integrated`) plus paper drafting artifacts. Tech stack: Python, PyTorch, torchvision, timm, sklearn, matplotlib/seaborn, YAML/Markdown. Structure: experiment hypotheses under `h-e1/` and `h-m-integrated/`, runnable code under each `code/`, paper drafts under `paper/`.

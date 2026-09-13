@@ -1,0 +1,171 @@
+# Ground Truth for Phase 6.5 Adversarial Review
+# Extracted from Phase 0-4.5 artifacts and cross-checked against 06_paper.md
+# Used by Adversary Agent to verify paper accuracy
+
+version: "1.0"
+extracted_at: "2026-08-05T11:50:00+00:00"
+hypothesis_id: "H-LayerLensUQ-v2"
+paper_file: "06_paper.md"
+evidence_tier: "EXISTENCE (selection-split PoC; test splits locked, never evaluated)"
+
+# ============================================================================
+# METRICS (from h-e1-v2/04_validation.md gate grid — authoritative)
+# ============================================================================
+metrics:
+  main_metric:
+    name: "selection-split corrected AUROC (best screened intermediate layer)"
+    per_cell:
+      llama2_triviaqa:    {layer: 31, signal: adj_kl,  intermediate_auroc: 0.6522, final_layer_entropy_auroc: 0.5928, depth_margin: 0.059}
+      llama2_truthfulqa:  {layer: 29, signal: entropy, intermediate_auroc: 0.7011, final_layer_entropy_auroc: 0.6669, depth_margin: 0.034}
+      mistral_triviaqa:   {layer: 31, signal: maxprob, intermediate_auroc: 0.6092, final_layer_entropy_auroc: 0.5447, depth_margin: 0.064}
+      mistral_truthfulqa: {layer: 31, signal: adj_kl,  intermediate_auroc: 0.6570, final_layer_entropy_auroc: 0.6048, depth_margin: 0.052}
+      llama3_triviaqa:    {layer: 28, signal: entropy, intermediate_auroc: 0.6868, final_layer_entropy_auroc: 0.5566, depth_margin: 0.130}
+      llama3_truthfulqa:  {layer: 31, signal: maxprob, intermediate_auroc: 0.6213, final_layer_entropy_auroc: 0.6178, depth_margin: 0.0035}
+    range: "0.6092 - 0.7011"
+    gate: 0.55
+    gate_margins: "+0.059 to +0.151"
+    split: "selection split ONLY (500/500 TriviaQA, 408/409 TruthfulQA; test locked, never read)"
+    seeds: 1
+    confidence_intervals: "NONE computed"
+  secondary_metrics:
+    - name: "depth_beats_final"
+      value: "6/6 cells (point estimates; thinnest margin +0.0035 llama3/truthfulqa is within plausible noise)"
+    - name: "degeneracy screen retained layers"
+      value: "per-cell: llama2/triviaqa 20, llama2/truthfulqa 20, mistral/triviaqa 15, mistral/truthfulqa 16, llama3/triviaqa 15, llama3/truthfulqa 16 (health gate >= 5) # corrected 2026-08-05 Phase 6.5 R2: screen is per cell, not per model; verified vs experiment_results.json retained_layers and 306-row grid CSV (102 layers x 3 signals)"
+    - name: "adj_kl best-signal cells"
+      value: "2/6 (llama2/triviaqa, mistral/truthfulqa; top-3 llama2/triviaqa intermediates all adj_kl: L31 0.6522, L17 0.6145, L30 0.6062) # corrected 2026-08-05 Phase 6.5 R1: earlier '3/6' was a typo vs gate grid (even 2/2/2 signal split)"
+    - name: "scale"
+      value: "5451 scored generations (1817/model x 3); binding cell zero-GPU via donor cache"
+    - name: "tests"
+      value: "h-e1-v2: 37/37 pass; REAL_MODEL reality check; h-e1: 35/35"
+
+# ============================================================================
+# ANCHOR FORENSICS (h-e1 PARTIAL -> measurement-validity finding)
+# ============================================================================
+anchor_forensics:
+  v1_reference_auroc: 0.5186          # llama2/triviaqa final-layer entropy, v1-record protocol
+  observed_current_protocol: {selection_split: 0.5928, full_set: 0.5739}
+  deviation: {selection: +0.0742, full: +0.0553}
+  tolerance: 0.03
+  halt_time_seconds: 47
+  budgeted_campaign_hours: 2.5
+  protocol_differences_count: 6
+  protocol_differences:
+    - "random 1000-of-7993 sample vs first-slice validation[:1000]"
+    - "bare prompt vs Q:/A: template"
+    - "substring labels vs normalized-alias exact match"
+    - "generation-time entropy vs teacher-forced lens entropy"
+    - "bfloat16 vs fp16"
+    - "full-set eval vs selection-split eval"
+  a2v2_result: "PASS 5/5 clauses, zero spurious halts; donor-cache identity 10/10; direction consistency 4/6 (descriptive, ungated)"
+  h_e1_gate_result: "PARTIAL (4/6 criteria, 66.7%) -> MODIFIED to h-e1-v2"
+  h_e1_v2_gate_result: "PASS (5/5 criteria, 100%)"
+
+# ============================================================================
+# METHODOLOGY (from 03_prd.md / 03_architecture.md / 02c briefs)
+# ============================================================================
+methodology:
+  algorithm_name: "Depth-resolved logit-lens sweep with per-model (layer, signal, direction) selection"
+  lens_path: "lm_head(model.norm(h_l)) — raw lens, no tuned translators"
+  signals: ["Shannon entropy", "max-token probability", "adjacent-layer KL (NaN at L1, excluded)"]
+  aggregation: "mean over answer tokens"
+  key_hyperparameters:
+    - {name: seed, value: 42}
+    - {name: decoding, value: "greedy (do_sample=False)"}
+    - {name: max_new_tokens, value: 32}
+    - {name: weights_dtype, value: fp16}
+    - {name: statistics_dtype, value: float32}
+    - {name: numerics_guard, value: "log(p + 1e-12)"}
+    - {name: AUROC_gate, value: 0.55}
+    - {name: degeneracy_entropy_pct, value: 0.01}
+    - {name: degeneracy_agreement_min, value: 0.05}
+    - {name: split, value: "stratified 50/50 selection/test per dataset, test locked"}
+  training_details:
+    epochs: "N/A — training-free scoring, no fitted parameters"
+    hardware: "single H100, ~1.25 GPU-hours logged for 5 fresh cells (experiment.log 09:00:23-10:14:59); ~2.5h was the v1 BUDGET figure only # corrected 2026-08-05 Phase 6.5 R2"
+  models: ["meta-llama/Llama-2-7b-hf", "mistralai/Mistral-7B-v0.1", "meta-llama/Meta-Llama-3-8B-Instruct"]
+  datasets: ["TriviaQA rc.nocontext validation[:1000]", "TruthfulQA generation validation (817)"]
+
+# ============================================================================
+# CLAIMED VS ACTUAL (paper claims audited against Phase 4/4.5 artifacts)
+# ============================================================================
+results:
+  main_result:
+    claimed: "Class-separable intermediate-layer signal in all 6 cells, selection-split AUROC 0.6092-0.7011; depth_beats_final 6/6"
+    actual: "h-e1-v2 gate grid: identical values, PASS 5/5"
+    match: true
+  never_measured_and_correctly_not_claimed:
+    - "Test-split AUROC >= 0.60 (h-m1/h-m2 BLOCKED, never ran)"
+    - "CI-separated rescue vs final layer (paired bootstrap never run)"
+    - "Cross-dataset transfer (h-c1 never ran)"
+    - "KL-entropy fusion gain (h-m3 never ran)"
+  paper_scope_statements_verified:
+    - "Abstract, Intro, Experiments, Results, Discussion, Conclusion all flag selection-split / single-seed / no-CI scope"
+    - "0.5186 appears only as cross-protocol motivating context / forensics subject"
+    - "Mechanism language capped at 'consistent with'"
+
+baseline_comparison:
+  phase5_status: "SKIPPED by config (skip_baseline_comparison) — no external baselines re-run"
+  baselines_used:
+    - name: "within-sweep final-layer entropy (L32, same pass/labels/split)"
+      per_cell_values: [0.5928, 0.6669, 0.5447, 0.6048, 0.5566, 0.6178]
+    - name: "FEPoID supervised skyline"
+      our_reported: "cited only (0.73-0.85), not re-run"
+  statistical_significance:
+    method: "NONE — existence tier pre-registers no statistical test"
+    p_value: null
+    significant: null
+
+# ============================================================================
+# KEY CLAIMS AUDIT TABLE
+# ============================================================================
+claims:
+  - claim: "Training-free per-layer logit-lens statistics are class-separable hallucination scores in all six cells (selection-split AUROC 0.61-0.70)"
+    location: "Abstract, Intro contribution 1, Results 5.1"
+    supporting_evidence: "h-e1-v2 gate grid (metrics.main_metric above)"
+    verified: true
+  - claim: "Best screened intermediate beats within-sweep final-layer entropy in every cell (margins +0.0035 to +0.130)"
+    location: "Intro contribution 2, Results 5.2"
+    supporting_evidence: "depth_beats_final 6/6, point estimates; thin cell flagged"
+    verified: true
+  - claim: "Adjacent-layer KL works as detection score, best signal in 2 of 6 cells (even 2/2/2 split with entropy and max-prob)"
+    location: "Intro contribution 3, Results 5.3"
+    supporting_evidence: "adj_kl best in 2/6 cells (llama2/triviaqa, mistral/truthfulqa); top-3 llama2/triviaqa all adj_kl # corrected 2026-08-05 Phase 6.5 R1 (was '3/6/half the cells' typo)"
+    verified: true
+  - claim: "AUROC baselines not portable across protocols: 6 differences moved 0.5186 to 0.5928; direction transfers, magnitude does not"
+    location: "Intro contribution 4, Results 5.4, Discussion"
+    supporting_evidence: "h-e1 anchor forensics (anchor_forensics above)"
+    verified: true
+  - claim: "Protocol-internal validity anchoring (A2-v2) workable replacement for cross-run numeric anchors"
+    location: "Method 3.5, Results 5.4"
+    supporting_evidence: "A2-v2 PASS 5/5, zero spurious halts vs v1 constructive unsatisfiability"
+    verified: true
+  - claim: "Depth advantage does not track tuning status as predicted (llama3-instruct largest margin +0.130)"
+    location: "Results 5.5"
+    supporting_evidence: "045 §2 mechanism step 3 UNVERIFIED; descriptive only, correctly hedged"
+    verified: true
+
+contributions:
+  - contribution: "First AUROC evaluation of raw per-layer logit-lens uncertainty statistics as training-free single-pass hallucination scores"
+    evidence_in_paper: "Table 1, Figure 4-5 (Results 5.1)"
+  - contribution: "Universal point-estimate depth advantage, concentrated L28-L31"
+    evidence_in_paper: "Table 1 depth-margin column, Results 5.2"
+  - contribution: "Adjacent-layer KL as first-time detection signal"
+    evidence_in_paper: "Figure 6, Results 5.3"
+  - contribution: "Protocol-internal validity anchoring methodology"
+    evidence_in_paper: "Method 3.5, Figure 3, Figure 7, Results 5.4"
+
+# ============================================================================
+# ADVERSARY GUIDANCE — known soft spots (honest, already disclosed in paper)
+# ============================================================================
+known_soft_spots:
+  - "Selection-split-only evidence: numbers that selected tuples also grade them (disclosed, Discussion limitation 1)"
+  - "Single seed, no CIs; +0.0035 margin within noise (disclosed, limitation 2)"
+  - "Rescue framing reframed after anchor invalidation (disclosed, limitation 3 + Results 5.4)"
+  - "Scope: 3 families, 2 short-form QA datasets, greedy, 1 instruct model; A5 familiarity confound (disclosed, limitation 4)"
+  - "Direction consistency vs v1 record only 4/6 cells (disclosed, Results 5.4)"
+  - "Chi2025Know bib entry: cited as 2025 arXiv; SS DOI indicates Findings ACL 2026 (metadata ambiguity, PARTIAL)"
+banned_phrasings_check:
+  - "'test-split AUROC' as achieved result: ABSENT from paper (verified)"
+  - "'statistically significant': ABSENT (verified)"
+  - "0.5186 as same-protocol baseline: ABSENT (verified)"

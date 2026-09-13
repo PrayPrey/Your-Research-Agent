@@ -1,0 +1,84 @@
+{
+  "Experiment_description": "This stage implements and evaluates the TASI (Timing-Aware Shortcut Intervention) framework on a synthetic spurious-correlation dataset, comparing three training strategies: ERM (no intervention), Continuous_Reg (always-on regularization), and TASI (timed intervention triggered by plateau detection). The synthetic dataset contains a 'shortcut' feature (easy, spuriously correlated with label during training) and a 'core' feature (harder but always predictive), with four groups defined by the cross-product of label and spurious attribute. The experiment addresses key implementation bugs from prior versions: strengthening the spurious signal/weakening the core signal to make ERM fail on worst-group accuracy, fixing premature plateau detection at epoch 0, and correcting cooldown/reset logic to ensure truly transient interventions. All three nodes produce identical numerical results, representing the same initial corrected implementation.",
+  "Significance": "Shortcut learning is a fundamental challenge in machine learning where models exploit spurious correlations instead of learning robust, generalizable features. TASI proposes that the timing of interventions matters: intervening specifically at the detected shortcut-learning plateau should be more effective than always-on regularization or no intervention. These preliminary experiments are important because they establish whether the basic framework is functional and whether the core hypothesis\u2014that timed interventions outperform continuous regularization for worst-group accuracy\u2014holds in a controlled synthetic setting. The findings reveal that while TASI does marginally outperform both baselines on final test worst-group accuracy, the intervention mechanism has critical failure modes (over-triggering detector, temporary WGA collapses during interventions) that must be addressed before the framework can demonstrate its intended scientific contribution.",
+  "Description": "A synthetic dataset with spurious correlations is constructed with four groups (G0-G3) defined by label \u00d7 spurious attribute. The spurious signal is strengthened and core signal weakened to ensure ERM fails on worst-group accuracy. A simple MLP is trained for 150 epochs under three conditions: (1) ERM: standard training with no intervention; (2) Continuous_Reg: always-on weight decay regularization; (3) TASI: a plateau detector monitors gradient alignment between easy/hard samples and loss curvature, and when a shortcut-learning plateau is detected, applies a transient weight decay increase and gradient projection. Plateau detection requires sufficient loss history before triggering. Evaluation tracks training loss, validation loss, per-group accuracy, and worst-group accuracy (WGA) across epochs, with final test metrics reported. Multiple visualization bugs were identified (WGA flat at 0 in some plots, all-1.0 accuracy in others), so only consistent plots are used for scientific interpretation. The plateau detector was found to over-trigger, firing repeatedly for long contiguous spans rather than detecting a single transition point, causing TASI to behave more like periodic strong regularization than a targeted one-time intervention.",
+  "List_of_included_plots": [
+    {
+      "path": "experiments_sonnet46/2026-05-14_00-56-15_shortcut_transition_detection_intervention_attempt_0/logs/0-run/experiment_results/experiment_5521cb0b4b9147659a34f6ed10bdd42c_proc_574186/spurious_dataset_test_accuracy_summary.png",
+      "description": "Test Accuracy Summary (Overall vs Worst-Group): ERM overall 0.578, worst-group 0.156; Continuous_Reg overall 0.551, worst-group 0.104; TASI overall 0.582, worst-group 0.164. TASI improves both overall (+0.004) and worst-group (+0.008) over ERM, while Continuous_Reg harms both. This is the clearest evidence in the provided plots that TASI can help worst-group generalization, albeit modestly. Note the absolute worst-group numbers are low, indicating a challenging minority group or strong spurious correlation; improvements should be evaluated across multiple seeds due to high variance at these levels.",
+      "analysis": "This plot provides the clearest summary of the primary scientific claim. TASI achieves the best worst-group accuracy (0.164) among all three methods, marginally outperforming ERM (0.156) and substantially outperforming Continuous_Reg (0.104). Critically, Continuous_Reg\u2014despite achieving the best validation loss\u2014produces the worst worst-group accuracy, suggesting that always-on regularization disproportionately harms minority groups. TASI also achieves the best overall accuracy (0.582), suggesting it does not trade off average performance for robustness. However, the absolute gains are small (+0.008 over ERM for WGA) and likely require multi-seed validation."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-14_00-56-15_shortcut_transition_detection_intervention_attempt_0/logs/0-run/experiment_results/experiment_d200838e8012437b96fe4d225e562efe_proc_574191/spurious_dataset_loss_curves.png",
+      "description": "Training vs validation loss: ERM training loss monotonically drops to ~0, while validation loss steadily increases from ~1.1 to >3, indicating severe overfitting/shortcut exploitation. Continuous_Reg keeps training loss around ~0.165 and validation loss around ~0.88\u20130.92. TASI shows sawtooth training loss with clear upward jumps during intervention windows followed by gradual decreases; validation loss for TASI oscillates between ~0.9 and ~1.3 with drops coinciding with interventions.",
+      "analysis": "This plot confirms the dataset is genuinely hard: ERM overfits severely to the spurious feature (training loss \u2192 0, validation loss \u2192 3.1+), validating the dataset construction. The sawtooth pattern in TASI's training loss confirms interventions are being applied and are disruptive to optimization. TASI's validation loss (oscillating ~0.9\u20131.3) is substantially better than ERM's (>3.1) but worse than Continuous_Reg's (~0.88). The periodic recovery pattern suggests the model reverts to shortcut solutions between interventions, indicating the intervention does not produce a permanent transition to core features\u2014a key limitation of the current implementation."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-14_00-56-15_shortcut_transition_detection_intervention_attempt_0/logs/0-run/experiment_results/experiment_a46dc66b79a3482abcef41a2d99a1434_proc_574189/spurious_dataset_tasi_plateau_signal.png",
+      "description": "Plateau detection signal + worst-group accuracy over epochs: The plateau flag is high for long contiguous spans (roughly ~45\u201363, ~73\u201380, ~90\u2013110, ~136\u2013150) and also triggers earlier short bursts (~19\u201335). Worst-group accuracy: ERM stabilizes around ~0.17\u20130.20. TASI exhibits large periodic collapses in WGA down to ~0.07\u20130.11 that align with plateau-detected/intervention regions, then recovers to ~0.15\u20130.18.",
+      "analysis": "This plot reveals a critical failure mode: the plateau detector over-triggers, firing for long contiguous spans rather than detecting a single transition point. This causes TASI to behave more like periodic strong regularization than a targeted transient intervention. The WGA collapses during intervention windows (0.07\u20130.11 vs ERM's stable 0.17\u20130.20) show that interventions are actively harming the worst group in the short term. The fact that TASI still achieves marginally better final test WGA despite these training-time collapses may be due to checkpoint selection after recovery periods."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-14_00-56-15_shortcut_transition_detection_intervention_attempt_0/logs/0-run/experiment_results/experiment_a46dc66b79a3482abcef41a2d99a1434_proc_574189/spurious_dataset_per_group_accuracy.png",
+      "description": "Per-group validation accuracy over epochs (G0..G3 for ERM, Continuous_Reg, TASI): ERM: one group stays near ~0.98\u20131.0, while others remain low (~0.15\u20130.22). Continuous_Reg: high-accuracy group remains ~1.0, but low groups are even lower (~0.09\u20130.12). TASI: high group stays ~1.0; low groups oscillate and drop sharply during intervention windows, then recover to ~0.16\u20130.20.",
+      "analysis": "The per-group breakdown reveals that the spurious correlation creates a stark disparity: majority-aligned groups achieve near-perfect accuracy (~0.98\u20131.0) while minority/anti-correlated groups perform near chance (~0.15\u20130.22 for ERM). Continuous_Reg further degrades minority group performance (~0.09\u20130.12), confirming that always-on regularization is not the right approach for worst-group robustness in this setting. TASI's minority groups show intervention-induced drops but no upward trend over time, indicating the intervention fails to produce a durable transition to core features. The majority groups remain unaffected across all methods, suggesting the intervention primarily disrupts minority-group learning."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-14_00-56-15_shortcut_transition_detection_intervention_attempt_0/logs/0-run/experiment_results/experiment_a46dc66b79a3482abcef41a2d99a1434_proc_574189/tasi_training_curves.png",
+      "description": "4-panel TASI vs baselines (train loss, val loss, WGA, overall val acc + plateau signal): ERM training loss \u2192 0; validation loss monotonically increases; WGA is relatively stable ~0.17\u20130.20. Continuous_Reg: stable moderate training loss and low stable validation loss; WGA ~0.08\u20130.11. TASI: interventions cause abrupt drops in overall val acc and WGA (not improvements), followed by recovery; validation loss drops during interventions but climbs between them. Plateau signal shading is broad and frequent.",
+      "analysis": "This comprehensive panel confirms all key dynamics: (1) ERM exhibits classic shortcut overfitting; (2) Continuous_Reg prevents overfitting but hurts worst-group accuracy most; (3) TASI interventions cause temporary degradation in both overall and worst-group accuracy, followed by partial recovery, with no clear upward trend in WGA. The broad plateau signal shading confirms over-triggering. The key scientific insight is that the intervention mechanism needs fundamental redesign: it should selectively suppress shortcut features while preserving core-feature learning for minority groups, rather than broadly perturbing optimization."
+    }
+  ],
+  "Key_numerical_results": [
+    {
+      "result": 0.164,
+      "description": "TASI test worst-group accuracy (final)",
+      "analysis": "TASI achieves the best worst-group accuracy among all three methods, marginally outperforming ERM (0.156) by +0.008 absolute. This provides weak evidence for the core TASI hypothesis, but the small margin suggests the current implementation needs improvement."
+    },
+    {
+      "result": 0.156,
+      "description": "ERM test worst-group accuracy (final)",
+      "analysis": "ERM achieves 0.156 worst-group accuracy despite severely overfitting (training loss \u2192 0.0014, validation loss \u2192 3.12). This represents the baseline for comparison, showing that standard training with no intervention still outperforms always-on regularization on worst-group accuracy."
+    },
+    {
+      "result": 0.104,
+      "description": "Continuous_Reg test worst-group accuracy (final)",
+      "analysis": "Continuous regularization achieves the worst worst-group accuracy (0.104), despite achieving the best validation loss (0.887). This counterintuitive result suggests that always-on regularization disproportionately harms minority/anti-correlated groups, possibly by reducing model capacity in ways that hurt hard examples more than easy ones."
+    },
+    {
+      "result": 3.1167,
+      "description": "ERM final validation loss",
+      "analysis": "ERM's validation loss explodes to 3.12 (from an initial ~1.1), confirming severe shortcut exploitation. The model fits the spurious feature perfectly on training data but fails badly on validation, validating the dataset construction as genuinely hard."
+    },
+    {
+      "result": 0.8869,
+      "description": "Continuous_Reg final validation loss",
+      "analysis": "Continuous regularization achieves the best validation loss (0.887), preventing shortcut overfitting. However, this does not translate to better worst-group accuracy (0.104 vs ERM's 0.156), demonstrating that validation loss and worst-group accuracy can be misaligned metrics."
+    },
+    {
+      "result": 1.2229,
+      "description": "TASI final validation loss",
+      "analysis": "TASI's validation loss (1.22) is substantially better than ERM's (3.12) but worse than Continuous_Reg's (0.887), reflecting the sawtooth dynamics where the model partially reverts to shortcut solutions between intervention windows."
+    },
+    {
+      "result": 0.216,
+      "description": "ERM best worst-group validation accuracy",
+      "analysis": "ERM's best validation WGA (0.216) is achieved early in training before overfitting fully takes hold. This represents the peak performance achievable by ERM and provides a target for TASI to exceed."
+    },
+    {
+      "result": 0.196,
+      "description": "TASI best worst-group validation accuracy",
+      "analysis": "TASI's best validation WGA (0.196) falls short of ERM's best (0.216), indicating that even at its best checkpoint, TASI does not outperform ERM on the validation set for worst-group accuracy. This contrasts with the test results where TASI marginally outperforms ERM, suggesting checkpoint selection and train/test distribution differences play a role."
+    },
+    {
+      "result": 0.582,
+      "description": "TASI test overall accuracy",
+      "analysis": "TASI achieves the best overall test accuracy (0.582) among all three methods, slightly above ERM (0.578) and substantially above Continuous_Reg (0.551). This suggests TASI does not trade off average performance for robustness."
+    },
+    {
+      "result": 0.194,
+      "description": "TASI test Group 1 accuracy",
+      "analysis": "Group 1 (a minority/anti-correlated group) achieves 0.194 accuracy under TASI vs 0.202 under ERM and 0.114 under Continuous_Reg. TASI slightly underperforms ERM on this group while substantially outperforming Continuous_Reg, consistent with the modest and inconsistent WGA improvements observed."
+    }
+  ]
+}

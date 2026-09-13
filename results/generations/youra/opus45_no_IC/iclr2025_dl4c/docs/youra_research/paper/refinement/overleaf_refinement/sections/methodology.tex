@@ -1,0 +1,68 @@
+
+\subsubsection{3.1 Problem Setting}
+
+Consider a code generation model $\pi _\theta$ trained with PPO on execution feedback. Given a problem description x, the model generates a code solution y = (y\_1, ..., y\_T) which is executed against test cases. The reward r(y) is typically binary: 1 if all tests pass, 0 otherwise.
+
+Standard PPO applies the reward uniformly across all tokens. This ignores a key observation: not all tokens influence the test outcome.
+
+\subsubsection{3.2 Fine-Grained Optimization}
+
+FGO addresses this by masking non-executed tokens from gradient updates. Given an execution trace $\tau$ collected during test evaluation, a binary mask m $\in {0, 1}^T$ is constructed where m\_t = 1 if token y\_t corresponds to executed code.
+
+The FGO loss modifies PPO to only update executed tokens:
+
+\begin{verbatim}
+masked_loss = per_token_loss * mask
+loss = masked_loss.sum() / (mask.sum() + ε)
+\end{verbatim}
+
+This concentrates gradients on tokens that actually influenced the outcome.
+
+\subsubsection{3.3 Mechanism Decomposition}
+
+FGO is decomposed into three components:
+
+\textbf{Component 1: Trace Collection (H-M1)}: Python's \texttt{sys.settrace} captures executed line numbers during test execution. The trace callback records all 'line' events, producing a set of executed line numbers.
+
+\begin{itemize}
+\item Gate Criterion: Capture rate $\geq$ 95\%
+\item Falsification: Capture rate < 95\%
+\end{itemize}
+
+\textbf{Component 2: Token Classification}: Tokenizer offset\_mapping maps tokens to source lines. Tokens are classified as executed if their corresponding line appears in the trace.
+
+\begin{itemize}
+\item Gate Criterion: Token F1 $\geq$ 95\%
+\item Falsification: F1 < 70\%
+\end{itemize}
+
+\textbf{Component 3: Gradient Exclusion (H-M2)}: Masked tokens receive zero gradient due to multiplication by zero in the loss computation.
+
+\begin{itemize}
+\item Gate Criterion: Non-executed token gradient = 0.0 exactly
+\item Falsification: Any non-zero gradient for masked tokens
+\end{itemize}
+
+\textbf{Component 4: Credit Assignment (H-M3)}: Signal concentration improves learning.
+
+\begin{itemize}
+\item Gate Criterion: FGO pass@1 > Standard pass@1
+\item Falsification: FGO pass@1 $\leq$ Standard pass@1
+\end{itemize}
+
+\subsubsection{3.4 Verification Protocol}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Hypothesis & Type & Gate & Pass Criterion \\
+\midrule
+H-M1 & Mechanism & MUST\_WORK & Trace $\geq 95$\%, F1 $\geq 70$\% \\
+H-M2 & Mechanism & MUST\_WORK & Non-executed gradient = 0 \\
+H-M3 & Efficiency & SHOULD\_WORK & FGO pass@1 > Standard pass@1 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}

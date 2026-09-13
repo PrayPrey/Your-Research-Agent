@@ -1,0 +1,93 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Overview}
+
+The key insight driving our design is that adversarial vulnerability, viewed as a scalar, discards
+the multivariate structure that carries architecture-family signal. We therefore represent each
+model as a $\Delta^*$-vector --- one normalized vulnerability score per attack category --- and
+test whether architecture family explains a significant portion of variance in this multivariate
+space.
+
+\subsection{The $\Delta^*$-Vector Framework}
+
+\paragraph{Normalized Vulnerability ($\Delta^*$).}
+For a model $m$ evaluated on attack category $c$:
+\begin{equation}
+\Delta^*(m, c) = \frac{\text{Acc}_\text{clean}(m, c) - \text{Acc}_\text{adv}(m, c)}{\text{Acc}_\text{clean}(m, c)}
+\end{equation}
+The normalization by $\text{Acc}_\text{clean}$ removes the clean-accuracy confound: $\Delta^*$
+measures \emph{proportional} degradation from each model's own baseline, isolating the adversarial
+vulnerability effect from task difficulty and model capacity. For each model, $\Delta^*$ scores
+across $K$ reliable attack categories form a vector $\mathbf{x}(m) \in \mathbb{R}^K$. The data
+matrix $\mathbf{X} \in \mathbb{R}^{N \times K}$ ($N=9$, $K=6$) is the input to statistical
+analysis.
+
+\paragraph{Reliability Filtering.}
+For each attack category $c$, we compute the Spearman--Brown corrected split-half reliability
+$r_\text{SB}$. Categories with $r_\text{SB} < 0.7$ or fewer than 50 examples are excluded.
+This filter makes effect-size estimates conservative: only stable attack categories enter the
+analysis.
+
+\subsection{Model Selection and Scale Matching}
+
+Nine transformer models spanning three families, all in the 110--350M parameter range:
+
+\begin{table}[h]
+\centering
+\caption{Model pool by architecture family.}
+\begin{tabular}{ll}
+\toprule
+\textbf{Family} & \textbf{Models} \\
+\midrule
+Encoder-only & bert-base-uncased, roberta-base, \\
+             & google/electra-base-discriminator, albert-base-v2 \\
+Decoder-only & gpt2, facebook/opt-125m, facebook/opt-350m \\
+Encoder-decoder & t5-base, facebook/bart-base \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Scale matching controls for the capacity confound; we do not include 1B+ models in this PoC.
+
+\subsection{Fine-Tuning Protocol}
+
+All models fine-tuned on GLUE tasks (SST-2, MNLI, QQP, QNLI, RTE) using HuggingFace Trainer
+with AdamW optimizer, family-specific learning rates (encoder-only: $2 \times 10^{-5}$;
+decoder-only: $5 \times 10^{-5}$; encoder-decoder: $1 \times 10^{-4}$), and 10\% linear warmup.
+Seed=42 throughout.
+
+\textbf{Note on enc\_dec coverage:} T5-base and BART-base were fine-tuned on SST-2 only (not
+MNLI) in this experiment, producing degenerate ANLI-R3 results for the enc\_dec family
+(see Section~\ref{sec:discussion}).
+
+\subsection{Statistical Methods}
+
+\paragraph{Permutation MANOVA.}
+We test whether architecture family membership explains $\Delta^*$-vector variance using
+permutation MANOVA on $\mathbf{X}$ with family labels $\mathbf{y}$. Test statistic: Pillai's
+trace; effect size: $\eta^2 = \text{SS}_\text{between}/\text{SS}_\text{total}$. In the balanced
+three-group case, Pillai's trace and $\eta^2$ are monotonically related (both bounded [0,1]) but
+not identical --- we report $\eta^2$ throughout for interpretability, with Pillai's trace as the
+basis for the permutation $p$-value. $P$-value: empirical fraction of 1,000 permuted $\eta^2$
+exceeding observed $\eta^2$. Permutation approach is valid at $N=9$ without distributional
+assumptions. We additionally compute per-category $\eta^2$ via univariate ANOVA for decomposition.
+
+\paragraph{LOMO Classification.}
+Leave-one-model-out nearest-neighbor (cosine distance, $k=1$) classification. Reports accuracy
+and $3 \times 3$ confusion matrix. \emph{Validity caveat:} at $N=3$ models per family, LOMO is
+geometrically near-degenerate; results are exploratory only.
+
+\paragraph{Mixed-Effects Controls.}
+Sensitivity check with formula
+$\Delta^*(m,c) \sim \text{arch\_family} \times \text{attack\_type} + \text{objective} +
+\text{tokenizer} + \text{clean\_acc} + (1|\text{model\_id})$.
+Note: at $N=9$, this model is severely underdetermined (collinearity/separation); results are
+reported with appropriate caveats.
+
+\subsection{Implementation}
+
+Seven modules: \texttt{data\_loader.py}, \texttt{fine\_tuner.py}, \texttt{evaluator.py},
+\texttt{delta\_star.py}, \texttt{statistical\_analysis.py}, \texttt{visualizer.py},
+\texttt{run\_experiment.py}. Pipeline checkpoints results as JSON after each stage for crash
+recovery.

@@ -1,0 +1,280 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  base_hypothesis: h-e1
+  generated_at: "2026-08-05T05:30:00Z"
+  output_folder: docs/youra_research/h-m1
+
+budget_summary:
+  setup_tasks: 1
+  epic_tasks: 8
+  subtasks: 3
+  failsafe_tasks: 1
+  total: 13
+  budget_used: 13
+  budget_remaining: 17
+
+tasks:
+  # ── Setup ──────────────────────────────────────────────────────────────────
+  - id: S-0
+    type: setup
+    title: "Environment Setup"
+    description: >
+      Verify Python environment has all required packages installed.
+      Packages: statsmodels>=0.14, numpy>=1.24, pandas>=2.0, scipy>=1.10,
+      matplotlib>=3.7, patsy>=0.5, pyarrow>=11.0.
+      Also verify H-E1 prerequisite files exist:
+        docs/youra_research/h-e1/results/preprocessed.parquet
+        docs/youra_research/h-e1/results/model_results.json
+    priority: 94
+    complexity: null
+    reference_files:
+      - file: docs/youra_research/h-m1/03_prd.md
+        section: "9. Dependencies"
+
+  # ── Epic Tasks ─────────────────────────────────────────────────────────────
+  - id: A-1
+    type: implementation
+    title: "Project Setup"
+    description: >
+      Create directory structure for h-m1:
+        docs/youra_research/h-m1/code/
+        docs/youra_research/h-m1/figures/
+        docs/youra_research/h-m1/results/
+      Verify H-E1 parquet exists at:
+        docs/youra_research/h-e1/results/preprocessed.parquet
+      Log verification result.
+    priority: 93
+    complexity: 5
+    complexity_breakdown: "1+1+1+2 (module_size+deps+algorithm+integration)"
+    reference_files:
+      - file: docs/youra_research/h-m1/03_architecture.md
+        section: "Project Structure"
+
+  - id: A-2
+    type: data-pipeline
+    title: "Data Loader"
+    description: >
+      Implement docs/youra_research/h-m1/code/01_load_data.py.
+      Functions:
+        load_preprocessed() -> pd.DataFrame
+          - Load from docs/youra_research/h-e1/results/preprocessed.parquet
+          - Assert len==5217 and has_tags in {0, 1}
+          - Fallback: re-run preprocessing from raw CSV if parquet missing
+        load_h_e1_results() -> dict | None
+          - Load docs/youra_research/h-e1/results/model_results.json
+          - Return None if file missing (triggers refit in A-3)
+        main(): print summary stats
+    priority: 92
+    complexity: 6
+    complexity_breakdown: "2+1+1+2"
+    reference_files:
+      - file: docs/youra_research/h-m1/03_architecture.md
+        section: "DataLoader"
+      - file: docs/youra_research/h-m1/03_config.md
+        section: "A-2: Data Loader"
+
+  - id: A-3
+    type: model
+    title: "Model Fitter (core)"
+    description: >
+      Implement docs/youra_research/h-m1/code/02_fit_models.py.
+      Copy fit_nb2 and NumpyEncoder verbatim from:
+        docs/youra_research/h-e1/code/02_fit_models.py (lines 44, 78-112)
+      Implement:
+        extract_has_tags_stats(fit_result) -> {irr, ci_lower, ci_upper, pval}
+        compute_cramers_v(df) -> (cramers_v, p_chi2)
+        compute_attenuation_ratio(irr_no_fe, irr_with_fe) -> float
+        load_or_fit_models(df, h_e1_results) -> {with_fe, no_fe, source}
+          - Fast path: extract from h_e1_results['proposed'] + ['rc7_age_vs_decade']
+          - Slow path: refit FORMULA_WITH_FE and FORMULA_NO_FE
+      See 03_logic.md Subtask L-3-1 for full load_or_fit_models pseudocode.
+    priority: 91
+    complexity: 10
+    complexity_breakdown: "3+2+3+2"
+    reference_files:
+      - file: docs/youra_research/h-m1/03_logic.md
+        section: "Subtask L-3-1"
+      - file: docs/youra_research/h-m1/03_config.md
+        section: "A-3: Model Fitter"
+      - file: docs/youra_research/h-m1/03_architecture.md
+        section: "ModelFitter"
+
+  - id: A-4
+    type: model
+    title: "Attenuation and Cramér's V"
+    description: >
+      In 02_fit_models.py main(), after load_or_fit_models:
+        1. Compute cramers_v, p_chi2 = compute_cramers_v(df)
+           Formula: pd.crosstab(df['decade'], df['has_tags']) -> chi2_contingency
+           cramers_v = sqrt(chi2 / (N * (min_dim - 1)))
+        2. Compute attenuation_ratio = compute_attenuation_ratio(irr_no_fe, irr_with_fe)
+        3. Compute has_tags_by_decade = df.groupby('decade')['has_tags'].mean().to_dict()
+        4. Serialize all to docs/youra_research/h-m1/results/model_results.json:
+           {with_fe, no_fe, cramers_v, p_chi2, attenuation_ratio, source, has_tags_by_decade}
+    priority: 90
+    complexity: 7
+    complexity_breakdown: "2+2+2+1"
+    reference_files:
+      - file: docs/youra_research/h-m1/03_prd.md
+        section: "FR-05"
+      - file: docs/youra_research/h-m1/03_logic.md
+        section: "Pseudo-code: 02_fit_models.py main flow"
+
+  - id: A-5
+    type: evaluation
+    title: "Figure 1 — IRR Comparison (mandatory)"
+    description: >
+      Implement fig1_irr_comparison() in 03_generate_figures.py.
+      Bar chart: IRR with C(decade) FE vs without FE, with 95% CI error bars.
+      Threshold line at IRR=1.0.
+      Title: "H-M1 Mechanism Verification: has_tags Survives Decade FE"
+      Load data from: docs/youra_research/h-m1/results/model_results.json
+      Save as: docs/youra_research/h-m1/figures/fig1_irr_comparison.png (300 DPI)
+    priority: 85
+    complexity: 8
+    complexity_breakdown: "2+2+2+2"
+    reference_files:
+      - file: docs/youra_research/h-m1/03_prd.md
+        section: "FR-07"
+      - file: docs/youra_research/h-m1/03_architecture.md
+        section: "FigureGenerator"
+
+  - id: A-6
+    type: evaluation
+    title: "Figures 2-4"
+    description: >
+      Implement fig2, fig3, fig4 in 03_generate_figures.py:
+        fig2_hastags_by_decade(df):
+          - Bar chart of df.groupby('decade')['has_tags'].mean()
+          - Save: figures/fig2_hastags_by_decade.png
+        fig3_coefficient_table(results):
+          - matplotlib table: has_tags coef, IRR, CI, p across model variants (with FE, without FE)
+          - Save: figures/fig3_coefficient_table.png
+        fig4_mechanism_flow(results) [optional]:
+          - Text-based flow diagram: Tags→Search Index→Discovery→Task Creation
+          - Save: figures/fig4_mechanism_flow.png
+      main(): load model_results.json + preprocessed.parquet, call all fig functions.
+    priority: 80
+    complexity: 8
+    complexity_breakdown: "2+2+2+2"
+    reference_files:
+      - file: docs/youra_research/h-m1/03_prd.md
+        section: "FR-07"
+      - file: docs/youra_research/h-m1/03_architecture.md
+        section: "FigureGenerator"
+
+  - id: A-7
+    type: evaluation
+    title: "Gate Evaluator"
+    description: >
+      Implement docs/youra_research/h-m1/code/04_evaluate_gate.py.
+      Functions:
+        evaluate_mechanism(irr_with_fe, p_with_fe, attenuation_ratio) -> "STRONG"|"MODERATE"
+          STRONG if: p<0.001 AND irr>=1.1 AND attenuation<1.5
+        evaluate_gate(h_e1_gate, irr_with_fe, p_with_fe) -> "PASS"|"FAIL"
+          PASS if: h_e1_gate=="PASS" AND p_with_fe < 0.05
+        build_results(model_results) -> dict
+          See FR-08 for full output schema including:
+          gate_result, mechanism_verified, irr_with_decade_fe, ci_lower_with_fe,
+          ci_upper_with_fe, p_with_fe, irr_without_decade_fe, attenuation_ratio,
+          cramers_v_decade_hastags, mechanism_support, h_e1_irr_prereq, h_e1_gate_prereq
+        main(): load model_results -> build_results -> evaluate_gate -> write primary_results.json
+    priority: 75
+    complexity: 7
+    complexity_breakdown: "2+1+2+2"
+    reference_files:
+      - file: docs/youra_research/h-m1/03_prd.md
+        section: "FR-06"
+      - file: docs/youra_research/h-m1/03_config.md
+        section: "A-7: Gate Evaluator"
+      - file: docs/youra_research/h-m1/03_architecture.md
+        section: "GateEvaluator"
+
+  - id: A-8
+    type: evaluation
+    title: "End-to-end Integration"
+    description: >
+      Run all 4 scripts in sequence from project root:
+        python docs/youra_research/h-m1/code/01_load_data.py
+        python docs/youra_research/h-m1/code/02_fit_models.py
+        python docs/youra_research/h-m1/code/03_generate_figures.py
+        python docs/youra_research/h-m1/code/04_evaluate_gate.py
+      Verify outputs match expected values (within tolerance):
+        IRR_with_fe: 1.2263 ± 0.05
+        IRR_no_fe:   1.3758 ± 0.05
+        attenuation: 1.122  ± 0.02
+        cramers_v:   0.823  ± 0.05
+        gate_result: PASS
+      Verify file existence:
+        docs/youra_research/h-m1/results/primary_results.json
+        docs/youra_research/h-m1/figures/fig1_irr_comparison.png
+    priority: 70
+    complexity: 9
+    complexity_breakdown: "2+2+2+3"
+    reference_files:
+      - file: docs/youra_research/h-m1/03_logic.md
+        section: "Subtask L-8-1"
+      - file: docs/youra_research/h-m1/03_config.md
+        section: "A-8: End-to-End Integration"
+
+  # ── Subtasks ───────────────────────────────────────────────────────────────
+  - id: L-3-1
+    type: subtask
+    parent: A-3
+    title: "load_or_fit_models full implementation"
+    description: >
+      Implement load_or_fit_models with both fast-path (H-E1 cache) and slow-path (refit).
+      Fast path: h_e1_results['proposed']['has_tags'] -> with_fe dict
+                 h_e1_results['rc7_age_vs_decade']['irr_without_decade'] -> no_fe.irr
+      Slow path: fit_nb2(FORMULA_WITH_FE) + fit_nb2(FORMULA_NO_FE)
+      Full pseudocode in 03_logic.md Subtask L-3-1.
+    priority: 49
+    reference_files:
+      - file: docs/youra_research/h-m1/03_logic.md
+        section: "Subtask L-3-1"
+
+  - id: L-8-1
+    type: subtask
+    parent: A-8
+    title: "Integration verify_results with tolerances"
+    description: >
+      Implement verify_results(primary_results) -> list[str] that checks all
+      expected values within tolerance. Empty list = all pass.
+      TOLERANCES per 03_logic.md Subtask L-8-1.
+    priority: 48
+    reference_files:
+      - file: docs/youra_research/h-m1/03_logic.md
+        section: "Subtask L-8-1"
+
+  - id: C-8-1
+    type: subtask
+    parent: A-8
+    title: "Integration expected values config"
+    description: >
+      Add EXPECTED_* constants to 04_evaluate_gate.py for assertion-based verification:
+        EXPECTED_N=5217, EXPECTED_IRR_WITH_FE=1.2263, EXPECTED_IRR_NO_FE=1.3758,
+        EXPECTED_ATTENUATION=1.122, EXPECTED_CRAMERS_V=0.823, EXPECTED_GATE_RESULT="PASS"
+      With tolerances: IRR±0.05, attenuation±0.02, cramers_v±0.05
+    priority: 47
+    reference_files:
+      - file: docs/youra_research/h-m1/03_config.md
+        section: "A-8: End-to-End Integration"
+
+  # ── Failsafe ───────────────────────────────────────────────────────────────
+  - id: F-1
+    type: failsafe
+    title: "Pipeline Continuation Checkpoint"
+    description: >
+      After all scripts complete: confirm primary_results.json exists and contains
+      gate_result field. If gate_result == "PASS": update verification_state.yaml
+      h-m1.validation.status = COMPLETED and h-m1.gate.satisfied = true.
+      If gate_result == "FAIL": record MUST_WORK failure, route to Phase 0.
+    priority: 1
+    reference_files:
+      - file: docs/youra_research/h-m1/03_prd.md
+        section: "8. Success Criteria"

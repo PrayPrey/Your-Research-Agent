@@ -1,0 +1,7 @@
+# Privacy-Preserving Multimodal Table RAG via Federated Hybrid Retrieval
+
+## Motivation
+Multimodal table understanding systems (combining tables, charts, and text) achieve impressive accuracy but require centralized data access, violating HIPAA/GDPR regulations in healthcare and finance. Existing privacy-preserving methods either sacrifice accuracy (dropping below 80%) or cannot handle SQL queries essential for structured data. This creates a critical barrier to deploying table representation learning in sensitive domains where federated collaboration could unlock unprecedented insights from distributed medical records, financial data, and legal documents.
+
+## Main Idea
+We propose a federated split-learning architecture with **hybrid retrieval** that resolves the privacy-SQL trade-off: homomorphic encryption handles 80% of queries (semantic similarity search) while secure enclaves execute 20% of complex SQL queries. Local institutions encode tables using privacy-preserving functional encryption (PPFLE), perform encrypted similarity search, and aggregate results via secure multi-party computation with differential privacy (ε=10). The system integrates multimodal encoders (SecurityBERT for tables, CLIP for charts) with federated T5-Large reasoning. We predict ≥90% accuracy retention versus centralized TableRAG (F1≥0.72 on BioASQ medical QA), ≤55% membership inference attack success, and ≥95% HIPAA compliance—enabling production deployment across 3-50 institutions with <30s query latency for 10K table corpora.

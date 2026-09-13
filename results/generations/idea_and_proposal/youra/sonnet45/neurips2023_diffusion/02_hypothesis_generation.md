@@ -1,0 +1,433 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-08
+**Author:** Pray
+**Source Round:** Round 2 - Curriculum Noise Scheduling for Sample-Efficient Diffusion Training
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-F1-CNS (Curriculum Noise Scheduling)
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Applying curriculum learning to diffusion model training by reordering timestep sampling from empirically-measured easy denoising tasks to hard denoising tasks, with adaptive experience replay, will reduce training sample complexity by 2-5x (measured by convergence speed to target FID) compared to uniform timestep sampling, and enable few-shot learning (10-100x data reduction) in small-dataset regimes (100-1k images).
+
+**Alternative Hypothesis (H0):**
+Timestep sampling order has no significant effect on diffusion model training efficiency. Uniform sampling t ~ U[0,T] achieves equivalent or superior convergence speed and sample efficiency compared to curriculum-ordered sampling.
+
+### 1.2 Variables
+
+| Variable Type | Name | Definition | Measurement | Range/Values |
+|---------------|------|------------|-------------|--------------|
+| **Independent** | Timestep Sampling Order | Order in which denoising timesteps are presented during training | Empirical difficulty ranking L(t) after K_warmup epochs | Curriculum (easy→hard) vs. Uniform vs. Inverted (hard→easy) |
+| **Independent** | Replay Probability Schedule | Probability of sampling from full timestep range during curriculum phase | p_replay(epoch) = 0.5 × (1 - epoch/total_epochs)^0.5 | [0, 0.5] (decaying) |
+| **Independent** | Curriculum Expansion Rate | Rate at which timestep range expands from easy to hard | Triggered by loss plateau, Δt = 10-50 timesteps | Adaptive (loss-based) vs. Fixed (linear/exponential) |
+| **Dependent** | Training Sample Efficiency | Number of training samples (images × epochs) required to reach target FID | FID score trajectory: FID(n_samples) | Target: FID ≤ 10 on held-out set |
+| **Dependent** | Convergence Speed | Training steps required to reach quality threshold | Steps to FID ≤ 10, 20, 50 | Measured at 10k, 20k, 50k steps |
+| **Dependent** | Few-Shot Performance | Model quality when trained on small datasets | FID @ 500, 1k, 5k training images | Compared to baseline @ same data size |
+| **Control** | Model Architecture | Diffusion model architecture (U-Net backbone) | Standard DDPM U-Net with attention | Fixed across experiments |
+| **Control** | Noise Schedule | Forward diffusion noise schedule β_t | Linear or cosine schedule | Fixed (linear β: 0.0001 to 0.02) |
+| **Control** | Optimizer & LR | Training optimizer and learning rate | Adam optimizer, lr = 2e-4 | Fixed (standard DDPM settings) |
+| **Control** | Dataset | Training data distribution | ImageNet 256×256, CheXpert (medical), LSUN Bedrooms | Stratified across domains |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain:**
+
+```
+Curriculum Timestep Ordering
+    ↓
+[Mechanism 1: Smoother Optimization Landscape]
+Easy denoising tasks (low noise, t ≈ T) have clearer gradients
+→ Model learns foundational denoising patterns first
+→ Establishes stable weight initialization for harder tasks
+    ↓
+[Mechanism 2: Progressive Complexity Building]
+Gradual expansion to hard tasks (high noise, t ≈ 0)
+→ Model builds on learned easy-task features
+→ Avoids simultaneous optimization across all difficulty levels
+    ↓
+[Mechanism 3: Anti-Catastrophic Forgetting via Replay]
+Experience replay from full timestep range
+→ Prevents forgetting of early-learned timesteps
+→ Maintains performance breadth while curriculum narrows focus
+    ↓
+OUTCOME: Faster Convergence + Better Sample Efficiency
+```
+
+**Evidence for Causal Links:**
+
+**Link 1: Easy Tasks → Stable Foundation**
+- **Education Science Evidence:** Bengio et al. (2009) curriculum learning shows easy→hard ordering reduces training iterations by 20-40% in CV/NLP tasks [~10k citations]
+- **Diffusion-Specific Reasoning:** Score-based models (Song et al.) use noise-conditional training. Lower noise levels (t ≈ T) have smaller perturbations → score estimation ∇_x log p(x_t) is closer to data distribution → smoother gradients
+- **Theoretical Support:** Chen et al. (2022, 372 citations) prove sample complexity depends on score estimation accuracy. Early training on easy timesteps (lower variance) improves score estimation foundation.
+
+**Link 2: Progressive Complexity → Efficient Learning**
+- **RL Curriculum Evidence:** Graves et al. (2017) automatic curriculum learning shows adaptive difficulty pacing speeds up RL agent training 2-5x by matching task difficulty to agent capability
+- **Cognitive Psychology:** Scaffolding theory (Vygotsky) - learners progress faster when support structures (easy tasks) are gradually removed
+- **Diffusion Context:** Uniform sampling t ~ U[0,T] forces model to learn coarse structure prediction (t ≈ 0) and fine detail refinement (t ≈ T) simultaneously → competing optimization objectives → slower convergence
+
+**Link 3: Experience Replay → Forgetting Prevention**
+- **Continual Learning Evidence:** Experience replay is proven method to prevent catastrophic forgetting in neural networks (Rolnick et al. 2019, McCloskey & Cohen 1989)
+- **Diffusion Adaptation:** As curriculum expands to harder timesteps, model weights update to handle high-noise regime. Without replay, model may forget low-noise denoising patterns → performance degradation on easy tasks
+- **Adaptive Schedule:** Starting p_replay = 0.5 (high) prevents early forgetting, decaying to 0.1 (low) maintains curriculum effect as model becomes robust
+
+**Key Tension:**
+The curriculum approach introduces a **speed vs. breadth trade-off**:
+- **Curriculum benefit:** Focusing on narrow timestep range (easy) speeds up learning within that range
+- **Forgetting risk:** Narrow focus may degrade performance on excluded timesteps (hard) before curriculum reaches them
+- **Resolution:** Adaptive replay balances focus (curriculum) with retention (replay) - the hypothesis claims this balance yields net positive efficiency gain
+
+### 1.4 Key Assumptions
+
+**Assumption A1: Denoising Difficulty Monotonicity**
+- **Statement:** Denoising tasks have a consistent difficulty ordering that can be measured empirically via per-timestep loss L(t)
+- **Justification:** Score-based diffusion theory suggests noise level σ(t) correlates with estimation difficulty. However, this is NOT assumed a priori - instead, the hypothesis uses data-driven measurement (K_warmup epochs) to determine empirical ordering
+- **Testability:** Measure L(t) vs. t after K_warmup epochs. If no monotonic trend exists, difficulty ordering is undefined → curriculum reduces to random reordering (detectible via ablation)
+- **Risk Mitigation:** If empirical measurement reveals non-monotonic difficulty (e.g., mid-range timesteps hardest), curriculum adapts to actual ordering
+
+**Assumption A2: Curriculum Transferability Across Datasets**
+- **Statement:** Optimal curriculum ordering (difficulty ranking) generalizes across datasets within a domain (e.g., all natural images)
+- **Justification:** Diffusion forward process is data-agnostic (applies same noise schedule β_t to all images). Denoising difficulty depends on noise level, not specific image content
+- **Testability:** Measure difficulty ordering on ImageNet → apply to LSUN Bedrooms → check if FID improvement transfers
+- **Limitation:** Cross-domain transfer (natural images → medical images) may require domain-specific difficulty measurement due to different frequency distributions
+
+**Assumption A3: Curriculum Does Not Introduce Bias**
+- **Statement:** Training on curriculum-ordered timesteps converges to the same data distribution p(x_0) as uniform sampling (i.e., no systematic bias in generated samples)
+- **Justification:** Curriculum changes learning ORDER, not learning OBJECTIVE. Final model is trained on all timesteps t ∈ [0,T] by end of curriculum
+- **Testability:** Compare sample diversity (Inception Score, LPIPS diversity) and mode coverage between curriculum and uniform baselines at convergence
+- **Risk:** If curriculum gets stuck in local minimum (overfits to easy timesteps), diversity may decrease → detectable via diversity metrics
+
+**Assumption A4: Adaptive Replay Suffices for Forgetting Prevention**
+- **Statement:** Experience replay with p_replay(epoch) schedule prevents catastrophic forgetting without requiring explicit rehearsal buffers or multi-task architectures
+- **Justification:** Diffusion training is stateless (each batch samples independent timesteps) → no temporal dependencies → standard experience replay applies directly
+- **Testability:** Ablate replay rate p_replay ∈ {0, 0.1, 0.2, 0.5} and adaptive vs. fixed schedules → measure per-timestep loss L(t) over training to detect forgetting
+- **Alternative:** If simple replay fails, can upgrade to prioritized replay (sample harder timesteps more often)
+
+### 1.5 Scope & Boundaries
+
+**In-Scope:**
+- **Image Domains:** Natural images (ImageNet, LSUN), medical imaging (CheXpert, X-ray datasets), scientific imaging (microscopy)
+- **Model Types:** Denoising Diffusion Probabilistic Models (DDPM) with standard U-Net architecture
+- **Training Regimes:** Full-data training (convergence speed), few-shot training (100-5k images)
+- **Metrics:** FID (primary), Inception Score, LPIPS diversity, training loss curves, per-timestep loss L(t)
+- **Timestep Ranges:** Standard T=1000 timesteps (DDPM), curriculum expands from narrow range ([T-50, T]) to full [0, T]
+
+**Out-of-Scope:**
+- **Other Generative Models:** GANs, VAEs, autoregressive models (curriculum may apply but requires separate validation)
+- **Non-Image Modalities:** Audio, video, 3D point clouds (different noise characteristics may alter difficulty ordering)
+- **Latent Diffusion Models:** Curriculum on latent space may differ from pixel space - separate study needed
+- **Inference Acceleration:** This hypothesis addresses training efficiency, not sampling speed (DDIM, DPM-Solver++ are orthogonal)
+- **Architecture Changes:** No architectural modifications to U-Net - purely training process innovation
+- **Very Large Datasets:** Focus on small-to-medium data regimes (100-100k images). Billion-scale datasets may not benefit from curriculum (already data-rich)
+
+**Boundary Conditions:**
+- **Minimum Dataset Size:** Hypothesis requires ≥100 images for few-shot regime (below this, overfitting dominates curriculum effect)
+- **Warmup Requirement:** K_warmup ≥ 5 epochs needed to measure reliable difficulty ordering (too few epochs → noisy estimates)
+- **Convergence Assumption:** Baseline DDPM must be trainable on target dataset (if baseline fails to converge, curriculum cannot rescue)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1: 2-5x Convergence Speedup in Full-Data Regime**
+- **Claim:** Curriculum noise scheduling will achieve FID ≤ 10 in 2-5x fewer training steps compared to uniform sampling on ImageNet 256×256
+- **Measurement:** Steps to FID=10: Curriculum < 0.5 × Uniform (best case 5x), < 0.2 × Uniform (conservative 2x)
+- **Baseline:** Standard DDPM with uniform timestep sampling t ~ U[0,T]
+- **Dataset:** ImageNet 256×256 (100k training images)
+- **Success Criterion:** Statistically significant speedup (p < 0.05, paired t-test across 3 random seeds)
+
+**Secondary Predictions:**
+
+**P2: 10-100x Sample Efficiency in Few-Shot Regime**
+- **Claim:** On small datasets (500-1k images), curriculum achieves FID comparable to uniform training on 10-100x more data
+- **Measurement:** Curriculum @ 500 images ≈ Uniform @ 5k images (10x), Curriculum @ 1k images ≈ Uniform @ 50k images (50x)
+- **Rationale:** Curriculum reduces wasted gradient updates on hard timesteps when data is scarce → better utilization of limited samples
+- **Dataset:** CheXpert medical imaging (500, 1k, 5k subsets)
+- **Uncertainty:** 10-100x range is wide - lower bound (10x) is confident, upper bound (100x) is hypothesized pending validation
+
+**P3: Empirical Difficulty Ordering is Dataset-Invariant Within Domain**
+- **Claim:** Difficulty ranking measured on ImageNet will correlate (Spearman ρ > 0.7) with difficulty ranking on LSUN Bedrooms
+- **Measurement:** Compute L(t) on both datasets after K_warmup, rank timesteps, measure rank correlation
+- **Implication:** If true, curriculum can be pretrained on one dataset and transferred to related domains
+- **Falsification:** If ρ < 0.5, difficulty ordering is dataset-specific → curriculum requires per-dataset calibration
+
+**P4: No Diversity Degradation at Convergence**
+- **Claim:** Curriculum and uniform sampling produce statistically equivalent sample diversity (Inception Score, LPIPS) after convergence
+- **Measurement:** IS_curriculum ≈ IS_uniform (within 5% difference), LPIPS_curriculum ≈ LPIPS_uniform
+- **Rationale:** Curriculum changes learning path, not final objective → both should converge to p(x_0)
+- **Falsification:** If IS drops >10% or mode collapse detected (LPIPS variance decreases), curriculum introduces bias
+
+**Falsification Criteria:**
+
+**FAIL if ANY of the following:**
+1. **No Convergence Speedup:** Curriculum achieves FID=10 in ≥ 0.8 × Uniform steps (< 25% improvement) across 3 seeds
+2. **Few-Shot Failure:** Curriculum @ 1k images achieves FID > Uniform @ 5k images (< 5x sample efficiency)
+3. **Catastrophic Forgetting:** Per-timestep loss L(t) increases >50% for early-curriculum timesteps by end of training
+4. **Diversity Collapse:** Inception Score drops >15% compared to uniform baseline
+5. **Difficulty Ordering Instability:** Difficulty ranking correlation across datasets ρ < 0.3 (random ordering)
+
+**PARTIAL SUCCESS (requires refinement) if:**
+- Convergence speedup 1.5-2x (below 2x target but above noise)
+- Few-shot efficiency 5-10x (below 10x lower bound but measurable)
+- Curriculum requires extensive hyperparameter tuning (> 5 parameter sweeps)
+
+### 1.7 SOTA Baseline (Optional - SOTA Comparison Mode)
+
+**Not Applicable - This is a training efficiency innovation, not a SOTA generation quality comparison.**
+
+**Justification:** The hypothesis does not claim to achieve better FID than state-of-the-art diffusion models (e.g., Stable Diffusion, DALL-E 2). Instead, it claims to achieve EQUIVALENT quality with FEWER training samples/steps compared to standard DDPM training.
+
+**Relevant Baselines:**
+- **Primary:** Standard DDPM (Ho et al. 2020) with uniform timestep sampling
+- **Secondary:** Improved DDPM (Nichol & Dhariwal 2021) with learned variances
+- **Architectural:** DiffuSSM (Yan et al. 2023) - alternative architecture for efficiency comparison (orthogonal approach)
+
+**Note:** If curriculum proves successful, it can be COMBINED with SOTA methods (e.g., apply curriculum to Stable Diffusion fine-tuning) for compounded benefits.
+
+### 1.8 Statistical Verification Design
+
+**Experimental Design: 3 × 3 Factorial with Ablations**
+
+**Factor 1: Sampling Strategy (3 levels)**
+1. **Uniform Baseline:** t ~ U[0,T] (standard DDPM)
+2. **Curriculum (Proposed):** Empirical difficulty ordering + adaptive expansion + adaptive replay
+3. **Inverted Curriculum:** Hard→easy ordering (validates difficulty assumption)
+
+**Factor 2: Data Regime (3 levels)**
+1. **Full-Data:** 100k images (ImageNet)
+2. **Few-Shot Medium:** 1k images (CheXpert subset)
+3. **Few-Shot Small:** 500 images (CheXpert subset)
+
+**Ablation Studies (within Curriculum condition):**
+- **No Replay:** p_replay = 0 (tests forgetting prevention)
+- **Fixed Replay:** p_replay = 0.2 constant (vs. adaptive schedule)
+- **Fixed Expansion:** Linear expansion (vs. adaptive loss-based)
+- **Random Ordering:** Curriculum with random timestep order (tests difficulty measurement)
+
+**Metrics:**
+- **Primary:** FID score @ 10k, 20k, 50k, 100k training steps
+- **Secondary:** Inception Score, LPIPS diversity, per-timestep loss L(t), training loss curve
+- **Efficiency:** Steps to FID threshold (10, 20, 50), wall-clock time
+
+**Statistical Tests:**
+1. **Convergence Speed:** Paired t-test on steps-to-FID=10 (Curriculum vs. Uniform, n=3 seeds, α=0.05)
+2. **Few-Shot Efficiency:** ANOVA across data regimes × strategies (500, 1k, 5k images × 3 strategies)
+3. **Difficulty Correlation:** Spearman rank correlation on L(t) across datasets
+4. **Diversity Check:** Kolmogorov-Smirnov test on LPIPS distributions (Curriculum vs. Uniform)
+
+**Sample Size:** 3 random seeds per condition (27 main experiments + 12 ablations = 39 total runs)
+
+**Power Analysis:** With n=3 seeds, paired t-test can detect effect size d=2.5 (2.5σ difference) with power 0.8 at α=0.05. For 2x speedup, expected effect size ≈ 3-5σ (highly detectable).
+
+**Reproducibility Protocol:**
+- Fix all random seeds (PyTorch, NumPy, CUDA)
+- Report all hyperparameters in supplementary material
+- Release code (curriculum scheduler, difficulty measurement) on GitHub
+- Provide checkpoints for difficulty ordering on ImageNet (enables transfer)
+
+---
+
+## 2. Contribution Summary
+
+This hypothesis makes **three-tier contributions** to diffusion model research:
+
+### Theoretical Contributions
+
+**C1: Curriculum Learning Principle for Noise Dimension**
+- **Novelty:** First formalization of curriculum learning applied to diffusion's timestep/noise dimension (existing curriculum work focuses on data complexity)
+- **Insight:** Denoising tasks have inherent difficulty ordering based on noise level σ(t) → can exploit this structure for efficient training
+- **Theoretical Framework:** Extends Bengio et al. (2009) curriculum learning to temporal/noise dimension of diffusion models
+- **Sample Complexity Analysis:** Hypothesized reduction from O(D_hard × K) to O(D_easy + D_hard × K') where K' < K and D_easy << D_hard
+
+**C2: Data-Driven Difficulty Measurement for Diffusion**
+- **Method:** Empirical difficulty ranking via per-timestep loss L(t) after warmup, rather than assumption-based ordering
+- **Advantage:** Adaptive to actual optimization landscape, avoids incorrect assumptions about which timesteps are "easy"
+- **Generalization:** Difficulty measurement transfers within domain (natural images) → enables curriculum pretraining
+
+### Methodological Contributions
+
+**C3: Curriculum Noise Scheduling Algorithm**
+- **Algorithm:** 3-component system: (1) Empirical difficulty measurement, (2) Adaptive range expansion, (3) Experience replay
+- **Implementation:** ~70 lines of code modification to DDPM training loop - minimal complexity overhead
+- **Hyperparameters:** Only 2-3 new parameters with reasonable defaults (K_warmup=5, Δt=10-50, p_replay adaptive)
+- **Novelty:** First curriculum on noise dimension (vs. resolution curriculum in Latent Diffusion)
+
+**C4: Adaptive Pacing via Loss Monitoring**
+- **Method:** Expand curriculum range when loss plateaus (avg(L(t)) improvement < ε for K steps)
+- **Inspiration:** RL curriculum learning (Graves et al. 2017) - match task difficulty to model capability
+- **Advantage:** Avoids fixed schedules (linear, exponential) which may be too slow or too fast
+
+**C5: Timestep Experience Replay for Anti-Forgetting**
+- **Method:** Adaptive replay probability p_replay(epoch) = 0.5 × (1 - epoch/total)^0.5
+- **Inspiration:** Continual learning literature (Rolnick et al. 2019)
+- **Balance:** High replay (0.5) early prevents forgetting, low replay (0.1) late preserves curriculum effect
+
+### Practical Contributions
+
+**C6: 2-5x Training Cost Reduction**
+- **Impact:** Reduces GPU hours by 50-80% to reach target FID → lowers carbon footprint, democratizes diffusion development
+- **Beneficiaries:** Academic labs with limited compute, rapid prototyping scenarios, fine-tuning on downstream tasks
+
+**C7: Few-Shot Diffusion for Small-Dataset Domains**
+- **Target:** Medical imaging (100-1k MRI/CT scans), scientific imaging (microscopy, astronomy), niche creative applications
+- **Current Barrier:** Standard diffusion requires 10k-1M images (Khader et al. 2023)
+- **Breakthrough:** If 10-100x sample efficiency is validated, enables diffusion on datasets currently too small
+- **Domain Examples:** Rare disease imaging (50-500 cases), specialized microscopy techniques, historical art restoration
+
+**C8: Cross-Domain Applicability**
+- **Generalization:** Curriculum principle applies to any image domain (noise dimension is universal across DDPM variants)
+- **Transfer Learning:** Pretrain difficulty ordering on ImageNet → transfer to medical/scientific domains (if P3 validated)
+- **Orthogonality:** Curriculum is compatible with architectural improvements (DiffuSSM), fast samplers (DDIM), latent diffusion (Stable Diffusion)
+
+---
+
+## 3. Key Related Work
+
+### Direct Comparisons (Must Differentiate)
+
+**R1: Standard DDPM Training (Ho et al. 2020, 26,491 citations)**
+- **Method:** Uniform timestep sampling t ~ U[0,T]
+- **Difference:** We propose curriculum ordering (easy→hard) vs. uniform random
+- **Relationship:** Our method modifies DDPM training loop, compatible with all DDPM variants
+
+**R2: Progressive Distillation (Salimans & Ho 2022)**
+- **Method:** Reduces inference steps by distilling T-step model into T/2-step model iteratively
+- **Difference:** They optimize inference speed (sampling), we optimize training efficiency (data/steps to convergence)
+- **Orthogonality:** Can combine both - use curriculum for efficient training, then apply progressive distillation for fast inference
+
+**R3: Latent Diffusion Resolution Curriculum (Rombach et al. 2022, Stable Diffusion)**
+- **Method:** Train on low-resolution latent codes first, then high-resolution (data complexity curriculum)
+- **Difference:** They curriculum on data dimension (resolution), we curriculum on noise dimension (timesteps)
+- **Complementarity:** Both address training efficiency - resolution curriculum reduces spatial complexity, our approach reduces temporal complexity
+
+**R4: Data Augmentation for Diffusion (Karras et al. 2022)**
+- **Method:** Adaptive augmentation to enable training on smaller datasets
+- **Difference:** Augmentation increases data diversity, curriculum optimizes learning ORDER
+- **Orthogonality:** Can combine - augment data AND apply curriculum ordering for compounded efficiency
+
+### Foundational Cross-Domain Work
+
+**R5: Curriculum Learning (Bengio et al. 2009, ~10k citations)**
+- **Field:** Education Science → Machine Learning
+- **Core Principle:** Easy→hard ordering accelerates learning in neural networks
+- **Application History:** Used in CV (image classification), NLP (sequence length curriculum in Transformers), RL (task difficulty curriculum)
+- **Our Transfer:** First application to diffusion's noise/timestep dimension
+
+**R6: Automatic Curriculum Learning for RL (Graves et al. 2017)**
+- **Method:** Adaptive difficulty adjustment based on learning progress (loss plateau → increase difficulty)
+- **Transfer:** We adopt adaptive pacing (loss monitoring) for curriculum expansion rate
+
+**R7: Continual Learning & Experience Replay (Rolnick et al. 2019)**
+- **Method:** Prevent catastrophic forgetting in sequential task learning via replay buffer
+- **Transfer:** We apply timestep experience replay (sample from full range with p_replay) to prevent forgetting easy timesteps
+
+### Theoretical Foundations
+
+**R8: Sample Complexity of Diffusion Models (Chen et al. 2022, 372 citations)**
+- **Result:** Proves polynomial sample complexity for score-based models with L²-accurate score estimates
+- **Connection:** Theoretical foundation shows sample efficiency IS possible - our curriculum provides practical method to realize theoretical bounds
+- **Gap Addressed:** Theory assumes ideal conditions; we provide training strategy to approach those conditions faster
+
+**R9: Score Approximation on Low-Dimensional Data (Chen et al. 2023, 148 citations)**
+- **Result:** Diffusion can circumvent curse of dimensionality on low-dim manifolds
+- **Connection:** Validates that diffusion can work with structured/simpler data - curriculum exploits this by starting with simpler noise regions
+
+### Related Efficiency Approaches
+
+**R10: Fast Sampling Methods (DDIM, DPM-Solver++)**
+- **Goal:** Reduce inference steps (1000 → 15-50 steps)
+- **Difference:** Inference efficiency ≠ training efficiency. Fast samplers reduce generation time AFTER training, we reduce training cost BEFORE deployment
+- **Complementarity:** Curriculum-trained model + fast sampler = efficient end-to-end pipeline
+
+**R11: Architecture Alternatives (DiffuSSM - Yan et al. 2023, 92 citations)**
+- **Goal:** Replace O(N²) attention with linear state space models for scalability
+- **Difference:** Architectural innovation vs. training process innovation
+- **Complementarity:** Can combine curriculum training with DiffuSSM architecture for compounded efficiency
+
+### Novelty Gap Confirmation
+
+**Literature Search Results (Semantic Scholar, Archon KB):**
+- ✅ **"Curriculum learning diffusion"** → No papers on noise dimension curriculum (only data complexity curriculum in Latent Diffusion)
+- ✅ **"Noise schedule curriculum"** → No matches (noise schedule research focuses on β_t design, not training ordering)
+- ✅ **"Few-shot diffusion models"** → Limited work; most require pretrained models + fine-tuning, not training-from-scratch efficiency
+- ✅ **"Timestep sampling strategies diffusion"** → No exploration of curriculum ordering
+
+**Confirmed Novelty:** Application of curriculum learning to diffusion's noise/timestep dimension is unexplored in literature (as of 2024 search).
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence): Does Empirical Difficulty Ordering Exist and Remain Stable?**
+- **Question:** Can denoising tasks be ranked by difficulty via per-timestep loss L(t), and does this ranking remain consistent across training epochs and datasets?
+- **Verification:** Measure L(t) after K_warmup ∈ {3, 5, 10} epochs → rank timesteps → check rank correlation across epochs (ρ > 0.8) and across datasets (ImageNet vs. LSUN, ρ > 0.7)
+- **Success Criterion:** Stable difficulty ordering (ρ > 0.7) exists for ≥80% of dataset pairs tested
+- **Risk:** If ordering is noisy (ρ < 0.5), difficulty measurement fails → curriculum reduces to random reordering → SH1 FAIL
+
+**SH2 (Mechanism): Does Curriculum Ordering Accelerate Convergence?**
+- **Question:** Does training on easy→hard timestep order achieve faster convergence than uniform sampling?
+- **Verification:** Compare steps-to-FID=10 on ImageNet: Curriculum vs. Uniform vs. Inverted → measure speedup ratio
+- **Success Criterion:** Curriculum achieves ≥2x speedup (p < 0.05, paired t-test, n=3 seeds)
+- **Ablations:** Test without replay (p_replay=0), without adaptive expansion (fixed linear), without empirical ordering (random) → isolate curriculum effect
+- **Risk:** If speedup < 1.5x or statistically insignificant, core mechanism fails → SH2 FAIL
+
+**SH3 (Comparison): Does Few-Shot Regime Show 10-100x Sample Efficiency?**
+- **Question:** On small datasets (500-1k images), does curriculum match or exceed quality of uniform training on 10-100x more data?
+- **Verification:** Train curriculum on 500 images → compare FID to uniform on 5k, 50k images (target: match FID of 5k-50k baseline)
+- **Success Criterion:** Curriculum @ 500 images achieves FID within 10% of Uniform @ ≥5k images (10x efficiency)
+- **Domain Testing:** Repeat on medical imaging (CheXpert), natural images (LSUN subsets) → check domain generalization
+- **Risk:** If efficiency < 5x, few-shot claim fails but convergence speedup (SH2) may still hold → PARTIAL SUCCESS
+
+### Readiness Checklist
+
+- [x] **Hypothesis Statement:** Clear main hypothesis with measurable claims (2-5x convergence, 10-100x few-shot)
+- [x] **Variables Defined:** 4 independent, 3 dependent, 4 control variables with measurement protocols
+- [x] **Causal Mechanism:** 3-step mechanism (easy foundation → progressive complexity → anti-forgetting) with evidence
+- [x] **Assumptions Explicit:** 4 key assumptions (difficulty ordering, transferability, no bias, replay suffices) with testability
+- [x] **Scope Boundaries:** In-scope (image domains, DDPM, full/few-shot) and out-of-scope (GANs, audio, latent diffusion) defined
+- [x] **Testable Predictions:** 1 primary + 3 secondary predictions with falsification criteria
+- [x] **Baseline Defined:** Standard DDPM with uniform sampling (not SOTA comparison - efficiency comparison)
+- [x] **Statistical Design:** 3×3 factorial + ablations, n=3 seeds, power analysis, reproducibility protocol
+- [x] **Contributions Clear:** 8 contributions across theory (2), methodology (3), practice (3)
+- [x] **Related Work:** 11 key papers with differentiation (DDPM, progressive distillation, latent diffusion, curriculum learning)
+- [x] **Sub-Hypotheses:** 3 sub-hypotheses (existence, mechanism, few-shot) with verification plans
+- [x] **Open Questions:** Listed below
+
+### Open Questions
+
+**Q1: Optimal Warmup Duration (K_warmup)**
+- **Question:** How many epochs are required to measure stable difficulty ordering?
+- **Current:** K_warmup = 5 is heuristic
+- **Resolution:** Phase 2B will design experiment varying K ∈ {3, 5, 10, 20} → measure rank correlation stability → find minimum K with ρ > 0.8
+
+**Q2: Curriculum Schedule Variants**
+- **Question:** Is adaptive loss-based expansion optimal, or do fixed schedules (linear, exponential) suffice?
+- **Current:** Hypothesis proposes adaptive, but no comparison to fixed
+- **Resolution:** Phase 2B ablation study: Adaptive vs. Linear (Δt constant) vs. Exponential (double range each phase) → compare final FID and convergence speed
+
+**Q3: Cross-Domain Difficulty Transfer**
+- **Question:** Can difficulty ordering measured on ImageNet transfer to medical imaging (CheXpert)?
+- **Current:** Hypothesis assumes within-domain transfer (natural images → natural images) but cross-domain uncertain
+- **Resolution:** Phase 2B experiment: Measure L(t) on ImageNet and CheXpert separately → compare rankings → if ρ < 0.5, curriculum requires per-domain calibration
+
+**Q4: Replay Rate Sensitivity**
+- **Question:** How sensitive is performance to p_replay schedule? Is adaptive schedule necessary or does fixed p=0.2 suffice?
+- **Current:** Adaptive schedule proposed but not validated against fixed
+- **Resolution:** Phase 2B ablation: p_replay ∈ {0, 0.1, 0.2, 0.5} fixed vs. adaptive schedule → measure forgetting (L(t) trajectory) and final FID
+
+**Q5: Difficulty Metric Alternatives**
+- **Question:** Is per-timestep loss L(t) the best difficulty metric, or are alternatives (gradient norm, score estimation error) better?
+- **Current:** L(t) is simplest and most direct
+- **Resolution:** Phase 2B can explore ∇L(t), ||∇_θ L(t)||, score error if L(t) proves unstable → defer to future work if L(t) succeeds
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-08*

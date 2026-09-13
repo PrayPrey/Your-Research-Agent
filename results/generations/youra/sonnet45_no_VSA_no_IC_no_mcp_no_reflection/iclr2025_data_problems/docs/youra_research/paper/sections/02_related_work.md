@@ -1,0 +1,41 @@
+# Related Work
+
+Our work bridges three research communities—scaling laws, data curation practices, and data-centric AI—by providing a quantitative framework for data quality that was missing from all three.
+
+## Scaling Laws for Foundation Models
+
+Neural scaling laws predict model performance from compute budget and architectural choices. Kaplan et al. (2020) showed power-law relationships between validation loss and model size N, dataset size D, and compute C, enabling compute-optimal model design. Hoffmann et al. (2022) refined this with the Chinchilla scaling laws, finding that prior models were undertrained—the compute-optimal ratio is approximately N^0.5 tokens per parameter, not the N^0.1 assumed by GPT-3. This led to smaller, better-trained models like Chinchilla (70B parameters, 1.4T tokens) outperforming Gopher (280B parameters, 300B tokens) at lower inference cost.
+
+However, both Kaplan and Chinchilla formulations assume uniform data quality: the loss function L(N, D, C) treats dataset size D as token count without quality weighting. One trillion deduplicated tokens and one trillion with 40% duplicates receive identical treatment. While Hoffmann et al. acknowledge that "data quality matters" in discussion, they provide no mechanism to incorporate it into the scaling law. Subsequent work (Muennighoff et al., 2023; Bi et al., 2024) has explored scaling laws for multilingual and code-pretrained models, but continues to treat quality as exogenous.
+
+**Our contribution:** We propose Q(D) as a measurable fourth dimension, demonstrating that quality explains 61% of information density variance orthogonally to dataset size. This extends L(N, D, C) toward L(N, D, Q(D), C), where quality is no longer implicit but quantified.
+
+## Data Curation in Foundation Model Pretraining
+
+Practitioner knowledge about data quality is extensive but heuristic. GPT-3 (Brown et al., 2020) employed fuzzy deduplication to remove near-duplicate documents, observing qualitative improvements in sample efficiency. The Pile (Gao et al., 2020) assembled 22 curated data sources emphasizing domain diversity, arguing that breadth of coverage improves downstream task generalization. LLaMA (Touvron et al., 2023) and LLaMA-2 combined aggressive quality filters (perplexity-based document scoring, toxic content removal) with careful corpus mixing ratios determined through manual tuning and validation loss monitoring.
+
+More recent work has systematized some curation decisions. RedPajama (Computer, 2023) reproduced LLaMA's filtering pipeline at scale, documenting heuristics like "remove documents with >30% duplicate n-grams" and "sample domains to match LLaMA's target distribution." Raffel et al. (2020) introduced C4 (Colossal Clean Crawled Corpus) with rule-based filters (language detection, profanity removal, boilerplate suppression) that became widely adopted for T5, UL2, and Flan-T5 pretraining.
+
+Despite this wealth of empirical practice, **no prior work has validated which quality dimensions matter most via controlled experiments**. Is deduplication more important than diversity? Does perplexity filtering provide value beyond removing non-English text? Practitioners lack quantitative evidence to prioritize curation investments.
+
+**Our contribution:** We isolate and measure four quality dimensions on controlled C4 subsets, demonstrating that deduplication is the strongest predictor (r = 0.72) while diversity (r = 0.65), perplexity (r = 0.58), and efficiency (r = 0.53) all contribute non-redundantly. This provides evidence-based priority ranking for resource allocation.
+
+## Data-Centric AI and Quality Metrics
+
+The data-centric AI movement (Ng, 2021; Mazumder et al., 2022) argues that improving data often yields larger performance gains than architectural innovations, especially for production systems. Northcutt et al. (2021) showed that label noise significantly degrades model performance and proposed automated cleaning methods (confident learning). Sorscher et al. (2022) demonstrated that careful data pruning—removing low-value examples—can match full-dataset performance with 50% fewer training samples. Abbas et al. (2023) extended this to language models, showing 40% data reduction via perplexity-based pruning with minimal loss degradation.
+
+However, this work remains **qualitative about "quality" itself**. Ng's "quality over quantity" framing provides intuition but no operational metric. Data pruning methods (Sorscher, Abbas) define quality as "samples the current model finds easy/hard" (perplexity-based), which is task-specific and requires a trained model—not suitable for pretraining from scratch. Confident learning targets label noise in supervised settings, inapplicable to unsupervised pretraining.
+
+**Our contribution:** We define quality via information density—an intrinsic, task-agnostic property measurable before training begins. Our Q(D) metric combines deduplication (redundancy), diversity (coverage), perplexity (noise), and efficiency (signal density) into a composite score validated against information-theoretic ground truth (token entropy, n-gram redundancy, semantic diversity). Unlike pruning methods that require a trained model, Q(D) can be computed on raw text.
+
+## Information Theory and Learning Efficiency
+
+Our work connects to information-theoretic perspectives on learning efficiency. Shannon entropy quantifies information content in data (Shannon, 1948), and rate-distortion theory (Cover & Thomas, 2006) predicts that compression (removing redundancy) improves signal transmission efficiency. In the context of neural networks, Tishby & Zaslavsky (2015) argued that learning can be understood as information compression, and Fisher information (Ly et al., 2017) measures the amount of information an observable random variable carries about an unknown parameter.
+
+Recent work has applied information theory to dataset quality. Ash et al. (2020) used gradient-based scores to select informative training examples. Mindermann et al. (2022) analyzed loss-based prioritized sampling for improving sample efficiency. However, these methods measure "informativeness to a specific model" rather than intrinsic data quality.
+
+**Our contribution:** We measure information density via entropy and redundancy *before* any model training, providing a model-agnostic quality metric. While our initial hypothesis included Fisher information as a gradient-based density proxy, we found it unstable in preliminary experiments (Section 4.2), leading us to rely on entropy-based measures.
+
+## Positioning Summary
+
+Our work occupies the intersection of three research areas: we provide the **quantitative quality metric** that scaling laws lack, the **controlled experimental validation** that practitioner heuristics lack, and the **task-agnostic measurement framework** that data-centric AI lacks. The closest prior work is Chinchilla (scaling law rigor) and RedPajama (curation documentation), but neither quantifies quality's effect on learning efficiency. We are the first to validate a multi-component Q(D) metric against information density through controlled experiments suitable for scaling law integration.

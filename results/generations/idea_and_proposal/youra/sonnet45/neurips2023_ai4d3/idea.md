@@ -1,0 +1,10 @@
+# Title
+OpenTrialAI: Democratizing Clinical Trial Optimization Through Open-Source Decision Support
+
+# Motivation
+Clinical trial AI platforms (Lifebit, Medidata) achieve 65% enrollment improvements but cost $100K-500K annually, creating insurmountable barriers for academic medical centers. This cost-opacity divide prevents academic researchers from contributing algorithmic innovations to late-stage drug development, concentrating clinical trial AI exclusively in commercial hands. No open-source alternatives exist despite 450,000+ publicly available trial records that could enable transparent, accessible decision support tools.
+
+# Main Idea
+We propose OpenTrialAI, a modular open-source framework trained on public trial registries (ClinicalTrials.gov, EudraCT) providing clinical trial decision support through four independent modules: Patient Recruitment Engine, Protocol Optimizer, Outcome Predictor, and Safety Monitor. The core hypothesis posits that **Cost-Transparency-Modularity convergence** drives academic adoption: (1) zero licensing costs enable budget reallocation to deployment infrastructure, (2) source code access enables algorithmic research innovation, and (3) modular architecture creates sustainable consortium maintenance across 5-10 academic institutions.
+
+We target 50-60% of commercial platform performance (30-40% improvement vs. 65% baseline) while achieving democratization goals commercial platforms cannot provide. Success metrics: ≥10 institutional deployments within 12 months, ≥5 research publications within 18 months, FDA Class II clearance within 24 months, and System Usability Scale ≥70 from clinical coordinators. This shifts clinical trial AI from proprietary enterprise tools to public research infrastructure, analogous to how MONAI democratized medical imaging AI.

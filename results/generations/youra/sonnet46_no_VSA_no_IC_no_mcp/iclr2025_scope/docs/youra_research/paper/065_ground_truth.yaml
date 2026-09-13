@@ -1,0 +1,194 @@
+# Ground Truth for Phase 6.5 Adversarial Review
+# Extracted from Phase 0-5 artifacts and validated paper
+# Primary source: 045_validated_hypothesis.md, h-e1/04_validation.md
+# Used by Adversary Agent to verify paper accuracy
+
+version: "1.0"
+extracted_at: "2026-08-27T05:00:00+00:00"
+source_files:
+  - "h-e1/04_validation.md"
+  - "docs/youra_research/045_validated_hypothesis.md"
+  - "docs/youra_research/03_refinement.yaml"
+  - "docs/youra_research/02b_verification_plan.md"
+
+# ============================================================================
+# METRICS (from 04_validation.md)
+# ============================================================================
+
+metrics:
+  M0_baseline:
+    name: "Full KV (no eviction) macro-average F1"
+    value_raw: 0.0875
+    value_percent: 8.75
+    source: "h-e1/04_validation.md — Table: Observed Metrics"
+    verified: true
+
+  M0_per_task:
+    narrativeqa: 0.09
+    hotpotqa: 0.09
+    wikimqa_2: 0.11
+    musique: 0.06
+    source: "h-e1/04_validation.md — Table: Observed Metrics"
+    verified: true
+
+  M1_prefill_observation:
+    narrativeqa: 0.00
+    hotpotqa: 0.00
+    wikimqa_2: 0.00
+    musique: "Not reached"
+    status: "Degenerate — DynamicCache reconstruction failure"
+    source: "h-e1/04_validation.md"
+    verified: true
+
+  M2_cumulative_at_prefill: "Not reached — experiment terminated before M2 ran"
+  M6_streamingllm: "Not reached"
+
+  gate_result:
+    criterion: "M1_macro_F1 - M2_macro_F1 >= 2.0 (intended as percentage points; raw: >= 0.02)"
+    actual: "UNEVALUABLE — M1 degenerate, M2 not run"
+    status: "FAIL"
+    hypothesis_status: "INCONCLUSIVE (not REFUTED)"
+
+# ============================================================================
+# METHODOLOGY (from 03_refinement.yaml, 02b_verification_plan.md, 03_prd.md)
+# ============================================================================
+
+methodology:
+  model: "meta-llama/Llama-2-7b-chat-hf"
+  model_type: "instruction-tuned, 7B decoder-only"
+  dataset: "THUDM/LongBench"
+  tasks_qa: ["narrativeqa", "hotpotqa", "2wikimqa", "musique"]
+
+  key_hyperparameters:
+    examples_per_task: 100
+    seed: 42
+    max_context_length: 4096
+    retention_ratio: 0.50
+    observation_window_W: 16
+    max_new_tokens: 50
+    torch_dtype: "float16"
+    device_map: "auto"
+    attn_implementation: "eager"
+
+  score_fn_M1: "mean attention weight from last W=16 query tokens at prefill end (per-head, per-layer)"
+  score_fn_M2: "cumulative sum of attention weights over all prefill steps (per-head, per-layer)"
+  score_fn_correctness: "Both confirmed correct by code review; match SnapKV (M1) and H2O (M2) reference implementations"
+  source: "h-e1/04_validation.md, 03_refinement.yaml"
+
+  kv_shape_eviction:
+    method: "top-k indexing and gather per attention head per layer"
+    k_value: 2048
+    full_seq_len: 4096
+    confirmed_layers: "32/32 LLaMA-2 transformer layers"
+    shape_log_confirmed: true
+    source: "h-e1/04_validation.md — Mechanism Verification table"
+
+# ============================================================================
+# IMPLEMENTATION FAILURE FACTS
+# ============================================================================
+
+implementation_failure:
+  root_cause: "DynamicCache reconstruction from raw (key, value) tensors is incompatible with transformers 5.x"
+  api_used: "DynamicCache(ddp_cache_data=evicted_kv_tensors)"
+  symptom: "F1=0.00 on all completed M1 tasks despite correct KV shapes"
+  causally_attributed: true
+  attribution_evidence: "M0 (identical pipeline, no reconstruction) = 0.0875; M1 (with reconstruction) = 0.00"
+  corrected_approach: "LlamaAttention.forward() monkey-patching (SnapKV pattern)"
+  corrected_approach_reference: "github.com/FasterDecoding/SnapKV — snapkv_utils.py:update_kv()"
+
+# ============================================================================
+# CLAIMS IN PAPER
+# ============================================================================
+
+claims:
+  - claim: "M0 (full KV) macro-F1=0.0875 across 4 LongBench QA tasks"
+    location: "Section 5.1, Table 1"
+    supporting_evidence: "h-e1/04_validation.md — Observed Metrics table"
+    verified: true
+
+  - claim: "KV shape eviction produces 2048/4096 per head across all 32 layers"
+    location: "Section 5.2, shape log"
+    supporting_evidence: "h-e1/04_validation.md — Mechanism Verification: KV shape reduced = PASS"
+    verified: true
+
+  - claim: "M1 F1=0.00 on narrativeqa, hotpotqa, 2wikimqa"
+    location: "Section 5.3, Table 2"
+    supporting_evidence: "h-e1/04_validation.md — Observed Metrics: M1 degenerate"
+    verified: true
+
+  - claim: "DynamicCache reconstruction is the root cause (not score_fn, not shape eviction)"
+    location: "Section 5.4, Table 3"
+    supporting_evidence: "h-e1/04_validation.md — Root Cause Analysis; 045_validated_hypothesis.md §4.1"
+    verified: true
+    confidence: "HIGH (causal attribution via isolation; competing explanations addressed)"
+
+  - claim: "M1 and M2 score_fn formulas are mathematically correct"
+    location: "Section 3.2"
+    supporting_evidence: "h-e1/04_validation.md — Code Quality Checklist: score_M1 ✓, score_M2 ✓"
+    verified: true
+
+  - claim: "Primary hypothesis (M1 vs. M2 comparison) is INCONCLUSIVE — not REFUTED"
+    location: "Section 5.5, Section 6.2"
+    supporting_evidence: "045_validated_hypothesis.md §1 (Executive Summary), §2 (Prediction-Result Matrix)"
+    verified: true
+
+  - claim: "M0 F1=0.0875 consistent with LLaMA-2-7B-chat at 4K context truncation on LongBench"
+    location: "Section 5.1"
+    supporting_evidence: "045_validated_hypothesis.md §4.2 Finding 1 — LongBench Fig. 2 smaller models 8-15%"
+    verified: true
+    confidence: "HIGH (consistent with literature; MCP-unverified LongBench reference)"
+
+# ============================================================================
+# CONTRIBUTIONS
+# ============================================================================
+
+contributions:
+  - contribution: "Documented DynamicCache reconstruction failure mode in transformers 5.x"
+    evidence_in_paper: "Section 3.4, Section 5.4 (Table 3)"
+    novelty: "No prior KV eviction paper documents this failure mode"
+    confidence: "HIGH"
+
+  - contribution: "Reproducible M0 baseline: macro-F1=0.0875, fully specified configuration"
+    evidence_in_paper: "Section 4.4 (config), Section 5.1 (Table 1)"
+    confidence: "HIGH"
+
+  - contribution: "Verified score_fn implementations (M1, M2) ready for corrected experiment"
+    evidence_in_paper: "Section 3.2"
+    confidence: "HIGH"
+
+  - contribution: "Pre-validation protocol (5-example abort-on-degenerate)"
+    evidence_in_paper: "Section 3.5"
+    confidence: "HIGH (operational; would have caught bug in 3 min vs 30 min)"
+
+# ============================================================================
+# WHAT PAPER DOES NOT CLAIM (critical for adversarial review)
+# ============================================================================
+
+non_claims:
+  - "We do NOT claim M1 outperforms M2 — this comparison was not executed"
+  - "We do NOT claim the hypothesis is refuted — it is INCONCLUSIVE"
+  - "We do NOT claim 50% KV retention is generally viable — only M0 (no eviction) is confirmed"
+  - "We do NOT claim cross-architecture or cross-model generalization"
+  - "We do NOT provide citation-verified references — MCP unavailable; all bibtex marked [UNVERIFIED]"
+  - "We do NOT claim the M0 F1 matches SnapKV paper values — it is lower due to 4K context truncation (by design)"
+
+# ============================================================================
+# ALERT FLAGS FOR ADVERSARIAL REVIEW
+# ============================================================================
+
+alert_flags:
+  - flag: "All citations are [UNVERIFIED] — Semantic Scholar MCP unavailable in this session"
+    severity: "HIGH"
+    action: "Verify all 7 arXiv IDs before submission"
+
+  - flag: "Page count borderline — estimated ~11 text-only pages; ICML limit is 8"
+    severity: "HIGH"
+    action: "Section condensation required: Related Work §2.4 and Methodology §3.1 are candidates"
+
+  - flag: "No figures — experiment incomplete"
+    severity: "MEDIUM"
+    action: "Generate pipeline diagram and M0 bar chart for corrected rerun; paper is weaker without figures"
+
+  - flag: "F1 scale clarification needed — raw vs. percentage is a potential reviewer confusion point"
+    severity: "MEDIUM"
+    action: "Section 4.4 note on F1 scale is present; verify it is sufficiently prominent"

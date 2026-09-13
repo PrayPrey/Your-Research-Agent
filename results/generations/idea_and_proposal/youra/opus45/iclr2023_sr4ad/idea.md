@@ -1,0 +1,9 @@
+# Planning-Aware Occupancy Networks for Autonomous Driving
+
+## Motivation
+Current autonomous driving systems suffer from a fundamental disconnect: 3D occupancy representations are optimized for perception accuracy rather than downstream planning utility. While recent work demonstrates success in joint perception-prediction systems, integrating planning remains challenging due to task interference and weak gradient signals. This gap results in representations that excel at scene understanding but fail to capture planning-critical features like collision risks and trajectory feasibility.
+
+## Main Idea
+We propose jointly training 3D occupancy networks with a cost-conditioned future prediction module and differentiable planning layer. The core mechanism operates through three causal steps: (1) cost-conditioning (collision, comfort, progress weights) guides the decoder to predict planning-relevant future occupancy states, (2) differentiable planning gradients flow backward to optimize the shared representation for trajectory-critical features, and (3) this unified representation simultaneously serves perception and planning without task interference.
+
+Using SurroundOcc as the backbone on nuScenes, we target <0.95m L2 error at 3s horizon (10% improvement over VAD-Base's 1.05m) while maintaining >20% perception mIoU. Key ablations will isolate contributions of cost-conditioning versus differentiable planning. Falsification occurs if L2 exceeds 1.35m or perception drops >5%. This bridges the perception-planning gap through representation-level optimization rather than post-hoc integration.

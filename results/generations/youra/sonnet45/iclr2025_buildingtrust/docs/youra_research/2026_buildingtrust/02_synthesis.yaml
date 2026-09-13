@@ -1,0 +1,124 @@
+# 02_synthesis.yaml - Phase 2A Synthesis (v10.0.0 Free-Parse)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-03-17T00:35:00Z"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Geometric Fingerprints of Alignment: Pre-Alignment Confidence Margin Predicts Alignment-Induced Argmax Instability with Method-Specific Signatures"
+  hypothesis_id: "H-MarginFlip-v1"
+  core_claim: |
+    Pre-alignment confidence margin (top-1 minus top-2 log-probability on the base model)
+    monotonically predicts post-alignment argmax inversion probability on MCQ benchmarks.
+    This relationship is method-specific: DPO's log-odds objective amplifies option-probability
+    differences more directly than PPO's KL-penalized gradient, producing higher flip rates
+    in low-margin regions — a geometric fingerprint detectable from the base model alone,
+    surviving control for overall KL divergence between base and aligned models.
+  mechanism: |
+    Four-step causal chain:
+    1. Base model logit geometry encodes epistemic uncertainty — low margin = near-boundary decision
+    2. Alignment injects structured logit perturbation (axis-specific, not isotropic noise)
+    3. DPO's log-odds objective amplifies existing option-prob differences → higher variance
+       perturbations near margin=0; PPO's KL term globally constrains distributional drift
+    4. When perturbation exceeds pre-margin, argmax inverts — DPO produces more inversions at low margin
+  predictions:
+    - P1: "Margin predicts flip: β₁ < 0, p < 0.005, AUROC >= 0.75 cross-benchmark"
+    - P2: "Method-specific interaction: DPO steeper flip-rate at low margin (Margin × Method β₃ in predicted direction, KL-controlled)"
+    - P3: "Geometric confirmation: DPO logit deltas more cosine-aligned with base decision axis at low margin than PPO"
+
+variables_summary:
+  independent: "Pre-alignment confidence margin (continuous, z-scored) and alignment method (PPO vs DPO, categorical)"
+  dependent_primary: "Argmax flip indicator (binary: 1 if post-alignment argmax differs from pre-alignment argmax)"
+  controlled: "KL divergence (update magnitude), entropy, answer position, model scale"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in argmax inversion probability between low-margin
+    and high-margin MCQ items after controlling for KL divergence between base and aligned models.
+    The Margin × Method interaction term is zero: PPO and DPO do not differ in how they
+    relate pre-alignment margin to post-alignment argmax stability.
+  statistical_test: "Mixed-effects logistic regression with interaction term; AUROC on held-out benchmark"
+  significance_level: 0.005  # Bonferroni-corrected for 3 benchmarks
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First pre-alignment diagnostic for alignment-induced argmax instability with mechanistically grounded method-specific predictions. Extends Fan et al. pretraining→SFT to pretraining→RLHF."
+  differentiation_summary: |
+    Li et al. [2024]: characterizes post-RLHF trustworthiness changes (what changes).
+    This work: predicts which items will change, from base model alone (when/where).
+    Fan et al. [2026]: pretraining→SFT accuracy ranking persistence.
+    This work: pretraining→RLHF margin-flip persistence with method-specific signatures.
+    Plaut et al. [2024]: MSP predicts correctness.
+    This work: margin predicts alignment-induced change in correctness — harder task.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "EleutherAI/pythia-1.4b (base) + trl-aligned PPO/DPO variants"
+    - "EleutherAI/pythia-6.9b (base) + trl-aligned PPO/DPO variants"
+    - "allenai/tulu-2-base + allenai/tulu-2-dpo-7b + allenai/tulu-2-ppo-7b"
+  datasets:
+    - "cais/mmlu (primary, 57 categories, ~14K items)"
+    - "truthful_qa (truthfulness-sensitive, alignment-relevant)"
+    - "allenai/ai2_arc (ARC-Challenge, factual MCQ)"
+  baselines:
+    - "SFT-only models (no RLHF stage)"
+    - "Random flip permutation baseline"
+    - "Entropy-only predictor model"
+
+measurement_plan:
+  data_collection:
+    - source: "lm-evaluation-harness: extract log-probs for 4-option MCQ (--output_path for logit logging)"
+    - source: "HuggingFace Hub: download base and aligned model pairs"
+    - source: "HuggingFace datasets: mmlu, truthful_qa, ai2_arc (existing benchmarks only)"
+  procedure:
+    - step: "Extract base model log-probs on MMLU/TruthfulQA/ARC via lm-evaluation-harness"
+    - step: "Compute confidence margin = log-prob(top-1) - log-prob(top-2), z-score within model"
+    - step: "Extract aligned model log-probs (PPO variants and DPO variants) on same items"
+    - step: "Compute flip indicator: 1 if argmax(aligned) != argmax(base)"
+    - step: "Compute KL(base || aligned) over MCQ answer distribution per model pair"
+    - step: "Fit mixed-effects logistic regression with interaction terms"
+    - step: "Compute cross-benchmark AUROC for margin-only predictor"
+    - step: "Compute cosine similarity between logit deltas and base decision axis"
+  success_criteria:
+    - "β₁ < 0, p < 0.005, partial η² >= 0.06 for margin main effect"
+    - "Margin × Method interaction in predicted direction (p < 0.05)"
+    - "Cross-benchmark AUROC >= 0.75 on held-out benchmark"
+    - "DPO logit deltas: higher cosine alignment with base decision axis at low margin quintile (p < 0.05)"
+
+validation:
+  internal_validity:
+    - "KL covariate control eliminates update-magnitude confound"
+    - "Within-model margin z-scoring eliminates overconfidence scale differences"
+    - "Answer-position fixed effect controls for position bias"
+    - "Bonferroni correction for 3-benchmark multiple testing"
+  external_validity:
+    - "Cross-benchmark AUROC test (train on MMLU, test on TruthfulQA/ARC)"
+    - "Cross-model-family replication (Pythia + Tulu-2)"
+    - "Bootstrap confidence intervals for cosine projection test (low n)"
+
+discussion_synthesis:
+  key_insights:
+    - "DPO's log-odds objective structurally amplifies option differences more directly than PPO's KL-constrained gradient — mechanism derived from first principles of the optimization objectives"
+    - "Pre-alignment confidence geometry is a diagnostic fingerprint: low-margin items are both epistemically fragile (Plaut et al.) and optimization-fragile (this work)"
+    - "Fan et al.'s benchmark-dependent transfer reliability implies diagnostic validity varies across benchmarks — this is a feature to characterize, not a bug to eliminate"
+    - "The h-m3 PPO catastrophe at 1.4B (rho=-0.3241) may reflect below-capability-threshold chaotic logit geometry rather than typical PPO behavior"
+  breakthrough_moments:
+    - "Prof. Rex's KL confound identification forced the regression design to include KL covariate — this made the hypothesis genuinely falsifiable rather than merely correlational"
+    - "Prof. Vera's pre-registration design (β₁ < 0, p < 0.005, AUROC >= 0.75) provided the quantitative bar that resolved the falsifiability concern"
+    - "Dr. Ally's derivation of the mechanism directly from PPO/DPO loss function forms elevated the prediction from empirical guess to mechanistically grounded hypothesis"
+  resolved_tensions:
+    - "Correlation vs mechanism: resolved by KL control and cosine projection test"
+    - "PPO=stable vs PPO=catastrophic: resolved by scale moderation — 1.4B may be below capability threshold"
+    - "Method comparison confound: resolved by matched base→aligned pairs with documented hyperparameters"

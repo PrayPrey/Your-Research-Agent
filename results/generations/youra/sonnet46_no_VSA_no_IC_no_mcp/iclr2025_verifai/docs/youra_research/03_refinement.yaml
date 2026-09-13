@@ -1,0 +1,315 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-26T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent-Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "Gap-1"
+  gap_title: "No Systematic Empirical Comparison of Formal Constraint Types on LLM Code Correctness"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 10
+  convergence_reason: "All 6 convergence criteria met at Exchange 10 — SPECIFIC, MECHANISM, PREDICTIONS, NOVELTY, FEASIBILITY, OBJECTIONS all satisfied"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Execution-only repair (Self-Debug style) improves pass@k over non-repaired baselines on HumanEval/MBPP"
+      status: "BUILD_ON"
+      evidence: "Chen et al. 2023 (Self-Debug); widely reproduced in the repair loop literature"
+    - claim: "Grammar-constrained decoding (Outlines/Guidance) is implementable at inference time for Python"
+      status: "BUILD_ON"
+      evidence: "Willard & Louf 2023 (Outlines); vLLM integration documented"
+    - claim: "mypy type checker reliably detects Python type errors and outputs structured error messages"
+      status: "BUILD_ON"
+      evidence: "mypy documentation; standard tool in Python ecosystem"
+    - claim: "HumanEval+ and MBPP+ benchmarks are suitable for pass@k evaluation with stronger tests than original"
+      status: "BUILD_ON"
+      evidence: "Liu et al. 2023 (EvalPlus); benchmark harness publicly available"
+    - claim: "Static analysis feedback in LLM repair loops yields measurably higher pass@1 than execution-only feedback"
+      status: "PROVE_NEW"
+      evidence: "No published controlled comparison exists — this is the primary research gap"
+    - claim: "LLM-generated Z3 constraints provide additional repair signal beyond mypy on arithmetic-heavy problems"
+      status: "PROVE_NEW"
+      evidence: "No published study; Z3 curated-subset analysis is novel contribution"
+  scope_reduction_percentage: 67
+  phase2b_4_instructions: |
+    BUILD_ON claims (4/6) can be cited as prior work without re-verification.
+    PROVE_NEW claims (2/6) are the core experimental contributions — Phase 2B must design
+    verification protocols for: (1) mypy vs. execution-only on HumanEval+/MBPP+,
+    (2) Z3 vs. mypy on curated arithmetic subset.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-StaticRepair-v1"
+  confidence_level: 0.72
+  core_hypothesis_statement: |
+    Under Python code generation on HumanEval+ and MBPP+ benchmarks,
+    if repair loops are augmented with static analysis feedback (mypy type checking)
+    in addition to execution-based feedback,
+    then pass@1 after up to k=5 repair rounds increases beyond the execution-only baseline,
+    because mypy provides error-type-specific correction signal (type mismatch location and expected type)
+    that narrows the LLM's next-attempt distribution toward type-correct solutions,
+    whereas execution-only feedback provides only pass/fail binary signal without type-level diagnostics.
+  alternative_hypothesis_h0: |
+    There is no significant difference in pass@1 (averaged over k=1..5 repair rounds) between
+    execution+mypy repair and execution-only repair on HumanEval+ and MBPP+.
+    (Welch's t-test, p >= 0.05 on both benchmarks)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Repair feedback condition"
+      type: "categorical"
+      operationalization: "Type of feedback provided to LLM during repair loop"
+      levels:
+        - "execution-only: run code, capture stdout/stderr/exception, feed to LLM"
+        - "execution+mypy: run code AND run mypy --ignore-missing-imports, feed both outputs to LLM"
+        - "execution+mypy+Z3: above plus LLM-generated Z3 spec verification with counterexample [curated subset only]"
+    - name: "Repair round k"
+      type: "continuous"
+      operationalization: "Number of repair iterations (k=1..5); analyzed as learning curve"
+    - name: "Benchmark"
+      type: "categorical"
+      operationalization: "HumanEval+ (164 problems) vs. MBPP+ (378 problems)"
+      levels: ["HumanEval+", "MBPP+"]
+  dependent:
+    - name: "pass@1"
+      type: "continuous"
+      operationalization: "Fraction of problems where LLM-generated code passes all EvalPlus test cases, after up to k repair rounds; range [0,1]"
+      primary: true
+    - name: "Type error reduction rate"
+      type: "continuous"
+      operationalization: "Fraction of mypy errors in repair attempt r+1 that were corrected relative to repair attempt r; tracks mypy signal incorporation"
+      primary: false
+    - name: "Repair success by error category"
+      type: "categorical"
+      operationalization: "Categorize failure reasons (syntax/type/semantic/logic) and measure per-condition repair rate per category"
+      primary: false
+  controlled:
+    - name: "LLM model"
+      operationalization: "GPT-4o-mini (fixed); same model for initial generation and all repair rounds"
+    - name: "Initial generation temperature"
+      operationalization: "temperature=0.8 for initial code generation (stochastic)"
+    - name: "Repair generation temperature"
+      operationalization: "temperature=0.0 for repair rounds (deterministic given feedback)"
+    - name: "Token budget per repair prompt"
+      operationalization: "Max 2048 tokens per repair prompt (truncate feedback if needed)"
+    - name: "Number of seeds"
+      operationalization: "3 random seeds for initial generation; results averaged"
+    - name: "Benchmark split"
+      operationalization: "Full HumanEval+ (164) and MBPP+ (378) — no subset for primary comparison"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: "Initial LLM generation produces code with type errors (~20-30% of HumanEval failures involve type mismatches based on EvalPlus analysis)"
+      evidence: "EvalPlus analysis (Liu et al. 2023) shows execution failures cluster around type mismatch and off-by-one errors"
+      falsifier: "If fewer than 10% of initial failures involve type errors, mypy signal is too sparse to matter"
+    - step: 2
+      description: "mypy feedback provides structured type-error message (error type, line number, expected vs. actual type) that specifically locates the type mismatch, enabling targeted repair"
+      evidence: "mypy output format is structured and actionable; distinguishes AttributeError, TypeVar, Optional violations by error code"
+      falsifier: "If mypy and execution feedback contain equivalent information (overlap > 95%), no additional signal expected"
+    - step: 3
+      description: "LLM conditioned on mypy error message generates a next attempt with lower probability mass on type-incorrect tokens, increasing pass@1"
+      evidence: "Analogous to how Self-Debug [Chen et al. 2023] showed execution error messages guide repair; mypy provides richer type-specific signal"
+      falsifier: "If pass@1 after round 2 (with mypy) equals pass@1 after round 2 (execution-only), mechanism fails"
+  key_tension: "mypy in strict mode may produce false positives on dynamically-typed HumanEval code, potentially adding noise rather than signal. Mitigation: permissive mypy flags (--ignore-missing-imports --no-strict-optional)"
+  evidence_summary: |
+    The causal chain has weak-to-moderate prior support: Step 1 (type errors are common)
+    is supported by EvalPlus analysis. Step 2 (mypy output is informative) is well-established.
+    Step 3 (LLM uses mypy signal for targeted repair) is the empirical claim requiring validation.
+    The chain is plausible but the effect size at Step 3 is genuinely unknown.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Type errors are a non-trivial fraction (~20%+) of HumanEval+/MBPP+ failures under GPT-4o-mini generation"
+    supporting_evidence: "EvalPlus error analysis (Liu et al. 2023) suggests type-related failures are common in model-generated Python"
+    consequence_if_violated: "If type errors are rare (<5% of failures), mypy adds negligible signal and pass@1 improvement will be near zero"
+  - id: "A2"
+    assumption: "GPT-4o-mini can incorporate mypy error messages to improve repair quality — i.e., mypy error format is interpretable by the LLM"
+    supporting_evidence: "GPT-4o-mini has strong Python understanding; mypy error messages are human-readable text"
+    consequence_if_violated: "If LLM cannot parse/use mypy output, Condition B degrades to Condition A (extra tokens wasted)"
+  - id: "A3"
+    assumption: "mypy in permissive mode (--ignore-missing-imports --no-strict-optional) produces actionable errors with low false-positive rate on HumanEval/MBPP code"
+    supporting_evidence: "Permissive mypy flags are standard practice for partially-typed Python codebases"
+    consequence_if_violated: "High false-positive rate adds noise, potentially degrading repair quality"
+  - id: "A4"
+    assumption: "k=5 repair rounds is sufficient to capture the asymptotic pass@k benefit; effect does not require k>5"
+    supporting_evidence: "Self-Debug [Chen et al. 2023] shows most repair benefit materializes within k=3 rounds"
+    consequence_if_violated: "Effect may be delayed, requiring k>5 rounds to observe; timeline extends"
+  - id: "A5"
+    assumption: "For the Z3 curated subset (~50 arithmetic-heavy HumanEval problems), LLM-generated Z3 specs are sufficiently correct (validated against EvalPlus test cases before use)"
+    supporting_evidence: "Pure functions with simple int/str types have reliable formal encodings; pre-validation step catches wrong specs"
+    consequence_if_violated: "Wrong Z3 specs generate misleading counterexamples; Condition C may underperform Condition B — this is the null result for the Z3 sub-hypothesis"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Python code generation tasks on competitive programming / algorithmic benchmarks
+    - Problems where mypy can analyze generated code (no complex external dependencies)
+    - LLMs with strong Python understanding (code-specialized or large general models)
+    - Repair loop settings where k>=2 repair rounds are permitted
+    - HumanEval+ (164 problems) and MBPP+ (378 problems) — existing benchmarks
+  does_not_apply_to: |
+    - Real-world software engineering tasks (SWE-bench) — excluded from primary analysis due to compute cost
+    - Non-Python languages — mypy is Python-specific; findings may not generalize
+    - Code generation tasks with complex external library dependencies (mypy cannot analyze without stubs)
+    - Single-shot generation (k=1, no repair loop) — not the target setting
+    - Grammar-constrained decoding-time interventions — distinct architecture not studied here
+  known_limitations: |
+    - GPT-4o-mini is a single model; generalization to other models requires replication
+    - HumanEval+ (164 problems) may be underpowered for 1% absolute effect detection — MBPP+ (378) is primary
+    - Z3 analysis is restricted to ~50-problem subset; not representative of full benchmark
+    - All MCP sources in Phase 1 were INFERRED (data quality 63/100) — arXiv IDs need verification
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Execution+mypy repair achieves strictly higher pass@1 than execution-only repair on MBPP+ (primary) and HumanEval+ (secondary), averaged over k=1..5 repair rounds"
+    test_method: "3-condition repair loop experiment on HumanEval+ (164) and MBPP+ (378); 3 seeds; Welch's t-test on per-problem improvement delta"
+    success_criterion: "p < 0.05 on MBPP+; absolute pass@1 improvement >= 1% on MBPP+"
+    falsification: "p >= 0.05 on both benchmarks, or negative pass@1 delta (mypy condition performs worse)"
+  - id: "P2"
+    primary: false
+    statement: "On the curated Z3 subset (~50 arithmetic-heavy HumanEval problems), execution+mypy+Z3 achieves higher pass@1 than execution+mypy (after Z3 spec pre-validation)"
+    test_method: "Same repair loop; subset restricted to pure functions with simple types; Z3 specs generated by GPT-4o-mini and validated against EvalPlus test cases before use"
+    success_criterion: "Positive pass@1 delta (Z3 > mypy) on curated subset, even if not statistically significant at p < 0.05"
+    falsification: "Z3 condition performs equal to or worse than mypy condition (Z3 specs add noise even on curated subset)"
+  - id: "P3"
+    primary: false
+    statement: "Under execution+mypy repair, the number of mypy type errors in repair attempt r+1 is lower than in attempt r (across rounds 1..5), confirming LLM uses mypy feedback"
+    test_method: "Run mypy on each repair attempt for each problem in execution+mypy condition; track mean type error count per round"
+    success_criterion: "Monotonically decreasing mean mypy error count from round 1 to round 5"
+    falsification: "mypy error count does not decrease (or increases) across repair rounds — LLM ignores mypy signal"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "MBPP+ (primary) + HumanEval+ (secondary)"
+    type: "standard"
+    source: "evalplus/evalplus repository (public)"
+    path: "https://github.com/evalplus/evalplus"
+    hypothesis_fit: "Both benchmarks have stronger test suites than originals (EvalPlus augmentation), reducing false positives. MBPP+ (378 problems) provides sufficient power to detect 1% absolute improvement. HumanEval+ (164 problems) serves as secondary replication."
+  model:
+    name: "GPT-4o-mini"
+    type: "API-based LLM (OpenAI)"
+    source: "OpenAI API"
+    hypothesis_fit: "Strong Python understanding; affordable for ~7,400 repair calls ($10-15); deterministic at temperature=0.0 for repair rounds enabling reproducibility"
+  baselines:
+    - name: "No-repair baseline"
+      method: "Direct generation (temperature=0.8, k=1), no repair loop"
+    - name: "Execution-only repair (Self-Debug)"
+      method: "k=5 repair rounds with execution output only (Chen et al. 2023 approach)"
+    - name: "Execution+mypy repair [PRIMARY TREATMENT]"
+      method: "k=5 repair rounds with execution output + mypy --ignore-missing-imports output"
+    - name: "Execution+mypy+Z3 repair [SECONDARY TREATMENT, curated subset only]"
+      method: "k=5 repair rounds with execution + mypy + LLM-generated Z3 counterexamples (pre-validated)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First controlled comparison of static analysis (mypy) as an explicit repair-loop feedback signal in LLM code generation, on standard benchmarks (HumanEval+/MBPP+)"
+  key_innovation: "Treating mypy type-checker output as a distinct, structured feedback channel in LLM repair loops — separate from execution feedback — and measuring its marginal contribution to pass@1"
+  differentiation:
+    - prior_work: "Self-Debug (Chen et al. 2023)"
+      difference: "Self-Debug uses execution output only; this work adds mypy as a second feedback channel and isolates its contribution"
+    - prior_work: "Reflexion (Shinn et al. 2023)"
+      difference: "Reflexion uses verbal/LLM-generated reflection, not structured static analysis output"
+    - prior_work: "Outlines/Guidance grammar-constrained decoding"
+      difference: "Those are decoding-time interventions; this work uses post-generation repair loops — different architecture, different compute model"
+    - prior_work: "SWE-agent (Yang et al. 2024)"
+      difference: "SWE-agent uses bash execution but no static analysis as a distinct feedback channel; focus is on agentic navigation not repair loops"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "Self-Debug (execution-only repair)"
+      performance: "~65-70% pass@1 on HumanEval with k=3 rounds (estimated from paper)"
+      dataset: "HumanEval / MBPP"
+      why_insufficient: "Uses execution output only — type-specific errors not surfaced; our hypothesis claims static analysis adds signal beyond this"
+    - method: "Reflexion (verbal feedback repair)"
+      performance: "~67% pass@1 on HumanEval with k=3 (estimated)"
+      dataset: "HumanEval"
+      why_insufficient: "LLM-generated verbal feedback — not structured static analysis output"
+    - method: "Direct generation (no repair)"
+      performance: "GPT-4o-mini HumanEval+ estimated ~55-60% pass@1"
+      dataset: "HumanEval+"
+      why_insufficient: "No repair loop at all — lowest baseline"
+  best_baseline_performance: "~65-70% pass@1 on HumanEval with execution-only repair (Self-Debug, k=3 rounds)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Type errors must be a non-trivial fraction of LLM code generation failures on HumanEval+/MBPP+ (A1 assumption) — verifiable by running mypy on a sample of GPT-4o-mini generated code"
+  sh2_mechanism: "mypy feedback provides structured type-error signal that enables more targeted repair than execution-only feedback — testable via P3 (mypy error count reduction across rounds)"
+  sh3_comparison: "Comparison to execution-only repair (Self-Debug) on MBPP+/HumanEval+ — deferred to Phase 5 for reproducibility comparison against published baselines"
+  open_questions:
+    - "What fraction of MBPP+ failures involve type errors under GPT-4o-mini? (empirical check needed before main experiment)"
+    - "Does mypy permissive mode produce sufficiently low false-positive rate on EvalPlus-style code?"
+    - "Can LLM-generated Z3 specs be validated automatically against EvalPlus test cases, or does this require manual review?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "10 exchanges; all 6 convergence criteria met at Exchange 10 (Dr. Sage final verdict)"
+  clarity_verified: true
+  remaining_objections:
+    - "Z3 spec quality confound addressed by pre-validation but not fully eliminated"
+    - "mypy false-positive rate on HumanEval/MBPP code needs empirical check"
+    - "MBPP+ is primary benchmark (HumanEval+ may be underpowered for 1% effect)"
+
+discussion_context:
+  total_exchanges: 10
+  agent_participation:
+    dr_nova: 2  # Exchanges 1, 7
+    prof_vera: 2  # Exchanges 2, 8
+    dr_sage: 2  # Exchanges 3, 10
+    prof_pax: 2  # Exchanges 4, 9
+    dr_ally: 1  # Exchange 5
+    prof_rex: 1  # Exchange 6
+  paper_citations: 9  # Outlines, EvalPlus, HumanEval, Self-Debug, Reflexion, SWE-bench, SWE-agent, APR survey, AlphaCode
+  convergence_type: "qualitative"

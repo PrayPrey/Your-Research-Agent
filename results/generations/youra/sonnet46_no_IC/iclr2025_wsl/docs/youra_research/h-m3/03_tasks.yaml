@@ -1,0 +1,511 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m3"
+  hypothesis_id_upper: "H-M3"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-08-05T14:45:00Z"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ─── Environment Setup ────────────────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Verify H-M1/H-E1 environment and install missing packages"
+    description: |
+      Reuse H-M1 conda/pip environment. Verify all required packages are present:
+        torch>=2.0.1, torch-geometric>=2.3.0, pytorch-scatter, numpy, scikit-learn,
+        scipy, einops, torchvision, matplotlib, seaborn, tqdm, pyyaml
+      Also verify h-m1/code/ and h-e1/code/ are importable (sys.path injection test).
+      Install: pip install scipy torchvision seaborn  (if not already present)
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - python -c "import torch, torch_geometric, scipy, torchvision, seaborn; print('OK')"
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#HM3Config"
+
+  # ─── Epic Tasks ────────────────────────────────────────────────────────────
+  - id: "task-002"
+    epic: "A-1: Config & Scaffold"
+    title: "Implement config.py and directory scaffold for H-M3"
+    description: |
+      Create h-m3/config.py with HM3Config master dataclass (nested PairConfig,
+      TaskConfig, EvalConfig). Set PROJECT_ROOT, H_M1_CODE, H_E1_CODE, H_M3_ROOT paths.
+      Create output directories: h-m3/data/, h-m3/results/, h-m3/figures/.
+      Verified field values: HIDDEN_DIM=256, LATENT_DIM=128, NUM_LAYERS=4 (from h-m1/config.py).
+      MLP arch dims per task: MNIST (784→[256,256]→10), SVHN (3072→[256,256]→10),
+      CIFAR-10 (3072→[256,256]→10).
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 5
+    test_requirements: |
+      - from config import HM3Config; cfg = HM3Config(); cfg.validate()
+    reference_files:
+      architecture: "03_architecture.md#Config"
+      logic: null
+      config: "03_config.md#C-5-2"
+
+  - id: "task-003"
+    epic: "A-2: Pair Builder"
+    title: "Implement MLP pair dataset construction from SANE MultiZoo"
+    description: |
+      Create h-m3/data/pair_builder.py.
+      build_mlp_pairs(multizoo_root, min_pairs=500, seed=42, tasks=['mnist','svhn','cifar10']):
+        - Walk h-e1/code/data/ for .pt MLP checkpoints + accompanying .json metadata
+        - Group by (task, architecture)
+        - Enumerate itertools.combinations(models, 2) within each group
+        - Stratified sample to 500+ pairs across tasks; fixed seed=42
+        - Return list of {pair_id, task, path_a, path_b, acc_a, acc_b}
+      save_pairs / load_pairs to/from h-m3/data/mlp_pairs.json.
+      Must produce >= 500 pairs from cached zoo at h-e1/code/data/.
+    feature_tag: "data-pipeline"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - pairs = build_mlp_pairs(...); assert len(pairs) >= 500
+      - assert all(p['task'] in ['mnist','svhn','cifar10'] for p in pairs)
+    reference_files:
+      architecture: "03_architecture.md#PairBuilder"
+      logic: null
+      config: "03_config.md#C-2-1"
+
+  - id: "task-004"
+    epic: "A-3: Model Loader"
+    title: "Implement frozen encoder and decoder loading utilities"
+    description: |
+      Create h-m3/models/model_loader.py.
+      load_frozen_encoder(ckpt_path, device, latent_dim=128, hidden_dim=256):
+        - sys.path injection for h-m1/code
+        - from models.equissl_encoder import EquiSSLEncoder
+        - Load state_dict, set .eval(), wrap usage in torch.no_grad()
+        - Return frozen EquiSSLEncoder
+      load_frozen_decoder(ckpt_path, device, latent_dim=128, hidden_dim=256, max_edge_dim=512):
+        - from models.graph_decoder import GraphDecoder
+        - Same pattern: load, eval()
+      load_mlp_checkpoint(path, device='cpu') -> state_dict dict
+      Checkpoint paths: h-m1/checkpoints/equi_perm_seed0.pt, h-e1/checkpoints/decoder_seed0.pt
+    feature_tag: "model"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - encoder = load_frozen_encoder(ENCODER_CKPT, 'cpu'); assert not encoder.training
+      - decoder = load_frozen_decoder(DECODER_CKPT, 'cpu'); assert not decoder.training
+    reference_files:
+      architecture: "03_architecture.md#ModelLoader"
+      logic: "03_logic.md#External-Dependencies-API"
+      config: "03_config.md#HM3Config"
+
+  - id: "task-005"
+    epic: "A-4: Interpolator"
+    title: "Implement latent interpolation pipeline (encode→midpoint→decode)"
+    description: |
+      Create h-m3/interpolation/interpolator.py.
+      Core functions (see 03_logic.md for full pseudo-code and tensor shapes):
+        encode_checkpoint(encoder, state_dict, device) -> z (latent_dim,)
+          - checkpoint_to_graph(state_dict) -> PyG Data
+          - encoder(graph) -> (1, latent_dim) -> squeeze -> (latent_dim,)
+        decode_latent_to_state_dict(decoder, z, reference_state_dict, device) -> dict
+          - decoder(z.unsqueeze(0), {}) -> (1, max_edge_dim=512)
+          - Tile/slice 512-float vector to cover total_params of reference architecture
+          - Reshape each slice to match reference key shapes
+          - CRITICAL: run round-trip verify before 500-pair loop (--verify flag)
+        latent_interpolate(encoder, decoder, sd_a, sd_b, device, alpha=0.5) -> dict
+          - z_mid = (1-alpha)*z_a + alpha*z_b  [NOT re-normalized]
+        weight_space_average(sd_a, sd_b) -> dict
+          - {k: (sd_a[k].float() + sd_b[k].float()) / 2.0 for k in sd_a}
+    feature_tag: "model"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 15
+    test_requirements: |
+      - sd = load_mlp_checkpoint(pairs[0]['path_a'], 'cpu')
+      - z = encode_checkpoint(encoder, sd, 'cpu'); assert z.shape == (128,)
+      - sd_rt = decode_latent_to_state_dict(decoder, z, sd, 'cpu')
+      - assert set(sd_rt.keys()) == set(sd.keys())
+      - sd_avg = weight_space_average(sd, sd); assert all keys match
+    reference_files:
+      architecture: "03_architecture.md#Interpolator"
+      logic: "03_logic.md#A-4"
+      config: "03_config.md#HM3Config"
+
+  - id: "task-006"
+    epic: "A-5: Task Evaluator"
+    title: "Implement MLP task accuracy evaluation on MNIST/SVHN/CIFAR-10"
+    description: |
+      Create h-m3/evaluation/task_eval.py.
+      SimpleMLP(in_dim, hidden_dims, out_dim): nn.Module with ReLU activations.
+        Architecture must match SANE MultiZoo training MLP structure.
+      get_test_loader(task, data_root, batch_size=256) -> DataLoader:
+        - torchvision.datasets.MNIST/SVHN/CIFAR10 test split
+        - Auto-downloads to data_root if not present
+        - Standard preprocessing matching zoo training (normalize to [0,1] or per-dataset mean/std)
+      evaluate_state_dict(state_dict, task, test_loader, device, task_configs) -> float:
+        - Load state_dict into SimpleMLP(task_configs[task])
+        - model.eval(), torch.no_grad()
+        - Top-1 accuracy = correct / total over full test set
+      Task test set sizes: MNIST=10k, SVHN=26k, CIFAR-10=10k (use ALL samples, no subsets)
+    feature_tag: "evaluation"
+    priority: 83
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - loader = get_test_loader('mnist', '/tmp'); assert len(loader.dataset) == 10000
+      - acc = evaluate_state_dict(sd, 'mnist', loader, 'cpu', TASK_MLP_CONFIGS)
+      - assert 0.0 <= acc <= 1.0
+    reference_files:
+      architecture: "03_architecture.md#TaskEvaluator"
+      logic: null
+      config: "03_config.md#C-5-1"
+
+  - id: "task-007"
+    epic: "A-6: Statistics"
+    title: "Implement statistical analysis (paired t-test, Cohen's d, task breakdown)"
+    description: |
+      Create h-m3/evaluation/statistics.py.
+      compute_statistics(results) -> dict:
+        results: [{task, acc_latent, acc_ws, delta}, ...]
+        Returns:
+          mean_delta, std_delta, n_pairs
+          t_stat, p_value: scipy.stats.ttest_rel(acc_latent_list, acc_ws_list)
+          cohen_d = mean_delta / std_delta
+          pct_pairs_positive = (delta > 0).mean()
+          gate_pass = (mean_delta > 0) AND (p_value < 0.05)
+          per_task: {task: {mean_delta, n}} for MNIST/SVHN/CIFAR-10
+      format_report(stats, results) -> str:
+        Markdown table + gate evaluation sentence
+    feature_tag: "evaluation"
+    priority: 80
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Synthetic test: 500 pairs where acc_latent = acc_ws + 0.01 -> gate_pass=True
+      - Synthetic test: 500 pairs where acc_latent = acc_ws - 0.01 -> gate_pass=False
+    reference_files:
+      architecture: "03_architecture.md#Statistics"
+      logic: "03_logic.md#L-8-2"
+      config: null
+
+  - id: "task-008"
+    epic: "A-7: Visualization"
+    title: "Implement 4 required figures"
+    description: |
+      Create h-m3/visualization/figures.py.
+      plot_gate_comparison(results, stats, out_path):
+        Bar chart: mean acc_latent vs acc_ws, error bars=std, annotated p-value + PASS/DOCUMENT
+      plot_task_stratified(stats, out_path):
+        Bar chart: mean delta per MNIST/SVHN/CIFAR-10 with error bars
+      plot_delta_histogram(results, stats, out_path):
+        Histogram of per-pair delta values, vline at 0, annotated mean
+      plot_pair_scatter(results, out_path):
+        Scatter (acc_a, acc_b) colored by delta sign (green=positive, red=negative)
+      generate_all_figures(results, stats, figures_dir):
+        Calls all 4 plot functions; saves to h-m3/figures/ as PNG
+    feature_tag: "evaluation"
+    priority: 78
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - generate_all_figures(synthetic_results, synthetic_stats, '/tmp/test_figs/')
+      - assert all 4 PNG files created and non-empty
+    reference_files:
+      architecture: "03_architecture.md#Figures"
+      logic: null
+      config: null
+
+  - id: "task-009"
+    epic: "A-8: Main Runner"
+    title: "Implement run_hm3.py orchestration script"
+    description: |
+      Create h-m3/run_hm3.py. Full 500+ pair evaluation loop:
+        1. sys.path injection for h-m1/code and h-e1/code
+        2. Build or load pairs from mlp_pairs.json (min 500)
+        3. Load frozen encoder + decoder
+        4. Build test loaders once per task (reused across pairs)
+        5. For each pair: latent_interpolate + weight_space_average + evaluate both
+           - Wrap per-pair body in try/except; log and skip bad pairs; continue
+        6. compute_statistics(results)
+        7. generate_all_figures(results, stats, FIGURES_DIR)
+        8. Save hm3_results.json + write 04_validation.md
+        9. Print gate result summary
+      Optional --verify flag: run round-trip check on first pair before main loop.
+      See 03_logic.md L-8-1 for full pseudo-code.
+    feature_tag: "experiment"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      - python run_hm3.py --verify  (single pair round-trip check, no full run)
+      - Dry run with n_pairs=5: confirm results.json and 04_validation.md generated
+    reference_files:
+      architecture: "03_architecture.md#MainRunner"
+      logic: "03_logic.md#A-8"
+      config: "03_config.md#HM3Config"
+
+  # ─── Subtasks: A-4 Interpolator ───────────────────────────────────────────
+  - id: "task-010"
+    epic: "A-4: Interpolator"
+    title: "L-4-1: Implement encode_checkpoint"
+    description: |
+      In interpolation/interpolator.py:
+      encode_checkpoint(encoder, state_dict, device) -> Tensor (latent_dim,)
+        - checkpoint_to_graph(state_dict) -> PyG Data (x:(n_layers,4), edge_attr:(n_edges,4))
+        - graph.to(device)
+        - with torch.no_grad(): z = encoder(graph)  # (1, latent_dim)
+        - return z.squeeze(0)  # (latent_dim,)
+      See 03_logic.md#L-4-1 for full shape table.
+    feature_tag: "model"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - z = encode_checkpoint(encoder, sd, 'cpu'); assert z.shape == (128,)
+    reference_files:
+      architecture: "03_architecture.md#Interpolator"
+      logic: "03_logic.md#L-4-1"
+      config: null
+
+  - id: "task-011"
+    epic: "A-4: Interpolator"
+    title: "L-4-2: Implement decode_latent_to_state_dict (CRITICAL)"
+    description: |
+      In interpolation/interpolator.py:
+      decode_latent_to_state_dict(decoder, z, reference_state_dict, device) -> dict
+        1. stats_vec = decoder(z.unsqueeze(0), {}).squeeze(0)  # (max_edge_dim=512,)
+        2. param_specs = [(k, v.shape, v.numel()) for k, v in reference_state_dict.items()]
+        3. total_params = sum(n for _,_,n in param_specs)
+        4. If total_params <= 512: flat = stats_vec[:total_params]
+           Else: repeats = total_params//512 + 1; flat = stats_vec.repeat(repeats)[:total_params]
+        5. Slice flat into per-key tensors matching reference shapes
+        6. Return new state_dict
+      IMPORTANT: Run round-trip verification before 500-pair loop.
+      See 03_logic.md#L-4-2 for full pseudo-code and shape table.
+    feature_tag: "model"
+    priority: 47
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - sd_rt = decode_latent_to_state_dict(decoder, z, sd, 'cpu')
+      - assert set(sd_rt.keys()) == set(sd.keys())
+      - assert all(sd_rt[k].shape == sd[k].shape for k in sd)
+    reference_files:
+      architecture: "03_architecture.md#Interpolator"
+      logic: "03_logic.md#L-4-2"
+      config: null
+
+  - id: "task-012"
+    epic: "A-4: Interpolator"
+    title: "L-4-3: Implement latent_interpolate"
+    description: |
+      In interpolation/interpolator.py:
+      latent_interpolate(encoder, decoder, sd_a, sd_b, device, alpha=0.5) -> dict
+        z_a = encode_checkpoint(encoder, sd_a, device)
+        z_b = encode_checkpoint(encoder, sd_b, device)
+        z_mid = (1.0 - alpha) * z_a + alpha * z_b  # NOT re-normalized (intentional)
+        return decode_latent_to_state_dict(decoder, z_mid, sd_a, device)
+      See 03_logic.md#L-4-3.
+    feature_tag: "model"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - sd_interp = latent_interpolate(encoder, decoder, sd_a, sd_b, 'cpu')
+      - assert set(sd_interp.keys()) == set(sd_a.keys())
+    reference_files:
+      architecture: "03_architecture.md#Interpolator"
+      logic: "03_logic.md#L-4-3"
+      config: null
+
+  - id: "task-013"
+    epic: "A-4: Interpolator"
+    title: "L-4-4: Implement weight_space_average"
+    description: |
+      In interpolation/interpolator.py:
+      weight_space_average(sd_a, sd_b) -> dict
+        return {k: (sd_a[k].float() + sd_b[k].float()) / 2.0 for k in sd_a}
+      Both state_dicts must come from same-task same-architecture pairs (enforced by pair builder).
+    feature_tag: "model"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - sd_avg = weight_space_average(sd, sd)
+      - assert all(torch.allclose(sd_avg[k], sd[k].float()) for k in sd)
+    reference_files:
+      architecture: "03_architecture.md#Interpolator"
+      logic: "03_logic.md#L-4-4"
+      config: null
+
+  # ─── Subtasks: A-8 Main Runner ────────────────────────────────────────────
+  - id: "task-014"
+    epic: "A-8: Main Runner"
+    title: "L-8-1: Implement main evaluation loop in run_hm3.py"
+    description: |
+      Full orchestration in run_hm3.py main():
+        - sys.path injection (H_M1_CODE, H_E1_CODE)
+        - Load/build 500+ pairs (save to mlp_pairs.json if not cached)
+        - Load frozen encoder + decoder
+        - Build per-task test loaders (MNIST/SVHN/CIFAR-10 full test sets)
+        - 500+ pair loop: latent_interpolate + weight_space_average + evaluate
+          - Per-pair exception handling: log and continue on failure
+        - collect results list
+      See 03_logic.md#L-8-1 for full pseudo-code with shapes.
+    feature_tag: "experiment"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - python run_hm3.py --n_pairs 10 --dry_run; check results has 10 entries
+    reference_files:
+      architecture: "03_architecture.md#MainRunner"
+      logic: "03_logic.md#L-8-1"
+      config: "03_config.md#HM3Config"
+
+  - id: "task-015"
+    epic: "A-8: Main Runner"
+    title: "L-8-2: Implement result serialization and 04_validation.md generation"
+    description: |
+      In run_hm3.py:
+      _save_results(results, out_path): serialize to hm3_results.json
+        schema: {metadata: {...}, statistics: {...}, pairs: [...]}
+        See 03_logic.md#L-8-2 for full JSON schema.
+      _write_validation_report(stats, results, out_path): write 04_validation.md
+        - Gate result (PASS/DOCUMENT) at top
+        - Table: mean±std accuracy per task + overall for both methods
+        - t-statistic, p-value, Cohen's d, % pairs positive
+        - Figure references
+        - Conclusion sentence
+    feature_tag: "experiment"
+    priority: 38
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - _save_results(synthetic_results, '/tmp/test_results.json')
+      - assert Path('/tmp/test_results.json').exists()
+      - _write_validation_report(synthetic_stats, synthetic_results, '/tmp/04_validation.md')
+      - assert '## Gate' in Path('/tmp/04_validation.md').read_text()
+    reference_files:
+      architecture: "03_architecture.md#MainRunner"
+      logic: "03_logic.md#L-8-2"
+      config: null
+
+  # ─── Subtasks: A-2 Pair Builder ───────────────────────────────────────────
+  - id: "task-016"
+    epic: "A-2: Pair Builder"
+    title: "C-2-1: Implement PairConfig dataclass"
+    description: |
+      In h-m3/config.py:
+      @dataclass class PairConfig:
+        min_pairs: int = 500
+        seed: int = 42
+        tasks: List[str] = ['mnist', 'svhn', 'cifar10']
+        pair_json_path: str = ".../h-m3/data/mlp_pairs.json"
+        def validate(self): check min_pairs >= 1, tasks subset of valid set
+      See 03_config.md#C-2-1.
+    feature_tag: "setup"
+    priority: 35
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - PairConfig().validate()  # no error
+      - PairConfig(min_pairs=0).validate()  # raises AssertionError
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#C-2-1"
+
+  - id: "task-017"
+    epic: "A-2: Pair Builder"
+    title: "C-2-2: Implement TaskConfig and MLPArchConfig dataclasses"
+    description: |
+      In h-m3/config.py:
+      @dataclass class MLPArchConfig: in_dim, hidden_dims, out_dim
+      @dataclass class TaskConfig:
+        batch_size: int = 256
+        data_root: str = "data/multizoo"
+        mlp_arch: dict = {
+          'mnist':   MLPArchConfig(784,  [256,256], 10),
+          'svhn':    MLPArchConfig(3072, [256,256], 10),
+          'cifar10': MLPArchConfig(3072, [256,256], 10),
+        }
+      See 03_config.md#C-2-2.
+    feature_tag: "setup"
+    priority: 33
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - cfg = TaskConfig(); assert cfg.mlp_arch['mnist'].in_dim == 784
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#C-2-2"
+
+  # ─── Subtasks: A-5 Evaluation ─────────────────────────────────────────────
+  - id: "task-018"
+    epic: "A-5: Task Evaluator"
+    title: "C-5-1: Implement EvalConfig dataclass"
+    description: |
+      In h-m3/config.py:
+      @dataclass class EvalConfig:
+        device: str = "cuda" if torch.cuda.is_available() else "cpu"
+        batch_size: int = 256
+        data_root: str = "data/multizoo"
+      See 03_config.md#C-5-1.
+    feature_tag: "setup"
+    priority: 30
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - cfg = EvalConfig(); assert cfg.device in ['cuda', 'cpu']
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#C-5-1"
+
+  # ─── Failsafe ─────────────────────────────────────────────────────────────
+  - id: "task-019"
+    epic: "Pipeline Continuation"
+    title: "Pipeline continuation checkpoint: gate evaluation and H-M4 handoff"
+    description: |
+      After run_hm3.py completes:
+        - Read hm3_results.json statistics block
+        - Gate: if gate_pass=True → PASS; else → DOCUMENT (pipeline continues to H-M4)
+        - DOCUMENT case: record finding "EquiSSL-perm latent space does not enable
+          functional MLP interpolation in this setting; P3 disconfirmed"
+        - Either way: confirm 04_validation.md written and h-m3 Phase 4 complete
+        - H-M4 proceeds regardless of gate result (SHOULD_WORK gate)
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 8
+  subtasks: 9
+  failsafe: 1
+  total: 19

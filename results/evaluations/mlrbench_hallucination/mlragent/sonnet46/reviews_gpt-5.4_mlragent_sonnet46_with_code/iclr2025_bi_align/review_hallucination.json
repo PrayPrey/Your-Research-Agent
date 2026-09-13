@@ -1,0 +1,37 @@
+{
+    "has_hallucination": true,
+    "hallucinations": [
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper reports exact experimental metrics, tables, and figure interpretations as if they were produced by a faithful implementation, but parts of the reported results are generated or inconsistent with the actual code path. In particular, the value-diversity-over-time curves are not measured during training; they are artificially interpolated from final diversity scores in `run_experiment.py`. Thus statements describing Figure 3 as showing true diversity evolution over training are unsupported by actual experiments.",
+            "evidence": "Paper: \"Figure 3: Jensen-Shannon divergence between demographic group value distributions over training epochs. CAVE maintains substantially higher inter-group diversity throughout training.\" Code (`run_experiment.py`): `# interpolate: use a decaying/increasing curve based on model type ... if name == 'CAVE': val = final_div * (0.5 + 0.5 * frac) ... elif name == 'Population-RLHF': val = final_div * (0.8 + 0.2 * np.random.rand()) ... else: val = final_div * (0.6 + 0.4 * frac)`"
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper presents value trajectory visualizations as showing evolution over training epochs, but the code does not record trajectories over time. Instead, it stores only a single final snapshot per user, so the plotted 'trajectories' are not actual temporal trajectories. The paper's interpretation of Figure 8 as showing user values evolving throughout training is therefore fabricated.",
+            "evidence": "Paper: \"Figure 8: Left: Value dimension 1 (privacy) evolution for 5 selected users throughout training. Right: Heatmap of value distribution ... across 20 sampled users over training epochs...\" Code (`run_experiment.py`): `for uid in user_trajectories: user_trajectories[uid] = cave_mu[uid:uid+1].tolist()` and comment `# Re-train briefly to get checkpoints` is not followed by any retraining/checkpoint logic. Code (`visualization.py`): `traj = np.array(traj)` then plots `traj[:, 0]`, which with only one snapshot cannot show evolution over epochs."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims a Bayesian online change-point detection (BOCPD) algorithm is applied for drift detection, and further claims a causal attribution model using difference-in-differences. The implementation does neither. The actual code uses a simple percentile threshold on recent KL history in the training model, and a separate sequential analysis based on windowed changes in running means with top-k selection. No BOCPD or difference-in-differences estimator is implemented.",
+            "evidence": "Paper: \"A Bayesian online change-point detection (BOCPD) algorithm is applied to the sequence {D_t}.\" and \"CAVE employs a causal attribution model ... using a difference-in-differences estimator controlling for contextual covariates.\" Code (`models.py`): `threshold = np.percentile(self.kl_history[uid][:-VALUE_DRIFT_WINDOW] or [0.1], DRIFT_THRESHOLD_PERCENTILE)` and drift is flagged by `if recent[-1] > threshold and recent[-1] > 0.5:`. Code (`drift_analysis.py`): `change = np.linalg.norm(recent_mu - prev_mu_win)` and then `# Threshold: detect top-k users by drift score (k = true number of drifters)`."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper describes demographic-group-aware hierarchical priors that keep users anchored to group-specific priors, but the implementation learns only a single global prior shared across all users. There is no group-conditional prior in the model, so the explanation that diversity preservation arises because posteriors are anchored to group-specific priors is incorrect.",
+            "evidence": "Paper: \"per-user posteriors remain anchored to group-level priors\" and \"the population prior preserves group-level diversity while per-user updates improve individual fidelity.\" Code (`models.py`): `self.prior_mu = nn.Parameter(torch.zeros(self.value_dim, device=device))` and `self.prior_log_sigma = nn.Parameter(torch.zeros(self.value_dim, device=device))`; no use of `user_groups` or group-specific prior parameters exists in the model."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The paper's drift simulation equation in Section 4.1 is mathematically inconsistent with the accompanying textual description of gradual linear interpolation. The formula given, `theta_u^*(t) = theta_u^*(0) * (1 - alpha * 1_{t > t_drift})`, describes an abrupt step change after drift onset, not gradual drift over time. The actual code implements a time-varying linear ramp over 50 timesteps, so the paper's equation is wrong.",
+            "evidence": "Paper: \"Drift is simulated as a linear interpolation from the user's initial value vector toward zero: θ_u^*(t) = θ_u^*(0) · (1 - α · 1_{t > t_drift}), with α = 0.5\". Code (`data_generator.py`): `alpha = min(1.0, (timestep - drift_t) / 50.0) * 0.5` followed by `val = val * (1 - alpha)`."
+        },
+        {
+            "type": "Nonexistent Citations",
+            "description": "Several in-text citations are placeholders rather than real references. These are not resolved in the bibliography, so the paper contains nonexistent citations.",
+            "evidence": "Paper text contains unresolved placeholders such as `[CITATION_RLHF]`, `[CITATION_BIDIR]`, and `[CITATION_ACTIVE]` in Sections 1 and 2, but no corresponding entries exist in the References section."
+        }
+    ],
+    "overall_assessment": "Hallucinations were found. The most serious issues are methodological misreporting and fabricated/unsupported experimental visualizations: several figures and claims do not correspond to what the code actually computes, and core components like BOCPD, difference-in-differences attribution, and group-specific hierarchical priors are claimed but not implemented. There is also at least one clear mathematical inconsistency and unresolved placeholder citations.",
+    "confidence": 5
+}

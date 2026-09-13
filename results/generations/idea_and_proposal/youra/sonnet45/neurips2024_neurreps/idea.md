@@ -1,0 +1,9 @@
+# Topological-Geometric Neural Networks: Unifying Local Symmetries and Global Structure
+
+## Motivation
+Current neural networks excel at capturing either local geometric symmetries (via equivariant architectures) or global topological features (via persistent homology), but not both simultaneously. This limitation hinders performance on tasks where both local and global structure matter—such as molecular property prediction (detecting ring structures), 3D shape classification (genus identification), and neural circuit analysis (connectivity patterns). Existing approaches sacrifice either geometric precision or topological awareness, leaving a critical gap in representation learning for structured scientific data.
+
+## Main Idea
+We propose Topological-Geometric Neural Networks (TGNNs) that integrate differentiable persistent homology layers with E(n)-equivariant convolutions in a unified architecture. The core hypothesis is that enforcing both group-theoretic equivariance (local symmetries) and topological invariants (global structure) simultaneously reduces the hypothesis space through complementary constraints, improving accuracy by 10-15% and sample efficiency by 2-3× on topologically-structured tasks.
+
+The causal mechanism operates through: (1) persistent homology layers computing multi-scale topological signatures (Betti numbers), (2) topological constraints guiding representations toward correct global structure, (3) fusion with geometric features to disambiguate locally similar patterns. We validate through controlled experiments on QM9 molecules, ModelNet40 shapes, and connectome data, measuring Betti number recovery (>90%), gradient attribution, and robustness under noise perturbations, with falsification threshold at <5% improvement over geometric-only baselines.

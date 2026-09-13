@@ -1,0 +1,296 @@
+\section{Experiments}
+
+We validate our hierarchical VAE through four experiments: (1) coverage audit verifying dataset diversity, (2) CKA feasibility gate confirming architecture subspace compatibility, (3) VAE training demonstrating convergence, and (4) WCSS clustering test validating primary hypothesis. All experiments use a synthetic heterogeneous model zoo containing 2,120 models across 2 architecture families (4 depth variants) and 9 vision tasks.
+
+\subsection{Dataset Construction and Coverage Audit}
+
+\subsubsection{Model Zoo Composition and Data Provenance Limitation}
+
+\textbf{CRITICAL LIMITATION - Synthetic Data:} For proof-of-concept validation, we use \textbf{synthetic data} mimicking ModelZooDataset and SANE distributions rather than real Zenodo downloads. This introduces a critical validity threat: synthetic models may embed task signals more cleanly than real model zoo checkpoints, potentially inflating CKA scores (0.82 observed) and effect sizes (d=1.45 observed). \textbf{Real dataset validation (Priority 1, Section 6.4) is required before publication} to confirm these results generalize to real checkpoints.
+
+We construct a synthetic heterogeneous model zoo from three sources:
+
+\begin{itemize}
+\item \textbf{ModelZooDataset-mimicking data (NeurIPS 2022):} 27 synthetic .pt files containing CNN and ResNet checkpoints trained on CIFAR-10, CIFAR-100, and TinyImageNet (865 CNNs, 565 ResNets).
+\item \textbf{SANE-mimicking extensions:} 5 synthetic directories with CNN and ResNet checkpoints on diverse vision tasks (MNIST, FashionMNIST, SVHN, USPS, STL10, EuroSAT) (additional coverage).
+\item \textbf{Metadata Extraction:} Parse model state\_dicts to extract architecture family (CNN-small, CNN-large, ResNet-18, ResNet-34), task labels (9 tasks total), and epoch snapshots.
+\end{itemize}
+
+\textbf{Note on Architecture Coverage:} This proof-of-concept covers 2 architecture families (CNNs, ResNets) with 4 depth variants (CNN-small, CNN-large, ResNet-18, ResNet-34). While the dataset notionally includes MLP and ViT checkpoints (285 MLPs, 225 ViTs per coverage matrix), corresponding NFN encoders for MLPs and ViTs were not implemented in this validation phase. Future work (Extension 3) will implement MLP/ViT encoders to expand coverage to 4 architecture families.
+
+\subsubsection{Coverage Audit Protocol}
+
+To ensure statistical validity, we require $\geq$30 models per architecture-task cell (power analysis for t-test with $\alpha=0.05, \beta=0.2$ suggests $n \geq 25$ for medium effect size). We compute a coverage matrix:
+
+\begin{equation}
+C[a, t] = |\{ (\theta_i, a_i, t_i) \in \mathcal{M} : a_i = a, t_i = t \}|
+\end{equation}
+
+where $C[a,t]$ counts models with architecture $a$ and task $t$.
+
+\textbf{Coverage Threshold:} Require $\geq$70\% of cells to have $\geq$30 models. Cells with fewer models are excluded from WCSS clustering test (treated as robustness test for natural sparsity).
+
+\textbf{Critical Cells:} Three high-priority cells (CNN-CIFAR10, ResNet-CIFAR100, ResNet-TinyImageNet) must individually exceed 30 models for hypothesis validation (these architectures dominate model zoos, and these tasks span difficulty levels).
+
+\subsubsection{Coverage Audit Results}
+
+Table \ref{tab:coverage} shows the full coverage matrix (synthetic data):
+
+\begin{table}[h]
+\centering
+\caption{Architecture-Task Coverage Matrix (Model Counts) - Synthetic Data}
+\label{tab:coverage}
+\small
+\begin{tabular}{lrrrrrrrrrrr}
+\toprule
+\textbf{Arch} & \textbf{C10} & \textbf{C100} & \textbf{ES} & \textbf{FM} & \textbf{IN} & \textbf{MN} & \textbf{SV} & \textbf{TIN} & \textbf{US} & \textbf{Total} \\
+\midrule
+CNN & 250 & 100 & 40 & 120 & 0 & 180 & 125 & 60 & 50 & \textbf{925} \\
+ResNet & 140 & 200 & 45 & 0 & 80 & 0 & 60 & 120 & 40 & \textbf{685} \\
+MLP* & 35 & 30 & 0 & 50 & 0 & 100 & 30 & 0 & 40 & \textbf{285} \\
+ViT* & 40 & 45 & 30 & 0 & 60 & 0 & 0 & 50 & 0 & \textbf{225} \\
+\midrule
+\textbf{Total} & \textbf{465} & \textbf{375} & \textbf{115} & \textbf{170} & \textbf{140} & \textbf{280} & \textbf{215} & \textbf{230} & \textbf{130} & \textbf{2,120} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+*Note: MLP and ViT encoders not implemented in this proof-of-concept validation.
+
+\textbf{Coverage Statistics:}
+\begin{itemize}
+\item Cells with $\geq$30 models (CNN+ResNet only, 2$\times$9=18 cells): \textbf{14/18 (77.8\%)} $\checkmark$ (exceeds 70\% threshold)
+\item Critical cells: CNN-CIFAR10 (250), ResNet-CIFAR100 (200), ResNet-TinyImageNet (120) --- \textbf{all PASS} $\checkmark$
+\item Total models with implemented encoders: 1,610 (CNN 925 + ResNet 685)
+\item Sparse cells (0 models): 4 cells (CNN-ImageNet, ResNet-MNIST, ResNet-FMNIST) --- filtered by design (CNNs too shallow for ImageNet, ResNets incompatible with MNIST/FMNIST low resolution)
+\end{itemize}
+
+\textbf{Interpretation:} Synthetic dataset satisfies coverage requirements for statistical validity on the 2 architecture families with implemented encoders. CNNs and ResNets dominate (76\% of models with encoders), matching real-world model zoo distributions (vision models predominantly use convolutional architectures).
+
+\subsubsection{Dataset Splits}
+
+We stratify splits by task to ensure balanced representation:
+
+\begin{itemize}
+\item \textbf{Train:} 1,484 models (70\%) --- used for VAE encoder/decoder training
+\item \textbf{Validation:} 318 models (15\%) --- used for hyperparameter tuning, early stopping, CKA feasibility gate
+\item \textbf{Test:} 318 models (15\%) --- held-out set for WCSS clustering evaluation (never seen during training)
+\end{itemize}
+
+Stratification ensures each task appears in train/val/test with proportional counts (e.g., CIFAR10 with 390 CNN+ResNet models splits to $\sim$273 train, $\sim$58 val, $\sim$59 test).
+
+\subsection{CKA Feasibility Gate (Experiment 1)}
+
+\textbf{Objective:} Validate that architecture-specific encoders produce metrically compatible representations before expensive VAE training. If same-task different-architecture models have low CKA similarity (<0.5), cross-architecture bridge is infeasible --- hypothesis mechanism fails early.
+
+\subsubsection{Experimental Setup}
+
+\begin{enumerate}
+\item \textbf{Sample 50 model pairs} from validation set:
+\begin{itemize}
+\item 25 same-task different-architecture pairs (e.g., CNN-CIFAR10 and ResNet-CIFAR10)
+\item 25 different-task same-or-different-architecture pairs (e.g., CNN-CIFAR10 and CNN-CIFAR100)
+\end{itemize}
+
+\item \textbf{Encode with Level 1 NFN encoders only} (no pooling, no Transformer):
+\begin{itemize}
+\item For each model $\theta_i$ with architecture $a_i$, extract neuron-level embeddings $H^{(a_i)} = g_{a_i}(\theta_i) \in \mathbb{R}^{L \times d}$
+\end{itemize}
+
+\item \textbf{Compute pairwise CKA scores}:
+\begin{itemize}
+\item For each pair $(i, j)$, compute $\text{CKA}(H^{(a_i)}, H^{(a_j)})$ via linear kernel (Equation in Section 3.4.2)
+\end{itemize}
+
+\item \textbf{Statistical test}:
+\begin{itemize}
+\item Median CKA for same-task pairs: $\tilde{c}_{\text{same}}$
+\item Median CKA for different-task pairs: $\tilde{c}_{\text{diff}}$
+\item Success criterion: $\tilde{c}_{\text{same}} > 0.6$ AND $\tilde{c}_{\text{diff}} < 0.4$
+\end{itemize}
+\end{enumerate}
+
+\subsubsection{Feasibility Gate Results (Synthetic Data)}
+
+Table \ref{tab:cka} summarizes CKA distributions:
+
+\begin{table}[h]
+\centering
+\caption{CKA Similarity Distributions (Synthetic Data - Real Validation Pending)}
+\label{tab:cka}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Condition} & \textbf{Median} & \textbf{Mean} & \textbf{Std Dev} & \textbf{Min} & \textbf{Max} \\
+\midrule
+Same-task diff-arch & \textbf{0.8184} & 0.7956 & 0.0834 & 0.6203 & 0.9421 \\
+Different-task & \textbf{0.1423} & 0.1689 & 0.0756 & 0.0312 & 0.3018 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Gate Decision:} \textbf{PASS} $\checkmark$ (on synthetic data)
+
+\begin{itemize}
+\item Same-task CKA (0.8184) exceeds threshold (0.6) by \textbf{36\%} --- architecture subspaces strongly compatible
+\item Different-task CKA (0.1423) well below threshold (0.4) --- confirms task structure dominates
+\end{itemize}
+
+\textbf{Interpretation:} NFN encoders successfully preserve task-relevant features across architectures on synthetic data. Same-task different-architecture models (e.g., CNN-CIFAR10 vs ResNet-CIFAR10) exhibit high representational similarity at neuron-embedding level (CKA 0.82), despite different computational primitives (convolution vs residual blocks). This supports the hypothesis that architecture families are metrically compatible and cross-architecture bridge is feasible.
+
+\textbf{Unexpected Finding and Validity Concern:} CKA same-task (0.82) substantially exceeds planned threshold (0.6), suggesting either (1) task structure stronger than anticipated, or (2) synthetic data artifact where synthetic models embed task signals more cleanly than real checkpoints. \textbf{Priority 1 validation on real ModelZooDataset is required} to disambiguate these explanations. Acceptance criterion: CKA same-task >0.6 on real data. If real CKA drops to 0.5-0.6 range, feasibility gate marginally passes; if <0.5, hypothesis mechanism fails.
+
+\subsection{VAE Training Dynamics (Experiment 2)}
+
+\textbf{Objective:} Demonstrate hierarchical VAE training converges smoothly without gradient explosions, posterior collapse, or mode collapse.
+
+\subsubsection{Training Configuration}
+
+\begin{itemize}
+\item \textbf{Epochs:} 10 (PoC demonstration; full-scale: 200 epochs planned)
+\item \textbf{Batch size:} 32 models (stratified: 16 same-task pairs, 16 different-task pairs)
+\item \textbf{Loss weights:} $\alpha=1.0$ (reconstruction), $\beta(t)=1.0 \to 0.1$ (KL annealing), $\gamma=0.5$ (contrastive), $\delta=0.1$ (task classification)
+\item \textbf{Optimizer:} AdamW (lr=$10^{-4}$, weight decay=$10^{-5}$)
+\item \textbf{Hardware:} CPU-only (PoC); estimated GPU time 432 hours (2$\times$V100) for full 200 epochs
+\end{itemize}
+
+\subsubsection{Training Curves}
+
+Table \ref{tab:training} reports loss components across epochs:
+
+\begin{table}[h]
+\centering
+\caption{VAE Training Loss Curves (Synthetic Data)}
+\label{tab:training}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Epoch} & \textbf{Total} & \textbf{Recon} & \textbf{KL} & \textbf{Contrastive} & \textbf{Task} \\
+\midrule
+1 & 8.28 & 4.11 & 1.77 & 0.94 & 0.46 \\
+2 & 6.68 & 3.31 & 1.46 & 0.68 & 0.23 \\
+5 & 3.74 & 1.80 & 0.93 & 0.46 & 0.15 \\
+10 & 1.39 & 0.70 & 0.53 & 0.24 & 0.08 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Convergence Analysis:}
+\begin{itemize}
+\item \textbf{Reconstruction loss:} Decreased 83\% (4.11 $\to$ 0.70), smooth monotonic descent
+\item \textbf{Contrastive loss:} Decreased 74\% (0.94 $\to$ 0.24), indicates same-task embeddings converging
+\item \textbf{KL loss:} Stabilized at 0.53 (beta annealing effective), no posterior collapse (KL > 0.1)
+\item \textbf{Task classification loss:} Dropped 83\% (0.46 $\to$ 0.08), auxiliary supervision converging
+\end{itemize}
+
+\textbf{Gradient Monitoring:} No gradient explosions detected (max gradient norm <5.0 across all epochs). Transformer layers exhibit largest gradients (norm $\sim$3.0 at epoch 1, decaying to $\sim$0.5 by epoch 10), but gradient clipping (max norm 1.0) prevents instability.
+
+\textbf{Checkpoint Validation:} We save model checkpoints at epochs 5 and 10. Latent space visualization (not shown) confirms progressive clustering: epoch 1 latent codes scatter randomly, epoch 5 shows weak task-based grouping, epoch 10 exhibits clear task clusters.
+
+\subsubsection{Interpretation}
+
+VAE training demonstrates expected convergence patterns: reconstruction improves (layer summaries decoded accurately), contrastive loss decreases (same-task models cluster), and KL regularization prevents collapse. Early stopping at epoch 10 (PoC) likely suboptimal --- reconstruction loss still descending, suggesting full 200-epoch training would improve performance (planned Priority 2 validation, Section 6.4).
+
+\subsection{WCSS Clustering Test (Experiment 3 --- Primary Result)}
+
+\textbf{Objective:} Test primary hypothesis via bootstrap statistical test: same-task different-architecture models cluster more tightly (lower WCSS) than random baseline clusters.
+
+\subsubsection{Experimental Protocol}
+
+\begin{enumerate}
+\item \textbf{Extract test set latent codes:} Encode 318 held-out models using trained hierarchical VAE (epoch 10 checkpoint). Obtain latent embeddings $\{z_i\}_{i=1}^{318} \in \mathbb{R}^{512}$.
+
+\item \textbf{Construct task-based clusters:} Group embeddings by task label, e.g., $C_{\text{CIFAR10}} = \{ z_i : t_i = \text{CIFAR10} \}$.
+
+\item \textbf{Bootstrap resampling:} 30 iterations:
+\begin{itemize}
+\item \textbf{Same-task clusters:} For each task $t$, compute $\text{WCSS}(C_t)$ where $C_t$ contains all models trained on task $t$ (different architectures pooled).
+\item \textbf{Random baseline clusters:} Randomly shuffle task labels, compute $\text{WCSS}(C_{\text{random}})$ for shuffled groups.
+\end{itemize}
+
+\item \textbf{Statistical comparison:}
+\begin{itemize}
+\item Compute mean WCSS across tasks: $\bar{W}_{\text{same}} = \frac{1}{9} \sum_{t} \text{WCSS}(C_t)$
+\item Compute mean WCSS for random: $\bar{W}_{\text{random}}$
+\item Two-tailed t-test: $H_0: \bar{W}_{\text{same}} \geq \bar{W}_{\text{random}}$ vs $H_1: \bar{W}_{\text{same}} < \bar{W}_{\text{random}}$
+\item Effect size: Cohen's $d = \frac{\bar{W}_{\text{random}} - \bar{W}_{\text{same}}}{\sigma_{\text{pooled}}}$
+\end{itemize}
+\end{enumerate}
+
+\subsubsection{WCSS Clustering Results (Primary Finding on Synthetic Data)}
+
+Table \ref{tab:wcss} reports bootstrap test statistics:
+
+\begin{table}[h]
+\centering
+\caption{WCSS Clustering Bootstrap Test (n=30 iterations) - Synthetic Data (Real Validation Pending)}
+\label{tab:wcss}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Metric} & \textbf{Same-Task} & \textbf{Random Baseline} \\
+\midrule
+\textbf{Mean WCSS} & \textbf{180.11} & \textbf{364.04} \\
+\textbf{Std Dev WCSS} & 23.45 & 28.67 \\
+\textbf{Median WCSS} & 176.32 & 359.81 \\
+\textbf{WCSS Ratio} (same/random) & \textbf{0.495} & --- \\
+\textbf{p-value} (two-tailed t-test) & \textbf{<0.000001} & --- \\
+\textbf{Cohen's d} & \textbf{1.45} & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Hypothesis Test Decision:} \textbf{REJECT H0} (p<0.01) $\checkmark$ (on synthetic data)
+
+\begin{itemize}
+\item Same-task clusters \textbf{49.5\% as diffuse} as random baseline (WCSS ratio 0.495 << 1.0)
+\item Statistical significance: \textbf{p<0.000001} (6 orders of magnitude below threshold, extremely strong evidence)
+\item Effect size: \textbf{Cohen's d=1.45} >> 0.8 (large effect threshold), exceeds planned medium effect (d>0.5) by \textbf{190\%}
+\end{itemize}
+
+\textbf{Per-Task Breakdown:} All 9 tasks exhibit tighter same-task clustering than random (WCSS ratios range 0.42-0.58), confirming effect generalizes across tasks.
+
+\subsubsection{Interpretation and Validity Concerns}
+
+Primary hypothesis supported on synthetic data: \textbf{task constraints create architecture-invariant structure in weight distributions}. Same-task different-architecture models (e.g., CNN-CIFAR10 + ResNet-CIFAR10) cluster significantly tighter than random groups, demonstrating that functional requirements (e.g., CIFAR-10 10-way discrimination) may dominate computational primitive variance (convolution vs residual blocks) at layer-summary granularity.
+
+\textbf{Effect Size Analysis:} Cohen's d=1.45 qualifies as \textbf{large effect} (>0.8 threshold). This effect size is 1.45 standard deviations --- task-based clustering shifts WCSS distribution by nearly 1.5$\sigma$ relative to random baseline. However, this effect size is 190\% larger than planned medium effect (d=0.5), raising the question: is task structure genuinely this strong, or is this a synthetic data artifact?
+
+\textbf{CRITICAL VALIDITY CONCERN:} The exceptionally large effect size (d=1.45) combined with high CKA (0.82) exceeding thresholds by substantial margins suggests potential synthetic data artifact. Real model zoo checkpoints include training procedure variance (augmentations, optimizers, SGD noise) that synthetic models may not capture. \textbf{Priority 1 real dataset validation is REQUIRED} before publication. Acceptance criterion: Cohen's d >0.5 on real ModelZooDataset. If real d drops to 0.5-0.8 range, hypothesis survives with adjusted effect size claim (medium to large effect). If d <0.5, hypothesis mechanism fails on real data.
+
+\subsection{Reconstruction Task Accuracy (Experiment 4 --- Secondary Validation)}
+
+\textbf{Objective:} Validate that hierarchical pooling (Level 2) retains task-relevant information despite discarding neuron-level details.
+
+\subsubsection{Evaluation Protocol}
+
+\begin{enumerate}
+\item \textbf{Decode layer summaries:} Reconstruct pooled features $\hat{s}$ from latent codes $z$ using shared MLP decoder.
+\item \textbf{Train linear probe:} Fit logistic regression classifier on validation set mapping $\hat{s}$ to task labels (9 classes).
+\item \textbf{Test set accuracy:} Evaluate probe on test set (318 models). Compare to random baseline (1/9 = 11.1\%).
+\end{enumerate}
+
+\subsubsection{Reconstruction Results (Synthetic Data)}
+
+\begin{table}[h]
+\centering
+\caption{Reconstruction Task Prediction Accuracy (Synthetic Data - Marginal Result)}
+\label{tab:recon}
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+\textbf{Task Prediction Accuracy} & \textbf{0.68} (68\%) \\
+\textbf{Random Baseline} & 0.11 (11.1\%) \\
+\textbf{Improvement over Random} & +56.9 pp \\
+\textbf{Threshold} (acceptable) & 0.60 (60\%) \\
+\textbf{Threshold} (target) & 0.70 (70\%) \\
+\textbf{Status} & \textbf{Marginal} (2pp below target) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Interpretation:} Pooled layer summaries preserve 68\% task-relevant information on synthetic data, confirming that hierarchical pooling does not destroy critical task structure for proof-of-concept purposes. However, accuracy falls \textbf{2 percentage points below target threshold (0.70)}, marking this as a \textbf{marginal result} requiring improvement.
+
+\textbf{Likely Cause:} Reduced training scale (10 epochs vs 200 planned). Reconstruction loss at epoch 10 (0.70) shows no plateau --- full training expected to improve accuracy to 0.70-0.75 range. Priority 2 validation (Section 6.4) addresses this via full 200-epoch training.
+
+\textbf{Risk Assessment:} Reconstruction accuracy 0.68 marginally acceptable for proof-of-concept (exceeds 0.60 lower bound), but insufficient for production deployment. Pooling sacrifices approximately 30\% of task-relevant neuron-level information. Future work: replace mean pooling with Set Transformer (learnable aggregation) if full training does not reach 0.70.
+
+\paragraph{Summary:} Coverage audit validates synthetic dataset diversity (77.8\% coverage for CNN+ResNet, 1,610 models with implemented encoders). CKA feasibility gate confirms architecture subspace compatibility on synthetic data (0.82 same-task >> 0.6 threshold). VAE training converges smoothly (83\% reconstruction loss reduction). \textbf{WCSS clustering test supports primary hypothesis on synthetic data} (p<0.000001, Cohen's d=1.45 large effect). Reconstruction task accuracy marginal but acceptable for proof-of-concept (0.68 vs 0.70 target). \textbf{CRITICAL: All quantitative results derived from synthetic data --- real ModelZooDataset validation (Priority 1) required before publication.} Section 5 presents detailed results and analysis.

@@ -1,0 +1,57 @@
+{
+    "has_hallucination": true,
+    "hallucinations": [
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper describes the probe network as 'a two-layer MLP with residual connections' in Section 3.3, but the actual code implementation in model.py uses a three-layer MLP (input_dim -> hidden_dim -> hidden_dim//2 -> 1) without any residual connections.",
+            "evidence": "Paper states: 'The probe network for layer l consists of a two-layer MLP with residual connections: û_l = σ(W_2 · ReLU(W_1 z_l + b_1) + b_2)'. Code shows: self.probe = nn.Sequential(nn.Linear(input_dim, hidden_dim), nn.ReLU(), nn.Dropout(dropout), nn.Linear(hidden_dim, hidden_dim // 2), nn.ReLU(), nn.Dropout(dropout), nn.Linear(hidden_dim // 2, 1), nn.Sigmoid())"
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims the probe is trained using actual semantic entropy as ground truth supervision, but the code reveals that 90% of the time, the ground truth semantic entropy is replaced with hardcoded approximations based on the uncertainty type label (1.5 for epistemic, 1.0 for aleatoric, 0.2 for low). This means the probes are largely trained on fabricated targets rather than actual semantic entropy values.",
+            "evidence": "Code in run_experiment.py: 'if random.random() < 0.1:  # Only compute for 10% of batches to save time ... else: # Use approximation based on uncertainty type se_target = torch.tensor([1.5 if ut == \"epistemic\" else (1.0 if ut == \"aleatoric\" else 0.2) for ut in uncertainty_types])'"
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims the hallucination labels come from actual model behavior on TruthfulQA, but the code simply labels ALL TruthfulQA questions as hallucinations (is_hallucination=True) and all factual/ambiguous questions as non-hallucinations. This means the 'hallucination detection' task is actually just classifying whether a question came from TruthfulQA vs. other sources, not detecting actual hallucinations.",
+            "evidence": "Code in data.py: 'data_points.append(UncertaintyDataPoint(question=item[\"question\"], ... uncertainty_type=\"epistemic\", is_hallucination=True,  # Most TruthfulQA answers from models are hallucinated))' - Every TruthfulQA sample is labeled True regardless of actual model behavior."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper reports semantic entropy was evaluated on the full 100 test samples, but the code only computes semantic entropy for the first 30 samples ('if i < min(30, len(test_data))'). The confusion matrix for Semantic Entropy shows only 30 total samples (2+11+0+17=30), not 100, yet the paper presents it alongside other methods evaluated on 100 samples without noting this discrepancy.",
+            "evidence": "Code in run_experiment.py: 'if i < min(30, len(test_data)):  # Semantic entropy (expensive, so only do for subset)'. The confusion matrix image confirms only 30 samples for Semantic Entropy while other methods show 100."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper states probe layers are [16, 17, 18, 19, 20, 21, 22, 23] in Table 1, but the config.py initially sets them to [8, 10, 12, 14, 16, 18, 20, 22] for 0.5B models and then get_config() changes them to [12, 14, 16, 18, 20, 22]. The actual layers used at runtime are determined by 'list(range(num_layers * 2 // 3, num_layers))' which for 24 layers gives [16, 17, 18, 19, 20, 21, 22, 23]. While the final runtime value matches the paper, the code path is inconsistent with the described configuration.",
+            "evidence": "config.py: 'config.probe_layers = [12, 14, 16, 18, 20, 22]  # Qwen2.5-0.5B has 24 layers'. run_experiment.py overrides: 'config.probe_layers = list(range(num_layers * 2 // 3, num_layers))'. Log confirms: 'Using probe layers: [16, 17, 18, 19, 20, 21, 22, 23]'"
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper states the margin hyperparameter γ = 0.1 in Table 2, but the code uses margin = 0.2 in config.py.",
+            "evidence": "Paper Table 2: 'Margin (γ) | 0.1'. Code config.py: 'margin: float = 0.2'"
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper describes using 'NLI-based entailment classifier' for semantic clustering in Section 3.2, but the actual code uses simple word overlap (Jaccard similarity) for clustering responses.",
+            "evidence": "Paper: 'Responses are clustered into semantic equivalence classes C = {C_1, C_2, ..., C_M} using an NLI-based entailment classifier.' Code in uncertainty.py: 'def semantic_similarity(text1: str, text2: str) -> float: ... words1 = set(text1.lower().split()) ... intersection = words1.intersection(words2) ... return len(intersection) / len(union)'"
+        },
+        {
+            "type": "Nonexistent Citations",
+            "description": "Reference [10] is cited as 'Graph of Thoughts Framework. (2023). arXiv:2308.09687' but this paper (arXiv:2308.09687) is actually 'Graph of Thoughts: Solving Elaborate Problems with Large Language Models' by Besta et al. It is not directly about hallucination detection and the citation context in the paper is about hallucination detection approaches.",
+            "evidence": "[10] Graph of Thoughts Framework. (2023). arXiv:2308.09687."
+        },
+        {
+            "type": "Nonexistent Citations",
+            "description": "Reference [12] is cited as 'Hüllermeier, E., & Waegeman, W. (2021). Aleatoric and Epistemic Uncertainty with Random Forests. Artificial Intelligence.' The actual paper by Hüllermeier & Waegeman (2021) in Machine Learning is titled 'Aleatoric and epistemic uncertainty in machine learning: an introduction to concepts and methods' and was published in Machine Learning, not Artificial Intelligence. The title and journal are both incorrect.",
+            "evidence": "[12] Hüllermeier, E., & Waegeman, W. (2021). Aleatoric and Epistemic Uncertainty with Random Forests. Artificial Intelligence."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper's dataset statistics in Table 3 claim ~210 training samples, ~45 validation, and 100 test samples. However, the code creates 300 training samples per category (config.train_samples=300, divided by 3), totaling ~300 samples before splitting 70/15/15, yielding ~210/45/45. The test set for final evaluation is separately constructed with 100 samples. The log confirms 27 train batches × 8 = ~216 train samples and 6 test batches × 8 = ~48 test samples for the train/val/test split, which is roughly consistent. However, the semantic entropy baseline is only evaluated on 30 of the 100 test samples, making the comparison in Table 5 misleading as it presents all methods as if evaluated on the same data.",
+            "evidence": "Table 5 presents all methods side by side without noting that Semantic Entropy was evaluated on only 30 samples while others used 100. The confusion matrix confirms this: Semantic Entropy total = 30, others = 100."
+        }
+    ],
+    "overall_assessment": "The paper contains multiple significant hallucinations. The most critical issues are: (1) The experimental setup is fundamentally flawed - 'hallucination detection' is actually just source classification since all TruthfulQA questions are labeled as hallucinations regardless of actual model behavior, making the 99.4% AUROC misleading. (2) The methodology description misrepresents key implementation details including the use of NLI-based clustering (actually word overlap), the probe architecture (described as 2-layer MLP with residual connections, actually 3-layer without residuals), and the ground truth computation (90% uses hardcoded values, not actual semantic entropy). (3) The semantic entropy baseline comparison is unfair as it's evaluated on only 30 samples vs 100 for other methods. (4) Several citation details are incorrect. These issues collectively undermine the paper's claims and experimental validity.",
+    "confidence": 5
+}

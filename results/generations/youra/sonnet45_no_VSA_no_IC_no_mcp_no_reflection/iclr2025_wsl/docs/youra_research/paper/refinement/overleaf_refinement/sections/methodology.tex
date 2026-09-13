@@ -1,0 +1,47 @@
+
+\subsubsection{3.1 Dataset}
+
+The dataset comprises 100 pretrained vision models from PyTorch Image Models (timm), spanning four architecture families:
+
+\begin{itemize}
+\item ResNet (25 models): Residual networks with batch normalization and skip connections
+\item ViT (25 models): Vision transformers with patch embeddings and multi-head attention
+\item EfficientNet (25 models): Networks using depthwise separable convolutions with compound scaling
+\item ConvNeXt (25 models): Modernized convolutional networks with layer-scaled residuals
+\end{itemize}
+
+All models are pretrained on ImageNet-1K. Weight tensors are extracted using \texttt{timm.create\textbackslash \_model(name, pretrained=True).state\textbackslash \_dict()}, yielding layer-wise parameter dictionaries with varying shapes (e.g., \texttt{layer1.conv.weight: [64, 3, 7, 7]}, \texttt{layer10.fc.weight: [1000, 2048]}).
+
+The dataset is split into 70 training models (70\%), 15 validation models (15\%), and 15 test models (15\%), stratified by architecture family. The task is 4-class classification predicting architecture family from weight tensors. Random baseline accuracy is 25\%.
+
+\subsubsection{3.2 Weight Tokenization}
+
+Weights are tokenized layer-wise to handle variable dimensions. For each weight tensor of shape \texttt{(out\textbackslash \_dim, in\textbackslash \_dim, *kernel\textbackslash \_size)}:
+
+\begin{enumerate}
+\item Flatten to 1D sequence  
+\item Zero-pad to fixed length (4096) or truncate if longer  
+\item Apply per-layer z-score normalization (mean 0, standard deviation 1)  
+\end{enumerate}
+
+Per-layer normalization prevents large layers from dominating small layers due to scale. For a model with L layers, tokenization produces a matrix W $\in \mathbb{R}^(L \times$ 4096).
+
+\subsubsection{3.3 Models}
+
+\textbf{Baseline: Weight Statistics MLP.} Per-layer statistical aggregates (mean, standard deviation, L2 norm) are extracted as features. For each weight layer, three scalar values are concatenated, yielding 3L features. A 3-layer MLP with hidden dimensions [256, 128] and output dimension 4 classifies the concatenated statistics. Total parameters: approximately 200K.
+
+\textbf{Proposed: Weight Transformer.} Tokenized weights are processed with cross-layer attention. A linear layer projects 4096-dimensional flattened weights to a 256-dimensional latent space. Sinusoidal positional encoding adds layer depth information. A 6-layer transformer encoder with 8 attention heads and feedforward dimension 1024 captures cross-layer dependencies. Global mean pooling aggregates layer representations, followed by a 2-layer MLP classifier (dimensions [256, 128, 4]). Total parameters: approximately 2M.
+
+The capacity difference (200K versus 2M parameters) is acknowledged as a confound. Both models significantly exceed the dataset size (70 training samples), but the mismatch affects overfitting dynamics.
+
+\subsubsection{3.4 Training}
+
+Training uses AdamW optimizer with learning rate $10^-4$ and weight decay $10^-5$. A cosine annealing learning rate scheduler is applied with T\_max=50 and minimum learning rate $10^-6$. Batch size is 32 models. Training runs for 50 epochs with early stopping (patience 10 on validation loss). Cross-entropy loss is used for 4-class classification. Regularization includes dropout 0.1 and gradient clipping (max norm 1.0). Random seed 42 is fixed for reproducibility.
+
+\subsubsection{3.5 Evaluation}
+
+The primary metric is test accuracy on 15 held-out models. The success criterion is test accuracy exceeding 60\%, which is significantly above the 25\% random baseline. Secondary metrics include training/validation loss curves for convergence and overfitting analysis, and per-family accuracy to assess generalization across architecture types.
+
+The evaluation protocol is: (1) train on 70 models until validation loss plateaus (early stopping), (2) select the best checkpoint based on validation accuracy, (3) report test accuracy on 15 held-out models never seen during training or validation.
+
+Confidence intervals are computed via bootstrap resampling with replacement (1000 iterations). These intervals reflect model training stability given the fixed 70/15/15 split, not population-level uncertainty. Bootstrap confidence intervals ($\pm 4.2$\%) are narrower than theoretical binomial proportion confidence intervals ($\pm 24.7$\% for n=15) because bootstrap resampling conditions on the empirical sample.

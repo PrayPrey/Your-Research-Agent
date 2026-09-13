@@ -1,0 +1,62 @@
+
+The framework structures hypothesis validation as a three-stage process based on the observation that computational overhead scales predictably from micro-pilot to full dataset. Three mechanisms underlie the design: (M1) linear overhead extrapolation from micro-pilot measurements, (M2) Bayesian posterior refinement through sequential observations, and (M3) threshold-based viability classification.
+
+\subsubsection{3.1 Framework Overview}
+
+\textbf{Gate 1 (Micro-Pilot):} Measure overhead $O_{10}$ on 10 samples. Extrapolate to full-scale via O\_pred = k $\times O_{10}$ where k is the scaling factor. Compare O\_pred to user-specified threshold T. If O\_pred > T, stop (hypothesis non-viable). If O\_pred $\leq$ T, continue to Gate 2.
+
+\textbf{Gate 2 (Mid-Scale):} Measure overhead $O_{100}$ on 100 samples. Apply Bayesian update combining Gate 1 prior P(O\_full | $O_{10})$ with Gate 2 likelihood P($O_{100}$ | O\_full) to compute posterior P(O\_full | $O_{10}, O_{100})$. Repeat threshold comparison. If posterior mean > T, stop. Otherwise continue to Gate 3.
+
+\textbf{Gate 3 (Full-Scale):} Measure ground truth overhead O\_full on complete dataset. Validate viability decision and update scaling factor k for future hypotheses.
+
+The staged design enables fail-fast at minimal cost. Gate 1 requires significantly less time than full implementation. Early stops avoid wasted effort while incremental refinement at Gate 2 reduces false negatives.
+
+\subsubsection{3.2 Mechanism M1: Linear Overhead Scaling}
+
+Many ML operations exhibit linear or near-linear scaling with sample count. Matrix multiplication, attention mechanisms (O($n^{2})$ in sequence length but O(n) in batch size), and gradient computations scale predictably. The model is:
+
+O\_full = k $\times O_{10} + \epsilon$
+
+where k is the scaling factor (ratio of full dataset size to micro-pilot size) and $\epsilon$ represents measurement noise.
+
+At Gate 1, wall-clock time is measured for hypothesis implementation on 10 randomly sampled datapoints, normalized by baseline (vanilla model without hypothesis) to compute overhead percentage. Linear regression across observed (sample size, overhead) pairs estimates k. For new hypotheses, prediction follows O\_full = k $\times O_{10}$.
+
+Pearson correlation r serves as validation metric. The framework assumes r $\geq$ 0.7 between $O_{10}$ and O\_full across a corpus of past hypotheses. If r < 0.7, linear extrapolation breaks down and the framework requires recalibration (per-hypothesis-type scaling factors or non-linear models).
+
+Gate 1 overhead measurement requires O(10 $\times$ hypothesis\_complexity) time. For typical ML operations (forward pass, gradient computation), this translates to seconds or minutes rather than hours required for full-scale experiments.
+
+\subsubsection{3.3 Mechanism M2: Bayesian Posterior Refinement}
+
+Bayesian inference reduces prediction uncertainty by combining prior beliefs with new evidence. Overhead is modeled as a Gaussian random variable: O\_full ~ N($\mu, \sigma ^{2})$. Gate 1 provides prior: $\mu _prior$ = k $\times O_{10}, \sigma ^{2}_prior$ estimated from historical variance. Gate 2 provides likelihood: $\mu _likelihood$ = k $\times O_{100}, \sigma ^{2}_likelihood$ from measurement uncertainty. The posterior combines both:
+
+1/$\sigma ^{2}_post$ = 1/$\sigma ^{2}_prior$ + 1/$\sigma ^{2}_likelihood$
+
+$\mu _post = \sigma ^{2}_post$ ($\mu _prior/\sigma ^{2}_prior + \mu _likelihood/\sigma ^{2}_likelihood)$
+
+Implementation uses scipy.stats Gaussian conjugate update. Prior variance $\sigma ^{2}_prior$ is estimated from residuals in linear regression fit (M1). Likelihood variance $\sigma ^{2}_likelihood$ is estimated from measurement stability across repeated runs at 100-sample scale.
+
+Bayesian updates are optional (SHOULD\_WORK gate). If Gate 2 data is unavailable or error reduction is minimal (<20\%), the framework defaults to Gate 1-only prediction.
+
+\subsubsection{3.4 Mechanism M3: Viability Classification}
+
+Viability is a binary decision: hypothesis overhead O\_full either exceeds threshold T (non-viable) or remains within bounds (viable). Classification is based on posterior mean:
+
+viable = True if $\mu _post \leq$ T, False if $\mu _post$ > T
+
+Confidence intervals provide uncertainty quantification: if 95\% confidence interval [$\mu$ - 1.$96\sigma, \mu$ + 1.$96\sigma ]$ straddles T, the decision is borderline and warrants Gate 2 refinement.
+
+Gate 1 predicts viability using O\_pred = k $\times O_{10}$. For borderline cases (within 10\% of threshold), proceeding to Gate 2 is recommended for refined prediction. High-confidence cases (O\_pred < 0.9T or O\_pred > 1.1T) can stop or continue immediately.
+
+The design prioritizes recall over precision, minimizing false negatives (viable hypotheses incorrectly stopped) at the cost of occasional false positives (non-viable hypotheses continuing to Gate 2). A viable hypothesis stopped at Gate 1 represents a missed opportunity; a non-viable hypothesis caught at Gate 2 wastes limited time rather than days.
+
+\subsubsection{3.5 Scaling Factor Calibration}
+
+The scaling factor k depends on hypothesis type and dataset characteristics. Three calibration strategies were considered:
+
+\textbf{Global k:} Use single k across all hypotheses. Validation tested this approach with synthetic data.
+
+\textbf{Type-specific k:} Learn separate k\_attention, k\_gradient, k\_regularization factors. Requires stratified historical corpus.
+
+\textbf{Per-hypothesis k:} Estimate k from micro-pilot and 100-sample pair for each new hypothesis. Requires 100-sample investment before viability decision.
+
+Validation used global k. Future work explores whether type-specific calibration improves accuracy when scaling variance (coefficient of variation CV) exceeds 30\% within types.

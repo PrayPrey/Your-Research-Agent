@@ -1,0 +1,60 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Our approach rests on three components: (1) erank computation from pretrained weights, (2) the PARA oracle that defines ground-truth optimal rank per layer, and (3) the statistical test linking them.
+
+\subsection{Effective Rank of Pretrained Weight Matrices}
+
+For a weight matrix $W_0 \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ with singular values $\sigma_1 \geq \cdots \geq \sigma_k > 0$:
+\begin{equation}
+  \text{erank}(W_0) = \exp\!\left(-\sum_{i=1}^{k} p_i \log p_i\right), \quad p_i = \frac{\sigma_i}{\sum_j \sigma_j}
+  \label{eq:erank}
+\end{equation}
+
+\textbf{Why erank?} Spectral entropy $H(\sigma/\|\sigma\|_1)$ lacks the natural scale $[1, \text{rank}(W_0)]$. Stable rank is dominated by the largest singular value. erank is normalized, bounded, and captures the full distributional shape of the singular spectrum. Figure~\ref{fig:heatmap} shows the erank heatmap for BERT-base-uncased.
+
+\textbf{Implementation:} Computed in fp32 precision via \texttt{torch.linalg.svdvals} for all weight matrices with $\geq 2$ dimensions and $< 50$M entries.
+
+\begin{verbatim}
+def compute_erank(W: torch.Tensor, eps: float = 1e-10) -> float:
+    S = torch.linalg.svdvals(W.float())
+    S = S[S > eps]
+    p = S / S.sum()
+    return (-(p * torch.log(p)).sum()).exp().item()
+\end{verbatim}
+
+\subsection{PARA Oracle: Ground-Truth Per-Layer Rank}
+
+For each target layer $l$:
+\begin{enumerate}
+  \item Freeze all LoRA adapters at baseline rank $r_{\text{base}} = 8$.
+  \item Sweep layer $l$'s rank over $\mathcal{R} = \{4, 8, 16, 32, 64\}$, training independently.
+  \item Assign $r_l^* = \arg\max_{r \in \mathcal{R}} \text{val\_acc}(r)$.
+\end{enumerate}
+
+The marginal oracle is a well-established proxy for optimal per-layer rank \cite{Zhang2023AdaLoRA,Tripathi2026LAARA}.
+
+\subsection{Statistical Test Design}
+
+\textbf{Primary test (P1):} Pearson $r(\text{erank}(W_0), r_l^*)$ over oracle-measured layers. One-tailed test ($H_1: r > 0$) at $\alpha = 0.05$, pre-registered threshold $r \geq 0.65$.
+
+\textbf{Metric agreement (P5):} Pearson correlation between erank and $\text{PR}(W_0) = (\sum \sigma_i)^2 / \sum \sigma_i^2$. Threshold: $\rho \geq 0.80$.
+
+\textbf{Gate:} H-E1 passes if $r \geq 0.65$ with $p < 0.05$ in $\geq 2/3$ model families.
+
+\subsection{Models and Target Layers}
+
+\begin{table}[h]
+\centering
+\caption{Model architectures and target layer counts.}
+\label{tab:models}
+\begin{tabular}{lccc}
+\toprule
+Model & Architecture & Adapted Layers & $n_{\text{target}}$ \\
+\midrule
+BERT-base-uncased & Encoder, 12L & Q, K, V, O, FFN-int, FFN-out & 72 \\
+DeBERTa-v3-base & Encoder, 12L (disentangled) & Q-proj, K-proj, V-proj, O, FFN-int, FFN-out & 72 \\
+ViT-base-patch16-224 & Vision encoder, 12L & Q, K, V, O, FFN-int, FFN-out & 73 \\
+\bottomrule
+\end{tabular}
+\end{table}

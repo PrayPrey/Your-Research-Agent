@@ -1,0 +1,8 @@
+# Title
+Hierarchical Graph Compression via Reinforcement Learning for Scalable LLM Reasoning over Million-Node Knowledge Graphs
+
+# Motivation
+Current graph-LLM fusion methods like GreaseLM are limited to ~10,000-node graphs due to LLM context window constraints, preventing reasoning over real-world knowledge graphs (e.g., UMLS with 4M entities). Fixed compression methods (top-k degree ranking, community detection) optimize for size reduction but ignore task-specific reasoning requirements, losing critical multi-hop paths. This creates a fundamental scalability barrier for knowledge-intensive applications in biomedicine, scientific discovery, and enterprise knowledge management. We need learned, task-aware compression that preserves reasoning structure while achieving 100x scalability improvements.
+
+# Main Idea
+We propose a three-stage architecture: (1) GNN encoding of full million-node graphs using DeepGNN infrastructure, (2) reinforcement learning-trained hierarchical compressor that creates multi-level summaries (coarse L0 fitting LLM context, medium L1, fine L2), and (3) attention-guided expansion where LLM attention weights identify nodes requiring detail retrieval. The RL policy optimizes for QA accuracy while maintaining <1% compression ratios, trained with frozen API-only LLMs (GPT-4/LLaMA). We test on CommonsenseQA (ConceptNet graphs scaled to 1M nodes) and MedQA (UMLS), predicting <5% accuracy degradation versus small-graph baselines and ≥10% improvement over fixed compression methods. This resolves the compression-vs-structure tension through learned task-driven optimization, enabling practical deployment of graph-enhanced LLMs at scale.

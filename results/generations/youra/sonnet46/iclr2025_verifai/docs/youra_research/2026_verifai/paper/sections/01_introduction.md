@@ -1,0 +1,25 @@
+# 1. Introduction
+
+When a language model fails to write correct code, should you trust its confidence? This question is not academic: automated code review pipelines increasingly rely on LLM-generated confidence signals to prioritize, filter, or approve code changes [Kadavath et al., 2022]. If the model's P(True) logprob — the probability it assigns to its own output being correct — degrades systematically on problems it cannot solve, practitioners can compensate with difficulty-aware thresholds. If it does not, or if the degradation pattern inverts, a single threshold calibrated on average performance will systematically misfire on the hardest or easiest problems.
+
+We designed an experiment to confirm the expected pattern: harder code problems (where the model rarely generates correct solutions) should cause greater calibration error than easy problems. What we discovered instead is more nuanced and, we argue, more useful: **the direction of miscalibration under difficulty stratification depends fundamentally on model architecture**, not just on difficulty itself.
+
+**The surface problem** is well-established: modern neural networks, including LLMs, are poorly calibrated overall [Guo et al., 2017]. LLMs exhibit confidence signals (P(True)) that do not reliably correspond to their actual correctness rates [Kadavath et al., 2022]. In code generation evaluation, pass@k metrics measure output quality [Chen et al., 2021; Austin et al., 2021] and EvalPlus augmented tests provide reliable correctness oracles [Liu et al., 2023], but neither line of work asks whether calibration quality varies with problem difficulty.
+
+**The deeper problem** is that global calibration measures obscure difficulty-conditional structure. If Expected Calibration Error (ECE) is systematically higher on hard problems than easy ones (ΔECE = ECE(hard) − ECE(easy) > 0), a model is more reliably wrong in its confidence exactly when it matters most — on the problems it cannot solve. A practitioner deploying such a model as a code verifier needs difficulty-stratified confidence thresholds, not a single global threshold.
+
+**The gap** is that no existing work applies difficulty-stratified calibration analysis to LLM code verification. P(True) calibration studies (Kadavath et al., 2022) study capability scaling across model sizes, not task-difficulty conditioning. Code evaluation benchmarks (EvalPlus, HumanEval, MBPP) measure pass@k but not calibration quality. The combination — P(True) + ECE + self-contained difficulty bootstrapped from the experiment's own pass@1 distribution — has not been studied.
+
+We fill this gap with a controlled measurement study. Our key insight is that self-contained difficulty stratification (assigning hard/easy tiers from each model's own k=5 pass@1 distribution, without external labels) lets each model reveal its own **calibration fingerprint**: the relationship between difficulty and confidence alignment for that specific architecture and training regime.
+
+Building on this insight, we make the following contributions:
+
+1. **A validated self-contained calibration methodology**: We design and validate a four-step pipeline — k=5 solution generation → tier stratification → P(True) logprob extraction → ECE computation — that achieves perfect coverage (1.0000) for all model-benchmark combinations and produces non-degenerate confidence distributions (std 0.062–0.078) suitable for calibration analysis.
+
+2. **An architecture-dependent calibration fingerprint**: Testing three architectures representing distinct training regimes — code-specialized (DeepSeek-Coder-6.7B), code-adapted (CodeLlama-7B), and general-purpose (Llama3-8B) — we find that ΔECE direction is architecture-determined: code-specialized shows ΔECE=+0.298 (expected), code-adapted shows ΔECE=−0.249 (inverted — easy problems more miscalibrated), and general-purpose shows ΔECE≈0 (insensitive). The original universal prediction (positive ΔECE in ≥2/3 architectures) is refuted, but the architecture-stratified finding is more informative.
+
+3. **Evidence that global temperature scaling cannot correct architecture-dependent miscalibration**: Temperature scaling (T fitted on 20% holdout) fails to reverse ΔECE direction for CodeLlama (post-scaling ΔECE worsens to −0.810) and Llama3 (post-scaling ΔECE inverts direction), while DeepSeek's positive ΔECE persists (0.073). Architecture-specific calibration interventions are required.
+
+4. **A reusable difficulty-calibration infrastructure**: The full pipeline — k=5 self-contained difficulty bootstrap, P(True) extraction, M=15-bin ECE with bootstrap CI — is validated and reusable for future calibration studies on EvalPlus.
+
+We organize the paper as follows. Section 2 surveys related work on LLM calibration, code evaluation, and uncertainty quantification, showing why the gap exists. Section 3 describes our methodology with rationale for each design decision. Section 4 details our experimental setup and research questions. Section 5 presents results for each architecture. Section 6 discusses the implications and limitations. Section 7 concludes.

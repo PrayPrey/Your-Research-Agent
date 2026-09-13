@@ -1,0 +1,66 @@
+
+\subsubsection{3.1 Overview}
+
+The approach operationalizes data quality through observable documentation indicators in HuggingFace model cards. The central challenge is connecting two independently maintained data sources -- model card text and leaderboard benchmark scores -- at ecosystem scale. Direct measurement of data quality Q requires accessing pretraining corpora, which are proprietary for most deployed models. Model cards are the only large-scale observable artifact describing training data practices.
+
+\subsubsection{3.2 Data Sources}
+
+\textbf{Open LLM Leaderboard v2.} The \texttt{open-llm-leaderboard/contents} dataset (HuggingFace Datasets) provides benchmark scores for 4,497 model submissions across six tasks: IFEval, BBH, MATH Level 5, GPQA, MUSR, and MMLU-PRO. This dataset includes \texttt{params\textbackslash \_b} (parameter count in billions) and \texttt{avg\textbackslash \_score} (mean of six benchmark scores). V2 benchmarks were used because they measure harder reasoning and mathematical capabilities that resist scale saturation, yielding a lower baseline R-squared and potentially more room for additional explanatory factors.
+
+\textbf{HuggingFace Model Card API.} Model card text was retrieved via the HuggingFace Hub Python library, accessing the README.md markdown content for each model.
+
+\textbf{Training token counts.} Training token counts were obtained from model card metadata and, where unavailable, from model family defaults reported in original papers (e.g., LLaMA-2: 2T tokens, Mistral-7B: 1T tokens, Pythia: per-checkpoint training tokens from EleutherAI). Models without retrievable token counts were handled by architecture-family mean imputation. Token counts were log-transformed before regression. The availability of token counts varies across the registry, and full provenance is documented in the released dataset.
+
+\subsubsection{3.3 Registry Construction Pipeline}
+
+\textbf{Stage 1: Leaderboard Loading and Filtering.} The leaderboard dataset was loaded, deduplicated, and filtered to retain models with at least 4 of 6 benchmark scores non-null, yielding n = 4,493 analyzable models.
+
+\textbf{Stage 2: Targeted Family Sampling.} A key methodological choice is the retrieval order for model card API calls, which are subject to rate limits of approximately 3,000-4,000 cards per day. An initial alphabetical retrieval (H-E1) yielded only 177 cards concentrated in the 0-A range, systematically excluding well-documented model families whose names begin with later letters (LLaMA, Mistral, Qwen). The targeted family sampling approach reorders the model ID list to prioritize six well-documented families:
+
+\begin{itemize}
+\item LLaMA family: \texttt{meta-llama/}, \texttt{NousResearch/Llama}
+\item Mistral: \texttt{mistralai/}
+\item Qwen: \texttt{Qwen/}
+\item Falcon: \texttt{tiiuae/falcon}
+\item Pythia: \texttt{EleutherAI/pythia}
+\item OLMo: \texttt{allenai/OLMo}
+\end{itemize}
+
+This prioritization ensures that models from families known to document curation practices are retrieved first, achieving feature variance within API rate constraints. This constitutes a non-random sampling strategy: the selected families are among the best-documented in the ecosystem and may not be representative of all 4,493 registry models. The sampling is a practical necessity given API constraints and is appropriate for testing whether any observable documentation signal exists; it is not appropriate for estimating ecosystem-wide documentation rates. Of the 4,493 models in the registry, 114 (2.5\%) matched targeted family prefixes.
+
+\textbf{Stage 3: Model Card Retrieval.} Cards were retrieved with exponential backoff and checkpoint-based resumability (saving every 100 models). Total cards retrieved: 3,749, including 177 reused from the initial H-E1 run. The remaining 744 models without retrievable cards were assigned doc\_score = 0 by default. This conservative assignment conflates ''undocumented'' with ''documentation not retrievable,'' which may introduce downward bias in documentation rate estimates.
+
+\textbf{Stage 4: Feature Extraction.} Four binary documentation indicators were extracted using pre-registered regex patterns applied before data access:
+
+\begin{table*}[htbp]
+\centering
+\resizebox{\dimexpr 2\columnwidth+\columnsep\relax}{!}{%
+\begin{tabular}{lllll}
+\toprule
+Feature & Regex Pattern Target &  &  &  \\
+\midrule
+`dedup\_documented` & `dedup\ & near.?dup\ & minhash\ & exact.?dedup` \\
+`perplexity\_filter\_documented` & `perplexity.{0,20}filter\ & ppl.{0,10}filter` &  &  \\
+`domain\_composition\_documented` & `domain.{0,30}(\%\ & percent\ & composition)\ & data.{0,30}mix` \\
+`decontamination\_documented` & `decontaminat\ & n.?gram.{0,20}overlap\ & benchmark.{0,20}holdout` &  \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+A composite \texttt{doc\textbackslash \_score} was computed as the sum of four binary features (range 0-4).
+
+\textbf{Stage 5: Registry Assembly.} Leaderboard scores were joined with documentation features on model name. Models without retrieved cards received doc\_score = 0 (conservative default).
+
+\subsubsection{3.4 Statistical Analysis}
+
+Two OLS regression specifications were estimated:
+
+\begin{itemize}
+\item \textbf{Baseline:} avg\_score ~ log(params) + log(tokens) + C(arch\_family)
+\item \textbf{Proposed:} avg\_score ~ log(params) + log(tokens) + doc\_score + C(arch\_family)
+\end{itemize}
+
+Both were estimated using OLS (statsmodels) with heteroskedasticity-robust (HC3) standard errors. Gate criteria for the existence test were: n\_analyzable >= 200 AND n\_features\_with\_variance >= 3.
+
+The doc\_score variable is 0 for 96.5\% of observations, making it a highly zero-inflated regressor. OLS is used as a first-order approximation, and the coefficient is treated as a descriptive statistic rather than a causal estimate. A binary any\_documentation robustness check (doc\_score >= 1 vs. 0) is deferred to future analysis to address the zero-inflation of the continuous doc\_score regressor.

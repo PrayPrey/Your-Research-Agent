@@ -1,0 +1,55 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Our experimental framework isolates the effect of token importance metric type on KV eviction performance via a unified codebase with a pluggable \texttt{score\_fn} interface, so all metric conditions share identical model loading, tokenization, eviction pipeline, generation, and evaluation code---with only the importance scoring function varying.
+
+\subsection{Score Function Implementations}
+
+\textbf{M1 --- Prefill-Observation (SnapKV-style):}
+
+\begin{equation}
+\text{score\_M1}(i) = \frac{1}{W} \sum_{t=T-W}^{T} \text{attn\_weight}(t, i)
+\end{equation}
+
+where $T$ is the last prefill token position, $W=16$ is the observation window size, and $\text{attn\_weight}(t, i)$ is the attention weight from query token $t$ to key position $i$. This matches the SnapKV reference implementation.
+
+\textbf{M2 --- Cumulative-Attention-at-Prefill (H2O-at-prefill):}
+
+\begin{equation}
+\text{score\_M2}(i) = \sum_{t=0}^{T} \text{attn\_weight}(t, i)
+\end{equation}
+
+The cumulative sum of attention weights over all prefill steps, applied once at prefill end. This is the H2O cumulative attention metric applied at prefill timing, isolating metric type from eviction timing. Both M1 and M2 formulas were confirmed correct by code review.
+
+\textbf{M6 --- StreamingLLM:} Retains the first 4 attention sink tokens plus a sliding window of recent tokens.
+
+\subsection{KV Eviction Pipeline}
+
+The eviction pipeline for M1/M2: (1) prefill forward pass with \texttt{output\_attentions=True}; (2) score computation via \texttt{score\_fn}; (3) top-k selection per head per layer ($k=2048$ at 50\% retention from 4096); (4) gather retained KV tensors; (5) cache reconstruction; (6) generation with evicted cache. Steps 1--4 are mechanically correct (shape log confirms). Step 5 is where the failure occurs.
+
+\subsection{Implementation Failure: DynamicCache Reconstruction}
+
+Our step 5 implementation used:
+
+\begin{verbatim}
+evicted_cache = DynamicCache(ddp_cache_data=evicted_kv_tensors)
+\end{verbatim}
+
+The \texttt{transformers} 5.x \texttt{DynamicCache} stores internal state beyond raw (key, value) tuples---including sequence length bookkeeping that the generation loop uses to compute position IDs and attention masks. Constructing \texttt{DynamicCache} from raw tensors creates an object with correct tensor shapes but \texttt{sequence\_length=0} (default initialization), while the tensor content corresponds to 2048 positions. The generation loop references wrong positions, producing degenerate output. No exception is raised.
+
+The shape log confirms correct eviction:
+\begin{verbatim}
+Layer  0: [1, 32, 4096, 128] -> [1, 32, 2048, 128]  OK
+...
+Layer 31: [1, 32, 4096, 128] -> [1, 32, 2048, 128]  OK
+\end{verbatim}
+
+Yet M1 produces F1=0\% while M0 (identical pipeline, no eviction) produces macro-F1=8.75\%.
+
+\subsection{Corrected Protocol: Forward-Pass Integration}
+
+The correct approach, used by SnapKV's reference codebase, is to override \texttt{LlamaAttention.forward()}, applying eviction within the attention computation so the evicted tensors are appended to \texttt{past\_key\_values} through the standard \texttt{update()} path, maintaining all internal \texttt{DynamicCache} bookkeeping automatically. This requires replacing approximately 50 lines in \texttt{eviction.py}; all other pipeline components, including \texttt{score\_M1()} and \texttt{score\_M2()}, are reused without modification.
+
+\emph{Important:} this corrected protocol is proposed based on the SnapKV reference implementation design---it was not executed or validated in this paper's pipeline due to experiment termination. The pre-validation protocol below should be applied to confirm correctness before any full run.
+
+\textbf{Pre-validation protocol:} Run 5 examples, abort if F1=0\% on any example. This check identifies \texttt{DynamicCache}-class failures in under 3 minutes.

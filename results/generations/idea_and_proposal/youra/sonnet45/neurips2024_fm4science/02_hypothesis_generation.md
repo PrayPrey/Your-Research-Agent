@@ -1,0 +1,462 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-SciIR-001
+**Confidence Level:** 0.82 (HIGH)
+
+**Main Hypothesis:**
+
+If a multi-level intermediate representation framework (SciIR) with hierarchical abstraction levels (Concept → Mathematical → Numerical) is implemented with type-safe bidirectional translators and a scientific type system enforcing dimensional constraints, then integration complexity between N foundation models and M classical scientific tools will be reduced from O(N×M) to O(N+M), dimensional error rate will be <1% (vs ≥10% without type checking), and provenance graph completeness will reach ≥95% (vs <50% manual logging).
+
+**Alternative Hypothesis (H0):**
+
+FM-classical tool integration complexity remains O(N×M) regardless of intermediate representation architecture, dimensional error rates remain ≥10% without domain-specific validation, and provenance tracking requires manual annotation achieving <50% completeness.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Measurement Method |
+|----------|------|-------------------|-------------------|
+| Number of FM-tool integrations | Independent | Count of unique (FM, classical tool) pairs requiring integration | Analyze SciReasoner 103 tasks for diversity |
+| IR abstraction levels | Controlled | Fixed at 3 levels: Concept (NL), Mathematical (equations), Numerical (API calls) | Architectural design parameter |
+| Type system dimensionality | Controlled | Domain-defined rules for dimensional analysis, unit checking, conservation laws | Type checker configuration |
+| Integration overhead (translators) | Dependent | Count of IR translators implemented; O(N+M) pattern expected | N (FM→IR) + M (IR→tool) translator count |
+| Dimensional error rate | Dependent | % of dimensionally invalid outputs caught by type system | Type checker validation on test suite |
+| Provenance completeness | Dependent | % of reasoning steps captured in provenance graph from IR transformations | Compare auto-generated graph vs ground truth lineage |
+| FM structured output conformance | Confounding | % of FM outputs matching SciIR schema | Fine-tune with SLOT methodology (99.5% baseline) |
+
+### 1.3 Causal Mechanism
+
+**Primary Causal Chain:**
+
+```
+Multi-level IR architecture (3 levels)
+    ↓
+Common interface decouples FM-tool dependencies (graph topology: complete bipartite → star)
+    ↓
+Integration complexity reduction: O(N×M) → O(N+M)
+```
+
+**Secondary Causal Chains:**
+
+1. **Type Safety Pathway:**
+   ```
+   Type-safe progressive lowering with dimensional constraints
+       ↓
+   Structural correctness enforcement at abstraction boundaries
+       ↓
+   Dimensional error rate reduction: ≥10% → <1%
+   ```
+
+2. **Provenance Pathway:**
+   ```
+   IR transformation graph (directed acyclic graph structure)
+       ↓
+   Automatic provenance edge generation from translation operations
+       ↓
+   Provenance completeness increase: <50% → ≥95%
+   ```
+
+**Evidence for Causal Links:**
+
+1. **IR decoupling (O(N+M)):** MLIR production use (10+ years) demonstrates multi-level IR enables heterogeneous system interoperability through common interface. Graph theory: star topology (N+M edges) vs complete bipartite (N×M edges).
+
+2. **Type safety (dimensional correctness):** Compiler type systems (LLVM, Rust) show type checking prevents invalid operations at compile-time. Dimensional analysis literature (Buckingham Pi theorem) validates unit/dimension constraint enforcement.
+
+3. **Automatic provenance:** IR transformation DAGs in compilers automatically track optimization passes. Scientific workflow systems (PROV, ProvONE) demonstrate provenance graphs from computation graphs.
+
+4. **FM structured output:** SLOT (2025) achieves 99.5% schema accuracy for complex JSON, validating FM capability to generate SciIR-conformant outputs with fine-tuning.
+
+**Key Tension:**
+
+Type system can catch **structural errors** (dimensional mismatches, unit incompatibilities) but NOT **semantic errors** (scientifically wrong but dimensionally valid approaches). Example: Adding two pressures is structurally valid but semantically wrong if from incompatible physical contexts.
+
+### 1.4 Key Assumptions
+
+**Validity-Critical Assumptions:**
+
+1. **Workflow Decomposability:** Scientific workflows naturally decompose into 3 abstraction levels (Concept, Mathematical, Numerical) matching human scientific reasoning depth.
+   - *Risk:* Some domains may require >3 or <3 levels
+   - *Mitigation:* Domain dialect extensibility allows level customization
+
+2. **Type Rule Completeness:** Domain experts can define complete type rules for dimensional/unit checking across diverse scientific domains.
+   - *Risk:* Cross-domain type systems may be incomplete or inconsistent
+   - *Mitigation:* Incremental domain coverage (quantum → biology → materials)
+
+3. **FM Structured Output:** FMs can generate SciIR-conformant structured outputs with fine-tuning.
+   - *Evidence:* SLOT (2025) 99.5% schema accuracy validates feasibility
+   - *Risk:* Complex multi-level schemas may degrade accuracy
+   - *Mitigation:* Schema complexity management, constrained decoding
+
+4. **Benchmark Representativeness:** SciReasoner 103 tasks represent realistic diversity of scientific FM-classical tool integrations.
+   - *Evidence:* 103 tasks span chemistry, biology, physics across multiple workflows
+   - *Risk:* May not cover all domain-specific edge cases
+   - *Mitigation:* Validation scoped to 10-20 diverse subset
+
+5. **MLIR Transferability:** MLIR architectural principles (progressive lowering, type safety) transfer from compile-time to runtime scientific workflows.
+   - *Evidence:* Quantum circuit compiler (2021) adapts MLIR for runtime optimization
+   - *Risk:* Runtime adaptability requirements differ from compile-time
+   - *Mitigation:* Runtime IR design explicitly addresses dynamic workflow needs
+
+6. **Performance Overhead:** IR translation overhead remains acceptable (<10-20% performance impact).
+   - *Risk:* Complex type checking or translation may exceed threshold
+   - *Mitigation:* Performance measurement and optimization in Phase 4
+
+7. **Correctness Scope:** Type system catches structural errors (dimensions, units) but NOT semantic errors (wrong approach selection).
+   - *This is a limitation, not assumption failure*
+   - *Implication:* SciIR provides safety guarantees within structural correctness domain
+
+### 1.5 Scope & Boundaries
+
+**Applies To:**
+
+- Scientific computing workflows requiring FM-classical tool integration
+- Domains: Quantum computing, biology, materials science, chemistry, computational physics
+- Tasks: Multi-step workflows with conceptual reasoning → mathematical formulation → numerical execution
+- Scale: 5-20 FMs integrated with 10-30 classical tools (based on SciReasoner task analysis)
+
+**Does NOT Apply To:**
+
+- Pure ML pipelines (no classical tool integration needed)
+- Non-scientific domains (business intelligence, e-commerce) where dimensional constraints irrelevant
+- Real-time systems with latency budgets <1ms (IR translation overhead may exceed limits)
+- Workflows requiring <3 or >5 abstraction levels (architectural mismatch)
+
+**Known Limitations:**
+
+1. **Semantic Correctness:** Type system ensures dimensional validity but NOT scientific validity (e.g., cannot detect applying quantum mechanics to macroscopic objects)
+
+2. **Domain Coverage:** Initial implementation scoped to quantum, biology, materials (incremental expansion to other domains)
+
+3. **Performance Overhead:** Translation adds 10-20% computational cost (acceptable for offline workflows, problematic for real-time)
+
+4. **Type System Generalization:** Cross-domain type rules require expert curation (not fully automated)
+
+5. **FM Fine-tuning:** Requires domain-specific SciIR schema fine-tuning (SLOT methodology, compute cost)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Integration Complexity):** For N FMs and M classical tools, SciIR implementation requires N+M translators vs O(N×M) direct integration baseline.
+
+- **Measurement:** Count translators in SciIR (N FM→IR + M IR→tool) vs direct integration
+- **Success threshold:** Linear scaling O(N+M) with R² > 0.95
+- **Validation:** Implement on 10-20 SciReasoner tasks with varying N, M
+
+**Secondary Predictions:**
+
+**P2 (Dimensional Safety):** Type system catches ≥99% of dimensional errors in test suite vs ≤90% manual checking.
+
+- **Measurement:** % of injected dimensional errors detected by type checker
+- **Success threshold:** False negative rate <1%
+- **Validation:** Inject known dimensional errors (unit mismatch, dimension incompatibility) into IR translations
+
+**P3 (Provenance Completeness):** IR transformation graphs capture ≥95% of reasoning lineage vs <50% manual logging.
+
+- **Measurement:** % of ground truth reasoning steps present in auto-generated provenance graph
+- **Success threshold:** Coverage ≥95%, precision ≥90%
+- **Validation:** Compare IR-generated provenance against expert-annotated reasoning traces
+
+**P4 (FM Schema Conformance):** Fine-tuned FMs generate SciIR-conformant outputs with ≥95% accuracy.
+
+- **Measurement:** % of FM outputs matching SciIR schema (structural + content)
+- **Success threshold:** Schema accuracy ≥95% (following SLOT 99.5% baseline)
+- **Validation:** Fine-tune on SciIR schemas, evaluate on held-out scientific tasks
+
+**Falsification Criteria:**
+
+The hypothesis is **FALSIFIED** if any of the following occur:
+
+1. **Integration complexity remains quadratic:** O(N×M) scaling persists even with IR (R² > 0.95 for quadratic fit)
+2. **Type system ineffective:** Dimensional error detection <90% (false negative rate >10%)
+3. **Provenance incomplete:** Coverage <80% or precision <70%
+4. **FM schema failure:** Schema conformance <85% despite fine-tuning
+5. **Performance unacceptable:** IR translation overhead >30% (exceeds acceptable threshold by >50%)
+
+### 1.7 SOTA Baseline (Optional - Comparison Mode)
+
+**Baseline Comparison Required:**
+
+| Approach | Integration Complexity | Type Safety | Provenance | Key Reference |
+|----------|----------------------|-------------|------------|---------------|
+| **Direct Integration** | O(N×M) | None | Manual (<50%) | Phase 1 Gap 2 analysis |
+| **MCP/A2A Protocols** | O(N+M) single-level | None | Message-level only | iChatBio (2025), Judith (2025) |
+| **Workflow Orchestrators** | O(N+M) task-level | None | Task DAG only | Nextflow, Snakemake |
+| **GalaxyQ (Quantum-specific)** | O(N+M) domain-specific | Domain rules | Workflow-level | Raubenolt et al. (2025) |
+| **SciIR (Proposed)** | O(N+M) multi-level | Dimensional type system | IR transformation graph | This work |
+
+**SOTA Differentiation:**
+
+SciIR provides **multi-level hierarchical IR** (vs single-level messaging) + **type-safe progressive lowering** (vs unchecked translation) + **automatic provenance from IR graph** (vs manual/task-level tracking). GalaxyQ demonstrates domain-specific success; SciIR generalizes via domain dialect extensibility.
+
+### 1.8 Statistical Verification Design
+
+**Study Design:** Controlled experiment with repeated measures
+
+**Sample Size:**
+- **Primary (P1):** 10-20 SciReasoner tasks (diverse domain coverage)
+- **Power analysis:** Cohen's d = 0.8, α = 0.05, power = 0.80 → n ≥ 15 tasks
+
+**Independent Variable Manipulation:**
+- **Condition A (SciIR):** Implement FM-tool integration using SciIR framework
+- **Condition B (Direct):** Implement same integrations with direct FM→tool translators
+- **Condition C (MCP):** Implement using single-level MCP protocol (comparative baseline)
+
+**Dependent Variable Measurement:**
+- **Integration overhead:** Count translators, measure implementation time
+- **Dimensional error rate:** Inject errors, measure detection rate
+- **Provenance completeness:** Compare against ground truth annotations
+- **Performance overhead:** Measure IR translation time vs total execution time
+
+**Statistical Tests:**
+- **P1 (complexity):** Linear regression (SciIR) vs quadratic regression (Direct), compare R² and AIC
+- **P2 (type safety):** McNemar's test for paired proportions (type checker vs manual)
+- **P3 (provenance):** Wilcoxon signed-rank test (SciIR vs manual coverage)
+- **P4 (FM schema):** One-sample t-test (observed accuracy vs 95% threshold)
+
+**Confound Controls:**
+- **FM output quality:** Use same fine-tuned FM across conditions
+- **Task difficulty:** Stratified sampling across domain/complexity
+- **Implementation expertise:** Same developers implement all conditions
+- **Measurement bias:** Automated metrics (no subjective assessment)
+
+**Significance Level:** α = 0.05 (two-tailed)
+**Effect Size:** Cohen's d ≥ 0.5 (medium) for practical significance
+
+---
+
+## 2. Contribution Summary
+
+**Theoretical Contributions:**
+
+1. **Scientific Abstraction Hierarchy Theory:** Formalization of Concept → Mathematical → Numerical decomposition with bidirectional semantics-preserving transformations for scientific workflows. Extends compiler IR theory (MLIR) to scientific computing domain with runtime adaptability.
+
+2. **FM-Classical Hybrid Computation Model:** Framework for combining stochastic FM reasoning (concept generation) with deterministic classical computation (numerical execution) through type-safe intermediate abstraction levels.
+
+3. **Scientific Type System Design:** Type-theoretic foundation for encoding domain constraints (dimensional analysis, unit checking, conservation laws) in multi-level IR systems. Distinguishes structural correctness (dimensions/units) from semantic correctness (scientific validity).
+
+**Methodological Contributions:**
+
+1. **Progressive Lowering/Raising Protocol:** Systematic bidirectional translation methodology with type validation checkpoints at each abstraction boundary. Ensures information preservation during concept→math→numerical lowering and numerical→math→concept raising.
+
+2. **Automatic Provenance Graph Construction:** Method for generating provenance DAGs from IR transformation graphs without manual annotation. Each translation operation (lowering/raising pass) creates provenance edge automatically.
+
+3. **Domain-Extensible IR Design Pattern:** Reusable architectural pattern for balancing generality (core IR for common scientific abstractions) and specialization (domain dialects for quantum/biology/materials). Learned from MLIR dialect mechanism.
+
+4. **FM Structured Output Generation Protocol:** Methodology for eliciting SciIR-conformant outputs from FMs via fine-tuning and constrained decoding. Validated by SLOT (99.5% schema accuracy) for complex multi-level schemas.
+
+**Practical Contributions:**
+
+1. **O(N+M) Integration Complexity Reduction:** Engineering solution reducing integration overhead from quadratic O(N×M) to linear O(N+M) through common IR interface. Quantifiable deployment benefit for scalable FM-classical tool ecosystems.
+
+2. **Dimensional Safety Guarantees:** Production-ready type checker preventing dimensionally invalid operations (unit mismatches, dimension errors) critical for high-stakes scientific computing. False negative rate <1%.
+
+3. **Cross-Domain Reusability:** Framework demonstrated across multiple scientific domains (quantum, biology, materials) via domain dialect extensions. Incremental adoption path from single domain (quantum, following GalaxyQ success) to multi-domain.
+
+4. **Open-Source Framework Implementation:** Reference implementation with bidirectional translators for representative FMs (scientific LLMs) and classical tools (simulation software, analysis pipelines). Enables community validation and extension.
+
+---
+
+## 3. Key Related Work
+
+**Foundation (Architectural Basis):**
+
+1. **MLIR (Multi-Level Intermediate Representation) - Google (2020+)**
+   - Production compiler infrastructure for heterogeneous system interoperability
+   - Hierarchical dialects with progressive lowering and type safety
+   - **Relation:** Architectural foundation; SciIR adapts MLIR principles from compile-time to runtime scientific workflows
+   - **Citation:** Lattner et al., MLIR documentation (to be added in Phase 2B)
+
+2. **SciReasoner (Wang et al., 2025)**
+   - 103 scientific tasks across disciplines, 206B-token corpus
+   - **Relation:** Validation benchmark providing diverse FM-classical integration scenarios
+   - **Citation:** https://www.semanticscholar.org/paper/ccfb4e31... (Phase 1)
+
+3. **SLOT: Structured Language Output Training (Zhong et al., 2025)**
+   - 99.5% schema accuracy for complex JSON with fine-tuned Mistral-7B
+   - **Relation:** Validates FM structured output assumption (P4 prediction)
+   - **Citation:** Supplementary evidence (Phase 2A Round 1)
+
+**Inspiration (Conceptual/Hybrid Frameworks):**
+
+4. **GalaxyQ (Raubenolt et al., 2025)**
+   - Hybrid workflow platform for quantum computing (domain-specific)
+   - **Relation:** Demonstrates domain-specific integration framework viability; SciIR generalizes via IR + dialects
+   - **Citation:** https://www.semanticscholar.org/paper/d1eca217... (Phase 1)
+
+5. **Hydrogel AI (Neguț, Bita, 2023) - 75 citations**
+   - Conceptual hybrid AI/classical approach for materials science
+   - **Relation:** High-citation conceptual work validates demand; SciIR provides missing implementation
+   - **Citation:** https://www.semanticscholar.org/paper/d796eb41... (Phase 1)
+
+**Comparison (Alternative Approaches):**
+
+6. **MCP (Model Context Protocol) / A2A Protocols**
+   - Single-level agent communication (iChatBio 2025, Judith 2025)
+   - **Relation:** Baseline comparison; SciIR provides multi-level hierarchy vs single-level messaging
+   - **Differentiation:** MCP lacks type safety and semantic preservation across abstraction levels
+
+7. **Workflow Orchestrators (Nextflow, Snakemake)**
+   - Task-level DAG execution without FM integration or type checking
+   - **Relation:** Complementary; SciIR focuses on FM↔tool translation, orchestrators on task scheduling
+   - **Differentiation:** Orchestrators provide execution management, not semantic integration
+
+**Type Theory / Dimensional Analysis:**
+
+8. **Dimensional Analysis (Buckingham Pi theorem)**
+   - Classical physics theory for unit/dimension validation
+   - **Relation:** Theoretical basis for scientific type system design
+   - **Citation:** Standard physics reference (to be added)
+
+9. **Units Libraries (Julia Units, Python Pint, F# Units of Measure)**
+   - Programming language type systems for dimensional checking
+   - **Relation:** Implementation precedent for type systems in scientific computing
+   - **Differentiation:** SciIR extends to multi-level IR context with FM integration
+
+**Provenance Systems:**
+
+10. **PROV / ProvONE Standards**
+    - W3C provenance data model for scientific workflows
+    - **Relation:** Provenance graph format standard; SciIR auto-generates PROV-compliant graphs from IR transformations
+    - **Citation:** W3C PROV spec (to be added)
+
+**Recent MLIR Applications (Supplementary Evidence):**
+
+11. **Quantum Circuit Transformations with MLIR (Nguyen et al., 2021)**
+    - Adapts MLIR for quantum computing runtime optimization
+    - **Citation:** https://www.semanticscholar.org/paper/0016036ca48... (Step 2 evidence)
+    - **Relevance:** Validates MLIR transferability from compile-time to runtime (Assumption 5)
+
+12. **HIR: MLIR-based Hardware Accelerator IR (Majumder, Bondhugula, 2021) - 25 citations**
+    - MLIR dialect for FPGA accelerator design
+    - **Citation:** https://www.semanticscholar.org/paper/08c977c75... (Step 2 evidence)
+    - **Relevance:** Demonstrates MLIR extensibility via custom dialects (domain dialect pattern)
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence - Infrastructure):**
+
+"Does a multi-level IR framework (3 levels: Concept, Mathematical, Numerical) with bidirectional translators successfully integrate at least 5 FMs with 10 classical scientific tools?"
+
+**Verification Approach:**
+- Implement SciIR core architecture (3-level IR schema)
+- Build FM→IR translators for 5 representative FMs
+- Build IR→tool translators for 10 classical tools
+- Validate schema conformance and translation correctness
+- **Success Criteria:** All 50 (FM, tool) pairs successfully integrated via SciIR
+
+---
+
+**SH2 (Mechanism - Causal Validation):**
+
+"Does type-safe progressive lowering with dimensional constraint enforcement reduce dimensional error rates from ≥10% (without type checking) to <1% (with type checking)?"
+
+**Verification Approach:**
+- Design test suite with 100+ dimensional error cases (unit mismatches, dimension errors)
+- Implement scientific type system (dimensional analysis, unit checking)
+- Measure false negative rate (errors passing type checker)
+- Compare against manual validation baseline
+- **Success Criteria:** Type checker catches ≥99% of dimensional errors (false negative <1%)
+
+---
+
+**SH3 (Comparison - SOTA Benchmark):**
+
+"Does SciIR achieve O(N+M) integration complexity with ≥95% provenance completeness, outperforming direct integration O(N×M) and MCP single-level protocols in efficiency and completeness?"
+
+**Verification Approach:**
+- Implement same 10-20 SciReasoner tasks using:
+  - SciIR (multi-level IR)
+  - Direct integration (baseline)
+  - MCP protocol (single-level comparison)
+- Measure: translator count, provenance coverage, performance overhead
+- Statistical comparison: linear vs quadratic regression, coverage paired tests
+- **Success Criteria:** SciIR shows linear scaling (R²>0.95), provenance >95%, overhead <20%
+
+---
+
+### Readiness Checklist
+
+**Hypothesis Clarity:**
+- [x] Core statement quantified (O(N+M), <1% error rate, ≥95% provenance)
+- [x] Variables operationalized with measurement methods
+- [x] Alternative hypothesis (H0) explicitly stated
+- [x] Causal mechanism decomposed with first principles
+
+**Evidence Base:**
+- [x] Phase 1 sources utilized (GalaxyQ, Hydrogel, SciReasoner)
+- [x] Supplementary evidence gathered (SLOT, MLIR papers)
+- [x] Cross-domain inspiration validated (MLIR → scientific computing)
+- [x] Assumptions validated with empirical evidence where available
+
+**Testability:**
+- [x] Predictions quantified with thresholds (P1-P4)
+- [x] Falsification criteria explicit
+- [x] Statistical design specified (n=10-20, α=0.05)
+- [x] Baseline comparisons identified (Direct, MCP, GalaxyQ)
+
+**Scoping:**
+- [x] Applies-to domains specified (quantum, biology, materials)
+- [x] Does-not-apply-to boundaries clear (non-scientific, real-time)
+- [x] Known limitations acknowledged (semantic vs structural correctness)
+- [x] Implementation difficulty realistic (MEDIUM)
+
+**Phase 2B Decomposition:**
+- [x] SH1 (Existence) focused on infrastructure implementation
+- [x] SH2 (Mechanism) focused on causal validation (type safety)
+- [x] SH3 (Comparison) focused on SOTA benchmarking
+- [x] Each sub-hypothesis independently testable
+
+**Overall Readiness:** ✅ **READY FOR PHASE 2B**
+
+### Open Questions
+
+**For Phase 2B Verification Planning:**
+
+1. **Type System Generalization:** How to validate type rules across diverse domains (quantum, biology, materials) with different dimensional constraints?
+   - *Approach:* Incremental domain coverage, expert validation per domain
+
+2. **FM Fine-tuning Cost:** What is acceptable compute/data cost for fine-tuning FMs on SciIR schemas?
+   - *Approach:* Benchmark SLOT methodology cost, establish efficiency thresholds
+
+3. **Provenance Ground Truth:** How to obtain expert-annotated reasoning traces for provenance validation?
+   - *Approach:* Expert annotation protocol, inter-rater reliability measurement
+
+4. **Performance Optimization:** If IR overhead exceeds 20%, what optimization strategies exist?
+   - *Approach:* Profiling, caching strategies, lazy evaluation, optimization passes
+
+5. **Domain Dialect Design:** What is minimal viable dialect for each scientific domain?
+   - *Approach:* Domain expert interviews, prototype dialects for quantum/biology/materials
+
+6. **Scalability Beyond 20 Tasks:** Does O(N+M) scaling hold for full 103 SciReasoner tasks?
+   - *Approach:* Phase 4 expansion plan, incremental validation
+
+**For Phase 2C Experiment Design:**
+
+7. **Test Suite Construction:** How to systematically generate dimensional error test cases covering all type system rules?
+   - *Requires:* Taxonomy of dimensional errors, automated error injection
+
+8. **Baseline Implementation:** What is fair comparison for direct integration (optimized ad-hoc vs naive)?
+   - *Requires:* Standardized implementation guidelines for all conditions
+
+9. **Statistical Power:** Is n=15 tasks sufficient for detecting medium effects across all predictions?
+   - *Requires:* Sensitivity analysis, potential sample size increase
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-06*

@@ -1,0 +1,455 @@
+# 06_narrative_blueprint.yaml
+# Phase 6 Step 02: Narrative Design for ICML Paper
+# Generated: 2026-08-25
+# Research: Adversarial Calibration Degradation in Open-Weight LLMs (H-DeltaECE-v1)
+
+# ============================================================================
+# PART 1: HOOK DESIGN
+# ============================================================================
+
+hook:
+  strategy: "counterintuitive_finding"
+
+  opening_statement:
+    content: >
+      Making NLP benchmark questions adversarially harder sometimes makes large language models
+      better calibrated — not worse. This counterintuitive finding challenges the prevailing
+      assumption that adversarial perturbation uniformly degrades model reliability.
+    why_engaging: >
+      Directly contradicts intuition. Reader expects "adversarial = worse." We open by
+      showing that's wrong — then explain when and why calibration *does* degrade.
+
+  the_tension:
+    setup: >
+      The NLP community increasingly relies on adversarial benchmarks (AdvGLUE, ANLI) to
+      stress-test LLMs. The implicit assumption: if a model fails on harder examples, its
+      confidence signals should also become less reliable.
+    contradiction: >
+      We measure Expected Calibration Error (ECE) directly, and find that ANLI R1/R2
+      (model-in-the-loop adversarial) show calibration *improvement* (ΔECE = -0.041),
+      while human-adversarial NLI (AdvGLUE MNLI) shows strong degradation (ΔECE = +0.071).
+    resolution_promise: >
+      The resolution reveals something fundamental: calibration degradation depends on
+      *how* adversarial examples are constructed, *what task type* is involved, and
+      *whether the model was RLHF-aligned* — and these interactions are not independent.
+
+  why_reader_should_care:
+    main_reason: >
+      As LLMs are deployed in high-stakes settings, practitioners use model confidence as
+      a proxy for reliability. If adversarial conditions silently shift that confidence-accuracy
+      relationship, deployment users receive misleading reliability signals — without any
+      indication that something is wrong.
+    concrete_example: >
+      A medical NLP system achieving 90% accuracy on clean data might show ECE = 0.28,
+      calibrated enough for cautious use. Under adversarially-crafted inputs (e.g., targeted
+      clinical notes designed to trigger model errors), accuracy drops and the ECE rises to
+      0.35 — but the model's confidence outputs are unchanged. The reliability signal breaks
+      silently.
+    stakes: >
+      Without measurement of ΔECE under adversarial conditions, deployment stress testing
+      is incomplete: accuracy robustness does not imply calibration robustness.
+
+# ============================================================================
+# PART 2: PROBLEM FRAMING (THREE LEVELS)
+# ============================================================================
+
+problem_framing:
+  surface_problem:
+    description: >
+      LLM confidence calibration has been extensively studied on clean benchmarks (Guo et al. 2017;
+      Kadavath et al. 2022), and adversarial robustness has been studied on accuracy (Wang et al.
+      2021 AdvGLUE; Nie et al. 2020 ANLI). But the intersection — calibration *under adversarial
+      conditions* — has not been measured.
+    common_understanding: >
+      Distribution shift degrades calibration (Minderer et al. 2021 in vision). Adversarial
+      perturbation is a form of distribution shift. Therefore adversarial perturbation should
+      degrade LLM calibration.
+
+  deeper_problem:
+    description: >
+      The vision-domain intuition (shift = worse calibration) does not straightforwardly
+      transfer to NLP adversarial benchmarks, because adversarial *construction method* differs
+      fundamentally between human-adversarial (AdvGLUE) and model-in-the-loop adversarial (ANLI).
+      These methods produce qualitatively different calibration effects.
+    why_overlooked: >
+      Prior work treats "adversarial" as a monolithic category. ECE measurement requires
+      logit access (not available for proprietary models), and adversarial NLP benchmarks
+      are primarily used for accuracy benchmarking, not calibration analysis.
+    our_perspective: >
+      We treat adversarial *construction method* and *task type* as first-class independent
+      variables — not just input perturbations — and measure their interaction with
+      calibration outcomes and RLHF alignment.
+
+  gap_in_existing_work:
+    description: >
+      No published study measures logit-based ECE on adversarial NLP benchmark splits
+      (AdvGLUE, ANLI) for open-weight LLMs, or examines how RLHF alignment moderates
+      adversarial calibration degradation across benchmark types.
+    why_gap_exists: >
+      Calibration and adversarial robustness communities rarely overlap. ECE requires logit
+      access (unavailable for API-only models), limiting study to open-weight models.
+      RLHF's effect on calibration has been studied only on clean benchmarks (Kadavath 2022).
+    why_gap_matters: >
+      Deployment reliability requires *both* accuracy robustness and calibration robustness.
+      If ΔECE is unknown under adversarial conditions, practitioners cannot assess whether
+      confidence signals remain informative when the model is stressed.
+
+# ============================================================================
+# PART 3: KEY INSIGHT
+# ============================================================================
+
+key_insight:
+  type: "observation_based_with_interaction"
+
+  aha_moment:
+    one_sentence: >
+      Adversarial calibration degradation in LLMs is not a property of adversarial perturbation
+      per se, but of the interaction between adversarial construction method, task type, and
+      RLHF alignment — making it conditionally predictable rather than universal.
+    expanded_explanation: >
+      Human-crafted adversarial NLI examples (AdvGLUE MNLI) degrade calibration (ΔECE = +0.071)
+      because they preserve labels while triggering model confidence on wrong answers — the
+      canonical adversarial calibration mechanism. But model-in-the-loop adversarial examples
+      (ANLI R1/R2) produce calibration *improvement*, because the LLM was already uncertain on
+      these examples (the adversarial construction *filtered for* model errors). RLHF alignment
+      moderates this mechanism conditionally: it helps for model-in-loop adversarial (ANLI) and
+      hurts for static human-adversarial (AdvGLUE).
+
+  why_others_missed_it:
+    common_assumptions: >
+      "Adversarial = harder = worse calibration" (from vision distribution shift literature).
+      "RLHF = better calibrated" (from Kadavath 2022 clean benchmark findings).
+    our_different_view: >
+      We treat adversarial construction method as a variable, not a constant. We measure ΔECE
+      directly across construction-method × task-type × RLHF combinations rather than assuming
+      a uniform adversarial effect.
+    enabling_factor: >
+      Access to open-weight model logits and reuse of H-E1 JSONL caches across sub-hypotheses
+      enabled post-hoc disaggregation by cell without additional inference cost.
+
+  what_makes_it_work:
+    intuitive_explanation: >
+      Think of calibration as "does the model know what it doesn't know?" Human adversaries
+      craft examples the model gets wrong confidently — bad calibration. But a model-in-the-loop
+      adversary selects examples the model was *already uncertain about* — so the model is
+      already uncertain when it fails, which is actually good calibration.
+    key_mechanism: >
+      For AdvGLUE (human-adversarial): labels preserved, surface features crafted to trigger
+      high wrong-class confidence → confidence-accuracy gap widens → ΔECE > 0.
+      For ANLI R1/R2 (model-in-loop): examples selected where model accuracy was already low,
+      confidence on wrong answers proportionally lower → gap narrows → ΔECE < 0.
+      For RLHF: ANLI moderation (chat more uncertain on adversarial examples, 100% rate);
+      AdvGLUE reversal (RLHF instruction-following instills overconfidence on human-targeted NLI).
+
+# ============================================================================
+# PART 4: EVIDENCE NARRATIVE
+# ============================================================================
+
+evidence_narrative:
+  main_claim:
+    statement: >
+      Adversarial calibration degradation in open-weight LLMs is real, measurable, and
+      task-type/construction-method conditional — not universal.
+    measurable_criteria:
+      - "H-E1 PASS: ΔECE > 0 confirmed for AdvGLUE MNLI (ΔECE = +0.071) with n=121 adversarial examples"
+      - "H-M1 PASS: Label preservation rate = 1.000 validates ΔECE as calibration signal (not label noise)"
+      - "H-M3: Per-cell analysis shows task-type dependency (NLI positive; binary negative ΔECE)"
+      - "H-C1-V2 PASS: RLHF moderation confirmed for ANLI (100% rate); reversal on AdvGLUE (ΔΔECE=-0.026)"
+
+  supporting_evidence:
+    - id: "evidence_1"
+      what: "AdvGLUE MNLI: ΔECE = +0.071 (ECE increases from 0.279 clean to 0.350 adversarial)"
+      so_what: >
+        A 7.1 percentage point calibration gap increase is practically significant — larger
+        than temperature scaling improvements typically reported (Guo 2017: 2-4pp reduction).
+        Deployment confidence signals are meaningfully less reliable under human-adversarial NLI.
+      how_it_supports_claim: "Existence of adversarial calibration degradation — first measurement in NLP."
+
+    - id: "evidence_2"
+      what: "Label preservation rate = 1.000 for all 4 adversarial splits (AdvGLUE MNLI, ANLI R1/R2/R3)"
+      so_what: >
+        Rules out the most obvious alternative explanation (ΔECE reflects label noise, not
+        calibration change). The causal chain from adversarial perturbation to calibration
+        degradation is methodologically valid.
+      how_it_supports_claim: "Mechanism verification: ΔECE is a genuine calibration signal."
+
+    - id: "evidence_3"
+      what: "ANLI difficulty gradient: ΔECE R1(-0.041) → R2(-0.014) → R3(+0.024)"
+      so_what: >
+        Calibration stress scales with adversarial difficulty in a smooth gradient. The hardest
+        ANLI round (R3) begins to show positive ΔECE, while easier rounds show calibration
+        improvement. This gradient is theoretically coherent and practically informative.
+      how_it_supports_claim: >
+        Construction-method dependency: model-in-loop adversarial produces systematic gradient,
+        not random noise. Harder examples approach the human-adversarial calibration effect.
+
+    - id: "evidence_4"
+      what: "RLHF moderation: ANLI 100% moderation rate (ΔΔECE R1=+0.115, R2=+0.147, R3=+0.043)"
+      so_what: >
+        RLHF alignment consistently improves calibration robustness for model-in-loop adversarial
+        examples. The R2 effect (14.7pp ΔΔECE) is a large, practically significant advantage
+        for chat models in this setting.
+      how_it_supports_claim: "RLHF moderation of adversarial calibration degradation — confirmed for ANLI."
+
+    - id: "evidence_5"
+      what: "AdvGLUE alignment tax: ΔΔECE = -0.026 (chat WORSE than base on human-adversarial NLI)"
+      so_what: >
+        RLHF alignment is not a universal calibration fix. For static human-adversarial benchmarks,
+        chat models show larger calibration degradation than base models — an alignment tax.
+        This directly challenges the assumption that "RLHF = better calibrated."
+      how_it_supports_claim: >
+        Benchmark-type × RLHF interaction: the most novel conditional finding, showing
+        RLHF moderation is construction-method dependent.
+
+  surprising_findings:
+    - finding: "ANLI R1/R2 show calibration *improvement* under adversarial conditions (ΔECE negative)"
+      why_surprising: >
+        The hypothesis predicted universal ΔECE > 0, motivated by Minderer 2021's vision finding
+        that distribution shift consistently degrades calibration.
+      our_interpretation: >
+        Model-in-loop adversarial construction selects examples where the model was already
+        uncertain — so the adversarial split, by construction, contains examples where model
+        uncertainty is appropriate. Accuracy drop + confidence drop → calibration maintained.
+
+    - finding: "RLHF chat model shows WORSE calibration than base on AdvGLUE (alignment tax)"
+      why_surprising: >
+        Kadavath 2022 showed RLHF improves verbal calibration on clean benchmarks. The expected
+        result was chat ≤ base (i.e., RLHF uniformly helps or is neutral).
+      our_interpretation: >
+        AdvGLUE was constructed targeting base models. RLHF instruction-following training
+        may instill overconfidence on decisive NLI outputs — which static human adversaries
+        are positioned to exploit, while model-in-loop adversaries are not.
+
+# ============================================================================
+# PART 5: BROADER IMPACT
+# ============================================================================
+
+takeaway:
+  main_contribution:
+    one_sentence: >
+      We provide the first measurement of logit-based ECE under adversarial NLP perturbation,
+      revealing that calibration degradation is conditional on adversarial construction method,
+      task type, and RLHF alignment — with direct implications for deployment reliability assessment.
+    why_significant: >
+      Practitioners testing LLM reliability under adversarial conditions cannot rely on
+      accuracy robustness as a calibration proxy. Our framework (ΔECE across construction-method
+      × task-type × alignment) provides a principled roadmap for adversarial calibration audit.
+
+  implications:
+    for_field: >
+      Establishes adversarial calibration measurement as a distinct research problem from
+      adversarial robustness (accuracy). Opens the benchmark-type × RLHF interaction as a
+      new dimension for calibration research.
+    for_practice: >
+      Deployment stress testing should include ΔECE measurement alongside accuracy metrics.
+      Human-adversarial benchmarks (AdvGLUE-style) are the highest-risk setting for calibration
+      degradation. RLHF alignment helps for model-in-loop adversarial but may hurt for
+      human-adversarial — the benchmark type matters for calibration audit.
+
+  future_possibilities:
+    immediate_extensions: >
+      Multi-model ΔECE grid (4 models × 5 tasks = 20 cells) to properly evaluate P1 and P3.
+      Temperature scaling as post-hoc ΔECE mitigation baseline. BBH-MC commonsense reasoning.
+    longer_term_vision: >
+      ΔECE as a deployment reliability signal: AUROC validation against real failure modes.
+      Adversarial calibration-aware training objectives. Benchmark-construction-aware
+      calibration evaluation protocols for model release audits.
+
+# ============================================================================
+# PART 6: SECTION-LEVEL GOALS
+# ============================================================================
+
+section_goals:
+  abstract:
+    narrative_purpose: "Compress full story: counterintuitive hook → gap → method → conditional finding → implication"
+    key_message: >
+      Adversarial calibration degradation is real but conditional — not universal — and
+      the benchmark construction method determines whether RLHF alignment helps or hurts.
+    tone: "Factual, specific, evidence-grounded. No hype."
+    must_include: ["ΔECE = +0.071 (AdvGLUE)", "ΔECE negative (ANLI R1/R2)", "RLHF 100% moderation (ANLI)", "alignment tax (AdvGLUE)"]
+
+  introduction:
+    narrative_purpose: "Hook (counterintuitive) → Surface problem → Deeper problem → Gap → Insight preview → Contributions"
+    hook_strategy: "counterintuitive_finding"
+    opening_paragraph: >
+      Open with the ANLI calibration improvement fact to create intellectual tension.
+      Then introduce the AdvGLUE degradation result to show the conditional nature.
+      This 'it depends' structure motivates the full paper.
+    contributions_as_story: >
+      Frame contributions as: (1) first measurement, (2) task-type + construction-method
+      dependency finding, (3) RLHF conditional moderation finding, (4) JSONL cache methodology.
+      NOT as a bullet list — as a narrative arc of discovery.
+    transition_to_related: >
+      "To understand why these results are surprising, we review calibration measurement,
+      adversarial benchmarks, and RLHF calibration — showing that none of the prior work
+      anticipated this conditional pattern."
+
+  related_work:
+    narrative_purpose: >
+      Show existing work is insufficient: calibration (clean only), adversarial robustness
+      (accuracy only), RLHF calibration (clean only) — justify our intersection.
+    positioning_strategy: >
+      Three pillars, each with a gap:
+      1. Calibration measurement (Guo 2017; Kadavath 2022) — ECE well-defined on clean data; never measured on adversarial splits.
+      2. Adversarial NLP benchmarks (Wang 2021 AdvGLUE; Nie 2020 ANLI) — accuracy impact well-studied; calibration impact unmeasured.
+      3. RLHF and calibration (Kadavath 2022) — clean-benchmark RLHF advantage; adversarial setting unknown.
+      Gap: No work at the intersection of all three.
+    key_comparison_points:
+      - "Minderer 2021 (vision distribution shift → calibration degradation): we extend to NLP adversarial, but find task-type conditioning not present in vision"
+      - "Guo 2017 ECE methodology: we apply 15-bin logit ECE to adversarial NLP splits (first application)"
+      - "Kadavath 2022 RLHF calibration: we test RLHF in adversarial setting (first such test)"
+      - "Wang 2021 AdvGLUE / Nie 2020 ANLI: prior work measures accuracy; we add ECE measurement"
+
+  methodology:
+    narrative_purpose: >
+      Show WHY this design tests our claims. Connect each design decision to the key insight.
+      Not just "what we did" — but "why these choices enable the finding."
+    connection_to_insight: >
+      The conditional insight requires: (1) disaggregated measurement by construction method
+      (AdvGLUE vs ANLI × difficulty); (2) task-type comparison (NLI vs binary); (3) model pair
+      comparison (base vs chat). Each is a deliberate design choice, not incidental.
+    key_design_decisions:
+      - decision: "15-bin logit-based ECE"
+        rationale: "Standard Guo 2017 methodology; ablation confirms stability across 10/15/20 bins (H-M1)"
+      - decision: "JSONL cache reuse across sub-hypotheses"
+        rationale: "Enables post-hoc disaggregation without repeated inference; makes multi-cell analysis computationally feasible"
+      - decision: "Label preservation verification before ΔECE interpretation"
+        rationale: "Rules out alternative explanation that ΔECE reflects label noise (H-M1 confirmation: rate = 1.000)"
+      - decision: "AdvGLUE MNLI vs ANLI R1/R2/R3 as separate cells"
+        rationale: "Construction-method comparison is only possible if we treat these as distinct experimental conditions, not pooled 'adversarial'"
+    subsections:
+      - "3.1 ECE Measurement Protocol (logit-based, 15-bin, Guo 2017)"
+      - "3.2 Adversarial Benchmark Selection (AdvGLUE, ANLI — distinct construction methods)"
+      - "3.3 Model Selection and RLHF Comparison Design (Llama-2-7b base/chat pair)"
+      - "3.4 Label Preservation Verification (H-M1 methodology)"
+      - "3.5 Experimental Cell Design (construction method × task type × model)"
+
+  experiments:
+    narrative_purpose: "Design tests that verify specific claims, not generic benchmarking"
+    experimental_questions:
+      - "Q1: Does adversarial perturbation increase ECE for open-weight LLMs? (Existence: H-E1)"
+      - "Q2: Is ΔECE a valid calibration signal (not label noise)? (Mechanism: H-M1)"
+      - "Q3: Is ΔECE task-type and construction-method dependent? (Universality: H-M3)"
+      - "Q4: Does RLHF alignment moderate adversarial calibration degradation? (Moderation: H-C1-V2)"
+    rationale_emphasis: >
+      Every experimental choice answers a specific question. Baselines chosen to isolate
+      the causal variable (clean vs adversarial split, base vs chat model).
+    datasets_with_rationale:
+      - "AdvGLUE MNLI (human-adversarial NLI): strongest calibration degradation signal; human-crafted for base models"
+      - "ANLI R1/R2/R3 (model-in-loop NLI): difficulty gradient; model-construction comparison"
+      - "GLUE MNLI (clean NLI baseline): matched clean counterpart for both adversarial NLI sets"
+      - "AdvGLUE QQP, SST-2 (binary adversarial): task-type comparison"
+
+  results:
+    narrative_purpose: "Tell the discovery story: existence → mechanism → conditionality → RLHF moderation"
+    main_result_highlight: >
+      AdvGLUE MNLI ΔECE = +0.071 (existence confirmed) + ANLI R1 ΔECE = -0.041 (conditionality
+      revealed) = the core finding that calibration degradation depends on construction method.
+    story_sequence:
+      - "5.1 Existence: AdvGLUE MNLI ΔECE = +0.071 — calibration degradation is real and measurable (H-E1)"
+      - "5.2 Mechanism: Label preservation = 1.000 — ΔECE is a valid signal (H-M1)"
+      - "5.3 Conditionality: Per-cell analysis — NLI degrades, binary improves; ANLI gradient (H-M3)"
+      - "5.4 RLHF Moderation: ANLI 100% moderation rate; AdvGLUE alignment tax (H-C1-V2)"
+    figures_to_emphasize:
+      - "Table 1: Per-cell ECE results (clean vs adversarial, all splits)"
+      - "Figure: ANLI ECE gradient (R1 → R2 → R3 ΔECE)"
+      - "Figure: ΔΔECE per cell (RLHF moderation bar chart, ANLI vs AdvGLUE)"
+      - "Figure: Reliability diagram for AdvGLUE MNLI (clean vs adversarial calibration curve)"
+
+  discussion:
+    narrative_purpose: "Interpret the conditional pattern, explain unexpected findings, acknowledge honest limits"
+    key_findings_interpretation:
+      - "The adversarial construction method × calibration interaction explains why vision-domain findings don't transfer directly to NLP"
+      - "The RLHF alignment tax on AdvGLUE suggests that human-adversarial construction may specifically target RLHF reasoning shortcuts"
+    honest_limitations:
+      - "Single-model evaluation (Llama-2-7b-hf) for core experiments — limits P1/P3 evaluation"
+      - "Shared MNLI clean baseline for ANLI may inflate ECE(clean) for ANLI cells"
+      - "BBH-MC not tested — scope bounded to NLI and binary classification"
+      - "RLHF moderation conditionality discovered post-hoc — further experimental validation needed"
+    broader_impact: >
+      Deployment stress testing should include adversarial calibration audit (ΔECE), not
+      just adversarial accuracy. Construction method matters — not all adversarial benchmarks
+      stress calibration equally.
+
+  conclusion:
+    narrative_purpose: "Callback to hook, consolidate the conditional insight, open the future"
+    callback_to_hook: >
+      We opened with the counterintuitive observation that adversarial benchmarks can improve
+      calibration. We close by explaining exactly when and why: model-in-loop adversarial construction
+      produces calibration improvement by selecting examples where the model is already uncertain;
+      human-adversarial construction triggers confident mistakes. The finding inverts the
+      simple adversarial = worse intuition and replaces it with a principled conditional account.
+    summary_points:
+      - "First measurement of logit-based ECE on adversarial NLP benchmarks for open-weight LLMs"
+      - "Calibration degradation is construction-method and task-type conditional, not universal"
+      - "RLHF alignment conditionally moderates degradation — helps for model-in-loop, hurts for human-adversarial"
+    future_vision: >
+      Multi-model grid, ΔECE as deployment reliability predictor (P3), temperature scaling
+      as mitigation baseline, BBH-MC extension. The conditional framework we establish
+      provides a principled roadmap for adversarial calibration research at scale.
+
+# ============================================================================
+# PART 7: NARRATIVE COHERENCE CHECKLIST
+# ============================================================================
+
+narrative_coherence_checklist:
+  - check: "Does Introduction hook connect to Conclusion ending?"
+    status: "YES — counterintuitive ANLI calibration improvement opens paper; same observation closed with explanation"
+
+  - check: "Does each section naturally flow to the next?"
+    status: "YES — Intro → Related Work (what we build on); Related Work → Methodology (our approach); Methodology → Experiments (what we test); Experiments → Results (what we found); Results → Discussion (what it means); Discussion → Conclusion (what we established)"
+
+  - check: "Is key insight consistently emphasized throughout?"
+    status: "YES — construction-method × task-type × RLHF conditionality is the through-line in every section goal"
+
+  - check: "Are all major claims supported by evidence?"
+    status: "YES — 4 evidence items map to 4 validated hypotheses (H-E1, H-M1, H-M3, H-C1-V2)"
+
+  - check: "Would a busy reviewer find Abstract compelling?"
+    status: "YES — must include specific numbers (ΔECE=+0.071, ΔECE=-0.041, 100% moderation, -0.026 alignment tax) and the counterintuitive framing"
+
+# ============================================================================
+# PART 8: FIGURE ASSIGNMENT
+# ============================================================================
+
+figure_assignments:
+  methodology:
+    - "fig_7: reliability_diagrams.png — Overall calibration visualization framework (H-M1)"
+
+  results:
+    - "fig_1: fig1_ece_comparison.png — Main ECE comparison (H-E1)"
+    - "fig_2: fig2_reliability_diagrams.png — Clean vs adversarial reliability curves (H-E1)"
+    - "fig_6: stratum_ece_comparison.png — Stratum ECE comparison (H-M1)"
+    - "fig_8: anli_gradient.png — ANLI R1/R2/R3 ΔECE gradient (H-M1/H-M3)"
+    - "fig_9: preservation_rate_by_benchmark.png — Label preservation (H-M1)"
+    - "fig_10: ddece_comparison_bar_7b.png — RLHF ΔΔECE per cell (H-C1-V2)"
+    - "fig_11: reliability_diagram.png — AdvGLUE reliability diagram (H-C1-V2)"
+    - "fig_12: confidence_distribution_adv.png — Confidence distribution under adversarial (H-C1-V2)"
+
+  appendix:
+    - "fig_3: fig3_coverage_heatmap.png — Coverage heatmap (H-E1)"
+    - "fig_4: fig4_confidence_distribution.png — Confidence distribution overview (H-E1)"
+    - "fig_5: fig5_ece_sensitivity.png — ECE sensitivity analysis (H-E1)"
+    - "fig_13: ddece_vs_difficulty.png — ΔΔECE vs difficulty (H-C1-V2)"
+    - "fig_14: moderation_heatmap.png — Moderation heatmap (H-C1-V2)"
+
+# ============================================================================
+# PART 9: TITLE OPTIONS
+# ============================================================================
+
+title_options:
+  primary: >
+    When Adversarial Examples Improve Calibration: Construction-Method-Dependent
+    Calibration Degradation in Open-Weight LLMs
+  alternative_1: >
+    Adversarial Calibration Audit: How Benchmark Construction Method Determines
+    Whether RLHF Alignment Helps or Hurts
+  alternative_2: >
+    Not All Adversarial Benchmarks Stress-Test Calibration Equally:
+    ΔECE Measurement Across AdvGLUE, ANLI, and RLHF Alignment
+
+  recommended: "primary"
+  reasoning: >
+    Opens with the counterintuitive finding (hook strategy), immediately signals the
+    conditional insight, and names the primary independent variable (construction method).
+    Short enough for ICML format (10-word main title).

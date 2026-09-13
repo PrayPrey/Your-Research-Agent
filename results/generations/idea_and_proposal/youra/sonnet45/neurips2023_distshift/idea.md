@@ -1,0 +1,10 @@
+# Title
+Layer-Wise Feature Diversity Preservation: A Mechanistic Explanation for Why Parameter-Efficient Fine-Tuning Maintains Robustness Under Distribution Shifts
+
+# Motivation
+Foundation models often lose robustness to distribution shifts after full fine-tuning, despite achieving high in-distribution accuracy—a critical problem for real-world deployment in medicine, conservation, and other high-stakes domains. While recent work shows parameter-efficient methods (adapters, LoRA) empirically preserve robustness better than full fine-tuning, the underlying mechanism remains unexplained. Understanding *why* these methods work is essential for principled development of robust adaptation techniques and for identifying which model parameters are critical for out-of-distribution generalization.
+
+# Main Idea
+We hypothesize that full fine-tuning degrades robustness because it disproportionately updates early-layer parameters (L1-L4) that encode high-diversity, task-agnostic features critical for OOD generalization. These robustness-critical parameters undergo large gradient updates (‖Δw‖₂ > 0.5) during full fine-tuning, reducing feature diversity (intrinsic dimensionality) by >20% and causing >10 percentage point OOD accuracy drops. In contrast, parameter-efficient methods architecturally constrain updates to adapter modules while freezing early layers (‖Δw‖₂ < 0.1), preserving pretrained feature diversity.
+
+We will test this via: (1) measuring layer-wise intrinsic dimensionality changes and parameter updates across fine-tuning methods, (2) causal intervention experiments selectively freezing early layers, and (3) developing a Robustness-Critical Parameter Score (RCPS) combining intrinsic dimensionality and Fisher Information on OOD data. Expected outcomes include mechanistic understanding of robustness degradation and practical guidance for identifying which parameters to protect during adaptation.

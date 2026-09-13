@@ -1,0 +1,142 @@
+# Hypothesis Context: h-m3
+
+**Generated from:** Phase 2B Verification Plan
+**Date:** 2026-04-21
+**Main Hypothesis:** H-WeightDepthClassifier-v1
+**Phase 2B Source:** 02b_verification_plan.md
+
+---
+
+## Hypothesis Information
+
+### Statement
+Under pretrained CNN training with batch normalization, if normalization statistics accumulate across 50+ layers versus <34 layers, then batch norm layer weight distributions will differ, because cumulative normalization effects scale with depth.
+
+### Type
+Mechanism
+
+### Rationale
+Tests whether batch normalization—the third proposed mechanism—contributes to depth fingerprinting. Completes causal chain validation.
+
+---
+
+## Verification Protocol
+
+### Conceptual Test
+1. Extract statistics from batch normalization layers only
+2. Compare batch norm weight distributions (shallow vs deep)
+3. Test if models without batch norm (e.g., AlexNet) show different accuracy
+4. Measure batch-norm-specific feature contributions
+
+### Success Criteria
+- Primary: Batch norm features contribute to classification (accuracy improvement)
+- Secondary: Models without batch norm provide comparison baseline
+
+### Variables
+- **Independent Variable:** Number of batch norm layers (depth-correlated)
+- **Dependent Variable:** Batch norm weight statistics
+- **Controlled Variables:** Architecture family, training protocol
+
+---
+
+## Experimental Setup (from Phase 2A via Phase 2B)
+
+> **Note:** Dataset and model were selected in Phase 2A Dialogue based on hypothesis Variables.
+> Phase 2C experiment design MUST use this selection.
+
+### Selected Dataset
+- **Name:** PyTorch Torchvision Pretrained Models
+- **Type:** standard
+- **Source:** torchvision.models (PyTorch official)
+- **Path:** torchvision.models API (no file downloads)
+- **Hypothesis Fit:** Provides 20+ pretrained ImageNet CNNs with standardized training, covering shallow and deep architectures across multiple families
+
+### Selected Model
+- **Name:** sklearn LogisticRegression
+- **Type:** Binary classifier
+- **Source:** scikit-learn (built-in)
+- **Hypothesis Fit:** Simple linear classifier appropriate for MECHANISM validation, interpretable coefficients, no custom algorithms required
+
+---
+
+## Baseline & Comparison Targets
+
+> **Note:** This section is PRIMARY for Comparison hypotheses (H-CP*).
+> For other hypothesis types, baseline context helps understand expected improvements.
+
+### Baseline Methods
+- Run 3 Weight Norm Correlation: |ρ| = 0.859, p = 0.067 (failed significance), n=5 ResNet models
+- Random Classifier: 50% accuracy (random guessing)
+
+### Baseline Performance
+Run 3 showed correlation |ρ| = 0.859, suggesting depth signal exists despite confounds
+
+### Gap Analysis
+While gradient accumulation (H-M1) and architectural constraints (H-M2) have been tested, the role of batch normalization in depth fingerprinting remains unexplored. This hypothesis completes the causal mechanism chain.
+
+---
+
+## Dependencies and Gate Conditions
+
+### Prerequisites
+- h-m2 (Architectural Constraints Create Depth-Specific Structures)
+
+### Gate Information
+
+**Gate Type:** SHOULD_WORK
+- MUST_WORK: Failure stops entire workflow
+- SHOULD_WORK: Failure documented as limitation, workflow continues
+- DETERMINES_SUCCESS: Final validation gate
+
+**Consequence if Fails:** Document as limitation, gradient/architecture dominate
+
+**Phase Assignment:** Phase 2 - Core Mechanisms
+
+**Estimated Duration:** Week 5
+
+---
+
+## Dependency Context
+
+### Relationship to Other Hypotheses
+H-M3 is the third and final mechanism hypothesis in a sequential causal chain:
+- H-E1 (Foundation) → H-M1 (Gradient) → H-M2 (Architecture) → H-M3 (Normalization)
+
+H-M3 tests whether batch normalization layers contribute to the depth classification signal. This completes the comprehensive mechanism investigation started by H-M1 and continued by H-M2.
+
+---
+
+## Verification State Reference
+
+**State File:** verification_state.yaml
+**Current Status:** Will be updated by Phase 2C
+**Workflow Status:** ACTIVE
+
+---
+
+## Phase 2C Usage Notes
+
+**This context file provides:**
+1. Complete hypothesis specification for experiment design
+2. Gate conditions for prerequisite validation
+3. Dependency information for controlled experiments
+4. Success criteria for evaluation design
+5. **Baseline comparison targets (CRITICAL for H-CP* hypotheses)**
+
+**Phase 2C will:**
+1. Load this file instead of full Phase 2B roadmap (91% smaller)
+2. Search for implementation patterns (Archon, Exa MCP)
+3. Use baseline metrics to set comparison targets
+4. Design concrete experiment specification (Level 1.5)
+5. Output: h-m3/02c_experiment_brief.md
+
+**Baseline Usage by Hypothesis Type:**
+- **H-E* (Existence)**: Baseline context for expected effect sizes
+- **H-M* (Mechanism)**: Baseline to understand improvement potential
+- **H-C* (Condition)**: Baseline to identify scope boundaries
+- **H-CP* (Comparison)**: **MANDATORY** - Direct comparison with baseline methods
+
+---
+
+*Generated by Phase 2C Workflow (JIT)*
+*Optimized for single-hypothesis experiment design*

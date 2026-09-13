@@ -1,0 +1,8 @@
+# Title
+Federated Contrastive Self-Supervised Learning for Privacy-Preserving Foundation Model Pre-Training on Unlabeled Heterogeneous Data
+
+# Motivation
+Foundation models require vast labeled datasets and centralized compute, creating barriers for privacy-sensitive domains (healthcare, legal, finance) governed by GDPR/HIPAA. While federated learning enables distributed training without data sharing, current approaches require labeled data and suffer from communication inefficiency. Critically, no existing work addresses self-supervised pre-training of foundation models on entirely unlabeled federated data—a gap preventing organizations from leveraging their distributed unlabeled datasets while preserving privacy.
+
+# Main Idea
+We propose Fed-CSSL-PN: Federated Contrastive Self-Supervised Learning with Prototype-Aware Negative Sampling. The core innovation reframes client data heterogeneity as beneficial implicit multi-view augmentation rather than an optimization obstacle. Our three-tier negative sampling strategy (50% cross-cluster + 30% filtered intra-cluster + 20% random) combined with LoRA-based InfoNCE contrastive learning addresses the false negative problem in heterogeneous federated settings. We predict this achieves ≥85% of supervised baseline accuracy on downstream tasks (GLUE, SQuAD) after pre-training on 100K unlabeled samples per client, while maintaining <1.07x communication overhead versus supervised methods. This enables foundation model training on federated unlabeled data with 90% reduction in labeled data requirements, unlocking privacy-preserving AI for sensitive domains.

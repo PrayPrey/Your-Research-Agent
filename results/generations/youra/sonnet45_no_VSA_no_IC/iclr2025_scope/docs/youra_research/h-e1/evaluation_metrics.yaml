@@ -1,0 +1,304 @@
+# Evaluation Metrics for H-E1 Experiment
+
+hypothesis_id: h-e1
+evaluation_type: correlation_analysis
+metric_categories: 3
+
+# PRIMARY METRICS
+
+primary_metrics:
+  spearman_correlation:
+    name: Spearman Rank Correlation (ρ)
+    description: Rank correlation between retrieval scores and attention weights
+
+    formula: "ρ = 1 - (6 * Σ d_i^2) / (n * (n^2 - 1))"
+    where:
+      d_i: Rank difference for passage i
+      n: Number of passages
+
+    implementation:
+      library: scipy.stats
+      function: spearmanr
+      inputs:
+        - retrieval_scores: "(num_passages,) float array"
+        - passage_attentions: "(num_passages,) float array"
+      outputs:
+        - rho: "Correlation coefficient [-1, 1]"
+        - p_value: "Two-tailed significance test"
+
+    aggregation:
+      per_question: Compute ρ for each of 600 questions
+      overall: Mean ρ across all questions
+      confidence_interval: Bootstrap 95% CI (1000 resamples)
+
+    stratification:
+      - dimension: retriever_type
+        levels: [BM25, Contriever]
+
+      - dimension: query_complexity
+        levels: [Simple, Complex]
+
+      - dimension: answer_correctness
+        levels: [Correct, Incorrect]
+
+    success_threshold:
+      primary: "ρ > 0.3 for both BM25 and Contriever"
+      secondary: "p < 0.05 (statistically significant)"
+
+    interpretation:
+      strong: "ρ > 0.5 (strong correlation)"
+      moderate: "0.3 < ρ ≤ 0.5 (moderate correlation, PASS)"
+      weak: "0.1 < ρ ≤ 0.3 (weak correlation, FAIL)"
+      none: "ρ ≤ 0.1 (no correlation, FAIL)"
+
+# SECONDARY METRICS
+
+secondary_metrics:
+  query_token_attention_concentration:
+    name: Query-Token Attention Ratio
+    description: Proportion of attention allocated to query tokens vs all context
+
+    formula: "ratio = Σ attn[query_tokens] / Σ attn[all_tokens]"
+
+    implementation: |
+      query_token_count = len(tokenizer(question)['input_ids'])
+      query_attn = passage_attention[0:query_token_count].sum()
+      total_attn = passage_attention.sum()
+      query_ratio = query_attn / total_attn
+
+    purpose: Validate H-M3 (query complexity stratification)
+    expected:
+      simple_queries: "ratio > 0.4 (high query anchoring)"
+      complex_queries: "ratio < 0.3 (distributed attention)"
+
+    statistical_test:
+      method: Two-sample t-test
+      null: "ratio_simple = ratio_complex"
+      alternative: "ratio_simple > ratio_complex"
+      alpha: 0.05
+
+  answer_accuracy:
+    name: Answer Correctness
+    description: Exact match or F1 score vs ground truth
+
+    metrics:
+      exact_match:
+        definition: "predicted_answer in ground_truth_answers (case-insensitive)"
+
+      f1_score:
+        formula: "F1 = 2 * (precision * recall) / (precision + recall)"
+        tokenization: nltk.word_tokenize
+        threshold: 0.5
+
+    labeling_rule: "Correct if (exact_match OR f1 > 0.5)"
+
+    purpose: Stratify correlation by answer correctness (detect confounding)
+
+    expected_distribution:
+      correct: "40-60% (Llama-2-7B on LongBench multi-doc QA)"
+      incorrect: "40-60%"
+
+# DIAGNOSTIC METRICS
+
+diagnostic_metrics:
+  attention_entropy:
+    name: Attention Distribution Entropy
+    description: Shannon entropy of attention distribution (concentration measure)
+
+    formula: "H = -Σ p_i * log(p_i)"
+    where:
+      p_i: "passage_attention[i] / total_attention"
+
+    interpretation:
+      high_entropy: "Uniform attention (low concentration)"
+      low_entropy: "Focused attention (high concentration)"
+
+    purpose: Detect uniform attention failures (sanity check)
+
+  passage_position_bias:
+    name: Position-Attention Correlation
+    description: Correlation between passage position and attention
+
+    implementation: |
+      position_scores = np.linspace(0, 1, num_passages)  # 0=beginning, 1=end
+      u_shaped_scores = 1 - 4 * (position_scores - 0.5)**2  # U-shaped bias
+      rho_position = spearmanr(u_shaped_scores, passage_attentions)[0]
+
+    purpose: Detect Lost-in-the-Middle effects
+
+    expected: "0.2 < ρ_position < 0.4 (moderate position bias)"
+
+    diagnostic_value: |
+      If ρ_position > ρ_retrieval:
+        LLM ignores retrieval metadata, position dominates.
+        Suggests provenance hypothesis might fail.
+
+  retrieval_score_distribution:
+    name: Retrieval Score Statistics
+    description: Mean, std, min, max of retrieval scores per question
+
+    purpose: Validate retrieval quality (detect degenerate cases)
+
+    validation:
+      - check: "BM25 scores > 0"
+      - check: "Contriever scores in [-1, 1]"
+      - check: "Score variance > 0.1 (sufficient discrimination)"
+
+# AGGREGATION STRATEGIES
+
+aggregation:
+  per_question:
+    outputs:
+      - question_id
+      - rho_bm25
+      - rho_contriever
+      - query_complexity
+      - answer_correct
+      - query_attn_ratio
+
+  overall:
+    statistics:
+      - mean_rho
+      - median_rho
+      - std_rho
+      - ci_95_lower
+      - ci_95_upper
+
+    stratified:
+      - groupby: retriever_type
+        statistics: [mean_rho, std_rho, count]
+
+      - groupby: [retriever_type, query_complexity]
+        statistics: [mean_rho, std_rho, count]
+
+      - groupby: [retriever_type, answer_correctness]
+        statistics: [mean_rho, std_rho, count]
+
+# OUTPUT FILES
+
+output_files:
+  per_question_results: outputs/results/per_question_correlations.csv
+  overall_statistics: outputs/results/summary_statistics.json
+  stratified_analysis: outputs/results/stratified_correlations.csv
+  diagnostic_metrics: outputs/results/diagnostic_metrics.json
+
+# VISUALIZATION SPECIFICATIONS
+
+visualizations:
+  scatter_plots:
+    - name: BM25 Score vs Attention
+      file: outputs/plots/scatter_bm25.png
+      axes:
+        x: "BM25 Retrieval Score"
+        y: "Passage Attention Weight"
+      annotations:
+        - "Spearman ρ = {rho:.3f}, p = {p:.3e}"
+        - "n = {num_passages} passages"
+      color: "Answer Correctness (Correct=green, Incorrect=red)"
+
+    - name: Contriever Score vs Attention
+      file: outputs/plots/scatter_contriever.png
+      axes:
+        x: "Contriever Similarity Score"
+        y: "Passage Attention Weight"
+      annotations:
+        - "Spearman ρ = {rho:.3f}, p = {p:.3e}"
+      color: "Query Complexity (Simple=blue, Complex=orange)"
+
+  heatmaps:
+    - name: Stratified Correlation Matrix
+      file: outputs/plots/heatmap_stratified.png
+      dimensions: [retriever_type, query_complexity, answer_correctness]
+      colormap: "RdYlGn (red=low, green=high correlation)"
+      annotations: "Cell values = mean ρ"
+
+  boxplots:
+    - name: Correlation Distribution by Retriever
+      file: outputs/plots/boxplot_retriever.png
+      x: "Retriever Type (BM25, Contriever)"
+      y: "Spearman ρ"
+      overlay: "Individual question points (scatter)"
+
+# SUCCESS CRITERIA
+
+success_criteria:
+  primary:
+    condition: "(mean_rho_bm25 > 0.3) AND (mean_rho_contriever > 0.3)"
+    interpretation: "Both retrievers show moderate correlation → PASS to H-M1"
+
+  statistical_significance:
+    condition: "(p_bm25 < 0.05) AND (p_contriever < 0.05)"
+    interpretation: "Correlation significantly different from zero"
+
+  robustness:
+    condition: "No negative correlation in any stratification subgroup"
+    interpretation: "Correlation holds across query types and correctness"
+
+failure_criteria:
+  critical:
+    condition: "(mean_rho_bm25 ≤ 0.3) OR (mean_rho_contriever ≤ 0.3)"
+    action: "Route to Phase 0 (fundamental assumption broken)"
+
+  confounded:
+    condition: "(rho_correct > 0.3) AND (rho_incorrect < 0.1)"
+    interpretation: "Correlation only holds for correct answers (confounded)"
+    action: "Phase 2A-Dialogue modification (revise hypothesis)"
+
+  position_dominated:
+    condition: "rho_position > rho_retrieval"
+    interpretation: "Position bias dominates retrieval signal"
+    action: "Phase 0 routing (LLM ignores retrieval metadata)"
+
+# VALIDATION REPORT TEMPLATE
+
+validation_report_sections:
+  - section: Executive Summary
+    contents:
+      - Primary ρ values (BM25, Contriever)
+      - Pass/Fail decision
+      - Routing recommendation
+
+  - section: Overall Results
+    contents:
+      - Mean ρ with 95% CI
+      - p-values (statistical significance)
+      - Sample size breakdown
+
+  - section: Stratified Analysis
+    contents:
+      - Table: ρ by retriever type
+      - Table: ρ by query complexity
+      - Table: ρ by answer correctness
+      - Heatmap visualization
+
+  - section: Scatter Plots
+    contents:
+      - BM25 score vs attention (6 representative questions)
+      - Contriever score vs attention (6 representative questions)
+      - Annotations: ρ, p-value, n
+
+  - section: Baseline Comparisons
+    contents:
+      - Observed ρ vs Random baseline ρ
+      - Statistical test results (t-test)
+      - Position bias diagnostic
+
+  - section: Diagnostic Analysis
+    contents:
+      - Attention entropy distribution
+      - Query-token concentration by complexity
+      - Retrieval score quality checks
+
+  - section: Failure Analysis
+    contents:
+      - Questions with ρ < 0.1 (if any)
+      - Qualitative inspection (manual review)
+      - Systematic error patterns
+
+  - section: Gate Decision
+    contents:
+      - MUST_WORK gate status (PASS/FAIL)
+      - Routing decision (H-M1 or Phase 0)
+      - Archon task update
+
+output_report_file: outputs/validation_report_h-e1.md

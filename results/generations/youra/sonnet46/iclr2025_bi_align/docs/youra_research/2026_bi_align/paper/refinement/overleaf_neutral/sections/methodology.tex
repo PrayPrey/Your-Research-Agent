@@ -1,0 +1,97 @@
+
+\subsubsection{3.1 Dataset and Tier Structure}
+
+The Anthropic HH-RLHF helpfulness dataset \citep{Bai2022Training} contains human-AI conversations organized into three quality tiers:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Tier & HH-RLHF Split & RLHF Process \\
+\midrule
+T1 & helpful-base & Supervised fine-tuning \\
+T2 & helpful-rejection-sampled & SFT + rejection sampling with reward model \\
+T3 & helpful-online & SFT + online PPO with reward model \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Conversations are parsed by splitting on \texttt{\textbackslash textbackslash n\textbackslash textbackslash nHuman:} and \texttt{\textbackslash textbackslash n\textbackslash textbackslash nAssistant:} markers, yielding alternating human and AI turns. From each conversation, ($H_{t+1}, A_t, H_t$) triples are extracted, where $H_{t+1}$ is the human follow-up turn, $A_t$ is the preceding AI turn, and $H_t$ is the human prompt turn. Filtering removes empty turns and conversations with fewer than two turns. The final dataset contains 155,362 conversation pairs across three tiers, drawn from 118,263 conversations. Per-tier counts are approximately 63,830 (helpful-base), 65,359 (helpful-rejection-sampled), and 26,173 (helpful-online).
+
+\subsubsection{3.2 Semantic Accommodation Metric (C\_sem)}
+
+C\_sem is defined as the mean cosine similarity between a human follow-up turn and its actual AI partner turn, minus the mean cosine similarity between the same human turn and a randomly sampled AI turn from the same tier (excluding the actual partner):
+
+$C_sem^{H<-A}$ = E[cos(SBERT($H_{t+1}$), SBERT($A_t$))] - E[cos(SBERT($H_{t+1}$), SBERT($A_t^{random-shuffle}$))]
+
+C\_sem > 0 indicates that human follow-up turns are more semantically similar to their actual AI partner than to a random AI turn from the same tier.
+
+A three-level partner-specificity hierarchy provides additional validation:
+
+\begin{itemize}
+\item Level 1: cos($H_{t+1}$, A\_actual) -- actual partner
+\item Level 2: cos($H_{t+1}$, A\_KNN) -- KNN topic-matched neighbor (K=5, cosine metric, same tier)
+\item Level 3: cos($H_{t+1}$, A\_random) -- random AI turn from same tier
+\end{itemize}
+
+The predicted ordering is Level 1 > Level 2 > Level 3. C\_sem as reported uses the Level 1 minus Level 3 difference. The Level 1 versus Level 2 comparison serves as a stricter specificity check.
+
+\subsubsection{3.3 SBERT Embedding Models}
+
+Three pre-trained SBERT models are used:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Model & Architecture & Parameters \\
+\midrule
+all-MiniLM-L6-v2 & 6-layer MiniLM & 22M \\
+paraphrase-MiniLM-L6-v2 & 6-layer MiniLM & 22M \\
+all-mpnet-base-v2 & 12-layer MPNet & 110M \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+All models use mean pooling. Embeddings are computed at inference time without fine-tuning, in batches of 256 with fp16 precision. Results are required to replicate across at least two of three models for a claim to be upheld.
+
+\subsubsection{3.4 Covariate Correction}
+
+The three HH-RLHF tiers differ in conversation topic distribution and other characteristics beyond RLHF quality. Inverse Probability Weighting (IPW) is applied as a covariate correction when distributional shift is detected. Kolmogorov-Smirnov tests are computed between each tier pair on SBERT embedding projections. IPW is triggered when KS p < 0.0001. Logistic propensity scores are estimated on the top-50 PCA dimensions of SBERT embeddings. Each observation is reweighted by the inverse of its propensity score, and IPW-weighted C\_sem values are recomputed per tier. KS tests indicated significant distributional shift for all three tier pairs (KS statistics: 0.0195 for base vs. rejection-sampled, 0.1108 for rejection-sampled vs. online, 0.1223 for base vs. online; all p < 0.0001), triggering IPW correction in all cases.
+
+\subsubsection{3.5 Statistical Tests}
+
+\textbf{Existence (h-e1):} Bootstrap confidence intervals (1,000 resamples, seed 42) for C\_sem. Mann-Whitney U tests for each level comparison in the partner-specificity hierarchy. Cohen's d for effect sizes.
+
+\textbf{Tier monotonicity (h-m1):} Jonckheere-Terpstra test for ordered alternatives, testing whether C\_sem increases monotonically across tiers. Gate: J-T p < 0.05 and Cohen's d for T1 versus T3 at least 0.1, in at least two of three SBERT models.
+
+\textbf{Directionality (h-m2):} Mann-Whitney U test comparing $C_sem^{H<-A}$ to $C_sem^{A<-H}$ per tier per SBERT model (nine independent tests).
+
+\textbf{Within-prompt mechanism (h-m3):} Within-pair delta = cos(SBERT(H\_next), SBERT(A\_chosen)) - cos(SBERT(H\_next), SBERT(A\_rejected)), computed across three operationalizations: (OP1) raw full-text, (OP2) length-matched truncation, and (OP3) prompt-projected similarity. Gate: delta > 0 in at least two of three operationalizations across at least two of three models.
+
+\textbf{Mediation regression (h-m4):} OLS regression with HC3 robust standard errors, predicting C\_sem from a politeness/style proxy (cosine similarity to a hand-curated politeness centroid), surface features (response length, bullet density, politeness frequency, type-token ratio, mean sentence length), and tier fixed effects. Gate: beta\_PM > 0 and p < 0.05 in at least two of three models.
+
+\subsubsection{3.6 Five Sub-Hypothesis Framework}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Sub-Hypothesis & Type & Gate Level \\
+\midrule
+h-e1: C\_sem > 0 with partner-specificity & Existence & MUST\_WORK \\
+h-m1: C\_sem monotone in tier & Mechanism & MUST\_WORK \\
+h-m2: $C_sem^{H<-A}$ > $C_sem^{A<-H}$ & Mechanism & SHOULD\_WORK \\
+h-m3: Within-prompt delta > 0 & Mechanism & SHOULD\_WORK \\
+h-m4: beta\_PM > 0 (mediation) & Mechanism & SHOULD\_WORK \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+MUST\_WORK gates are termination conditions; SHOULD\_WORK gates are non-blocking.

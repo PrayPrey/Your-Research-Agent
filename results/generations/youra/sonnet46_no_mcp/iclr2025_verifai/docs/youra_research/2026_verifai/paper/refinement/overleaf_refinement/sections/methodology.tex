@@ -1,0 +1,41 @@
+
+\subsubsection{3.1 Overview}
+
+Given a set of HumanEval problems P and CodeLlama-7B as the code LLM, a frozen sample pool is generated: N = 20 independent completions per problem using fixed seeds (seed = problem_idx * 100 + sample_idx), at temperature T = 0.8. The frozen pool isolates repair-method effects from sampling variance.
+
+For each completion, the FMD classifier labels its failure mode (syntax, type, functional, or success). Repair channel eligibility is computed based on FMD labels. Each formal repair method is applied to its eligible subset. Failure-to-success transition sets F_method are extracted for each method for pairwise complementarity analysis.
+
+All tools (SynCode, z3-solver, mypy) are pip-installable with Python-native APIs. The pipeline is Docker-free.
+
+\subsubsection{3.2 Failure Mode Distribution (FMD) Pipeline}
+
+The FMD pipeline classifies each generated completion into one of four categories via three independent checks applied in priority order:
+
+\begin{enumerate}
+\item \textbf{Syntax stratum} (\texttt{ast.parse} failure): The completion cannot be parsed as valid Python AST.
+\item \textbf{Type stratum} (\texttt{mypy.api.run} with type errors detected): The completion parses successfully but mypy reports type mismatches or annotation violations.
+\item \textbf{Functional/arithmetic stratum} (test execution failure with Z3 eligibility): The completion is syntactically and type-structurally valid but fails test cases.
+\item \textbf{Success} (all tests pass): The completion is functionally correct.
+\end{enumerate}
+
+The priority order -- syntax > type > functional -- reflects a causal hierarchy: a completion with syntax errors cannot be evaluated for type or functional correctness.
+
+\textbf{Z3 eligibility criterion.} A problem is Z3-eligible if its canonical test function contains at least one assertion of the form \texttt{assert candidate(<integer arguments>) == <integer>}. Test function bodies are scanned using Python's \texttt{ast} module.
+
+\subsubsection{3.3 Formal Repair Channels}
+
+\textbf{Channel 1: SynCode grammar-constrained decoding.} SynCode v0.4.16 applies a \texttt{GrammarAlignedLogitsProcessor} that uses a pushdown automaton tracking the Python CFG to mask tokens producing syntactically invalid continuations. It operates at generation time. Activation condition: none -- SynCode is applied to all problems.
+
+\textbf{Channel 2: mypy/ast iterative feedback repair.} For each completion, \texttt{mypy.api.run()} is called. If mypy reports type errors, the error messages are formatted as feedback and passed to CodeLlama-7B for iterative revision, up to 3 rounds. Activation condition: the completion must (1) parse successfully and (2) have at least one mypy-reported type error.
+
+\textbf{Channel 3: Z3 SMT repair.} For Z3-eligible problems, the correctness requirement is encoded as an SMT constraint satisfaction problem using z3-solver v4.16.0.0 with QF_LIA theory and a 60-second timeout per problem. Activation condition: the problem must contain integer-equality assertions in test functions.
+
+\subsubsection{3.4 Complementarity Measurement: C_score}
+
+To measure whether two repair channels address distinct failure subsets, the C_score (Complementarity Score) is defined as the deviation from independence expectation in the Jaccard overlap of failure-to-success transition sets.
+
+\textbf{Failure transition set} F_A: the set of (problem, sample) pairs where method A converts a failing completion to a passing one.
+
+\textbf{C_score definition:} C_score(A, B) = E[J_indep] - J_obs(F_A, F_B), where J_obs is the observed Jaccard similarity and E[J_indep] is the expected Jaccard under the independence null. C_score > 0 indicates the methods address more distinct failures than expected by chance.
+
+\textbf{Statistical testing.} Bootstrap resampling (10,000 iterations, paired by problem) computes 95\% confidence intervals. Bonferroni correction is applied for multiple pairs (alpha = 0.05 / 3 = 0.0167 per pair).

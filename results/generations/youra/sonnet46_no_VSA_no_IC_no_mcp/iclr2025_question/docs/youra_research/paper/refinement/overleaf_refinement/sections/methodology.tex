@@ -1,0 +1,35 @@
+
+Our experimental design is motivated by a single question: does semantic entropy's advantage over token entropy at 65B scale \citep{Kuhn2023Semantic} hold at 7B scale, and if so, what is the mechanism? To answer this, we evaluate all four major uncertainty proxy types under identical conditions --- same model, same questions, same samples, same evaluation metric.
+
+\subsubsection{3.1 Models and Datasets}
+
+\textbf{Language Models.} We use Llama-2-7B (\texttt{meta-llama/Llama-2-7b-hf}) for all sampling-based methods (SE, TE, SCG) and Llama-2-7B-Chat (\texttt{meta-llama/Llama-2-7b-chat-hf}) for verbalized confidence \citep{Touvron2023Llama}. Both models are loaded in float16 with \texttt{device\textbackslash \_map=''auto''} on H100 hardware.
+
+\textbf{Datasets.} We evaluate on two factual QA benchmarks with contrasting incorrect-output structures. \textbf{TriviaQA} \citep{Joshi2017TriviaQA} provides open-domain factual recall with alias-normalized exact-match labels (N=98, random sample with seed=42). TriviaQA incorrect outputs tend to be paraphrase-diverse --- wrong answers vary substantially in wording across K stochastic samples. \textbf{TruthfulQA} [Lin et al., 2022a] provides adversarial misconception questions designed to elicit human-like falsehoods. We use the yes/no-anchored subset (N=141 of 817 total), filtering to questions whose gold \texttt{best\textbackslash \_answer} field begins with ''yes'' or ''no'', which enables exact-match evaluation without judge-based scoring. Full TruthfulQA evaluation requires GPT-4 or human judges, which we leave for future work. TruthfulQA incorrect outputs tend to be deterministically wrong --- models consistently repeat the same misconception across K samples, with empirical correct rate 41.8\% (59/141) vs. 46.9\% (46/98) for TriviaQA.
+
+\subsubsection{3.2 Uncertainty Estimation Methods}
+
+All stochastic methods use K=10 samples at temperature 0.7, max\_new\_tokens=50, matching Kuhn et al. [2023] for comparability. Samples for the primary TriviaQA evaluation (SE, TE, SCG) are reused from a shared cache (h-e2-v2 pilot).
+
+\textbf{Token Entropy (TE)} computes mean per-token Shannon entropy over the softmax distribution from a single greedy-decoded response:
+
+$$\text{TE}(x) = \frac{1}{|x|} \sum_{t=1}^{|x|} H\!\left(\text{softmax}(\text{logits}_t)\right)$$
+
+In practice, TE is approximated as the normalized negative log-probability (\texttt{-log\textbackslash \_prob / n\textbackslash \_tokens}) from cached sequence-level log-probs.
+
+\textbf{Semantic Entropy (SE)} generates K=10 stochastic samples and clusters them via bidirectional NLI entailment (\texttt{cross-encoder/nli-deberta-v3-large} for primary experiments; \texttt{cross-encoder/nli-deberta-v3-small} for H-C1 TruthfulQA), then computes entropy over the cluster distribution using logsumexp aggregation \citep{Kuhn2023Semantic}.
+
+\textbf{SelfCheckGPT BERTScore (SCG)} computes pairwise BERTScore consistency across K=10 samples, with uncertainty defined as 1 $-$ mean agreement \citep{Manakul2023SelfCheckGPT}. The BERTScore model is \texttt{bert-base-multilingual-cased} (via selfcheckgpt library, \texttt{rescale\textbackslash \_with\textbackslash \_baseline=True}).
+
+\textbf{Verbalized Confidence (VC)} prompts Llama-2-7B-Chat to self-report 0--100\% confidence after answering, parsed via a three-pattern regex cascade. Parse rate = 100\% (98/98) on TriviaQA; 76.6\% on TruthfulQA.
+
+\subsubsection{3.3 Evaluation}
+
+\textbf{Primary metric:} AUROC with bootstrap 95\% confidence intervals (n=1000, stratified, seed=42). For all uncertainty scores, higher uncertainty should predict incorrectness; accordingly, uncertainty scores are negated before \texttt{roc\textbackslash \_auc\textbackslash \_score} computation --- this convention follows Kuhn et al. [2023] and is applied in the primary evaluation pipeline (H-E1). Note: the H-M3 and H-M4 pipelines independently reimplemented evaluation without this negation, producing SE AUROC = 0.286 (uninverted) vs. 0.717 in H-E1. All within-pipeline comparisons are internally consistent; corrected values are provided in Results where relevant.
+
+\textbf{Calibration metric:} ECE (Expected Calibration Error, 10-bin adaptive binning) for VC only.
+
+\subsubsection{3.4 Mechanism Measurement}
+
+For RQ2, we compute intra-cluster TE variance: the variance of per-sample TE scores within each NLI-equivalent cluster, aggregated per question and then across questions. This directly measures whether TE varies within groups that SE treats as semantically identical --- if so, TE aggregates paraphrase noise not present in SE's cluster entropy.
+

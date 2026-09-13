@@ -1,0 +1,10 @@
+﻿# Title
+Diffusion Models with Clinical Constraint Learning for Trustworthy Pediatric Medical Image Synthesis
+
+## Motivation
+Pediatric healthcare faces a critical data scarcity problem due to stringent privacy regulations, limited patient populations, and ethical concerns around data collection from minors. This scarcity severely hampers AI model development for pediatric-specific conditions. While diffusion models show promise for synthetic data generation, current approaches lack mechanisms to enforce clinical validity and age-appropriate anatomical constraints, making clinicians hesitant to trust synthetically augmented datasets. There is an urgent need for generative methods that can produce realistic, clinically valid pediatric medical images while providing interpretable guarantees about their fidelity.
+
+## Main Idea
+We propose a constraint-aware diffusion framework that integrates clinical domain knowledge directly into the generation process through: (1) **Age-conditioned anatomy priors** extracted from pediatric growth charts and developmental atlases, ensuring generated images respect age-specific anatomical proportions; (2) **Clinical validity constraints** encoded as differentiable rules (e.g., organ size ratios, tissue density ranges) that guide the reverse diffusion process; (3) **Interpretable validation metrics** based on clinician-defined anatomical landmarks and pathology-specific features, enabling quantitative assessment of clinical realism.
+
+The methodology combines classifier-free guidance with learned constraint embeddings, allowing fine-grained control over synthesized images. Expected outcomes include demonstrably improved downstream diagnostic model performance and a validation framework with clinician-in-the-loop evaluation. This approach directly addresses the workshop's emphasis on actionable, trustworthy generative AI for underserved populations while providing interpretable quality assurance mechanisms essential for clinical adoption.

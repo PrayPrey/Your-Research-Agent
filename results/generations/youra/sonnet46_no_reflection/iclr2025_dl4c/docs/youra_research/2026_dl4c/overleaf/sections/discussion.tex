@@ -1,0 +1,115 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Key Findings and Their Interpretation}
+
+\textbf{Finding 1: The structural efficiency framework is validated end-to-end.}
+The most secure contribution of this paper is the measurement framework itself.
+All components execute correctly, produce interpretable metrics, and handle the
+full statistical pipeline. This means researchers can immediately apply the
+framework to their own GRPO/DPO checkpoint archives --- the infrastructure cost
+is already paid.
+
+\textbf{Finding 2: The raw/proportion dissociation challenges the selective-reallocation mechanism.}
+The most intellectually provocative preliminary result is the divergence between
+GRPO's raw semantic edit distance advantage (+250\% on PoC data; h-e1 synthetic
+PoC data, not real training output) and its near-zero SEP advantage ($\approx$0.237 for
+both methods; h-m1 preliminary, $n_\text{eff}\approx2$). These two metrics ask different
+questions: raw edit distance asks ``how much does the policy change structurally
+in absolute terms?''; SEP asks ``what fraction of all changes are structural?''
+
+Three competing interpretations deserve investigation:
+
+\textbf{(a) The mechanism claim (P2) is false even if the existence claim (P1) holds.}
+GRPO may produce more aggressive code restructuring (more total edits, including
+more semantic edits in absolute terms) without proportionally concentrating edits
+on semantic nodes. This would mean execution reward increases structural activity
+broadly, not selectively.
+
+\textbf{(b) Checkpoint aliasing masks a real SEP difference.}
+With $n_\text{eff} \approx 2$, the Mann-Whitney test has essentially no statistical
+power. A corrected run with 10+ diverse checkpoints might reveal $\text{SEP}_\text{GRPO} > \text{SEP}_\text{DPO}$
+with adequate power. This interpretation cannot be ruled out
+and motivates the corrected experimental protocol (Section~\ref{sec:corrected_protocol}).
+
+\textbf{(c) Scale-level equilibration of SEP at 7B.}
+At 7B parameter scale with the specific KL budget used, both methods may converge
+to similar proportional distributions over node types, even when absolute edit
+distances differ. This would be a scale-specific finding that motivates testing
+at different model sizes (1.3B, 13B).
+
+Distinguishing these interpretations requires a corrected run with real training
+($\geq$10 GRPO checkpoints from $\geq$1000 training steps) and execution-oracle DPO pairs.
+The framework is ready; the experiment needs to be run.
+
+\textbf{Finding 3: Checkpoint aliasing is a confound not, to our knowledge, previously documented in the RL fine-tuning literature.}
+This finding has value independent of any hypothesis about GRPO vs.\ DPO. Any
+researcher running checkpoint-comparison analysis in RL fine-tuning --- for code,
+math, or general NLP --- should add checkpoint diversity pre-flight checks to their
+experimental pipeline.
+
+\subsection{Limitations}
+\label{sec:limitations}
+
+\textbf{L1: Synthetic data in h-e1 gate evaluation.}
+The proof-of-concept (h-e1) used hand-crafted code completions with guaranteed
+GRPO structural advantage. The bootstrap CI [4.65, 8.73] and mean differential 6.50
+are valid measurements of the infrastructure's detection capability, but cannot
+be cited as empirical evidence that real GRPO training produces higher structural efficiency than DPO.
+
+\textbf{L2: Underpowered SEP analysis ($n_\text{effective} \approx 2$).}
+The h-m1 SEP comparison is entirely underpowered. The Mann-Whitney test
+($p = 0.4248$) and the near-zero effect size ($-0.0072$) cannot be interpreted as
+evidence for or against the mechanism hypothesis. We report these numbers for
+transparency and document the aliasing root cause; they should not be cited as
+empirical findings about GRPO vs.\ DPO behavior.
+
+\textbf{L3: Single base model and single programming language.}
+All experiments use DeepSeek-Coder-7B-instruct-v1.5 on Python (HumanEval+/MBPP+).
+The structural efficiency framework is designed to be model-agnostic and
+language-agnostic, but empirical generalization has not been tested.
+
+\textbf{L4: DPO preference pairs not execution-oracle labeled.}
+The h-e1 DPO implementation used stub preference pairs (\texttt{return None} as
+rejected completion) rather than genuine model-generated failed solutions
+labeled by evalplus. Real execution-oracle DPO pairs require sampling model
+outputs and labeling via execution.
+
+\textbf{L5: SEP not validated against functional outcomes.}
+The structural efficiency metric and SEP have not been validated against functional
+correctness measures (pass@1, ECE, OOD transfer). The framework measures \emph{structural activity}
+of policy movement, not the \emph{correctness} of that movement. This validation is part of the future work
+outlined in Section~\ref{sec:future}.
+
+\subsection{Corrected Experimental Protocol}
+\label{sec:corrected_protocol}
+
+For any team seeking to reproduce or extend this work with valid empirical results:
+
+\begin{enumerate}
+  \item \textbf{Enforce checkpoint diversity:} \texttt{save\_steps=100} for a 1000-step run yields
+    10 GRPO checkpoints (steps 100--1000). Assert \texttt{len(unique\_checkpoints) >= 10}
+    before h-m1 analysis.
+  \item \textbf{Fix mock data:} Replace hard-coded GRPO code completions in \texttt{smoke\_test\_experiment.py}
+    with real GRPOTrainer outputs evaluated by evalplus.
+  \item \textbf{Fix DPO pairs:} Implement \texttt{generate\_dpo\_pairs()} to sample model outputs
+    and label via evalplus execution (passing = preferred, failing = rejected).
+  \item \textbf{Use KL tolerance = 0.05} ($\pm 5\%$) as specified, not 0.15. With 10+ checkpoints,
+    sufficient pairs will be found even at stricter tolerance.
+  \item \textbf{Reduce scope:} Test the H-E1 $\rightarrow$ H-M1 chain before attempting H-M2--H-M4.
+    Confirm real-training SEP direction before proceeding to mediation analysis.
+\end{enumerate}
+
+\subsection{Broader Impact}
+
+\textbf{Positive impacts:} The structural efficiency framework enables more principled
+comparison of post-training methods --- researchers can now ask not only ``which
+method scores higher?'' but ``which method induces richer structural learning per
+unit of KL cost?'' The checkpoint aliasing finding will prevent silent data corruption
+in future checkpoint-comparison studies across the RL fine-tuning literature.
+
+\textbf{Potential risks and mitigations:} The structural efficiency metric could be
+gamed if used as a direct training reward. We recommend the metric be used exclusively
+for post-hoc analysis, not as a training signal, until its relationship to
+functional correctness and out-of-distribution generalization is empirically
+established.

@@ -1,0 +1,18 @@
+CFG = {
+    "llm_model_id": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "nli_model_id": "cross-encoder/nli-deberta-v3-large",
+    "embed_model_id": "sentence-transformers/all-mpnet-base-v2",
+    "n_samples": 10,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "max_new_tokens": 50,
+    "nli_batch_size": 16,
+    "n_questions": 1000,
+    "seed": 42,
+    "data_path": "data/halueval_qa_1000.json",
+    "samples_path": "data/llama_samples.json",
+    "nli_scores_path": "data/nli_scores.json",
+    "embed_scores_path": "data/embed_scores.json",
+    "results_path": "outputs/results.json",
+    "figures_dir": "figures/",
+}

@@ -1,0 +1,131 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-07-30T07:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Language-Adaptive Perplexity Threshold Equity (h-m1-v2)"
+  hypothesis_id: "H-M1-v2"
+  core_claim: |
+    When practitioners apply a global k-th percentile threshold to pre-computed CCNet
+    perplexity scores from RedPajama-V2 (as in h-m1), they introduce spurious
+    language-group retention disparity (Cramér's V = 0.29–0.41). Per-language k-th
+    percentile thresholding reduces this disparity by ΔCramér's V ≥ 0.10 for ≥3 of 5
+    k values ∈ {10,20,30,40,50}, with max–min per-language retention gap reduced by
+    ≥15pp at k=30, because global thresholding conflates cross-language scale and shape
+    heterogeneity in perplexity distributions.
+  mechanism: |
+    CCNet trains per-language KenLM LMs on Wikipedia with language-specific SentencePiece
+    tokenization, producing perplexity scores with incomparable cross-language scales and
+    distribution shapes. English CommonCrawl web text has higher mean perplexity than
+    Italian/Romance web text (noisier, more domain-diverse relative to Wikipedia KenLM
+    expectations). A global k-th percentile cutoff is effectively calibrated to the
+    cross-language mixture distribution — which over-excludes English (most-represented,
+    highest PPL) and under-excludes Italian (lower PPL due to domain homogeneity).
+    Per-language percentile calibration compares each document to its within-language
+    distribution, removing the scale+shape confound and equalizing selection probability.
+  predictions:
+    - P1: "ΔCramér's V ≥ 0.10 for ≥3/5 k values, bootstrap CI excludes 0 (primary)"
+    - P2: "Max–min retention gap reduction ≥15pp at k=30; English retention rises from 36.5% baseline"
+    - P3: "|ΔV_percentile - ΔV_zscore| > 0.02 for ≥2/5 k values (shape effect confirmed)"
+
+variables_summary:
+  independent: "Thresholding strategy (global k-th pct vs. per-lang k-th pct vs. iso-retention z-score vs. CCNet-tercile) × k level (10/20/30/40/50)"
+  dependent_primary: "Cramér's V on language × retained/removed contingency table (scipy.stats.contingency.association)"
+  controlled: "Dataset fixed (208,263-row RedPajama-V2 sample); pre-computed ccnet_perplexity scores (no re-scoring)"
+
+null_hypothesis:
+  h0_statement: |
+    No significant difference in Cramér's V between global k-th percentile and per-language
+    k-th percentile thresholding on RedPajama-V2 ccnet_perplexity scores
+    (ΔCramér's V < 0.05 across all k, OR bootstrap 95% CI includes 0 for ≥3/5 k values).
+  statistical_test: "Bootstrap CI on ΔCramér's V (1000 resamples, paired document-level resampling); supplementary permutation test (language-label randomization)"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First direct measurement of ΔCramér's V under global vs. per-language perplexity thresholding on RedPajama-V2; first diagnostic decomposition into scale vs. shape components via iso-retention z-score arm"
+  differentiation_summary: |
+    No prior paper measures Cramér's V under both global and per-language percentile threshold
+    conditions on the same corpus (confirmed via Phase 1 literature search — 14 papers reviewed,
+    0 with this exact measurement). Closest prior: Turki et al. [2026] (classifier-based retention
+    rate tuning, not perplexity; no Cramér's V measurement). Caswell et al. [2021] (audit of
+    multilingual dataset quality — documents issues but provides no quantitative before/after
+    Cramér's V with threshold calibration fix). The generalizability claim (language-aware scores
+    + language-agnostic thresholds → retention disparity) extends to any language-specific
+    quality metric — a broader principle not previously articulated.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models: []
+  datasets:
+    - "RedPajama-Data-V2 (HuggingFace: togethercomputer/RedPajama-Data-V2, name='sample')"
+    - "208,263 documents, 5 languages: en/de/fr/es/it"
+    - "Fields used: ccnet_perplexity, language, plus secondary quality signals for proxy quality check"
+  baselines:
+    - "Global k-th percentile (h-m1 baseline, Cramér's V = 0.29–0.41)"
+    - "CCNet-consistent per-language tercile (negative control)"
+
+measurement_plan:
+  data_collection:
+    - source: "Existing h-m1 RedPajama-V2 Parquet cache (docs/youra_research/ or equivalent)"
+    - source: "HuggingFace load_dataset('togethercomputer/RedPajama-Data-V2', name='sample') if cache unavailable"
+  procedure:
+    - step: "Load 208,263-row RedPajama-V2 sample with ccnet_perplexity and language columns"
+    - step: "Pre-register distributional diagnostics per language: skewness, kurtosis, Hartigan's dip test for unimodality"
+    - step: "For each k ∈ {10,20,30,40,50}: compute retained/removed label under (1) global percentile, (2) per-language percentile, (3) iso-retention z-score, (4) CCNet-tercile"
+    - step: "Compute Cramér's V for each condition × k combination (20 total Cramér's V values + 4 negative controls)"
+    - step: "Bootstrap 1000 resamples for ΔCramér's V CI (global - per-lang percentile) for each k"
+    - step: "Permutation control: randomize language labels 1000 times, compute V under all conditions"
+    - step: "Quality proxy: compute 90th-percentile retained ccnet_perplexity per language under all conditions"
+    - step: "Length stratification: compute within-decile Cramér's V (document length deciles), Mantel-Haenszel aggregate"
+    - step: "Generate figures: V vs. k plot (all 4 conditions), retention rates per language vs. k (global vs. per-lang), ΔV with CI, distributional Q-Q plots across languages"
+  success_criteria:
+    - "P1: ΔV ≥ 0.10 AND CI_lower > 0 for ≥3/5 k values"
+    - "P2: max-min retention gap reduction ≥15pp at k=30"
+    - "P3: |ΔV_pct - ΔV_zscore| > 0.02 for ≥2/5 k values"
+    - "Quality: 90th-pct retained PPL increase ≤10% per language"
+    - "Permutation: V → 0 under permuted labels (within bootstrap CI of 0)"
+    - "Negative control: CCNet-tercile yields V < 0.10"
+
+validation:
+  internal_validity:
+    - "Permutation control: V under randomized language labels → 0 for all methods (confirms Cramér's V measures true language-retention dependence)"
+    - "CCNet-tercile negative control: per-language tercile → V ≈ 0 (confirms global-threshold artifact is the source of disparity)"
+    - "Iso-retention z-score arm: disentangles scale vs. shape contribution to disparity"
+    - "Bootstrap CI: valid for paired contingency table comparison via document-level resampling"
+    - "Length-stratified Cramér's V: guards against document-length confound"
+  external_validity:
+    - "RedPajama-V2 is the most widely cited public multilingual corpus with pre-computed quality signals (225 citations, Weber et al. 2024)"
+    - "CCNet perplexity approach is used in multiple corpora (C4, Dolma, CC-Net itself, RedPajama) — findings potentially generalizable"
+    - "Limitation: 208,263-document sample; full corpus generalization requires further work"
+
+discussion_synthesis:
+  key_insights:
+    - "The h-m1 direction inversion (English most excluded, not low-resource languages) is mechanistically explained: English web text has higher perplexity than romance language web text relative to Wikipedia-trained KenLM"
+    - "CCNet's original per-language tercile design was correct — the practitioner-reuse scenario (global threshold on exported scores) is the bug"
+    - "Iso-retention z-score arm enables within-experiment mechanism diagnosis: if z-score ≈ percentile in ΔV, the bias is pure scale; if percentile > z-score, shape matters"
+    - "The 'distributional parity of selection' framing (Prof. Rex) is strictly more defensible than 'fairness of usable training signal' given CPU constraint"
+    - "Turki et al. [2026] provides the closest prior for generalizability framing: retention-rate tuning principle applies to perplexity-based filtering just as to classifier-based filtering"
+  breakthrough_moments:
+    - "Exchange 4 (Prof. Rex): Clarification that h-m1 global threshold IS a valid baseline (practitioner reuse scenario), not targeting CCNet's original design — this resolved the strawman concern from Prof. Vera"
+    - "Exchange 12 (Prof. Rex): Introducing practical effect size criterion (≥15pp gap reduction) and 90th-percentile PPL proxy — elevated from statistical to operational claim"
+    - "Exchange 9 (Prof. Rex): Iso-retention z-score formulation for direct comparability — enables mechanistic disambiguation within single experiment"
+    - "Exchange 14 (Prof. Vera): Length-stratified Cramér's V via Mantel-Haenszel weighting — closes doc-length confound concern"
+  resolved_tensions:
+    - "TENSION: CCNet already uses per-language terciles (strawman concern) → RESOLVED: h-m1 implemented global threshold on exported Parquet scores — practitioner reuse scenario is valid and common"
+    - "TENSION: Downstream quality can't be verified without GPU → RESOLVED: Reframe as 'distributional parity of selection'; add 90th-pct PPL proxy as quality check"
+    - "TENSION: Z-score vs. percentile — is the innovation just scale normalization? → RESOLVED: Iso-retention z-score arm provides within-experiment test; if percentile > z-score, shape confirmed"
+    - "TENSION: Hypothesis scope overreach → RESOLVED: Explicitly bounded to 208,263-document sample, 5 languages, ccnet_perplexity only"

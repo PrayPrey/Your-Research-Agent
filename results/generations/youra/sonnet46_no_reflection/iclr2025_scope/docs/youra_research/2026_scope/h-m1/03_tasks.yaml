@@ -1,0 +1,506 @@
+version: "1.1"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+metadata:
+  hypothesis_id: "h-m1"
+  hypothesis_id_upper: "H-M1"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-05-20T00:00:00"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASKS — in priority order (highest first)
+# ═══════════════════════════════════════════════════════════════════════════════
+tasks:
+  # ─── ENVIRONMENT SETUP (priority 94) ───────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Install Python dependencies and verify GPU"
+    description: |
+      Install all required Python packages from PRD Section 7.1.
+      Verify CUDA_VISIBLE_DEVICES=0 (H100 NVL).
+      Verify HuggingFace Hub access for meta-llama/Meta-Llama-3.1-8B-Instruct and hyx21/Locret-llama-3.1-8B-instruct.
+      Clone THUDM/LongBench for qa_f1_score metric (LongBench/metrics.py).
+
+      Required packages:
+        torch>=2.0.0, transformers>=4.40.0, peft>=0.10.0,
+        datasets>=2.18.0, evaluate>=0.4.0, accelerate>=0.28.0,
+        numpy>=1.24.0, scikit-learn>=1.3.0, matplotlib>=3.7.0,
+        seaborn>=0.12.0, pyyaml>=6.0, tqdm>=4.65.0
+
+      Verify: import torch; torch.cuda.is_available() == True
+      Verify: nvidia-smi shows H100 NVL
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: 5
+    test_requirements: |
+      - python -c "import torch, transformers, peft, datasets, evaluate; print('OK')"
+      - CUDA_VISIBLE_DEVICES=0 python -c "import torch; assert torch.cuda.is_available()"
+    reference_files:
+      architecture: "03_architecture.md#File-Organization"
+      logic: null
+      config: "03_config.md#environment-setup-requirements"
+
+  # ─── EPIC IMPLEMENTATION TASKS (priority 93-50) ────────────────────────────
+  - id: "task-002"
+    epic: "A-1 Project Setup + Config"
+    title: "Create project structure and config.py"
+    description: |
+      Create h-m1/code/ directory structure:
+        h-m1/code/config.py
+        h-m1/code/data_loader.py (stub)
+        h-m1/code/locret_heads.py (stub)
+        h-m1/code/model.py (stub)
+        h-m1/code/trainer.py (stub)
+        h-m1/code/evaluate.py (stub)
+        h-m1/code/visualize.py (stub)
+        h-m1/code/run_experiment.py (stub)
+        h-m1/results/ (directory)
+        h-m1/figures/ (directory)
+
+      Implement full ExperimentConfig dataclass in config.py with all fields
+      from 03_config.md specification.
+      Include helper methods: get_epochs(task), get_results_path(tag), get_figures_dir().
+      Set CUDA_VISIBLE_DEVICES=0 at module level.
+      Use flat imports (no __init__.py) — scripts run from h-m1/code/ directory.
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 5
+    test_requirements: |
+      - Create tests/test_config.py
+      - Test ExperimentConfig instantiation with defaults
+      - Test get_epochs("mnli") == 3, get_epochs("sst2") == 5
+      - Test get_results_path("joint_seed42") returns valid path string
+      - Test kv_repeat == num_query_heads // num_kv_heads == 4
+    reference_files:
+      architecture: "03_architecture.md#Config"
+      logic: "03_logic.md#run_experimentpy"
+      config: "03_config.md#experimentconfig-dataclass"
+
+  - id: "task-003"
+    epic: "A-2 Data Loading"
+    title: "Implement GLUEDataset and LongBenchDataset with DataLoader factories"
+    description: |
+      Implement data_loader.py with:
+      - GLUEDataset(task, split, tokenizer, config): loads GLUE via load_dataset("glue", task)
+        - Tokenizes with LlamaTokenizer, max_length=512, padding=True, truncation=True
+        - Validation split for mnli: "validation_matched"
+        - Returns {input_ids, attention_mask, labels}
+      - LongBenchDataset(task, tokenizer, config): loads via load_dataset("THUDM/LongBench", task, split="test")
+        - max_length=15360
+      - get_glue_loaders(task, tokenizer, config, seed) -> (train_loader, val_loader)
+      - get_longbench_loader(task, tokenizer, config) -> DataLoader
+      - get_num_labels(task) -> int: mnli=3, sst2=2, qnli=2
+
+      GLUE task→dataset key mapping:
+        mnli: premise+hypothesis, label field "label"
+        sst2: sentence field "sentence", label "label"
+        qnli: question+sentence, label "label"
+    feature_tag: "data-pipeline"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Create tests/test_data_loader.py
+      - Test get_num_labels for all 3 tasks
+      - Test GLUEDataset __len__ > 0 for train split
+      - Test __getitem__ returns dict with input_ids, attention_mask, labels
+      - Test get_glue_loaders returns 2 DataLoader objects
+    reference_files:
+      architecture: "03_architecture.md#DataLoader"
+      logic: "03_logic.md#data_loaderpy"
+      config: "03_config.md#glue-settings"
+
+  - id: "task-004"
+    epic: "A-3 LocretHeads Module"
+    title: "Implement RetainingHead, LocretHeadCollection, load/freeze utilities"
+    description: |
+      Implement locret_heads.py with:
+      - RetainingHead(nn.Module):
+        - __init__(fc1_weight, fc2_weight): store as nn.Linear layers
+        - forward(q, k, v) -> (B, L, 8):
+          qkv = torch.cat([q, k, v], dim=-1)  # (B, L, 6144)
+          cis = torch.sigmoid(qkv @ self.fc1.weight.T) @ self.fc2.weight.T  # (B, L, 8)
+          return cis
+      - LocretHeadCollection(nn.Module): container for 32 RetainingHead instances
+      - load_locret_heads(checkpoint, num_layers, device) -> LocretHeadCollection:
+        - Download via hf_hub_download("hyx21/Locret-llama-3.1-8B-instruct")
+        - Keys: "model.layers.{i}.self_attn.fc1.weight", "fc2.weight"
+        - requires_grad=True on all params (for JointLoRA-KV)
+      - freeze_locret_heads(heads): sets requires_grad=False (for B1)
+
+      CRITICAL: Verify checkpoint key format from h-e1 code before implementing.
+      fc1.weight shape: (1024, 6144), fc2.weight shape: (8, 1024)
+    feature_tag: "model"
+    priority: 89
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Create tests/test_locret_heads.py
+      - Test RetainingHead forward output shape == (B, L, 8)
+      - Test values in (0, 1) after sigmoid
+      - Test freeze_locret_heads sets requires_grad=False
+      - Test load_locret_heads loads 32 heads (mock or real checkpoint)
+    reference_files:
+      architecture: "03_architecture.md#LocretHeads"
+      logic: "03_logic.md#RetainingHead"
+      config: "03_config.md#locret-settings"
+
+  - id: "task-005"
+    epic: "A-4 Model Wrappers"
+    title: "Implement JointLoRAKVModel with soft budget masking and hard eviction"
+    description: |
+      Implement model.py with JointLoRAKVModel(nn.Module):
+      - __init__(base_model, locret_heads, num_labels, config)
+      - forward(input_ids, attention_mask, labels, budget_ratio, training_mode) -> Dict:
+        - Register forward hooks on each attention layer to capture q/k/v projections
+        - After each layer forward: compute CIS via self.locret_heads[layer_idx].forward(q, k, v)
+        - training_mode=True: apply_soft_budget_mask on hidden states
+        - training_mode=False: apply_hard_eviction on kv cache
+        - Returns {loss, logits, cis_scores, tokens_retained_ratio}
+      - apply_soft_budget_mask(hidden_states, cis_scores, budget_ratio):
+        - Aggregate CIS: token_importance = cis_scores.mean(dim=-1)  # (B, L)
+        - Straight-through estimator for differentiable top-k (see 03_logic.md pseudo-code)
+      - apply_hard_eviction(kv_cache, cis_scores, budget_ratio):
+        - Hard top-k selection maintaining causal order
+      - build_joint_model(config, num_labels, task, freeze_locret=False) factory
+      - B2KvpressModel with kvpress heuristic eviction at inference
+
+      CRITICAL: attn_implementation="eager" required for Q/K/V access.
+      Classification head: nn.Linear(4096, num_labels) on final hidden state.
+    feature_tag: "model"
+    priority: 87
+    source_document: "03_architecture.md"
+    complexity: 16
+    test_requirements: |
+      - Create tests/test_model.py
+      - Test JointLoRAKVModel forward shape: logits (B, num_labels)
+      - Test cis_scores list length == 32 (one per layer)
+      - Test each cis_scores[i] shape == (B, L, 8)
+      - Test tokens_retained_ratio < 0.55 in inference mode
+      - Test freeze_locret=True gives B1 behavior (Locret params frozen)
+    reference_files:
+      architecture: "03_architecture.md#Model"
+      logic: "03_logic.md#JointLoRAKVModel"
+      config: "03_config.md#lora-settings"
+
+  - id: "task-006"
+    epic: "A-5 Joint Trainer"
+    title: "Implement JointLoRAKVTrainer with separate param groups and grad norm logging"
+    description: |
+      Implement trainer.py with JointLoRAKVTrainer:
+      - build_optimizer() -> AdamW:
+        - Group 1: LoRA params (name contains "lora_"), lr=config.lora_lr=1e-4
+        - Group 2: Locret params (model.locret_heads.parameters()), lr=config.locret_lr=5e-4
+          (skipped if is_b1=True)
+        - weight_decay=0.01, betas=(0.9, 0.999), eps=1e-8
+      - train_epoch(epoch) -> Dict:
+        - Gradient accumulation (grad_accum_steps=4)
+        - Per-step log: "JointLoRA-KV: Locret heads receiving CE gradients — step {step}, locret_grad_norm={norm:.4f}"
+        - clip_grad_norm_ max_norm=1.0
+        - Returns {loss, locret_grad_norm, step_count}
+      - train() -> List[Dict]: run all epochs, return history
+      - save_checkpoint(output_dir): save LoRA + Locret weights
+      - Build LR scheduler: get_linear_schedule_with_warmup with warmup_ratio=0.06
+
+      Log to both stdout AND file (logs/training_{task}_{seed}.log).
+    feature_tag: "training"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - Create tests/test_trainer.py
+      - Test build_optimizer returns AdamW with 2 param groups (joint) or 1 (b1)
+      - Test locret params in group 2 have lr=5e-4
+      - Test train_epoch returns dict with required keys
+      - Test log contains "locret_grad_norm=" string
+    reference_files:
+      architecture: "03_architecture.md#Trainer"
+      logic: "03_logic.md#Joint-Training-Loop"
+      config: "03_config.md#training-hyperparameters"
+
+  - id: "task-007"
+    epic: "A-6 GLUE Evaluation"
+    title: "Implement evaluate_glue with hard eviction and metric computation"
+    description: |
+      Implement evaluate.py: evaluate_glue function:
+      - Set model to eval mode (training_mode=False → hard eviction)
+      - Run inference on val_loader with budget_ratio=0.5
+      - Collect predictions and labels
+      - Compute accuracy via evaluate.load("glue", task).compute(predictions=preds, references=refs)
+      - Track tokens_retained_ratio (mean fraction of tokens retained across batches)
+      - Optionally collect up to 10 cis_samples for shape verification
+      - Returns {accuracy, task, budget_ratio, cis_samples, tokens_retained_ratio}
+
+      GLUE metric names: mnli→"mnli", sst2→"sst2", qnli→"qnli"
+      MNLI validation: use "validation_matched" split (9815 examples)
+    feature_tag: "evaluation"
+    priority: 83
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - Create tests/test_evaluate.py
+      - Test evaluate_glue returns dict with required keys
+      - Test accuracy is float in (0, 1)
+      - Test tokens_retained_ratio < 0.55 (eviction active)
+      - Test cis_samples shapes when collect_cis_samples=True
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#evaluate_glue"
+      config: "03_config.md#glue-settings"
+
+  - id: "task-008"
+    epic: "A-7 LongBench Evaluation"
+    title: "Implement evaluate_longbench with QA F1 metric"
+    description: |
+      Implement evaluate_longbench in evaluate.py:
+      - Load model in generation mode with hard KV eviction at budget_ratio=0.5
+      - For each example in LongBench test set:
+        - Tokenize context+question (max 15360 tokens)
+        - Generate answer with max_new_tokens=50
+        - Decode prediction
+      - Compute QA F1 using qa_f1_score(prediction, ground_truths) from THUDM/LongBench/metrics.py
+      - Returns {f1, task, budget_ratio}
+
+      Also implement evaluate_budget_sensitivity(model, val_loader, task, config):
+        - Loop over budget_ratios_sweep = [0.3, 0.5, 0.7]
+        - Call evaluate_glue at each ratio
+        - Returns {0.3: acc, 0.5: acc, 0.7: acc}
+
+      NOTE: LongBench context lengths 5k-15k tokens — eviction is meaningfully activated.
+      Must clone THUDM/LongBench repo for metrics.py.
+    feature_tag: "evaluation"
+    priority: 81
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - Create tests/test_longbench.py
+      - Test evaluate_longbench returns dict with f1 key
+      - Test f1 in (0, 1)
+      - Test evaluate_budget_sensitivity returns dict with 3 keys
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#evaluate_longbench"
+      config: "03_config.md#longbench-settings"
+
+  - id: "task-009"
+    epic: "A-8 Mechanism Verification"
+    title: "Implement verify_mechanism_activated and gate logic"
+    description: |
+      Implement in evaluate.py:
+      - verify_mechanism_activated(training_log, b1_results, joint_results) -> (bool, Dict):
+        - Check 1: locret_grad_received — any "locret_grad_norm=" line with value > 1e-6
+        - Check 2: cis_shape_correct — all cis_samples have shape[-1] == 8
+        - Check 3: eviction_active — tokens_retained_ratio < 0.55
+        - Check 4: accuracy_improved — joint_mean_glue > b1_mean_glue
+        - Gate: all 4 checks AND gap >= 2.0 pp
+        - Returns (gate_passed, indicators_dict)
+      - aggregate_seed_results(results_per_seed) -> Dict:
+        - Compute mean and std of GLUE accuracy across 3 seeds
+        - Per-task means: mnli_mean, sst2_mean, qnli_mean
+        - Overall mean_glue_acc = mean of 3 tasks × 3 seeds
+
+      Write verification results to results/mechanism_verification.json.
+    feature_tag: "evaluation"
+    priority: 79
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - Create tests/test_mechanism.py
+      - Test verify_mechanism_activated with mock log containing locret_grad_norm=0.05
+      - Test gate passes when gap >= 2.0
+      - Test gate fails when gap < 2.0
+      - Test aggregate_seed_results produces correct mean/std
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#verify_mechanism_activated"
+      config: null
+
+  - id: "task-010"
+    epic: "A-9 Budget Sensitivity"
+    title: "Implement budget sensitivity sweep (0.3/0.5/0.7)"
+    description: |
+      Implement evaluate_budget_sensitivity in evaluate.py (see task-008 for co-location).
+      Run GLUE accuracy at 3 budget ratios: 0.3, 0.5, 0.7.
+      For JointLoRA-KV and B1 models.
+      Save results to results/budget_sensitivity_{model_tag}.json.
+
+      Budget sensitivity is run after main training, using trained model checkpoints.
+      Only run on MNLI validation (largest task, most representative).
+    feature_tag: "evaluation"
+    priority: 77
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Test evaluate_budget_sensitivity returns 3 keys [0.3, 0.5, 0.7]
+      - Test each value is float in (0, 1)
+      - Test results saved to JSON file
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#evaluate_budget_sensitivity"
+      config: "03_config.md#kv-budget-settings"
+
+  - id: "task-011"
+    epic: "A-10 Visualization"
+    title: "Implement all 5 required figures in visualize.py"
+    description: |
+      Implement visualize.py with 5 figure generation functions:
+
+      1. plot_gate_metrics_comparison(joint, b1, b2, output_dir):
+         FR-8.1 (MANDATORY): Bar chart — JointLoRA-KV vs B1 vs B2 mean GLUE accuracy ± std
+         Saves: figures/gate_metrics_comparison.png
+
+      2. plot_training_curves(training_history, output_dir):
+         FR-8.2: Loss per epoch for all 3 seeds (JointLoRA-KV only)
+         Saves: figures/training_curves.png
+
+      3. plot_per_task_glue(joint, b1, b2, output_dir):
+         FR-8.3: Per-task bars for MNLI/SST-2/QNLI separately
+         Saves: figures/per_task_glue.png
+
+      4. plot_budget_sensitivity(joint_sensitivity, b1_sensitivity, output_dir):
+         FR-8.4: Accuracy vs budget_ratio (0.3/0.5/0.7) line chart
+         Saves: figures/budget_sensitivity.png
+
+      5. plot_longbench_comparison(joint, b1, b2, output_dir):
+         FR-8.5: NarrativeQA/Qasper/MultiFieldQA F1 bars
+         Saves: figures/longbench_comparison.png
+
+      Use matplotlib + seaborn. All figures must use config.get_figures_dir().
+      Create figures/ directory if not exists.
+    feature_tag: "experiment"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - Create tests/test_visualize.py
+      - Test each plot function creates output file in figures/
+      - Test with mock result dicts
+      - Verify gate_metrics_comparison.png generated (mandatory)
+    reference_files:
+      architecture: "03_architecture.md#Visualize"
+      logic: "03_logic.md#visualizepy"
+      config: "03_config.md#output-settings"
+
+  - id: "task-012"
+    epic: "A-11 Orchestration + Seeds"
+    title: "Implement run_experiment.py with 3-seed × 3-task orchestration"
+    description: |
+      Implement run_experiment.py:
+      - set_seed(seed): torch.manual_seed + numpy.random.seed + random.seed + torch.cuda.manual_seed
+      - run_joint_training(config, task, seed): train JointLoRA-KV, return {training_history, val_results}
+      - run_b1_training(config, task, seed): train B1 (freeze_locret=True), return {val_results}
+      - run_b2_inference(config, task, seed): LoRA + kvpress heuristic, return {val_results}
+      - run_longbench_eval(config, seed, model_tag): evaluate on 3 LongBench tasks
+      - main():
+        1. Iterate seeds [42, 123, 456] × tasks ["mnli", "sst2", "qnli"] × models {joint, b1, b2}
+        2. Save JSON per run: results/{model_tag}_{task}_seed{seed}.json
+        3. Aggregate results with aggregate_seed_results()
+        4. Run budget sensitivity sweep (MNLI only)
+        5. Run LongBench eval (joint, b1, b2)
+        6. Call verify_mechanism_activated()
+        7. Generate all 5 figures
+        8. Print final gate check result
+
+      Entry point: if __name__ == "__main__": main()
+      Run from h-m1/code/ directory.
+    feature_tag: "experiment"
+    priority: 73
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      - Create tests/test_run_experiment.py
+      - Test set_seed sets reproducible results
+      - Test main() entry point runs without error (mock model/data)
+      - Test JSON output files created for each run
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md#run_experimentpy"
+      config: "03_config.md#output-settings"
+
+  - id: "task-013"
+    epic: "A-12 End-to-End Validation"
+    title: "Run full pipeline, verify gate condition, fix failures"
+    description: |
+      Run complete experiment pipeline:
+      1. Execute: cd h-m1/code && python run_experiment.py
+      2. Verify all 3 seeds × 3 GLUE tasks complete without error
+      3. Verify gate condition: mean_glue_acc(JointLoRA-KV) - mean_glue_acc(B1) >= 0.0
+         (PoC pass: JointLoRA-KV > B1 by any margin, even if < 2pp)
+      4. Verify gate_metrics_comparison.png generated
+      5. Verify results/ JSON files exist (9 joint + 9 b1 + 9 b2 = 27 files)
+      6. Verify mechanism_verification.json shows locret_grad_received=true
+      7. Fix any runtime errors (OOM → reduce batch size; NaN → reduce locret_lr)
+      8. Write 04_validation.md with results
+
+      PoC success condition:
+        - Code runs without error (training loop completes)
+        - mean_glue_acc(JointLoRA-KV) > mean_glue_acc(B1) at budget_ratio=0.5
+
+      Gate condition (MUST_WORK):
+        - mean_glue_acc(JointLoRA-KV) >= mean_glue_acc(B1) + 2.0 pp
+    feature_tag: "experiment"
+    priority: 71
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      - All 4 figures exist in figures/
+      - results/mechanism_verification.json exists with gate_passed field
+      - 04_validation.md written with actual results
+      - No NaN losses in any training run
+    reference_files:
+      architecture: "03_architecture.md#Epic-Tasks"
+      logic: "03_logic.md#verify_mechanism_activated"
+      config: "03_config.md#config-validation"
+
+  # ─── FAILSAFE TASK (priority 1) ────────────────────────────────────────────
+  - id: "task-014"
+    epic: "Pipeline Continuation"
+    title: "Phase 4 pipeline continuation checkpoint"
+    description: |
+      FAILSAFE: This task ensures Phase 4 reports completion to the pipeline
+      even if some secondary metrics are incomplete.
+
+      Required actions before marking done:
+      1. Verify 04_validation.md exists with gate result
+      2. Update verification_state.yaml:
+         - sub_hypotheses.h-m1.validation.status = "COMPLETED" or "PARTIAL"
+         - Record gate_passed result
+      3. Signal Phase 4 completion to hypothesis loop
+
+      This task MUST be the last task executed.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUDGET SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+budget_summary:
+  data_preparation: 0    # GLUE and LongBench are auto-download (HuggingFace Hub)
+  environment_setup: 1   # task-001
+  epic_tasks: 12         # task-002 through task-013
+  subtasks: 0            # No additional subtasks (within budget)
+  failsafe: 1            # task-014
+  total: 14              # Well within FULL tier budget of 30

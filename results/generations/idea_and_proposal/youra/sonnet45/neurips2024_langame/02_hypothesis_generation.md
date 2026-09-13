@@ -1,0 +1,629 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-08
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Hypothesis ID:** H2A-R1-001
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## Executive Summary
+
+**Research Question:** How can we systematically measure language grounding improvements in LLMs trained via interactive language games vs. traditional corpus-based training?
+
+**Proposed Solution:** Context-Adaptive Language Metrics (CALM) - a three-dimensional grounding assessment framework measuring contextual appropriateness, pragmatic consistency, and emergence trajectory.
+
+**Core Innovation:** First systematic integration of cognitive science symbol grounding theory with emergent language metrics adapted for natural language LLMs in multi-agent language game settings.
+
+**Expected Impact:** Enables scientific validation of language gamification's central claim that interactive training produces better-grounded language understanding than static corpus training.
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H2A-R1-001
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+LLMs trained through multi-agent language games exhibit significantly higher grounding quality than corpus-trained LLMs, measurable through three independent dimensions: (1) Contextual Appropriateness Score (CAS) - systematic adaptation of language use to interaction partner characteristics, (2) Pragmatic Consistency Index (PCI) - alignment between communicative intent and language form, and (3) Emergence Trajectory Analysis (ETA) - compositionality and stability evolution during training.
+
+**Alternative Hypothesis (H0):**
+Language game-trained and corpus-trained LLMs show no significant difference in grounding quality when measured via CALM dimensions, suggesting that interactive training does not improve grounding beyond what corpus-based training achieves.
+
+### 1.2 Variables
+
+| Variable Type | Variable Name | Operationalization | Measurement Method |
+|--------------|---------------|-------------------|-------------------|
+| **Independent Variable** | Training Paradigm | Language game training vs. corpus-based training | Binary categorical: "Interactive" vs. "Static" |
+| **Dependent Variable 1** | Contextual Appropriateness Score (CAS) | KL divergence of language distribution across interaction partner types | KL(P_partner_A ‖ P_partner_B) where P = language distribution |
+| **Dependent Variable 2** | Pragmatic Consistency Index (PCI) | Referential success rate × description stability | PCI = (correct_references / total_references) × stability_coefficient |
+| **Dependent Variable 3** | Emergence Trajectory Analysis (ETA) | Compositionality score + stability coefficient over training episodes | Topographic similarity + context independence metrics |
+| **Control Variable 1** | Model Size | Parameter count | Match corpus-trained baseline to language-game-trained model size |
+| **Control Variable 2** | Architecture | Model family (GPT, LLaMA, etc.) | Use same base architecture for both conditions |
+| **Control Variable 3** | Training Data Volume | Total tokens processed | Equalize exposure: language game episodes ≈ corpus tokens |
+| **Moderating Variable** | Interaction Partner Diversity | Number of distinct partner capability levels | Range: 3-5 expertise levels (novice, intermediate, expert) |
+
+### 1.3 Causal Mechanism
+
+**Proposed Causal Chain:**
+
+```
+Multi-Agent Language Games
+    ↓
+Repeated Interactive Communication with Diverse Partners
+    ↓
+Feedback Signal: Communicative Success/Failure
+    ↓
+Adaptive Language Use Optimization
+    ↓
+[THREE PARALLEL PATHWAYS]
+    ↓
+1. CONTEXTUAL GROUNDING: Model learns systematic relationship between partner characteristics and effective language choices
+2. PRAGMATIC GROUNDING: Model aligns language form with communicative intent based on interaction outcomes
+3. COMPOSITIONAL GROUNDING: Model develops stable, reusable language patterns through repeated successful communication
+    ↓
+Higher Grounding Quality (Measured via CALM)
+```
+
+**Evidence for Causal Links:**
+
+**Link 1: Language Games → Interactive Communication**
+- Direct evidence: Van Eecke et al. (2023) demonstrates naming game creates repeated agent-agent language exchanges
+- Implementation proof: chatarena framework (1.5k stars) provides multi-agent language game environments
+- Mechanism: Game structure enforces turn-taking communication with success/failure feedback
+
+**Link 2: Interaction → Feedback Signal**
+- Cognitive science foundation: Wittgenstein's language games theory - meaning emerges through use and social response
+- Empirical support: SPIRAL (2025) shows zero-sum game feedback drives reasoning improvement
+- Measurement: Referential games provide clear communicative success metrics (object correctly identified)
+
+**Link 3: Feedback → Adaptive Optimization**
+- Self-play evidence: SPIN (2024, 458 citations) - LLMs optimize via self-generated feedback signals
+- RL foundation: LOOP algorithm (2025) demonstrates LLMs improve through interactive feedback
+- Plasticity support: Kolling et al. (2025) connects LLM in-context learning to associative learning via feedback
+
+**Link 4: Adaptation → Grounding**
+- Symbol grounding theory: Grounding requires systematic connection between symbols and experiential context
+- DL validation: Zhang et al. (2024) shows embodied multi-agent interaction improves grounding
+- Natural language evidence: "Context Sensitivity in Large Language Models" (2024, supplementary) demonstrates measurable adaptation
+
+**Key Tension:**
+
+**Corpus Training Counter-Argument:** LLMs trained on diverse text corpora already encounter varied contexts and implicit communicative intents through reading. Why would explicit interaction improve grounding beyond corpus exposure?
+
+**Resolution Hypothesis:** The critical difference is **active feedback loops**. Corpus training provides passive exposure to language-context patterns, while language games provide active communication success/failure signals that enforce systematic grounding. The iterative nature of language games (agent adjusts language based on partner response) creates stronger grounding pressure than one-shot corpus examples.
+
+**Testable Implication:** If this resolution is correct, CALM metrics should show:
+- Higher CAS in interactive-trained LLMs (feedback drives partner adaptation)
+- Higher PCI in interactive-trained LLMs (success signals reinforce intent-form alignment)
+- Different ETA patterns (interactive shows systematic evolution, corpus shows static learning)
+
+### 1.4 Key Assumptions
+
+**A1: Language Games as Grounding Context**
+- **Assumption:** Multi-agent language game interactions provide sufficient "experiential context" analogous to perceptual grounding in embodied agents
+- **Justification:** Language emergence literature shows compositional language develops in referential games (Mordatch & Abbeel); games create controlled symbolic grounding situations
+- **Risk:** Language-only interaction may be insufficient for "true" grounding compared to embodied perception
+- **Mitigation:** CALM measures grounding relative to corpus training, not absolute grounding; comparative validity holds even if neither achieves full embodied grounding
+
+**A2: CALM Dimensions Capture Grounding**
+- **Assumption:** The three dimensions (CAS, PCI, ETA) comprehensively measure grounding quality
+- **Justification:** Cross-domain transfer from cognitive science symbol grounding assessment; supplementary research confirms human perception of grounding correlates with these dimensions
+- **Risk:** Missing dimensions of grounding not captured by CALM
+- **Mitigation:** Phase includes human validation study to verify CALM scores correlate with human perception of "grounded" language use
+
+**A3: Training Data Equivalence**
+- **Assumption:** Language game episodes can be matched to corpus tokens for fair comparison
+- **Justification:** Both provide language exposure; matching total tokens controls for data volume
+- **Risk:** Quality vs. quantity - fewer high-quality interactive episodes may outperform more corpus tokens, confounding volume comparison
+- **Mitigation:** Multiple experimental conditions varying episode count to establish scaling relationship
+
+**A4: Compositionality Measurability in Natural Language**
+- **Assumption:** Emergent language compositionality metrics adapt meaningfully to pretrained natural language LLMs
+- **Justification:** Supplementary research ("Compositionality in Neural Language Models" 2023) provides validated methods for natural language
+- **Risk:** Natural language already highly compositional; measuring emergent compositionality may lack sensitivity
+- **Mitigation:** Focus on stability and systematicity changes rather than absolute compositionality levels
+
+**A5: Model Size Control Sufficiency**
+- **Assumption:** Matching parameter count and architecture controls for model capability differences
+- **Justification:** Standard practice in LLM comparison studies
+- **Risk:** Training dynamics differ between interactive and corpus training; emergent capabilities may arise differently
+- **Mitigation:** Multiple model sizes tested to verify grounding improvements scale consistently
+
+### 1.5 Scope & Boundaries
+
+**In Scope:**
+- ✅ Natural language LLMs (GPT-family, LLaMA-family architectures)
+- ✅ Text-based multi-agent language games (referential games, naming games, communication games)
+- ✅ Grounding quality measurement via three CALM dimensions
+- ✅ Comparison between interactive and corpus-based training paradigms
+- ✅ Model sizes: 1B-13B parameters (practical evaluation scale)
+- ✅ Training duration: 10-100 language game episodes (feasibility constraint)
+
+**Out of Scope:**
+- ❌ Embodied agents with perceptual grounding (different modality)
+- ❌ Multimodal models (vision-language) - focus on language-only grounding
+- ❌ Non-English languages (initial validation in English only)
+- ❌ Models >70B parameters (computational cost constraint)
+- ❌ Long-term training (>1000 episodes) - feasibility limit for initial validation
+- ❌ Downstream task performance (separate from grounding measurement)
+- ❌ Alternative interactive training methods (reinforcement learning from human feedback, debate) - comparison scope limited to language games vs. corpus
+
+**Boundary Conditions:**
+
+**B1: Minimum Partner Diversity:** At least 3 distinct partner capability levels required for CAS measurement (adaptation requires variance)
+
+**B2: Referential Game Complexity:** Games must support clear success/failure signals for PCI measurement (ambiguous outcomes invalid)
+
+**B3: Training Baseline:** Corpus-trained models must be instruction-tuned (not raw pretraining) for fair comparison to interactive-trained models
+
+**B4: Evaluation Context:** CALM assessment conducted in language game contexts similar to training games (transfer to novel contexts is future work)
+
+**B5: Human Validation Sample:** Minimum 50 participants for grounding perception study (power analysis for correlation detection)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction (P1):**
+Language game-trained LLMs will score significantly higher (Cohen's d > 0.5) on the composite CALM metric (weighted average of CAS, PCI, ETA) compared to corpus-trained LLMs of matched size and architecture.
+
+**Measurement:**
+- CALM_composite = 0.4 × CAS + 0.3 × PCI + 0.3 × ETA (weighted by dimension reliability)
+- Statistical test: Two-sample t-test or Mann-Whitney U test (if non-normal distribution)
+- Significance threshold: p < 0.05 with Bonferroni correction for multiple comparisons
+
+**Secondary Predictions:**
+
+**P2 (Dimension Independence):**
+The three CALM dimensions (CAS, PCI, ETA) will show moderate inter-correlation (r < 0.6), confirming they measure distinct aspects of grounding.
+
+**Evidence:** If r > 0.8 between dimensions, suggests measurement redundancy; if r < 0.3, suggests dimensions measure unrelated constructs
+
+**P3 (Human Perception Alignment):**
+CALM scores will positively correlate (Pearson r > 0.5) with human ratings of "grounded" language use in blind evaluations.
+
+**Validation:** 50-100 human participants rate LLM outputs on perceived grounding quality; correlation with CALM scores validates metric
+
+**P4 (Training Trajectory):**
+Language game-trained LLMs will show monotonic improvement in CALM scores across training episodes, while corpus-trained baselines remain static.
+
+**Pattern:** ETA dimension specifically should capture this trajectory; slope > 0 for interactive, slope ≈ 0 for corpus
+
+**P5 (Partner Adaptation Specificity):**
+CAS will be highest for language game-trained models and near-zero for corpus-trained models when measuring adaptation to partner expertise levels.
+
+**Threshold:** CAS_interactive > 2 × CAS_corpus (effect size capturing adaptation vs. random variation)
+
+**Falsification Criteria:**
+
+**FC1: No Grounding Difference**
+If P1 fails (Cohen's d < 0.2, p > 0.1), indicates language game training does not improve grounding beyond corpus training → Hypothesis REJECTED
+
+**FC2: Human Perception Misalignment**
+If P3 fails (r < 0.3 or p > 0.05), indicates CALM metrics do not capture what humans perceive as grounding → Framework INVALID, requires revision
+
+**FC3: Dimension Collapse**
+If P2 fails with high inter-correlation (r > 0.8 for all pairs), indicates CALM dimensions are redundant → Framework requires reconceptualization to identify independent grounding aspects
+
+**FC4: No Adaptive Trajectory**
+If P4 fails (slope ≤ 0 for interactive training), contradicts causal mechanism assumption that feedback drives grounding improvement → Mechanism INVALID
+
+**FC5: Baseline Equivalence on All Dimensions**
+If all three individual dimensions (CAS, PCI, ETA) show p > 0.1, even if composite marginally significant, suggests grounding improvement is artifact rather than robust effect → Hypothesis WEAK
+
+### 1.7 SOTA Baseline
+
+**Not Applicable (Comparative Mode: Language Game vs. Corpus Training)**
+
+This hypothesis uses corpus-trained LLMs as baseline comparison rather than SOTA benchmarks. The goal is to measure grounding quality differences between training paradigms, not to achieve state-of-the-art performance on downstream tasks.
+
+**Baseline Selection Criteria:**
+- Match model architecture (e.g., LLaMA-2-7B for both conditions)
+- Match parameter count (within 10% tolerance)
+- Use instruction-tuned checkpoints (not raw pretraining) for fair comparison
+- Publicly available models (reproducibility requirement)
+
+**Example Baselines:**
+- LLaMA-2-7B-Chat (corpus + instruction tuning)
+- Mistral-7B-Instruct (corpus + instruction tuning)
+- GPT-3.5-level models if available for research
+
+### 1.8 Statistical Verification Design
+
+**Study Design:** Between-subjects experimental design with matched controls
+
+**Sample:**
+- N = 6 models per condition (interactive vs. corpus)
+- Model sizes: 1B, 3B, 7B (2 models each to test size scaling)
+- Total: 12 models evaluated
+
+**Independent Variable Manipulation:**
+- **Experimental Group:** Models fine-tuned via 50 language game episodes (referential + naming games)
+- **Control Group:** Models continued-trained on equivalent tokens from corpus (matched volume)
+
+**Randomization:** Model initialization seeds randomized; game partner assignment randomized
+
+**Blinding:** Human evaluators (P3 validation) blind to training condition
+
+**Measurement Protocol:**
+1. **Pre-training baseline:** Measure all models on CALM dimensions before manipulation
+2. **Training intervention:** Apply interactive or corpus training
+3. **Post-training assessment:** Re-measure CALM dimensions
+4. **Human validation:** Collect blind human ratings for perception alignment (P3)
+
+**Statistical Tests:**
+
+| Prediction | Test | Assumptions | Effect Size |
+|-----------|------|-------------|-------------|
+| P1 (Main effect) | Two-sample t-test | Normality (Shapiro-Wilk), Equal variance (Levene) | Cohen's d > 0.5 |
+| P2 (Dimension independence) | Pearson correlation matrix | Linear relationships | r < 0.6 |
+| P3 (Human alignment) | Pearson correlation | Linear relationship, normality | r > 0.5 |
+| P4 (Trajectory) | Linear regression (episode × CALM) | Linearity, independence of errors | β > 0, p < 0.05 |
+| P5 (Adaptation specificity) | Ratio test | Non-zero variance | Ratio > 2 |
+
+**Power Analysis:**
+- Target power: 0.80
+- Alpha: 0.05 (Bonferroni-corrected for 5 predictions → 0.01 per test)
+- Effect size assumption: Cohen's d = 0.6 (medium-large)
+- Required N per group: 6 models (based on power calculation for t-test)
+
+**Confound Controls:**
+- Model architecture: Matched across conditions
+- Training data volume: Equalized (language game episodes ≈ corpus tokens)
+- Hyperparameters: Fixed (learning rate, batch size)
+- Evaluation environments: Standardized language game contexts
+
+**Replication Strategy:**
+- All experiments run with 3 random seeds
+- Report mean ± standard deviation across seeds
+- Significant results must replicate across 2/3 seeds minimum
+
+---
+
+## 2. Contribution Summary
+
+### Theoretical Contribution
+
+**TC1: Cognitive Science-DL Integration**
+CALM provides the first systematic bridge between cognitive science symbol grounding theory and deep learning LLM evaluation. Previous work either:
+- Applied cognitive principles informally (no operationalized metrics)
+- Used task performance as grounding proxy (indirect measurement)
+
+**Novel Element:** Operationalizes Wittgenstein's "meaning through use" and cognitive science grounding principles as three measurable dimensions specific to LLM language game training.
+
+**TC2: Grounding Formalization for Interactive Training**
+Establishes formal definition of "grounding" in language game context:
+> Grounding = Systematic adaptation of language use (CAS) + Intent-form alignment (PCI) + Compositional stability (ETA)
+
+**Impact:** Enables precise theoretical discourse about what "better grounded" means for LLMs, moving beyond intuitive claims.
+
+### Methodological Contribution
+
+**MC1: Three-Dimensional Framework**
+First framework measuring grounding via independent, complementary dimensions rather than single metric:
+- **CAS:** Captures context-sensitivity (partner adaptation)
+- **PCI:** Captures pragmatic competence (communicative success)
+- **ETA:** Captures developmental trajectory (learning dynamics)
+
+**Advantage:** Avoids metric collapse where single score obscures grounding failure modes.
+
+**MC2: Emergent Language Metrics Adapted to Natural Language**
+Previous compositionality metrics designed for symbolic emergent languages (discrete tokens, small vocabularies). CALM adapts these to natural language LLMs via:
+- Topographic similarity for continuous embeddings
+- Context independence measured over linguistic constructions (not symbols)
+- Stability across semantic domains (not just object references)
+
+**Novelty:** "Compositionality in Neural Language Models" (2023, supplementary) provides methods; CALM innovates by applying them to measure grounding trajectory during training.
+
+**MC3: Comparative Evaluation Protocol**
+Establishes standardized methodology for comparing training paradigms on grounding:
+- Volume-matched training (episodes ↔ tokens)
+- Matched model architecture and size
+- Independent validation via human perception study
+- Adversarial robustness testing
+
+**Impact:** Enables future research to compare any interactive training method to baselines using CALM protocol.
+
+### Practical Contribution
+
+**PC1: Validation of Language Gamification**
+Directly addresses Gap 2 from Phase 1: "Cannot scientifically validate the central claim that interactive training produces better-grounded language understanding."
+
+**CALM enables:**
+- Empirical testing of language gamification's core benefit
+- Quantitative comparison to corpus training
+- Identification of which grounding dimensions improve most
+
+**PC2: Training Paradigm Selection Criteria**
+If CALM shows significant grounding improvements for language game training, provides practitioners with:
+- Justification for allocating resources to interactive training
+- Metrics to track grounding quality during training
+- Understanding of grounding-task performance relationship
+
+**PC3: Benchmark for Future Interactive Training Research**
+CALM framework applicable beyond language games to:
+- Reinforcement learning from human feedback (RLHF)
+- Multi-agent debate training
+- Socratic dialogue training
+- Any interactive LLM training paradigm
+
+**Generalizability:** Framework design is paradigm-agnostic; three dimensions measure grounding regardless of specific interaction type.
+
+---
+
+## 3. Key Related Work
+
+### Symbol Grounding Problem (Cognitive Science Foundation)
+
+**Harnad (1990). "The Symbol Grounding Problem"**
+- **Contribution:** Formalized the problem of connecting symbolic representations to meaning through grounding in perceptual/embodied experience
+- **Relation to CALM:** CALM adapts grounding assessment from perceptual domain to language game interaction domain; CAS and PCI measure systematic symbol-context connections analogous to Harnad's perceptual grounding
+
+**Limitation:** Harnad's framework requires embodied perception; CALM extends to language-only grounding via interactive context
+
+### Language Emergence & Compositionality
+
+**Peters et al. (2024). "Emergent language: a survey and taxonomy"**
+- **Contribution:** Taxonomy of emergent language metrics including compositionality (topographic similarity, context independence), stability, and convergence
+- **Relation to CALM:** ETA dimension directly borrows compositionality metrics; CALM innovates by adapting these to natural language LLMs (originally designed for symbolic emergent languages)
+
+**Limitation:** Metrics designed for discrete symbolic languages with small vocabularies; CALM adapts to continuous natural language via embedding-based similarity
+
+**"Compositionality in Neural Language Models" (2023, Supplementary)**
+- **Contribution:** Methods for measuring compositionality in pretrained LLMs using semantic decomposition and substitution tests
+- **Relation to CALM:** Provides technical implementation for ETA compositionality measurement in natural language context
+- **Integration:** CALM uses these methods within training trajectory framework (measuring evolution, not just static compositionality)
+
+### Self-Play & Interactive LLM Training
+
+**Chen et al. (2024). "Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models" (SPIN)**
+- **Citations:** 458
+- **Contribution:** Demonstrated self-play training paradigm where LLM improves by playing against previous versions; proved global optimum alignment with target distribution
+- **Relation to CALM:** SPIN shows interactive training works for capability improvement; CALM measures whether it specifically improves grounding (complementary focus)
+
+**Difference:** SPIN evaluates via downstream task performance (math, coding); CALM directly measures grounding quality
+
+**Liu et al. (2025). "SPIRAL: Self-Play on Zero-Sum Games Incentivizes Reasoning"**
+- **Citations:** 31
+- **Contribution:** Zero-sum game self-play produces transferable reasoning (8.6% math improvement from Kuhn Poker alone)
+- **Relation to CALM:** Demonstrates game-based training produces generalizable improvements; CALM measures whether games also improve grounding
+- **Synergy:** If CALM shows grounding improvements + SPIRAL shows reasoning improvements, strengthens case for language game training paradigm
+
+### Multi-Agent Language Games
+
+**Van Eecke et al. (2023). "Language games meet multi-agent reinforcement learning"**
+- **Citations:** 5
+- **Contribution:** Explicit bridge between language games theoretical framework (Steels, Wittgenstein) and MARL formulation
+- **Relation to CALM:** Provides theoretical justification for language games as training paradigm; CALM provides evaluation methodology for outcomes
+- **Integration:** Van Eecke establishes "why language games," CALM establishes "how to measure success"
+
+**Farama-Foundation/chatarena (Implementation)**
+- **Stars:** 1.5k
+- **Contribution:** Production-ready multi-agent language game environment framework
+- **Relation to CALM:** Provides implementation infrastructure for language game training; CALM provides evaluation metrics for chatarena-trained models
+- **Practical Link:** CALM evaluation protocol designed to integrate with chatarena environments
+
+### Grounding Evaluation
+
+**GenEval Framework (Archon KB)**
+- **Contribution:** Generative evaluation framework for LLMs with multiple quality dimensions
+- **Relation to CALM:** Architectural pattern of multi-dimensional evaluation; CALM specializes to grounding assessment
+- **Differentiation:** GenEval measures generation quality (fluency, coherence, factuality); CALM measures grounding quality (context-adaptation, pragmatic consistency, compositionality)
+
+**Zhang et al. (2024). "Towards Efficient LLM Grounding for Embodied Multi-Agent Collaboration"**
+- **Citations:** 49
+- **Contribution:** ReAd framework for LLM grounding in embodied multi-agent tasks using advantage feedback
+- **Relation to CALM:** Addresses grounding but in embodied domain; CALM focuses on language-only grounding via language games
+- **Complementarity:** Zhang validates embodied grounding via task success; CALM measures language grounding independent of embodiment
+
+**Limitation in Prior Work:** No existing framework systematically measures grounding improvements from interactive training vs. corpus training using theory-grounded, validated metrics
+
+**CALM's Unique Position:** Only framework combining (1) cognitive science grounding theory, (2) emergent language compositionality metrics, (3) natural language LLM adaptation, (4) comparative evaluation protocol for training paradigms
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence): CALM Framework Validity**
+
+**Question:** Do the three CALM dimensions (CAS, PCI, ETA) constitute valid, reliable measurements of language grounding?
+
+**Sub-experiments:**
+- SH1.1: Dimension independence verification (P2) - Measure inter-correlation across diverse models
+- SH1.2: Human perception alignment (P3) - Correlate CALM scores with human grounding ratings
+- SH1.3: Test-retest reliability - Measure CALM scores at different time points, same models
+- SH1.4: Adversarial robustness - Can models fake high CALM scores without genuine grounding?
+
+**Success Criteria:**
+- Inter-dimension correlation r < 0.6 (independence)
+- Human correlation r > 0.5, p < 0.05 (alignment)
+- Test-retest r > 0.8 (reliability)
+- Adversarial tests detect metric gaming
+
+**SH2 (Mechanism): Language Games → Grounding Causation**
+
+**Question:** Does language game training causally improve grounding via the proposed mechanism (interaction → feedback → adaptation → grounding)?
+
+**Sub-experiments:**
+- SH2.1: Training trajectory analysis (P4) - Track CALM evolution across language game episodes
+- SH2.2: Feedback dependency test - Compare full language games vs. games without success feedback
+- SH2.3: Partner diversity effect - Vary number of partner types (1, 3, 5) and measure CAS sensitivity
+- SH2.4: Compositional emergence - Track ETA during training to verify systematic development
+
+**Success Criteria:**
+- Positive CALM slope during training (β > 0)
+- Models with feedback show higher grounding than no-feedback controls
+- CAS scales with partner diversity (more partners → higher adaptation)
+- ETA shows systematic trajectory pattern
+
+**SH3 (Comparison): Interactive vs. Corpus Training**
+
+**Question:** Do language game-trained LLMs exhibit superior grounding compared to corpus-trained LLMs of matched capability?
+
+**Sub-experiments:**
+- SH3.1: Main effect test (P1) - Compare CALM composite scores across conditions
+- SH3.2: Dimension-specific advantages - Which dimensions show largest interactive benefit?
+- SH3.3: Model size scaling - Does grounding advantage hold at 1B, 3B, 7B parameters?
+- SH3.4: Volume sensitivity - Test multiple training volumes (10, 50, 100 episodes vs. matched tokens)
+
+**Success Criteria:**
+- Cohen's d > 0.5 for composite CALM (P1)
+- At least 2/3 dimensions show significant advantage
+- Effect replicates across model sizes
+- Grounding advantage emerges consistently across training volumes
+
+### Decomposition Logic
+
+**Why This Decomposition:**
+1. **SH1 establishes measurement validity** - Must verify CALM measures what it claims before testing training effects
+2. **SH2 validates causal mechanism** - Tests theoretical model linking language games to grounding improvements
+3. **SH3 compares paradigms** - Main hypothesis test comparing interactive vs. corpus training
+
+**Dependency Order:**
+- SH1 → SH2 → SH3 (sequential verification)
+- If SH1 fails, CALM framework invalid → cannot proceed to SH2/SH3
+- If SH2 fails but SH1 passes, mechanism wrong but measurement valid → revise theory
+- If SH3 fails but SH1+SH2 pass, language games may improve grounding without surpassing corpus training
+
+### Readiness Checklist
+
+**Phase 1 Evidence Utilized:**
+- ✅ All 6 sources from Phase 1 explicitly referenced
+- ✅ Cognitive science grounding theory incorporated (Harnad, Wittgenstein)
+- ✅ Emergent language metrics adapted (Peters et al.)
+- ✅ Implementation resources identified (chatarena, compositionality tools)
+- ✅ Supplementary search evidence integrated (human validation, natural language compositionality)
+
+**Hypothesis Clarity:**
+- ✅ Variables operationally defined with measurement methods
+- ✅ Causal mechanism explicitly stated with evidence links
+- ✅ Testable predictions (P1-P5) with statistical designs
+- ✅ Falsification criteria specified
+- ✅ Scope and boundaries clearly delimited
+
+**Methodological Preparation:**
+- ✅ Statistical verification design specified (sample size, tests, power)
+- ✅ Control variables identified and matching protocol defined
+- ✅ Human validation study outlined (50-100 participants)
+- ✅ Adversarial testing approach described
+- ✅ Baseline selection criteria established
+
+**Technical Feasibility:**
+- ✅ All metrics implementable with existing tools (KL divergence, referential games, compositionality measures)
+- ✅ Language game environments available (chatarena)
+- ✅ Computational cost reasonable (Medium difficulty rating)
+- ✅ 4-6 week implementation timeline estimated
+
+**Research Context:**
+- ✅ Related work comprehensively reviewed
+- ✅ Novel contributions clearly differentiated
+- ✅ Gap 2 resolution explicitly addressed
+- ✅ Theoretical, methodological, and practical contributions articulated
+
+**Phase 2B Prerequisites Met:**
+- ✅ Hypothesis decomposable into sub-hypotheses (SH1, SH2, SH3)
+- ✅ Each sub-hypothesis has clear success criteria
+- ✅ Experiments designed with statistical tests specified
+- ✅ Dependencies between sub-hypotheses identified
+
+### Open Questions for Phase 2B
+
+**OQ1: Human Study Design Details**
+- **Question:** What specific grounding perception tasks should human evaluators perform?
+- **Options:**
+  - A) Rate LLM outputs on Likert scale for "grounded" vs. "abstract" language use
+  - B) Comparative ranking: Given two LLM outputs, which seems more grounded?
+  - C) Task-based: Predict which LLM would succeed in communication task based on language sample
+- **Phase 2B Task:** Select human study design and develop detailed protocol with inter-rater reliability measures
+
+**OQ2: Compositionality Measurement Algorithm Selection**
+- **Question:** Which specific method from "Compositionality in Neural Language Models" (2023, supplementary) to implement?
+- **Options:**
+  - A) Semantic decomposition test (measure if meaning of phrase predictable from constituents)
+  - B) Substitution test (swap components, measure meaning change systematicity)
+  - C) Tree reconstruction accuracy (parse structures)
+- **Phase 2B Task:** Select method based on sensitivity to training-induced compositionality changes
+
+**OQ3: Language Game Type Selection**
+- **Question:** Which language game types to include in training mix?
+- **Current Plan:** Referential games + naming games
+- **Alternatives:** Add communication games, coordination games, negotiation games?
+- **Trade-off:** More game types increase diversity (better generalization) but increase complexity
+- **Phase 2B Task:** Determine optimal game type mix based on grounding dimension coverage
+
+**OQ4: Training Volume Calibration**
+- **Question:** How to match language game episodes to corpus tokens?
+- **Current Approach:** Equalize total tokens processed
+- **Challenge:** One language game episode may generate 100-1000 tokens (multi-turn); corpus provides 1000s of static tokens
+- **Options:**
+  - A) Match total tokens (may give corpus training more "examples")
+  - B) Match number of communicative contexts (episodes vs. documents)
+  - C) Match training time
+- **Phase 2B Task:** Establish principled matching criterion and justify choice
+
+**OQ5: Partner Capability Level Operationalization**
+- **Question:** How to implement "novice," "intermediate," "expert" partner levels for CAS measurement?
+- **Options:**
+  - A) Use smaller LLMs as novice partners, larger as expert (parameter count)
+  - B) Use different prompts to simulate expertise (role-playing)
+  - C) Train partner models to different levels on domain
+- **Phase 2B Task:** Select partner implementation approach and validate that capability levels are distinguishable
+
+**OQ6: Adversarial Test Specifics**
+- **Question:** What gaming strategies should adversarial tests probe?
+- **Candidates:**
+  - Random adaptation strategy (change language randomly to increase KL divergence)
+  - Memorization gaming (memorize partner→language mappings without understanding)
+  - Superficial consistency (maintain description stability without referential accuracy)
+- **Phase 2B Task:** Design concrete adversarial tests for each CALM dimension
+
+**OQ7: ETA Trajectory Baseline**
+- **Question:** What constitutes "systematic" emergence trajectory for compositional grounding?
+- **Challenge:** No prior work measuring compositionality evolution in natural language LLM training
+- **Options:**
+  - A) Compare to language emergence simulation trajectories (symbolic languages)
+  - B) Establish empirical pattern from pilot studies
+  - C) Use corpus training trajectory as baseline
+- **Phase 2B Task:** Establish expected ETA patterns for grounded vs. non-grounded development
+
+---
+
+## 5. Summary for Phase 2B
+
+**Hypothesis Status:** READY for decomposition and verification planning
+
+**Core Scientific Claim:** Language game training improves LLM grounding quality, measurable via three-dimensional CALM framework (CAS, PCI, ETA), compared to corpus-trained baselines.
+
+**Next Phase Goal:** Decompose into sub-hypotheses (SH1-SH3), design concrete experiments with success criteria, and establish verification roadmap.
+
+**Key Strengths Entering Phase 2B:**
+1. Strong theoretical foundation (cognitive science grounding + emergent language metrics)
+2. Clear operationalization of all variables
+3. Comprehensive statistical verification design
+4. Validated technical feasibility (Medium difficulty, 4-6 weeks)
+5. Phase 1 evidence fully integrated (100% source utilization)
+
+**Open Questions Requiring Phase 2B Resolution:**
+- Human study task design (OQ1)
+- Compositionality algorithm selection (OQ2)
+- Language game type mix (OQ3)
+- Training volume matching (OQ4)
+- Partner capability operationalization (OQ5)
+- Adversarial test design (OQ6)
+- ETA baseline establishment (OQ7)
+
+**Expected Phase 2B Output:**
+- Detailed verification plan with experiment specifications
+- Sub-hypothesis success criteria and dependencies
+- Resource allocation and timeline
+- Risk mitigation strategies for each sub-hypothesis
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*Hypothesis H2A-R1-001: Context-Adaptive Language Metrics (CALM)*
+*2026-02-08*

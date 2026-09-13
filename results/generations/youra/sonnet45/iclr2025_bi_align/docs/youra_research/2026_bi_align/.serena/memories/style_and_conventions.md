@@ -1,0 +1,1 @@
+Python code uses simple script-style orchestration with snake_case names, light type hints, and concise docstrings. Main pipelines are in `main.py` files, helper logic is split into loader/analyzer/visualizer modules, and outputs are written as JSON/CSV/PNG artifacts. Figures are generated in-memory and saved directly to experiment figure directories.

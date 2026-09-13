@@ -1,0 +1,43 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Building on our observation that entity-substitution failures concentrate attention away from correct entities (low entropy) while non-entity failures distribute attention broadly (high entropy), we design an automated classification pipeline: NER identifies entity spans $\to$ extract attention entropy $\to$ threshold-based routing (H < 0.32 $\to$ entity-error $\to$ RAG).
+
+\subsection{Problem Formulation}
+
+Given a set of LLM failures on TruthfulQA single-entity factual questions, our goal is to classify each failure as entity-error (model substitutes incorrect entity) or non-entity-error (other failure modes including reasoning errors, knowledge gaps, or ambiguous cases). This binary classification enables failure-type-specific routing to matched correction methods.
+
+\textbf{Scope.} We restrict to single-entity factual questions (e.g., ``What is the capital of France?'') to ensure unambiguous failure categorization. Multi-entity questions introduce hybrid failures where both entity-substitution and reasoning contribute. We defer multi-failure-type extension to future work (FW3).
+
+\textbf{Gold Labels.} We manually classify 100 TruthfulQA failures (50 entity-error, 50 non-entity-error per model) through inspection of model outputs and reference answers. This proof-of-concept scale demonstrates pattern existence before investing in automated labeling (FW4).
+
+\subsection{Attention Entropy as Diagnostic Signal}
+
+We hypothesize that attention patterns over entity spans reveal failure type. Specifically, entity-substitution errors should exhibit \textit{low entropy} (focused-but-wrong attention), while non-entity errors should exhibit \textit{high entropy} (diffuse attention indicating reasoning-level or knowledge-gap failures).
+
+\textbf{Attention Extraction.} We extract last-layer attention weights from the transformer model (GPT-2 in our experiments, 12 layers, 12 heads per layer). For a given input token sequence $\mathbf{x} = [x_1, \ldots, x_n]$ and output position $t$, we obtain attention distribution $\bm{\alpha}_t = [\alpha_1, \ldots, \alpha_n]$ where $\sum \alpha_i = 1$. We average attention across all 12 heads to obtain a single distribution per output token.
+
+\textbf{Entity Span Identification.} We use spaCy's \texttt{en\_core\_web\_lg} named entity recognizer to identify entity mentions in the question text. For example, in ``What is the capital of France?'', spaCy identifies ``France'' as an entity span. We validate NER accuracy with F1 $\geq$ 0.90 threshold (h-c1 pre-validation, actual: 96\%).
+
+\textbf{Entropy Calculation.} Given attention weights $\bm{\alpha}$ over entity span tokens $[i_1, \ldots, i_k]$, we normalize to span-restricted distribution $\bm{\beta} = [\alpha_{i_1}, \ldots, \alpha_{i_k}] / \sum \alpha_{i_j}$ and calculate Shannon entropy:
+
+\[
+H = -\sum \beta_j \log(\beta_j)
+\]
+
+where $0 \log 0 \equiv 0$. Entropy ranges from $H = 0$ (deterministic attention to single token) to $H = \log k$ (uniform distribution over $k$ tokens).
+
+\textbf{Interpretation.} Low entropy ($H \approx 0$) indicates focused attention on specific entity tokens. High entropy ($H > 0.3$) indicates diffuse attention across entity span. Our hypothesis predicts entity-errors have low $H$ (focused-but-wrong attention away from correct entity), non-entity-errors have high $H$ (no focused entity attention).
+
+\subsection{Classification Mechanism}
+
+We use a threshold-based classifier for interpretability and simplicity. Given entropy $H$, classify as:
+
+\begin{itemize}
+\item Entity-error if $H <$ threshold
+\item Non-entity-error if $H \geq$ threshold
+\end{itemize}
+
+\textbf{Threshold Selection.} We split gold-labeled data 80/20 (train/test). On the train set, we search threshold values in $[0.0, 1.0]$ to maximize classification accuracy. The optimal threshold $H^*$ minimizes misclassification on the train set.
+
+\textbf{Rationale.} Threshold-based classification is maximally interpretable --- the decision boundary is a single number sitting between entity mean (0.062) and non-entity mean (0.300). This simplicity enables rapid deployment and debugging. More complex classifiers (logistic regression, small BERT) are deferred to automated labeling future work (FW4).

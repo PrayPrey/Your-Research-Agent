@@ -1,0 +1,25 @@
+
+\subsubsection{2.1 KV Cache Eviction Methods}
+
+\textbf{H2O} \citep{Zhang2023H2O} proposes cumulative attention accumulation as a token importance metric. Each token's score is the sum of attention weights it has received across all generation steps. H2O evicts low-score tokens at each decode step. Implementation integrates into the attention module's per-step forward computation. Evaluated on OPT and LLaMA (MHA models).
+
+\textbf{SnapKV} \citep{Li2024SnapKV} introduces prefill-observation scoring: attention weights from the last W query tokens during prefill are averaged per key position to identify tokens the query consistently attends to. Eviction occurs once, before generation. Implementation overrides LlamaAttention.forward() to apply eviction within the attention module before past\_key\_values is updated. SnapKV reports strong results on LongBench with LLaMA-2/3-chat models at 40--60\% retention.
+
+\textbf{ScissorHands} \citep{Liu2023ScissorHands} computes importance during a warmup period of 32 decode steps, then freezes the schedule. Motivated by observed persistence of attention patterns (Spearman r > 0.85 on OPT-6.7B).
+
+\textbf{PyramidKV} [Cai et al., 2024a] applies per-layer budget allocation, giving more capacity to early layers (broad attention) and less to later layers (local attention).
+
+\textbf{StreamingLLM} \citep{Xiao2023StreamingLLM} retains attention sink tokens plus a recent sliding window without any importance scoring, serving as a static lower bound.
+
+All of these methods were developed on or primarily evaluated with MHA architectures. None formalizes the aggregation function as a design choice when applied to GQA models.
+
+\subsubsection{2.2 GQA Architecture and Head Specialization}
+
+GQA \citep{Ainslie2023GQA} was introduced to reduce the memory cost of the KV cache at inference time. In GQA, G query heads share one KV head, so the number of KV heads is num\_q\_heads / G. For LLaMA-3-8B: 32 query heads, 8 KV heads, G = 4. For Mistral-7B-v0.1: 32 query heads, 8 KV heads, G = 4. For Phi-3-mini-4k-instruct: 32 query heads, 8 KV heads, G = 4.
+
+Evidence for query-head specialization within GQA groups exists in prior work. DuoAttention \citep{Xiao2024} classifies approximately 50\% of LLaMA-3-8B attention heads as retrieval heads with qualitatively distinct attention patterns from streaming heads. RazorAttention \citep{Tang2024RazorAttention} identifies echo heads and induction heads with distinct behavior. If retrieval heads and streaming heads co-occur within a GQA group, mean aggregation will dilute retrieval head signals.
+
+\subsubsection{2.3 GQA Score Aggregation in Production Systems}
+
+KVCache-Factory [Cai et al., 2024b] provides a unified framework implementing H2O, SnapKV, PyramidKV, StreamingLLM, and additional methods. It exposes \texttt{--gqa\textbackslash \_score\textbackslash \_agg mean|max|sum} under \texttt{--kv\textbackslash \_cache\textbackslash \_granularity kv\textbackslash \_head} as a configurable parameter operating before \texttt{repeat\textbackslash \_kv()} in the attention forward pass. Documentation notes that max aggregation ''slightly outperforms'' mean aggregation in some configurations, but no systematic comparison has been published. This confirms the aggregation function is an unsettled design choice in practice.
+

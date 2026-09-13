@@ -1,0 +1,376 @@
+{
+  "hypothesis_id": "h-m-integrated",
+  "hypothesis_type": "MECHANISM",
+  "date": "2026-08-20",
+  "prerequisite": "h-e1 (VALIDATED)",
+  "hypothesis_statement": "Under heterogeneous model zoos with architecture-specific encoders (NFN/UNF), hierarchical pooling, and Transformer sequence modeling, if we train the 3-level VAE with contrastive supervision, then same-task different-architecture models will exhibit: (1) Task-invariant weight patterns at layer-summary level, (2) Higher CKA similarity (>0.6) than different-task pairs (<0.4), (3) Tighter clustering (lower WCSS) in latent space, (4) Successful cross-architecture relational discovery via self-attention",
+  "rationale": "Task constraints dominate architecture-specific implementation details at coarse-grained scale",
+  "dataset": {
+    "name": "ModelZooDataset (CIFAR-10 Subset)",
+    "type": "standard",
+    "source": "https://doi.org/10.5281/zenodo.6620868",
+    "format": "Preprocessed PyTorch .pt files with vectorized weights",
+    "properties": {
+      "total_models": 2120,
+      "architectures": ["CNN-small", "CNN-large", "ResNet-18", "ResNet-34"],
+      "tasks": ["CIFAR-10", "CIFAR-100", "TinyImageNet", "MNIST", "FashionMNIST", "SVHN", "USPS", "STL10", "EuroSAT"],
+      "coverage": "72.2% cells with ≥30 models (validated in h-e1)",
+      "critical_cells": {
+        "CNN-CIFAR10": 250,
+        "ResNet-CIFAR100": 200,
+        "ResNet-TinyImageNet": 120
+      }
+    },
+    "files": [
+      "dataset_cifar_small_hyp_rand.pt (1.8 GB)",
+      "dataset_cifar_large_hyp_rand.pt (5.5 GB)",
+      "index_dict_small.json (733 B)",
+      "index_dict_large.json (741 B)"
+    ],
+    "splits": {
+      "phase1_cka_gate": {
+        "sample": 200,
+        "same_task_pairs": 100,
+        "diff_task_pairs": 100
+      },
+      "phase23_vae_train": {
+        "train": 1484,
+        "validation": 318,
+        "test": 318,
+        "train_pct": 70,
+        "val_pct": 15,
+        "test_pct": 15
+      },
+      "phase4_poc_validation": {
+        "wcss_bootstrap_resamples": 100,
+        "ablation_test_set_size": 318
+      }
+    }
+  },
+  "baselines": [
+    {
+      "name": "Architecture-Conditioned MLP",
+      "purpose": "Test whether architecture labels alone predict clustering (null hypothesis control)",
+      "architecture_type": "MLP with architecture embeddings",
+      "loss": "Standard reconstruction (MSE)",
+      "epochs": 100,
+      "batch_size": 32,
+      "evaluation_metric": "WCSS on latent embeddings"
+    },
+    {
+      "name": "NFN-only (Single Architecture)",
+      "purpose": "Validate that NFN works within-architecture before cross-architecture extension",
+      "architecture_type": "NFN encoder from AllanYangZhou/nfn",
+      "latent_dim": 512,
+      "training_scope": "CNN-small models only",
+      "loss": "Standard VAE (reconstruction + KL divergence)",
+      "epochs": 100,
+      "evaluation_metric": "Reconstruction accuracy on held-out CNN-small models (>70%)"
+    },
+    {
+      "name": "CKA Direct Comparison (No VAE)",
+      "purpose": "Measure upper bound of CKA similarity without VAE compression",
+      "method": "Compute CKA directly on raw vectorized weights",
+      "kernel_type": "Linear (K = X @ X.T)",
+      "evaluation_metric": "Raw CKA scores for same-task vs different-task pairs"
+    }
+  ],
+  "implementation_phases": [
+    {
+      "phase": "Phase 1: CKA Feasibility Gate",
+      "weeks": "1-2",
+      "goal": "Validate architecture subspaces are metrically compatible before VAE training",
+      "steps": [
+        "Architecture-Specific Encoders (NFN)",
+        "CKA Computation (linear kernel)",
+        "Feasibility Test (same-task CKA >0.6, diff-task CKA <0.4)"
+      ],
+      "gate_criterion": "If same-task CKA <0.5 OR different-task CKA >0.5, STOP (Risk R5 realized)",
+      "compute_resources": {
+        "gpu": "1x NVIDIA V100 (16 GB VRAM)",
+        "time_days": 2,
+        "storage_gb": 10
+      }
+    },
+    {
+      "phase": "Phase 2-3: Hierarchical VAE Training",
+      "weeks": "3-4",
+      "goal": "Train 3-level VAE with contrastive supervision",
+      "levels": [
+        {
+          "level": 1,
+          "name": "Architecture-Specific Encoders",
+          "encoders": ["NFN for CNN-small/large", "UNF for ResNet-18/34"],
+          "output": "Per-neuron embeddings (variable length)"
+        },
+        {
+          "level": 2,
+          "name": "Hierarchical Pooling",
+          "method": "Layer-wise mean pooling + MLP projection",
+          "output": "Layer-summary embeddings (fixed length)"
+        },
+        {
+          "level": 3,
+          "name": "Transformer Sequence Modeling",
+          "architecture": "6-layer Transformer with CLS token",
+          "heads": 8,
+          "latent_dim": 512,
+          "output": "VAE mu/logvar from CLS token"
+        }
+      ],
+      "supervision": [
+        "Coarse Task Labels (cross-entropy)",
+        "Contrastive Triplet Loss (margin=0.3)",
+        "VAE Reconstruction Loss (MSE)"
+      ],
+      "hyperparameters": {
+        "latent_dim": 512,
+        "transformer_layers": 6,
+        "transformer_heads": 8,
+        "contrastive_margin": 0.3,
+        "beta_kl_start": 1.0,
+        "beta_kl_anneal": 0.1,
+        "lambda_contrastive": 0.5,
+        "gamma_task_classification": 0.1,
+        "batch_size": 32,
+        "learning_rate": 0.0001,
+        "optimizer": "AdamW",
+        "epochs": 200,
+        "gradient_clipping": 1.0
+      },
+      "compute_resources": {
+        "gpu": "2x NVIDIA V100 (32 GB VRAM total)",
+        "time_days": 7,
+        "storage_gb": 50
+      }
+    },
+    {
+      "phase": "Phase 4: PoC Validation",
+      "weeks": "5-6",
+      "goal": "Measure WCSS clustering and ablation tests",
+      "tests": [
+        {
+          "test": "WCSS Bootstrap Test",
+          "method": "100 resamples with same-task vs random-cluster WCSS",
+          "success_criteria": {
+            "p_value": "<0.01",
+            "cohen_d": ">0.5",
+            "wcss_same_task": "< wcss_diff_task"
+          }
+        },
+        {
+          "test": "Architecture Token Ablation",
+          "method": "Retrain VAE without architecture-type tokens",
+          "success_criteria": {
+            "clustering_degradation": "≥15pp"
+          }
+        },
+        {
+          "test": "Reconstruction Task Accuracy",
+          "method": "Predict task from reconstructed weights",
+          "success_criteria": {
+            "task_accuracy": ">70%"
+          }
+        }
+      ],
+      "compute_resources": {
+        "gpu": "1x NVIDIA V100",
+        "time_days": 2,
+        "storage_gb": 5
+      }
+    }
+  ],
+  "expected_results": {
+    "success_case": {
+      "phase1_cka_gate": {
+        "same_task_cka_median": 0.68,
+        "same_task_cka_iqr": [0.62, 0.74],
+        "diff_task_cka_median": 0.35,
+        "diff_task_cka_iqr": [0.28, 0.42],
+        "interpretation": "Architecture subspaces are metrically compatible"
+      },
+      "phase4_wcss_test": {
+        "mean_wcss_same_task": 120.5,
+        "mean_wcss_diff_task": 185.3,
+        "p_value": 0.003,
+        "cohen_d": 0.72,
+        "interpretation": "Task constraints create tighter clustering than architecture patterns"
+      },
+      "phase4_ablation": {
+        "clustering_degradation_pct": 18,
+        "interpretation": "Transformer discovers architecture-aware relational structure"
+      },
+      "phase4_reconstruction": {
+        "task_accuracy_pct": 74,
+        "interpretation": "Pooling retains sufficient task-relevant information (Risk R3 mitigated)"
+      }
+    },
+    "failure_cases": [
+      {
+        "scenario": "CKA Gate Failure (Risk R5)",
+        "same_task_cka_median": 0.42,
+        "action": "STOP - architecture subspaces incompatible, cross-architecture bridge infeasible",
+        "next_step": "Pivot to homogeneous subsets (CNN-only or ResNet-only)"
+      },
+      {
+        "scenario": "WCSS Test Failure (Core Mechanism)",
+        "p_value": 0.12,
+        "cohen_d": 0.18,
+        "action": "STOP - task structure doesn't exist at coarse-grained scale",
+        "next_step": "Return to Phase 2A dialogue, explore alternative mechanisms"
+      },
+      {
+        "scenario": "Ablation Failure (Simplification Opportunity)",
+        "clustering_degradation_pct": 3,
+        "action": "EXPLORE - mechanism simpler than proposed",
+        "next_step": "Simplify to pooling-only (Level 2), skip Transformer (Level 3)"
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "R1",
+      "name": "Insufficient Dataset Coverage",
+      "severity": "MITIGATED by h-e1",
+      "status": "No additional action needed (72.2% coverage validated)"
+    },
+    {
+      "id": "R2",
+      "name": "Noisy Task Labels",
+      "severity": "MEDIUM",
+      "mitigation": "Zero-shot transfer validation (train without task labels, evaluate clustering on held-out models). Success criterion: >85% accuracy. If fails: Pivot to unsupervised contrastive learning."
+    },
+    {
+      "id": "R3",
+      "name": "Information Loss in Pooling",
+      "severity": "MEDIUM",
+      "detection": "Reconstruction task accuracy test",
+      "threshold": "Accuracy <70% indicates critical information loss",
+      "mitigation": "If degradation 30-50%: Replace mean pooling with Set Transformer. If >50%: ABORT - pooling fundamentally incompatible."
+    },
+    {
+      "id": "R4",
+      "name": "Training Procedure Confound",
+      "severity": "HIGH",
+      "mitigation": "Explicit ablation comparing same-task different-procedure vs different-task same-procedure. Test: Does same-augmentation clustering dominate same-task clustering? If procedure effect >60%: Add training-procedure as controlled variable."
+    },
+    {
+      "id": "R5",
+      "name": "Architecture Subspace Incompatibility",
+      "severity": "CRITICAL - GATED",
+      "mitigation": "Phase 1 CKA feasibility gate. Gate criterion: same-task CKA >0.6 AND different-task CKA <0.4. If fails: Try nonlinear alignment (RBF kernel CKA), scope reduction (CNN-MLP pairs only). If CKA <0.4: ABORT."
+    }
+  ],
+  "timeline": {
+    "total_weeks": 6,
+    "milestones": [
+      {"week": 1, "phase": "Phase 1", "milestone": "NFN encoder training", "deliverable": "Trained encoders for 4 architectures"},
+      {"week": 2, "phase": "Phase 1", "milestone": "CKA feasibility test", "deliverable": "GATE 1: CKA same-task >0.6 AND diff-task <0.4"},
+      {"week": 3, "phase": "Phase 2-3", "milestone": "VAE Level 1-2 training", "deliverable": "Hierarchical pooling validated"},
+      {"week": 4, "phase": "Phase 2-3", "milestone": "VAE Level 3 training", "deliverable": "Full 3-level VAE checkpoint"},
+      {"week": 5, "phase": "Phase 4", "milestone": "WCSS bootstrap test", "deliverable": "GATE 2: p<0.01, Cohen's d>0.5"},
+      {"week": 6, "phase": "Phase 4", "milestone": "Ablation + reconstruction", "deliverable": "Architecture token contribution ≥15pp"}
+    ],
+    "critical_path": ["Week 2 (CKA gate)", "Week 4 (VAE trained)", "Week 5 (WCSS test)"],
+    "early_stop_opportunities": [
+      "Week 2: CKA gate fails → Stop before expensive VAE training (saves 4 weeks)",
+      "Week 5: WCSS gate fails → Documented failure, return to Phase 2A"
+    ]
+  },
+  "success_criteria": {
+    "primary_must_work_gate": [
+      "Phase 1: CKA same-task >0.6 AND different-task <0.4",
+      "Phase 4: Mean WCSS(same-task) < Mean WCSS(different-task) with p<0.01 and Cohen's d>0.5"
+    ],
+    "secondary_validation": [
+      "Ablation: Removing architecture tokens degrades clustering ≥15pp",
+      "Reconstruction: Task accuracy from pooled representations >70%"
+    ],
+    "tertiary_risk_mitigation": [
+      "Zero-shot transfer: >85% accuracy on unlabeled models (validates task label quality)",
+      "Training procedure ablation: Procedure effect <60% (disentangles task vs optimization)"
+    ]
+  },
+  "compute_budget": {
+    "phase1_cka_gate": {
+      "gpu_hours": 48,
+      "storage_gb": 10,
+      "estimated_cost_usd": 50,
+      "instance": "AWS p3.2xlarge"
+    },
+    "phase23_vae_training": {
+      "gpu_hours": 336,
+      "storage_gb": 50,
+      "estimated_cost_usd": 700,
+      "instance": "AWS p3.8xlarge"
+    },
+    "phase4_validation": {
+      "gpu_hours": 48,
+      "storage_gb": 5,
+      "estimated_cost_usd": 50,
+      "instance": "AWS p3.2xlarge"
+    },
+    "total": {
+      "gpu_hours": 432,
+      "storage_gb": 65,
+      "estimated_cost_usd": 800,
+      "total_days": 11
+    }
+  },
+  "deliverables": [
+    "Phase 1 Report: CKA feasibility results, architecture compatibility matrix",
+    "Phase 2-3 Checkpoint: Trained hierarchical VAE (50 GB file)",
+    "Phase 4 Validation Report: WCSS bootstrap results, ablation analysis, reconstruction accuracy",
+    "Code Repository: Fully documented implementation with README, requirements.txt",
+    "Visualization Notebook: UMAP plots, CKA heatmaps, clustering comparison"
+  ],
+  "code_repository_structure": {
+    "data": [
+      "download_modelzoo.py",
+      "dataset.py",
+      "preprocessing.py"
+    ],
+    "models": [
+      "nfn_encoder.py",
+      "pooling.py",
+      "transformer.py",
+      "hierarchical_vae.py",
+      "baselines.py"
+    ],
+    "training": [
+      "phase1_cka_gate.py",
+      "phase23_vae_train.py",
+      "phase4_validation.py"
+    ],
+    "evaluation": [
+      "cka.py",
+      "wcss.py",
+      "metrics.py"
+    ],
+    "notebooks": [
+      "01_data_exploration.ipynb",
+      "02_cka_feasibility.ipynb",
+      "03_clustering_analysis.ipynb"
+    ]
+  },
+  "references": {
+    "hierarchical_vae_implementations": [
+      "https://github.com/NVlabs/NVAE",
+      "https://github.com/timxzz/HIT",
+      "https://github.com/hirl-team/HCSC"
+    ],
+    "cka_computation": [
+      "https://github.com/numpee/CKA.pytorch",
+      "https://pypi.org/project/pytorch-cka/",
+      "https://github.com/RistoAle97/centered-kernel-alignment"
+    ],
+    "contrastive_learning": [
+      "https://github.com/lucidrains/DALLE2-pytorch",
+      "https://github.com/scverse/scvi-tools"
+    ],
+    "modelzoo_dataset": [
+      "https://github.com/ModelZoos/ModelZooDataset",
+      "https://doi.org/10.5281/zenodo.6620868"
+    ]
+  }
+}

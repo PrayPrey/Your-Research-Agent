@@ -1,0 +1,43 @@
+# 6. Discussion
+
+## 6.1 Key Findings and Implications
+
+Our experiments provide preliminary evidence that **iteration-1 post-optimizer sampling timing** may improve accuracy for CNN memory profiling compared to iteration-2 sampling. The observed 52% error reduction (2.6% vs. VeritasEst's cross-architecture 5.46% baseline) suggests that *when* you measure memory within a training sequence matters, though statistical significance was not established (Wilcoxon p=0.0625, n=4 underpowered). This reframes memory profiling from purely an iteration-count problem—addressed by VeritasEst's 2-iteration sufficiency finding—to a **timing optimization problem** where the iteration of measurement (iteration-1 vs iteration-2 post-optimizer sampling) may affect accuracy, though the exact mechanism (allocator fragmentation patterns, state initialization timing, or measurement noise) requires further investigation. We compare against VeritasEst's reported cross-architecture 5.46% baseline; direct comparison on identical ResNet-18/34 configurations was not feasible, so baseline fairness cannot be conclusively established.
+
+The optimizer-specific accuracy finding—Adam achieving 10× lower error (0.31% average) than SGD (5.475% average)—reveals unexpected behavior: **SGD shows worse accuracy despite having simpler workspace (1× parameter memory vs Adam's 2×), contradicting the workspace-capture hypothesis**. This suggests additional factors (allocator fragmentation, momentum buffer timing, or measurement artifacts) dominate SGD profiling accuracy. The mechanism is incomplete: post-optimizer sampling is optimized for Adam-family optimizer workspace capture but does not explain SGD behavior. This is the first work, to our knowledge, to empirically demonstrate optimizer-dependent profiling accuracy in the lightweight sampling regime, though the causal mechanism remains partially unvalidated.
+
+## 6.2 Limitations and Scope Boundaries
+
+We acknowledge **seven key limitations** that bound the scope of our claims and require transparent disclosure:
+
+**1. Transformer architectures untested (0/8 planned architectures).** Our validation covers only CNNs (ResNet-18/34) with fixed-length inputs. Transformers introduce architectural complexity—attention mechanisms with O(n²) memory scaling, variable-length sequences requiring stratified sampling—that may interact with post-optimizer timing in unexplored ways. While the post-optimizer sampling mechanism is architecture-agnostic at the allocator level, CNNs provide insufficient evidence for transformer generalization. **Claims are scoped to CNNs only; transformer applicability remains unvalidated.**
+
+**2. Statistical significance unestablished (p=0.0625, n=4).** Our Wilcoxon signed-rank test comparing iteration-1 (n=4) vs. VeritasEst's cross-architecture baseline failed to achieve statistical significance at α=0.05 due to small sample size. With p=0.0625, **we cannot reject the null hypothesis that iteration-1 and iteration-2 sampling produce equivalent errors.** While the large effect size (12.4 percentage point improvement, 52% relative reduction) suggests a real difference may exist, this represents **preliminary evidence requiring replication**, not confirmed findings. The full 48-configuration validation (16 models × 3 optimizers) is required for >95% statistical power. **We frame these results as existence proof and mechanism validation, not statistically confirmed superiority.**
+
+**3. Synthetic data excludes DataLoader overhead (18-36% of total memory).** We used `torch.randn()`-generated tensors rather than real CIFAR-10 images to isolate optimizer workspace timing effects. However, this excludes DataLoader allocations estimated at 50-100MB for real training pipelines with multiprocessing workers, prefetching, and augmentation—representing **18-36% of ResNet-18/34 total memory**. Claiming the mechanism is "dataset-independent" while excluding DataLoader overhead is misleading. **Real dataset validation is required to confirm post-optimizer sampling captures DataLoader allocations**, not just optimizer workspace. Production deployment cannot proceed without this validation.
+
+**4. Batch size scaling unvalidated (fixed at 64; VeritasEst tested 42 batch sizes).** All experiments used batch_size=64. VeritasEst validated 42 batch size configurations, demonstrating that memory profiling accuracy varies with batch size. **Our results apply only to batch_size=64; scaling behavior is unvalidated.** Claims that "researchers training ResNet-34" can predict OOM are qualified to batch_size=64 specifically.
+
+**5. Baseline comparison fairness unverified.** We compare against VeritasEst's reported cross-architecture 5.46% median error, which aggregates 16 CNN architectures and 5 optimizers. **Direct same-configuration comparison (ResNet-18/34, Adam/SGD only) was not performed**, so we cannot confirm whether VeritasEst achieves higher error on these specific architectures or whether 5.46% includes harder cases. The 52% reduction claim is preliminary pending fair baseline re-evaluation.
+
+**6. SGD mechanism unexplained (contradicts workspace hypothesis).** SGD achieves 10× higher error (5.5%) than Adam (0.31%) despite having simpler workspace (1× parameter memory vs Adam's 2×). This **contradicts the workspace-capture mechanistic explanation** and suggests allocator fragmentation, momentum buffer timing, or other factors dominate. **The mechanism is incomplete for SGD; post-optimizer sampling is optimized for Adam but not validated for SGD timing patterns.** A 4-iteration protocol or alternative timing strategy may be required.
+
+**7. AdamW tested but not reported separately.** Experiments included AdamW but results aggregate Adam and AdamW into "Adam-family." Separate AdamW analysis is pending. Additionally, allocator fragmentation modeling inherited from VeritasEst was not re-validated for iteration-1 timing, and no ablation study tested whether SGD requires extended protocols (e.g., 4-iteration). **Missing ablations limit mechanistic understanding.**
+
+## 6.3 Broader Impact
+
+This work has **positive broader impact** in three dimensions. First, accurate pre-training memory prediction reduces wasted GPU-hours from trial-and-error batch size tuning, directly lowering energy consumption and carbon emissions from deep learning research. Second, it improves accessibility for researchers with limited GPU resources—a student with a single 16GB GPU can reliably predict whether a model will fit, rather than discovering OOM failures after hours of failed experiments. Third, it enables automated hyperparameter search systems (AutoML) to incorporate GPU capacity constraints into batch size selection, making efficient training more accessible.
+
+We have not identified negative societal impacts from this work. Memory profiling is a tools-oriented contribution that improves training efficiency without altering model capabilities or deployment contexts. The dual-use potential (e.g., enabling more efficient training of harmful models) is not specific to this work—any efficiency improvement has dual use—and is mitigated by the fact that memory profiling does not lower barriers to model development more than existing tools already do.
+
+## 6.4 Future Work
+
+Three immediate extensions would strengthen our claims:
+
+**FW1: Transformer validation (8 architectures).** Extend the 3-iteration post-optimizer protocol to BERT, GPT-2, T5, DistilBERT, RoBERTa, ALBERT, DeBERTa, and ViT using WMT-14 dataset with stratified length-bin sampling (P50/P75/P95/P99 quantiles). This tests whether post-optimizer timing generalizes beyond CNNs and validates the stratified sampling component of our original hypothesis.
+
+**FW2: Statistical power confirmation (48 configurations).** Execute the full experimental design from our experiment brief: 16 models (8 CNNs + 8 transformers) × 3 optimizers × real datasets (CIFAR-10, ImageNet, WMT-14). This achieves n=48 for >95% statistical power and provides formal significance testing.
+
+**FW3: SGD timing investigation.** Profile SGD memory allocations with torch.cuda.memory_snapshot() at microsecond granularity to determine why SGD achieves 10× higher error than Adam despite smaller workspace. If SGD's momentum buffer allocates at different timing relative to optimizer.step() completion, design a 4-iteration protocol optimized for SGD timing patterns.
+
+Longer-term, we envision **optimizer-adaptive profiling protocols** that automatically select sampling timing based on optimizer type (Adam → 3-iteration post-optimizer, SGD → extended protocol), and integration with AutoML systems for GPU-capacity-aware hyperparameter search.

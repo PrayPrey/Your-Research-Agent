@@ -1,0 +1,65 @@
+
+\subsubsection{3.1 Problem Setup}
+
+Consider a training dataset D = ${(x_i, y_i, g_i)}_{i=1}^N$ where group labels g\_i are hidden during training and evaluation. ERM minimizes L($\theta )$ = (1/N)$\Sigma _i \ell (f_\theta (x_{i})$, y\_i) without observing g\_i. The question is whether any per-sample statistic derived from the ERM loss surface discriminates minority from majority group membership using only $f_{\theta}(x_{i})$ and $\ell$, without observing g\_i.
+
+\subsubsection{3.2 Per-Sample Last-FC Hessian Trace}
+
+For sample i at training checkpoint t, the per-sample last-fc Hessian trace is:
+
+$$\mathrm{Tr}(H_i^{fc}) = \mathrm{Tr}\!\left(\frac{\partial^2\,\ell(f_{\theta_t}(x_i), y_i)}{\partial W_{fc}^2}\right)$$
+
+where W\_fc $\in \mathbb{R}^{2048\times 2}$ is the weight matrix of the last fully-connected layer of ResNet-50. Restriction to the last-fc layer is motivated by three considerations: (1) tractability --- 4098 parameters versus 25M total; (2) architectural motivation --- the classification head directly encodes spurious feature alignment learned by the backbone; (3) mechanistic interpretability --- the per-sample last-fc Hessian has the closed-form decomposition:
+
+$$\mathrm{Tr}(H_i^{fc}) \propto \|x_i\|^2 \cdot p_i(1 - p_i)$$
+
+for cross-entropy loss with penultimate feature x\_i $\in \mathbb{R}^d$ and predicted probability p\_i. This decomposition isolates the feature-norm channel ($\|x_{i}\|^{2})$ and the confidence channel (p\_i($1-p_{i}))$ as two separable candidate drivers of trace asymmetry.
+
+\subsubsection{3.3 Hutchinson Trace Estimation}
+
+Computing Tr(H) exactly requires full Hessian materialization. The Hutchinson estimator \citep{avron2011randomized} is used instead:
+
+$$\mathrm{Tr}(H) \approx \frac{1}{K} \sum_{k=1}^K v_k^T H v_k$$
+
+where v\_k $\in \bigl\{\pm 1\bigr\}^d$ are Rademacher random vectors, and Hv\_k is computed as a reverse-over-reverse automatic differentiation pass. This is implemented via torch.func.vmap + torch.func.vjp on a per-sample basis, enabling vectorized computation across samples without storing the full Hessian or Jacobian.
+
+\textbf{Choice of K=50:} Prior diagnostic work \citep{yao2020pyhessian} uses K=256 for batch-level Hessian traces on large networks. For the last-fc layer (d=4098), K=50 Rademacher probes provide trace estimates with coefficient of variation CV<3\% across all five seeds in the experiments reported here --- confirmed as the minimum stable setting for this architecture. Total computation per checkpoint per seed is approximately 8 minutes on a single H100 GPU for all 4795 training samples.
+
+\subsubsection{3.4 Training Protocol}
+
+ResNet-50 \citep{he2016deep} with ImageNet pretrained weights (torchvision v0.15) is trained on Waterbirds v1.0 with ERM:
+
+\begin{itemize}
+\item Optimizer: SGD (lr=$3\times 10^{-3}$, momentum=0.9, weight decay=$1\times 10^{-4})$
+\item Epochs: 50
+\item Checkpoints: t $\in$ {0, 1, 5, 10, 20, 50}
+\item Seeds: 5 independent seeds (seeds 1--5)
+\item Batch size: 32
+\item Device: CUDA (NVIDIA H100 NVL)
+\end{itemize}
+
+The t=0 checkpoint is the pretrained ImageNet initialization before any Waterbirds training. This serves as the epoch-0 control for distinguishing ERM-induced signals from pretrained artifacts (Section 4.4).
+
+\subsubsection{3.5 Trace Ratio and t* Selection}
+
+At each checkpoint t, the trace ratio is:
+
+$$R(t) = \frac{\mathrm{mean}_{i\in\mathrm{minority}}\, \mathrm{Tr}(H_i^{fc}(t))}{\mathrm{mean}_{i\in\mathrm{majority}}\, \mathrm{Tr}(H_i^{fc}(t))}$$
+
+The optimal checkpoint t* = argmax\_t R(t) selects the epoch of maximum minority-majority trace divergence. R(t) is computed without observing group labels at training time; group labels are used only post-hoc for AUROC evaluation.
+
+\subsubsection{3.6 Evaluation Protocol}
+
+\textbf{Existence gate (H-E3):} At checkpoint t\textit{, AUROC is computed for predicting minority membership (g\_i $\in$ {1,3}) from the scalar trace Tr($H_i^{fc}$(t})). Three simultaneous criteria must hold for a seed to pass:
+
+\begin{enumerate}
+\item AUROC(t*) $\geq$ 0.85
+\item AUROC(t=0) < 0.70 (ERM-induction control)
+\item Spearman $\rho$(t, AUROC(t)) $\geq$ 0.8 on the rising AUROC segment from t=0 to t* (monotone signal development)
+\end{enumerate}
+
+The gate requires $\geq 4/5$ seeds to satisfy all three criteria simultaneously.
+
+The epoch-0 control (criterion 2) is mandatory: it rules out that minority-majority trace differences are inherited from ImageNet pretraining rather than induced by ERM training on Waterbirds. A prior experiment (h-e2) found AUROC=0.987 at epoch 0 for a gradient-direction signal --- a pretrained artifact. The epoch-0 gate prevents this confound.
+
+\textbf{Mechanism gate (H-M1):} At t\textit{, mean training-set prediction confidence is measured for minority and majority samples separately. The confidence-differential mechanism predicts p\_minority(t}) $\in$ [0.3, 0.7] in $\geq 4/5$ seeds. Both criteria --- minority boundary and majority saturation (p\_majority(t*) > 0.80) --- must hold simultaneously. This gate was pre-registered before conducting the experiments.

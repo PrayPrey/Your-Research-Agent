@@ -1,0 +1,35 @@
+Imagine a hallucination detector that passes every sanity check: the sampling pipeline runs correctly, the NLI classifier scores as expected, the aggregation formula matches the published specification, and 14 unit tests confirm implementation fidelity. Now imagine that detector achieving an AUROC of $0.4933$ --- worse than random --- on 1,000 factual QA questions. This paper is about why that happens, and why the failure is not an implementation bug but a regime mismatch.
+
+Sampling-based semantic consistency (SMC) methods \cite{Kuhn2023Semantic,Manakul2023SelfCheckGPT} operate on a simple and appealing intuition: a model that is uncertain about an answer will produce \emph{varied} outputs across stochastic samples, while a model that is confident will produce \emph{consistent} outputs. By measuring the semantic agreement across $N$ stochastic samples, one can in principle distinguish well-supported claims from hallucinations without any access to model internals or labeled data. This paradigm has been validated across multiple open-ended generation benchmarks using base language models, and has become a standard component in training-free hallucination detection pipelines.
+
+\subsection{The Problem: An Unexamined Regime Assumption}
+
+The original SMC papers \cite{Kuhn2023Semantic,Manakul2023SelfCheckGPT} assume a particular generative regime: one in which hallucinated answers emerge from stochastic variation. In this \emph{stochastic hallucination} regime, the model samples different incorrect facts across runs because it has no strong prior over the correct answer. Consistency therefore acts as a proxy for confidence, and low consistency reliably flags uncertainty.
+
+However, RLHF fine-tuning \cite{Ouyang2022Training,Bai2022Training} fundamentally alters this regime. Instruction-tuned models are trained to produce helpful, fluent, and confident-sounding responses regardless of whether the underlying belief is correct. The result is a model that may hold a \emph{wrong} belief with high internal consistency --- producing the same incorrect answer across repeated samples. We call this the \emph{systematic confabulation} regime.
+
+No prior work has explicitly evaluated whether SMC methods transfer to this regime. \cite{Li2023HaluEval} introduced HaluEval as a structured factual QA benchmark but did not evaluate SMC-style detectors. \cite{Lin2024Generating} studied consistency-based uncertainty under distribution shift but not across RLHF fine-tuning stages. The assumption that consistency signals hallucination has been carried forward without testing whether it holds for instruction-tuned models on structured factual tasks.
+
+\subsection{The Deeper Problem: Systematic Confabulation vs.\ Stochastic Hallucination}
+
+Our central empirical finding is that Llama-3-8B-Instruct \cite{Meta2024Llama3} operates in the systematic confabulation regime on HaluEval QA. The mean SMC-NLI score for correctly-labeled questions is $0.6236$; for hallucinated-labeled questions it is $0.6299$. The difference is $0.006$ --- smaller than the variance within either group. Both SMC-NLI and SMC-Embed achieve chance-level AUROC ($0.4933$ and $0.4859$ respectively).
+
+This failure is not due to poor implementation. We verify our implementation against 14 unit tests covering the full pipeline: sampling, NLI inference, pairwise aggregation, and score normalization. A mechanism verification step confirms that the NLI classifier correctly assigns higher entailment scores to semantically similar pairs and lower scores to semantically dissimilar pairs. The failure is purely distributional: the model produces high-consistency outputs for both correct and hallucinated beliefs.
+
+This finding has a direct implication for the SMC literature. The consistency signal is not inherently informative about factual correctness; it is informative about \emph{generative variance}. When RLHF suppresses variance uniformly --- for both correct and incorrect beliefs --- the signal collapses. The regime prerequisite is violated, and the detector degrades to chance.
+
+\subsection{Our Contribution: Regime Characterization with Clean Attribution}
+
+This paper makes four contributions:
+
+\begin{itemize}
+  \item[\textbf{C1}] \textbf{Empirical evaluation.} We provide the first systematic evaluation of SMC methods (NLI-based and embedding-based) on an RLHF-fine-tuned instruction model (Llama-3-8B-Instruct) on structured factual QA (HaluEval, 1,000 balanced questions), establishing chance-level AUROC as the baseline result.
+
+  \item[\textbf{C2}] \textbf{Clean attribution.} We isolate the failure cause through implementation verification (14 unit tests), mechanism verification (NLI classifier sanity check), and distributional analysis (mean score comparison by label), ruling out implementation error and establishing regime mismatch as the sole explanation.
+
+  \item[\textbf{C3}] \textbf{Conceptual framework.} We introduce the stochastic hallucination vs.\ systematic confabulation distinction as a formal prerequisite for sampling-based detectors, and provide a concrete operationalization of what ``regime violation'' means in practice.
+
+  \item[\textbf{C4}] \textbf{Infrastructure release.} We release our validated SMC evaluation infrastructure --- including the sampling pipeline, NLI and embedding scorers, and the full unit test suite --- to support future evaluation on tasks where the stochastic regime may hold (e.g., long-form generation with base models, or low-resource factual domains).
+\end{itemize}
+
+The remainder of the paper is organized as follows. Section~2 reviews related work on sampling-based consistency, hallucination benchmarks, and RLHF fine-tuning effects. Section~3 describes our methodology. Section~4 details the experimental setup. Section~5 presents results. Section~6 discusses implications and limitations. Section~7 concludes.

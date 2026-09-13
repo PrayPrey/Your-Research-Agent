@@ -1,0 +1,159 @@
+# h-m1: Feedback Efficiency Mechanism
+# Type: MECHANISM (PoC)
+# Gate: MUST_WORK
+
+experiment:
+  hypothesis_id: "h-m1"
+  type: "MECHANISM"
+  gate: "MUST_WORK"
+  description: "Capacity limits feedback efficiency - monotonic decrease in pp/bit"
+
+dataset:
+  name: "openai/openai_humaneval"
+  split: "test"
+  num_problems: 164
+  cache_dir: "../../h-e1/code/data/humaneval"
+
+model:
+  name: "Salesforce/codegen-350M-mono"
+  precision: "fp16"
+  cache_dir: "../../h-e1/code/models/pretrained"
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - "q_proj"
+    - "v_proj"
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+training:
+  # Reuse h-e1 checkpoints (no re-training)
+  sft:
+    enabled: false
+    checkpoint_path: "../../h-e1/checkpoints/sft/final_checkpoint.pt"
+
+  grpo_binary:
+    enabled: false
+    checkpoint_path: "../../h-e1/checkpoints/grpo_binary/final_checkpoint.pt"
+
+  grpo_error_type:
+    enabled: false
+    checkpoint_path: "../../h-e1/checkpoints/grpo_error_type/final_checkpoint.pt"
+
+  # NEW: Error+Trace GRPO
+  grpo_error_trace:
+    enabled: true
+    optimizer: "adamw"
+    learning_rate: 2.0e-7
+    weight_decay: 0.01
+    steps: 500
+    batch_size: 4
+    samples_per_problem: 4
+    gradient_accumulation_steps: 1
+    max_grad_norm: 1.0
+    kl_coef: 0.1
+    warmup_steps: 50
+    lr_scheduler: "constant"
+    checkpoint_dir: "../checkpoints/grpo_error_trace"
+    log_interval: 50
+    save_interval: 100
+    early_stopping:
+      enabled: true
+      patience: 100
+      min_reward: 0.1
+
+execution_sandbox:
+  timeout: 3.0
+  binary_rewards:
+    pass: 1.0
+    fail: 0.0
+  error_type_rewards:
+    SyntaxError: 0.0
+    TypeError: 0.2
+    NameError: 0.4
+    ValueError: 0.6
+    AssertionError: 0.8
+    Pass: 1.0
+    Timeout: 0.0
+    OtherError: 0.0
+
+  # NEW: Error+Trace rewards
+  error_trace:
+    depth_buckets: 10
+    depth_penalty_divisor: 20.0
+    min_penalty: 0.5
+    max_penalty: 1.0
+
+generation:
+  training:
+    max_new_tokens: 512
+    temperature: 1.0
+    top_p: 0.95
+    do_sample: true
+    num_return_sequences: 4
+    stop_tokens:
+      - "\n\n"
+      - "def "
+      - "class "
+
+  evaluation:
+    max_new_tokens: 512
+    temperature: 0.0
+    top_p: 1.0
+    do_sample: false
+    num_return_sequences: 1
+    stop_tokens:
+      - "\n\n"
+      - "def "
+      - "class "
+
+evaluation:
+  checkpoint_paths:
+    sft: "../../h-e1/checkpoints/sft/final_checkpoint.pt"
+    binary: "../../h-e1/checkpoints/grpo_binary/final_checkpoint.pt"
+    error_type: "../../h-e1/checkpoints/grpo_error_type/final_checkpoint.pt"
+    error_trace: "../checkpoints/grpo_error_trace/final_checkpoint.pt"
+  output_dir: "../results"
+  save_completions: true
+
+efficiency:
+  bits_per_condition:
+    binary: 1.0
+    error_type: 2.32
+    error_trace: 5.64
+  target_ranges:
+    binary: [7.0, 100.0]
+    error_type: [4.0, 6.0]
+    error_trace: [2.0, 3.0]
+  bootstrap_samples: 1000
+
+gate:
+  bonferroni_alpha: 0.0167
+  thresholds:
+    monotonic_decrease: true
+    efficiency_targets:
+      binary: 7.0
+      error_type: [4.0, 6.0]
+      error_trace: [2.0, 3.0]
+
+hardware:
+  device: "cuda"
+  fp16: true
+
+reproducibility:
+  seed: 42
+  deterministic: true
+  benchmark: false
+
+logging:
+  level: "INFO"
+  log_file: "../logs/experiment.log"
+  console_output: true
+  gradient_variance:
+    enabled: true
+    log_interval: 10
+    output_path: "../logs/gradient_variance.csv"

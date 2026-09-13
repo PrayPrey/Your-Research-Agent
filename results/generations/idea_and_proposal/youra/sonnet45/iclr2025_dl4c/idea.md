@@ -1,0 +1,8 @@
+# Title
+Quality-Aware Bayesian Feedback Integration for Robust Code Alignment
+
+# Motivation
+Current code generation systems integrate compiler, execution, and human feedback using fixed weights, failing when feedback quality varies (e.g., incomplete test suites, early-stage errors). This causes alignment failures in real-world scenarios where test coverage ranges from 20-80% and feedback reliability changes across generation stages. Existing approaches like StepCoder use single-modal feedback, while ConvCodeWorld employs static integration—neither adapts to quality variation. This research addresses the critical gap in multi-modal feedback integration under variable-quality conditions, directly tackling the workshop's "Post-training and Alignment for Code" challenge.
+
+# Main Idea
+We propose a two-module framework: (1) a **Quality Estimator** that predicts feedback reliability from observable features (test coverage, generation stage, error type), and (2) a **Bayesian Integrator** that dynamically weights compiler, execution, and human signals based on estimated quality scores. Inspired by neuroscience causal inference principles, the system adapts feedback prioritization—downweighting low-coverage execution results while emphasizing reliable compiler errors. Testing on ConvCodeWorld's 450+ multi-turn problems, we predict 10-20% Pass@1 improvement over fixed-weight baselines (45%→50-54%, p<0.05). The framework includes rigorous falsification criteria: rejection if improvement <5%, quality estimation correlation <0.3, or fixed-weight matches performance. This establishes the first quality-aware multi-modal alignment framework, robust to real-world feedback degradation.

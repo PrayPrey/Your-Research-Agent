@@ -1,0 +1,42 @@
+{
+    "has_hallucination": true,
+    "hallucinations": [
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper repeatedly claims token-level, incremental constrained decoding with beam reweighting during generation, including partial-program SMT checks and execution feedback at decoding checkpoints. The code does not implement this. Instead, `ExecGuide.generate` samples a small number of full completions at different temperatures, computes verification signals only on the completed candidate, and selects the best candidate afterward. This is candidate-level reranking, not interleaving verification during token generation.",
+            "evidence": "Paper: \"We propose ExecGuide, a constrained decoding framework that interleaves LLM token generation with lightweight incremental formal verification signals during decoding rather than after.\" and \"At each decoding step t, the model maintains a beam of K partial programs...\" Code (`execguide.py`): \"Strategy: Generate num_beams candidates at varying temperatures, score each with verification signals + model log-prob, select best.\" The implementation loops over temperatures, calls `self.model.generate(...)` to produce full candidates, then scores `full_code` once per candidate."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims use of an incremental SMT solver checking path conditions extracted by a symbolic interpreter from partial programs, with Z3 incremental assertion stacks reused across beam prefixes. The code contains no symbolic interpreter, no path-condition extraction, and no incremental solver stack logic. The SMT component is a heuristic proxy based mainly on AST parsing, string pattern checks, and trivial standalone Z3 constraints unrelated to the generated code semantics.",
+            "evidence": "Paper: \"Given a user-provided specification... ExecGuide extracts path conditions from the partial program using a lightweight symbolic interpreter.\" and \"We use the Z3 SMT solver (v4.16.0) as the backend, with incremental assertion stacks to reuse prior computation across beam candidates sharing a common prefix.\" Code (`spec_augment.py`): `check_smt_consistency` uses `ast.parse(partial_code)`, checks strings like `\"return True\"`, `\"abs(\"`, `\"len(\"`, and then runs trivial checks such as `x = z3.Real(\"x\"); solver.add(z3.And(x >= 0, x <= 1)); result = solver.check()`."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper states that the reward model takes the partial program, SMT signal, execution signal, and a compressed representation of the formal specification as input. The implemented reward model takes only tokenized code plus SMT and execution scalars; there is no specification input pathway at all.",
+            "evidence": "Paper equation: `V(p_k^t) = R_psi(p_k^t, s_SMT(p_k^t), s_exec(p_k^t), phi_spec)`. Code (`reward_model.py`): `forward(self, token_ids, smt_signal, exec_signal, attention_mask=None)` and feature fusion is `Linear(embed_dim + 2, hidden_dim)`, i.e., only code representation plus two signals."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The SMT consistency equation is logically reversed relative to the claim. The paper says the module checks whether a partial state is consistent with reaching a state satisfying the postcondition, but defines the query as `SAT(phi_pre ∧ PathCond(Σ_t) ∧ ¬phi_post)` and then says that if this query is unsatisfiable, the current path is verified to be consistent with the postcondition. Unsatisfiability of `pre ∧ path ∧ ¬post` would indicate that under those conditions the postcondition is entailed, not merely that the path is consistent with possibly reaching a satisfying state. The formulation conflates consistency, implication, and full verification.",
+            "evidence": "Paper: `SMT-Check(Σ_t) = SAT(φ_pre ∧ PathCond(Σ_t) ∧ ¬φ_post)` followed by `If this query is unsatisfiable, the current path is verified to be consistent with the postcondition.`"
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "Figure 7 / Section 5.7 presents verification-signal evolution across generation checkpoints as if measured from the experiment, but the plotting code explicitly fabricates these curves using random simulation rather than real logged generation traces.",
+            "evidence": "Paper: \"Figure 7 tracks the evolution of SMT, execution, and combined verifiability signals across generation checkpoints.\" Code (`visualize.py`): `# Simulate signal evolution for visualization` and `# In a real experiment, these would be captured during generation`; then `np.random.seed(42)` and synthetic curves are constructed from exponentials plus random noise."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper claims a radar chart comparing methods on pass@1, FPC, efficiency, and specification compliance. However, the code does not compute true specification compliance from generated code outputs. Instead it substitutes pass/fail counts (essentially pass@1) as an approximation, so the reported specification compliance values are not actual SMT-based compliance measurements.",
+            "evidence": "Paper: \"Specification Compliance: fraction of generated programs passing all SMT checks (radar chart).\" Code (`run_experiment.py`): `# Approximate SCR using per-problem results` and then `passed_problems = [r for r in method_results.get(\"per_problem_results\", []) if r.get(\"passed\", False)]` followed by `scr_values[method_name] = len(passed_problems) / len(spec_problems_in_eval)`."
+        },
+        {
+            "type": "Nonexistent Citations",
+            "description": "Several references appear unverifiable or are cited in a vague/non-standard way, with placeholders like \"Manuscript\" and incomplete bibliographic information, suggesting fabricated or nonexistent citations. In particular, `MAZE (2025)` and `CRANE (2025)` are cited as prior work but not given authors, venue, or retrievable identifiers.",
+            "evidence": "References section: `7. MAZE. (2025). Adaptive Constrained Code Generation. Manuscript.` and `9. CRANE. (2025). Reasoning with Constrained LLM Generation. Manuscript.`"
+        }
+    ],
+    "overall_assessment": "Hallucinations were found. The most serious issues are methodological misrepresentation and fabricated experimental presentation: the implemented system is a post-generation candidate reranker with heuristic checks, not token-level verification-guided constrained decoding as claimed, and at least one figure is explicitly simulated rather than derived from experiments. There are also questionable citations and a logically flawed SMT formulation.",
+    "confidence": 5
+}

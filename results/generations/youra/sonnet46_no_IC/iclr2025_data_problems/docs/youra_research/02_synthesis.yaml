@@ -1,0 +1,131 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-04T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Scale-Dependent Optimal Curation: Perplexity Filtering and Deduplication Aggressiveness Have Opposite Scale Interactions in Pre-training"
+  hypothesis_id: "H-CurationScale-v1"
+  core_claim: |
+    The optimal pre-training data curation configuration (perplexity filtering threshold and
+    deduplication aggressiveness) is not universal but scale-dependent. Smaller models (70M)
+    achieve peak benchmark performance with aggressive quality filtering (low PPL threshold)
+    and strict deduplication. Larger models (160M+) achieve peak performance with moderate
+    quality filtering (higher PPL threshold, allowing more distributional diversity) and loose
+    deduplication (preserving near-duplicate patterns that support in-context learning). This
+    produces measurable Scale × Curation interaction effects in a controlled factorial experiment
+    on fully open pre-training corpora (Dolma, FineWeb) evaluated on standard benchmarks
+    (MMLU, HellaSwag).
+  mechanism: |
+    Smaller models have lower representation capacity and cannot efficiently extract learning
+    signal from high-diversity, high-variance token distributions. They require cleaner,
+    more predictable data (aggressive PPL filtering) and benefit from deduplication that
+    reduces distribution variance. Larger models have sufficient capacity to exploit
+    distributional diversity and leverage near-duplicate frequency patterns for in-context
+    learning (per Bayesian ICL theory, Xie et al. 2022). Removing these patterns via
+    aggressive deduplication disproportionately hurts large models. Additionally, aggressive
+    filtering reduces the effective dataset size and thus data efficiency (tokens-to-peak)
+    at large scale, where diversity is valued over quality.
+  predictions:
+    - P1: "Optimal PPL threshold τ*(70M) ∈ [20,35] < τ*(160M) ∈ [35,50]; significant Scale × PPL interaction in 2-way ANOVA (p < 0.05, partial η² ≥ 0.15)"
+    - P2: "Benchmark score variance across PPL conditions: Var(70M) > Var(160M); Levene's test p < 0.05"
+    - P3: "Sign of (B(strict dedup) - B(loose dedup)) is positive at 70M, non-positive at 160M; significant Scale × Dedup interaction (p < 0.05)"
+    - P4: "Convergence rate λ from log-linear learning curve is higher at (70M, τ=20) than at (160M, τ=20); significant Scale × PPL interaction on λ (p < 0.05)"
+
+variables_summary:
+  independent: "PPL filtering threshold τ ∈ {20, 35, 50} × Dedup aggressiveness d ∈ {strict J=0.7, loose J=0.9} × Model scale ∈ {70M, 160M} × Corpus ∈ {Dolma, FineWeb}"
+  dependent_primary: "MMLU 4-shot accuracy (primary); HellaSwag 0-shot accuracy; learning curve convergence rate λ"
+  controlled: "Architecture (Pythia-style), optimizer (AdamW), token budget (tokens-seen fixed), random seeds (3 per condition), contamination rate (ANCOVA covariate)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant interaction between model scale (70M vs. 160M) and curation
+    configuration (PPL threshold or dedup aggressiveness) on downstream benchmark scores
+    (MMLU + HellaSwag). The optimal curation recipe is scale-invariant.
+  statistical_test: "2-way mixed ANOVA interaction term for Scale × Curation; Levene's test for P2; pre-registered directional predictions for all"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First controlled factorial measurement of Scale × Curation interaction effects in pre-training; scale-aware curation recipe; potential first data-quality scaling law via learning curve analysis"
+  differentiation_summary: |
+    All prior curation ablation papers (ProX, REWIRE, DataMan, WebOrganizer, SoftDedup) operate
+    at a single model scale and vary one curation axis at a time without factorial design. The
+    scale × curation interaction is untested. DataComp (vision) runs multi-condition ablations
+    but at fixed scale. The learning curve analysis (P4) introduces a novel efficiency outcome
+    variable (convergence rate λ) that has not been used in pre-training curation literature.
+    If P3 holds (dedup hurts large models), it challenges universal dedup practice adopted
+    industry-wide since 2021.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "Pythia-architecture 70M (trained from scratch)"
+    - "Pythia-architecture 160M (trained from scratch)"
+  datasets:
+    - "Dolma v1.7 (primary; allenai/dolma)"
+    - "FineWeb (replication; HuggingFaceFW/fineweb)"
+  baselines:
+    - "Raw Dolma (no filtering)"
+    - "Standard practice (τ=35, J=0.9)"
+    - "Aggressive filtering (τ=20, J=0.7)"
+
+measurement_plan:
+  data_collection:
+    - source: "NeMo-Curator: apply PPL filtering (τ ∈ {20, 35, 50}) and MinHash dedup (J ∈ {0.7, 0.9}) to Dolma v1.7; 6 filtered corpus variants per corpus"
+    - source: "Train 24 models (2 scales × 3 PPL × 2 dedup × 2 corpora = 24) from scratch using GPT-NeoX training code; 3 seeds each = 72 total training runs"
+    - source: "Evaluate each model at 10 checkpoints (every 5B tokens out of 50B) using lm-evaluation-harness (MMLU 4-shot, HellaSwag 0-shot)"
+    - source: "Run lm-sys/llm-decontaminator on each filtered corpus against MMLU and HellaSwag test sets; record CR(condition)"
+  procedure:
+    - step: "1. Prepare corpora: run NeMo-Curator on Dolma v1.7 with 6 filter configurations (3 PPL × 2 dedup); record corpus size and contamination rate per condition"
+    - step: "2. Train models: launch 24 training jobs (2 scales × 6 filter conditions × 2 corpora) with 3 seeds each; save checkpoints at every 5B tokens"
+    - step: "3. Evaluate checkpoints: run lm-evaluation-harness on all 10 × 72 = 720 checkpoint evaluations (MMLU + HellaSwag)"
+    - step: "4. Fit learning curves: for each of 72 training runs, fit B(T) = A - C·exp(-λT) to the 10 evaluation points; extract λ and asymptote A"
+    - step: "5. Statistical analysis: run pre-registered ANOVA tests (P1–P4) with contamination rate as ANCOVA covariate; compute partial η² for all interaction terms"
+    - step: "6. Replication check: compare P1 and P3 results between Dolma and FineWeb; flag corpus-specific findings"
+  success_criteria:
+    - "P1 confirmed: Scale × PPL interaction p < 0.05, partial η² ≥ 0.15, τ*(70M) < τ*(160M)"
+    - "P2 confirmed: Levene's test p < 0.05, Var(70M) > Var(160M)"
+    - "P3 confirmed: Scale × Dedup interaction p < 0.05, sign change confirmed, pre-condition met"
+    - "P4 confirmed: Scale × PPL interaction on λ p < 0.05, λ(70M, τ=20) > λ(160M, τ=20)"
+    - "At least 2 of 4 predictions confirmed for publishable contribution"
+
+validation:
+  internal_validity:
+    - "Contamination ANCOVA: all ANOVAs include contamination rate as covariate; results must survive adjustment"
+    - "3 independent seeds per condition: report mean ± std; use seed as random effect in mixed model"
+    - "Separate analysis of MMLU and HellaSwag: no benchmark averaging that could mask task-type interactions"
+    - "Pre-registration: all predictions, tests, and directional hypotheses pre-registered on OSF before data collection"
+  external_validity:
+    - "FineWeb replication: P1 and P3 must hold on both Dolma and FineWeb for universal claim; corpus-specific finding otherwise"
+    - "1B extrapolation: use Na et al. (2024) modular merging approximation to estimate interaction direction at 1B scale"
+    - "OLMo architecture replication (conditional on compute availability): verify interaction holds for different architecture family"
+
+discussion_synthesis:
+  key_insights:
+    - "PPL/ICL misalignment (DataMan) is the key motivating finding — it implies perplexity-optimal data is not ICL-optimal, and this gap may be scale-dependent"
+    - "SoftDedup's finding that near-duplicate DOWN-WEIGHTING outperforms hard removal for few-shot performance directly supports P3's mechanism (near-duplicates carry ICL signal)"
+    - "WebOrganizer's domain mixing being super-additive with quality filtering suggests domain diversity and quality filtering address orthogonal distributional properties — relevant to why large models (which need diversity) may prefer looser quality filtering"
+    - "Na et al.'s modular approximation is a practical methodological bridge between tractable small-scale experiments and practically relevant large-scale predictions"
+  breakthrough_moments:
+    - "Exchange 5 (Dr. Ally): First consolidated H-CurationScale-v1 hypothesis with Under-If-Then-Because structure"
+    - "Exchange 7 (Dr. Nova): P2 (benchmark variance) and P3 (opposite sign for dedup) — two entirely novel predictions beyond what the original gap framing suggested"
+    - "Exchange 13 (Dr. Nova): Data efficiency reframing (tokens-to-peak / learning curve λ) — dissolves the token budget equalization problem and adds P4 as novel outcome"
+    - "Exchange 14 (Prof. Vera): Log-linear learning curve formalization with pre-registered statistical test for P4 — makes the efficiency claim quantitatively precise"
+  resolved_tensions:
+    - "Token budget equalization (Exch 4 concern → Exch 13 resolution): resolved by tokens-to-peak framing; tokens-seen recorded as ANCOVA covariate"
+    - "Monotonicity vs. scale-dependence (Exch 6 concern → Exch 7 resolution): reframed as directional prediction (τ*(70M) < τ*(160M)) without requiring strict monotonicity across all scales"
+    - "Epoch memorization at small scale (Exch 12 concern → Exch 13 resolution): resolved by learning curve analysis (train to 50B, fit curve, extract λ — no epoch truncation needed)"
+    - "Corpus generalizability (Exch 6 concern → Exch 11 resolution): FineWeb added as replication corpus; corpus-specificity pre-specified as acceptable secondary finding"

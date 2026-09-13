@@ -1,0 +1,8 @@
+# Title
+Context-Adaptive Multi-Dimensional Safety for Generative AI via Dynamic Weight Optimization
+
+# Motivation
+Generative AI systems face conflicting safety requirements across deployment contexts: medical applications prioritize calibration and privacy (GDPR), while entertainment contexts balance content filtering with creative freedom. Current approaches use static safety configurations that either over-constrain utility globally or fail to meet context-specific regulatory requirements. With generative models deployed across heterogeneous domains (medical, finance, entertainment) and regions (EU, US, China), a unified framework that dynamically navigates seven safety dimensions (harmful content, adversarial robustness, privacy, bias, ethics, out-of-distribution robustness, calibration) is critically needed.
+
+# Main Idea
+We propose PASMC (Pareto-Adaptive Safety Meta-Controller), which dynamically adjusts safety dimension weights based on deployment context to achieve Pareto-optimal safety-utility trade-offs. A meta-controller learns context-to-weight mappings via contextual bandits, encoding domain, region, and regulatory constraints into a 7-dimensional weight vector. These weights guide Tchebycheff scalarization of multi-objective safety optimization, enabling dimension-specific interventions (e.g., high privacy noise for EU medical contexts, permissive filtering for entertainment). Testing across 25 deployment scenarios will validate whether PASMC achieves >20% hypervolume improvement over static baselines while retaining ≥85% utility—demonstrating that context-aware optimization navigates safety conflicts more effectively than universal configurations.

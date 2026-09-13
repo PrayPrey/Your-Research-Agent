@@ -1,0 +1,138 @@
+\section{Experimental Setup}
+
+This section describes the experimental design for validating the four sub-hypotheses. While execution was blocked at h-e1 due to infrastructure failures, the experimental protocol, datasets, and evaluation metrics were fully specified.
+
+\subsection{Research Questions}
+
+Our experiments were designed to answer three key questions:
+
+\textbf{RQ1 (Existence):} Can static analyzers extract SMT constraints from LLM-generated typed code at $\geq$90\% success rate? (Untested due to infrastructure failure)
+
+\textbf{RQ2 (Mechanism):} Does dependency analysis accurately identify invalidation cones (<30\% of constraints) while maintaining soundness (zero false negatives)? (Untested, prerequisite RQ1 failed)
+
+\textbf{RQ3 (Performance):} Does incremental SMT achieve 2-5x wall-clock speedup (predicted, not validated) vs batch re-verification on iterative LLM code repair? (Untested, prerequisite RQ1, RQ2 failed)
+
+These map to hypotheses h-e1, h-m2, and h-m3 respectively. h-m1 (constraint extraction from Pydantic annotations) is an implementation validation step rather than a research question.
+
+\subsection{Dataset}
+
+\textbf{Source:} HumanEval (OpenAI), problems 0-99 (100 programs).
+
+\textbf{Extension:} Mechanically generated Pydantic type annotations via template-based transformation. Each extended prompt includes:
+\begin{itemize}
+\item Function signature with type hints
+\item Pydantic BaseModel schemas for inputs/outputs
+\item @validator decorators encoding preconditions (e.g., non-null constraints, range constraints)
+\item Original docstring and test suite
+\end{itemize}
+
+\textbf{Rationale:} HumanEval provides standard baseline for code generation research (164 problems, existing test suites). Type extension enables static analysis without manual annotation bias. Programs span 10-50 LOC (suitable for PoC validation).
+
+\textbf{Validation:} Dataset extension pipeline executed successfully, generating 100 JSON files in \texttt{src/data/humaneval\_pydantic/}. Each file contains valid Pydantic template matching the original HumanEval problem specification.
+
+\subsection{LLM Code Generation}
+
+\textbf{Model:} Claude Sonnet 3.5 (claude-sonnet-3-5-20240620)
+
+\textbf{Temperature:} 0.2 (balance between determinism and diversity)
+
+\textbf{Max Tokens:} 512
+
+\textbf{System Prompt:} ``Generate typed Python code using Pydantic BaseModel. Include @validator decorators for preconditions. Do not use eval, exec, or metaprogramming.''
+
+\textbf{Rationale:} Prompt constraints enforce typed subset suitable for static analysis, banning dynamic features (eval/exec) that block AST parsing. Claude Sonnet 3.5 chosen for state-of-the-art code generation capabilities.
+
+\textbf{Expected Output:} 100 typed Python programs with Pydantic annotations, passing original HumanEval test suites.
+
+\textbf{Actual Result:} 0 programs generated. All 48 generation attempts (experiment stopped early) failed with HTTP 401 ``API key is invalid'' errors.
+
+\subsection{Baseline Methods}
+
+\textbf{Baseline 1: Batch SMT Verification}
+\begin{itemize}
+\item \textbf{Method:} Re-verify entire program on each repair iteration using Z3.
+\item \textbf{Time Complexity:} $O(n)$ where $n$ = total constraints (all re-verified).
+\item \textbf{Correctness:} Sound and complete (no false negatives/positives).
+\item \textbf{Use:} Primary performance baseline for h-m3 speedup measurement (not tested).
+\end{itemize}
+
+\textbf{Baseline 2: Test-Suite-Only Validation}
+\begin{itemize}
+\item \textbf{Method:} LLM generates code, run HumanEval test suite, accept if all tests pass.
+\item \textbf{Time Complexity:} $O(t)$ where $t$ = test count (typically < 10).
+\item \textbf{Correctness:} Incomplete (misses edge cases not covered by tests).
+\item \textbf{Use:} Comparison point for verification overhead vs no verification (comparison not performed).
+\end{itemize}
+
+\textbf{Rationale:} Baseline 1 provides same correctness guarantees as incremental SMT (sound verification), isolating speedup as the only difference. Baseline 2 represents current practice in neural code generation (no formal verification). No baseline comparisons were conducted due to infrastructure failure.
+
+\subsection{Evaluation Metrics}
+
+\subsubsection{Primary Metrics}
+
+\textbf{h-e1: Extraction Success Rate}
+\[
+\text{extraction\_rate} = \frac{\text{programs with constraints}}{\text{total programs}} \times 100\%
+\]
+
+\textbf{h-m3: Speedup Factor (Not Measured)}
+\[
+\text{speedup} = \frac{\text{batch verification time}}{\text{incremental verification time}}
+\]
+
+\textbf{h-m2: Invalidation Cone Size (Not Measured)}
+\[
+\text{cone\_size} = \frac{\text{constraints in invalidation cone}}{\text{total constraints}} \times 100\%
+\]
+
+\subsubsection{Secondary Metrics}
+
+\textbf{h-m2: Soundness (Error Detection Rate) (Not Measured)}
+\[
+\text{detection\_rate} = \frac{\text{seeded errors caught}}{\text{total seeded errors}} \times 100\%
+\]
+Success: 100\% (zero false negatives).
+
+\textbf{h-m1: Extraction Overhead (Not Measured)}
+\[
+\text{overhead\_ratio} = \frac{\text{extraction time}}{\text{total verification time}} \times 100\%
+\]
+Success: <10\% (validates assumption A4, untested).
+
+\subsection{Experimental Procedure}
+
+\subsubsection{h-e1 (EXISTENCE): Constraint Extraction Validation}
+
+\begin{enumerate}
+\item Generate 100 typed Python programs via Claude Sonnet 3.5 API (from Pydantic-annotated prompts).
+\item For each program, run Pyre static analyzer in constraint extraction mode.
+\item Parse Pyre output, count valid SMT predicates extracted.
+\item Compute extraction\_rate.
+\item \textbf{Gate check:} If extraction\_rate $\geq$90\%, PASS → proceed to h-m1. Otherwise, FAIL → pivot to neural extraction.
+\end{enumerate}
+
+\textbf{Actual Result:} Step 1 failed with 100\% API authentication errors. Steps 2-5 not executed. extraction\_rate = 0.0\% (infrastructure block, not extraction failure).
+
+\subsubsection{Unexecuted Protocols}
+
+h-m1, h-m2, h-m3 protocols not executed due to prerequisite h-e1 failure.
+
+\subsection{Fairness Considerations}
+
+\textbf{Same compute resources:} Batch and incremental verification would run on same hardware (single-threaded Z3, no parallelization).
+
+\textbf{Same LLM model:} All code generation would use Claude Sonnet 3.5 with identical prompts and temperature.
+
+\textbf{Same static analyzer:} Pyre version consistent across all programs.
+
+\textbf{Controlled modification scope:} Repair errors designed to require 1-3 function modifications (matches neural repair locality literature, though transferability to LLM code untested per assumption A2).
+
+\subsection{Threats to Validity}
+
+\textbf{Internal Validity:} Infrastructure failure (invalid API key) blocked testing of core hypothesis. Mitigated by isolating failure mode (authentication error, not hypothesis refutation).
+
+\textbf{External Validity:} Single language (typed Python with Pydantic), limited to HumanEval-scale programs (10-50 LOC). Generalization to Rust + Prusti or larger codebases untested. Claims about ``statically-typed languages'' (plural) are overstated; only one language configuration (Python + Pydantic + Pyre) was designed for testing.
+
+\textbf{Construct Validity:} Speedup measured as wall-clock time (includes extraction overhead, SMT solving, dependency analysis). Extraction overhead could dominate (assumption A4 untested).
+
+\textbf{Conclusion Validity:} No statistical tests conducted (no data). Planned analysis: Wilcoxon signed-rank test for paired speedup comparisons, Spearman correlation for size-speedup relationship (P2).

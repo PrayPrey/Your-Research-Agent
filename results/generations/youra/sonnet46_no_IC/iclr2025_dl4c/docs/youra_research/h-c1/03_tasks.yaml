@@ -1,0 +1,410 @@
+version: "1.1"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+metadata:
+  hypothesis_id: "h-c1"
+  hypothesis_id_upper: "H-C1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-08-04T17:45:00Z"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASKS
+# Priority order: setup (94) → epics (93-50) → subtasks (49-2) → failsafe (1)
+# Note: No data-preparation tasks needed (bigcode/the-stack-dedup uses streaming;
+#       no manual download required)
+# ═══════════════════════════════════════════════════════════════════════════════
+tasks:
+
+  # ── Environment Setup ──────────────────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment"
+    title: "Set up Python environment and install dependencies"
+    description: |
+      Create Python environment and install required packages:
+        datasets>=2.14.0     # HuggingFace streaming
+        matplotlib>=3.7.0    # Figures
+        numpy>=1.24.0        # Array ops
+        tqdm>=4.65.0         # Progress bars
+        pyyaml>=6.0          # YAML output
+        transformers>=4.35.0 # Optional: Qwen2.5-Coder tokenizer
+
+      All stdlib dependencies (ast, doctest, subprocess, concurrent.futures, json,
+      textwrap, base64) require no installation.
+
+      Verify: `python -c "from datasets import load_dataset; print('OK')"`
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Verify all imports succeed without error
+      - Confirm datasets streaming API accessible (HuggingFace connectivity check)
+    reference_files:
+      architecture: "03_architecture.md#3-file-structure"
+      logic: null
+      config: "03_config.md#3-scanconfig-dataclass"
+
+  # ── Epic Tasks ─────────────────────────────────────────────────────────────
+  - id: "task-002"
+    epic: "E-1: Data Streaming & Sampling"
+    title: "Implement data_loader.py — HuggingFace streaming + reservoir sampling"
+    description: |
+      Implement code/data_loader.py with:
+      - load_python_stream(): streams bigcode/the-stack-dedup Python subset
+        with shuffle(seed=42, buffer_size=10000)
+      - quality_filter(): The Stack paper filters (avg_line_len<=100,
+        max_line_len<=1000, alphanum_frac>=0.25)
+      - reservoir_sample(): collects exactly 10,000 quality-passing files
+        from shuffled stream (first-N strategy; stream is pre-shuffled)
+
+      See 03_logic.md subtasks L-1-1 and L-1-2 for full pseudo-code.
+      See 03_config.md ScanConfig for all constant values.
+    feature_tag: "data-pipeline"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - Test quality_filter() with synthetic samples hitting each boundary
+      - Test reservoir_sample() with a mock iterable (no HuggingFace needed for unit test)
+      - Assert exactly n=10000 samples returned
+    reference_files:
+      architecture: "03_architecture.md#6-epic-tasks"
+      logic: "03_logic.md#e-1-data-streaming--sampling-complexity-9-budget-2-subtasks"
+      config: "03_config.md#3-scanconfig-dataclass"
+
+  - id: "task-003"
+    epic: "E-2: Phase A + B Scanner"
+    title: "Implement scanner.py Phase A and Phase B (pattern + AST extraction)"
+    description: |
+      Implement Phase A and Phase B logic in code/scanner.py:
+      - phase_a(source): returns True if ">>>" in source (O(n) string check)
+      - phase_b(source): AST walk over FunctionDef/AsyncFunctionDef/ClassDef/Module,
+        extract docstrings via ast.get_docstring(), parse via
+        doctest.DocTestParser().get_examples(). Handle SyntaxError, UnicodeDecodeError,
+        empty docstrings gracefully. Return dict with ast_positive, n_examples, error.
+
+      Per-file result dict schema defined in 03_logic.md L-2-3.
+      Error handling protocol defined in 03_logic.md L-2-2.
+    feature_tag: "data-pipeline"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Test phase_a() with source containing/not containing ">>>"
+      - Test phase_b() with valid doctest, broken doctest, SyntaxError source
+      - Verify per-file result dict has all required fields
+    reference_files:
+      architecture: "03_architecture.md#6-epic-tasks"
+      logic: "03_logic.md#e-2-phase-a--b-scanner-complexity-10-budget-3-subtasks"
+      config: null
+
+  - id: "task-004"
+    epic: "E-3: Phase C Execution Engine"
+    title: "Implement scanner.py Phase C — subprocess execution + ProcessPoolExecutor"
+    description: |
+      Implement Phase C execution engine in code/scanner.py:
+      - _build_wrapper(source): base64-encodes source to avoid quoting issues,
+        wraps in subprocess -c script that execs into types.ModuleType and
+        runs doctest.testmod()
+      - _classify_error(returncode, stderr): classify failure type from
+        returncode and stderr content (import_error/assertion_error/wrong_output/exception)
+      - phase_c_worker(source, timeout=5): calls subprocess.run with timeout,
+        returns {'passed': bool, 'error_type': str|None}
+      - run_all_phases(samples, n_workers=4): runs Phase A+B sequentially,
+        then submits AST-positive files to ProcessPoolExecutor(4),
+        collects futures with as_completed(), uses future.result(timeout=10)
+        as safety margin
+
+      See 03_logic.md L-3-1 through L-3-4 for full implementation.
+    feature_tag: "experiment"
+    priority: 83
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - Test _build_wrapper() produces valid Python -c string for tricky sources
+        (triple-quotes, backslashes, unicode)
+      - Test phase_c_worker() with a simple passing doctest and a failing one
+      - Test timeout handling (mock subprocess to raise TimeoutExpired)
+      - Test _classify_error() for each error category
+    reference_files:
+      architecture: "03_architecture.md#6-epic-tasks"
+      logic: "03_logic.md#e-3-phase-c-execution-engine-complexity-14-budget-4-subtasks"
+      config: "03_config.md#3-scanconfig-dataclass"
+
+  - id: "task-005"
+    epic: "E-4: Token Estimation & Results Output"
+    title: "Implement token_estimator.py and results.py"
+    description: |
+      Implement two modules:
+      1. code/token_estimator.py:
+         - estimate_tokens(source): len(source.split()) * 1.3
+         - sum_tokens(sources): total estimated tokens for list of sources
+
+      2. code/results.py:
+         - FULL_SUBSET_SIZE = 12_960_052
+         - build_aggregate(per_file, duration_seconds): compute all aggregate
+           stats (n_sampled, n_pattern_positive, n_ast_positive,
+           n_executable_positive, all rates, estimated_full_subset_executable_files,
+           estimated_token_pool_M, scan_duration_seconds, seed, dataset, filter)
+         - write_json(aggregate, path): pretty-printed JSON output
+         - write_jsonl(per_file, path): one JSON object per line
+
+      Aggregate schema defined in 03_logic.md §5 Data Shapes.
+    feature_tag: "evaluation"
+    priority: 78
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - Test build_aggregate() with synthetic per-file list
+      - Assert all RESULTS_SCHEMA fields present in output
+      - Test write_json/write_jsonl with temp file paths
+    reference_files:
+      architecture: "03_architecture.md#6-epic-tasks"
+      logic: "03_logic.md#5-data-shapes"
+      config: "03_config.md#7-output-paths-configuration"
+
+  - id: "task-006"
+    epic: "E-5: Visualization"
+    title: "Implement visualize.py — 5 matplotlib figures"
+    description: |
+      Implement code/visualize.py with 5 plot functions + generate_all():
+      1. plot_gate_metrics(aggregate, out_dir): bar chart of pattern_rate,
+         ast_rate, executable_rate with 3% threshold horizontal line
+         → gate_metrics_comparison.png
+      2. plot_prevalence_breakdown(aggregate, out_dir): stacked bar of
+         no-doctest / pattern-only / ast-only / executable fractions
+         → prevalence_breakdown.png
+      3. plot_token_pool(aggregate, out_dir): horizontal bar of
+         estimated_token_pool_M vs 500M target
+         → token_pool_estimate.png
+      4. plot_error_distribution(per_file, out_dir): pie chart of error_type
+         distribution for Phase C failures
+         → error_type_distribution.png
+      5. plot_file_size_distribution(per_file, out_dir): overlapping histograms
+         of token counts for executable vs non-executable files
+         → file_size_distribution.png
+      generate_all(): calls all five, creates out_dir if not exists.
+
+      All figures saved to docs/youra_research/h-c1/figures/
+    feature_tag: "evaluation"
+    priority: 73
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Test generate_all() with synthetic aggregate + per_file data
+      - Assert all 5 .png files created in figures/ dir
+      - No matplotlib display (use Agg backend: plt.switch_backend('Agg'))
+    reference_files:
+      architecture: "03_architecture.md#6-epic-tasks"
+      logic: null
+      config: "03_config.md#7-output-paths-configuration"
+
+  - id: "task-007"
+    epic: "E-6: Gate Check & Orchestration"
+    title: "Implement gate.py and run_scan.py (entry point)"
+    description: |
+      1. code/gate.py:
+         - PASS_THRESHOLD = 0.03, SCOPE_THRESHOLD = 0.01
+         - run_gate_check(aggregate): asserts executable_rate <= pattern_rate
+           and n_sampled == 10000, prints gate check line and status,
+           returns 'PASS' | 'SCOPE' | 'PIVOT'
+
+      2. code/run_scan.py (orchestrator):
+         - Import ScanConfig from config.py (or inline constants)
+         - main(): call load_python_stream → reservoir_sample →
+           run_all_phases → sum_tokens → build_aggregate →
+           write_json + write_jsonl → os.makedirs(figures_dir) →
+           generate_all → run_gate_check
+         - if __name__ == "__main__": main()
+
+      See 03_logic.md §6 Run Orchestration for full pseudo-code.
+    feature_tag: "experiment"
+    priority: 68
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - Test run_gate_check() for PASS/SCOPE/PIVOT branches
+      - Test assertion raises for executable_rate > pattern_rate
+      - Integration test: run main() with n=10 samples (mock stream) end-to-end
+    reference_files:
+      architecture: "03_architecture.md#6-epic-tasks"
+      logic: "03_logic.md#6-run-orchestration-run_scanpy-pseudo-code"
+      config: "03_config.md#3-scanconfig-dataclass"
+
+  # ── Subtasks ───────────────────────────────────────────────────────────────
+  - id: "task-008"
+    epic: "E-3: Phase C Execution Engine"
+    title: "L-3-1: Implement phase_c_worker() subprocess wrapper"
+    description: |
+      Implement phase_c_worker(source, timeout=5) in scanner.py.
+      Must be a MODULE-LEVEL function (not lambda/closure) for ProcessPoolExecutor pickling.
+      Calls _build_wrapper(source) then subprocess.run([sys.executable, "-c", wrapper],
+      capture_output=True, timeout=timeout). Catches TimeoutExpired separately.
+      Returns {'passed': bool, 'error_type': str|None}.
+      See 03_logic.md L-3-1 for full implementation.
+    feature_tag: "experiment"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#l-3-1-phase_c_worker--subprocess-wrapper"
+      architecture: null
+      config: null
+
+  - id: "task-009"
+    epic: "E-3: Phase C Execution Engine"
+    title: "L-3-4: Implement _build_wrapper() with base64 encoding"
+    description: |
+      Implement _build_wrapper(source) in scanner.py.
+      base64-encodes source to avoid shell quoting issues with arbitrary Python
+      (triple-quotes, backslashes, f-strings all safe).
+      Wrapper: decode → exec into types.ModuleType → doctest.testmod() → sys.exit(0/1).
+      See 03_logic.md L-3-4 for exact wrapper template code.
+    feature_tag: "experiment"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#l-3-4-subprocess-wrapper-template---_build_wrapper"
+      architecture: null
+      config: null
+
+  - id: "task-010"
+    epic: "E-3: Phase C Execution Engine"
+    title: "L-3-2: Implement _classify_error() from returncode + stderr"
+    description: |
+      Implement _classify_error(returncode, stderr) in scanner.py.
+      Decode stderr as UTF-8 (errors='replace'). Check for:
+      - ImportError/ModuleNotFoundError → 'import_error'
+      - AssertionError/Failed example → 'assertion_error'
+      - DocTestFailure/UnexpectedException → 'wrong_output'
+      - else → 'exception'
+      See 03_logic.md L-3-2.
+    feature_tag: "experiment"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#l-3-2-error-classification---_classify_error"
+      architecture: null
+      config: null
+
+  - id: "task-011"
+    epic: "E-3: Phase C Execution Engine"
+    title: "L-3-3: Implement run_all_phases() ProcessPoolExecutor integration"
+    description: |
+      Implement run_all_phases(samples, n_workers=4) in scanner.py.
+      Phase A+B: sequential loop, collect ast_positive_indices.
+      Phase C: ProcessPoolExecutor(max_workers=n_workers), submit phase_c_worker
+      for each AST-positive file, collect with as_completed(), use
+      future.result(timeout=10) as executor-level safety margin.
+      See 03_logic.md L-3-3 for complete implementation.
+    feature_tag: "experiment"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#l-3-3-run_all_phases--processppoolexecutor-integration"
+      architecture: null
+      config: null
+
+  - id: "task-012"
+    epic: "E-2: Phase A + B Scanner"
+    title: "L-2-1: Implement phase_b() AST walk + DocTestParser"
+    description: |
+      Implement phase_b(source) in scanner.py.
+      AST walk over FunctionDef, AsyncFunctionDef, ClassDef, Module nodes.
+      Use ast.get_docstring(node) + DocTestParser().get_examples(docstring).
+      Return {'ast_positive': bool, 'n_examples': int, 'error': str|None}.
+      See 03_logic.md L-2-1 for full code.
+    feature_tag: "data-pipeline"
+    priority: 37
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#l-2-1-phase_b--ast-walk--doctestparser"
+      architecture: null
+      config: null
+
+  - id: "task-013"
+    epic: "E-2: Phase A + B Scanner"
+    title: "L-2-2: Implement error handling protocol for Phases A+B"
+    description: |
+      Ensure error handling in scanner.py:
+      - SyntaxError/ValueError on ast.parse → return ast_positive=False
+      - UnicodeDecodeError → caught in run_all_phases outer loop, skip file
+      - Empty docstring (None) → skip node silently
+      - Exception on parser.get_examples → skip node, continue walk
+      See 03_logic.md L-2-2 error handling table.
+    feature_tag: "data-pipeline"
+    priority: 34
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#l-2-2-error-handling-protocol"
+      architecture: null
+      config: null
+
+  - id: "task-014"
+    epic: "E-1: Data Streaming & Sampling"
+    title: "L-1-2: Implement quality_filter() with The Stack paper thresholds"
+    description: |
+      Implement quality_filter(sample) in data_loader.py.
+      Thresholds: avg_line_len<=100, max_line_len<=1000, alphanum_frac>=0.25.
+      Handle empty content (return False). Use splitlines() for line metrics.
+      See 03_logic.md L-1-2 and 03_config.md §5 Quality Filter Constants.
+    feature_tag: "data-pipeline"
+    priority: 31
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#l-1-2-quality_filter--the-stack-filters"
+      config: "03_config.md#5-quality-filter-constants"
+      architecture: null
+
+  # ── Failsafe ───────────────────────────────────────────────────────────────
+  - id: "task-015"
+    epic: "Pipeline Continuation"
+    title: "Pipeline continuation checkpoint — verify scan complete and gate result recorded"
+    description: |
+      Final validation checkpoint before pipeline continues to Phase 4 result reporting:
+      1. Verify docs/youra_research/h-c1/results.json exists and has all required fields
+      2. Verify run_gate_check() was called and returned PASS/SCOPE/PIVOT
+      3. Record gate result in verification_state.yaml:
+         sub_hypotheses.h-c1.gate.satisfied = (True if PASS/SCOPE, False if PIVOT)
+         sub_hypotheses.h-c1.gate.result = "PASS" | "SCOPE" | "PIVOT"
+      4. Print final summary:
+         H-C1 COMPLETE: doctest_executable_rate={rate}, STATUS={status}
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUDGET SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+budget_summary:
+  data_preparation: 0   # No manual download (streaming)
+  environment_setup: 1  # task-001
+  epic_tasks: 6         # task-002 through task-007
+  subtasks: 7           # task-008 through task-014
+  failsafe: 1           # task-015
+  total: 15             # == total_budget (LIGHT tier)

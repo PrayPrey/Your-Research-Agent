@@ -1,0 +1,118 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-21T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent-Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap_1"
+
+hypothesis_draft:
+  title: "Benchmark Saturation Onset Threshold (H-SatOnset-v1): Detecting paper_count* via PELT in PwC Leaderboard Data"
+  hypothesis_id: "H-SatOnset-v1"
+  core_claim: |
+    PwC benchmark leaderboards exhibit a detectable structural break (paper_count*) in the
+    relationship between paper_count and result CoV, identifiable via PELT change-point detection
+    applied to linearly detrended residual CoV values. The post-breakpoint regime shows
+    significantly lower CoV variance (Goodhart saturation compression).
+  mechanism: |
+    Three-step Goodhart saturation mechanism:
+    (1) Early phase (paper_count < paper_count*): diverse model approaches, high CoV, genuine performance exploration.
+    (2) Transition (paper_count ≈ paper_count*): dominant approach identified, community shifts to incremental optimization.
+    (3) Post-saturation (paper_count > paper_count*): community optimizes toward known ceiling, CoV variance collapses.
+    The structural break in residual CoV marks the transition from step 1 to step 3.
+  predictions:
+    - P1: "Global paper_count* detectable in PwC N=111 data via PELT + permutation test (p < 0.05)"
+    - P2: "Post-breakpoint residual CoV variance significantly lower than pre-breakpoint (Brown-Forsythe p < 0.05)"
+    - P3: "Task-type-stratified paper_count* values differ across image_classification and NLP strata (non-overlapping 95% CIs)"
+
+variables_summary:
+  independent: "paper_count (count of result rows per benchmark in PwC data)"
+  dependent_primary: "residual_CoV (CoV linearly detrended by paper_count; primary input to PELT)"
+  controlled: "linear paper_count trend (removed via OLS); task_type (stratification variable)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no statistically significant structural break in the CoV-vs-paper_count relationship
+    in PwC N=111 benchmark data. The rho=−0.28 relationship is best described as a smooth
+    monotonic trend without a detectable regime shift (permutation test p ≥ 0.05).
+  statistical_test: "PELT permutation test (1000 permutations) + Brown-Forsythe variance test"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First application of PELT change-point detection to PwC-internal CoV-vs-paper_count series. First empirically grounded benchmark retirement threshold (paper_count*) for individual benchmarks."
+  differentiation_summary: |
+    Prior work (Liao et al. 2022, S_index) describes aggregate saturation trends without providing
+    individual-benchmark retirement thresholds. Our analysis detects the specific paper_count at which
+    the CoV regime shifts, enabling a quantitative retirement criterion. The two-level analysis
+    (global + task-type-stratified) simultaneously addresses Gap 1 (Q1) and Gap 2 (Q2/Q3).
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "PELT (ruptures, rpt.Pelt, model=l2, min_size=3)"
+    - "Piecewise linear regression (statsmodels, F-test for 1-segment vs 2-segment)"
+    - "OLS linear detrending (statsmodels, CoV ~ paper_count)"
+  datasets:
+    - "PwC N=111 benchmarks with pre-computed CoV (derive.py output)"
+    - "PwC task_type metadata (paperswithcode-data evaluation-tables)"
+  baselines:
+    - "OLS linear regression (no change-point): H₀ model"
+    - "S_index (arXiv:2602.16763): cross-validation comparison"
+    - "Liao et al. 2022 time-to-saturation: temporal consistency check"
+
+measurement_plan:
+  data_collection:
+    - source: "derive.py output — CoV and paper_count per benchmark (N=111, confirmed from H-E1 v2)"
+    - source: "paperswithcode-data evaluation-tables — task_type metadata for stratification"
+  procedure:
+    - step: "1. Load CoV and paper_count from derive.py output (N=111 confirmed benchmarks)"
+    - step: "2. Fit OLS: CoV ~ paper_count; extract residuals (residual_CoV)"
+    - step: "3. Sort residual_CoV by paper_count ascending (111-element series)"
+    - step: "4. Tune PELT penalty via elbow method (pen range [1, 50], log-space)"
+    - step: "5. Apply rpt.Pelt(model='l2', min_size=3).fit(residual_cov_sorted).predict(pen=bic_tuned)"
+    - step: "6. Permutation test: shuffle paper_count labels ×1000, rerun PELT, compute p-value"
+    - step: "7. Split at paper_count*; apply scipy.stats.levene(..., center='median') [Brown-Forsythe]"
+    - step: "8. Bootstrap stability: resample 111 ×1000, compute paper_count* CI"
+    - step: "9. Task-type stratification: repeat steps 2-8 within each stratum (N≥20: PELT; N<20: F-test)"
+    - step: "10. Report: paper_count* point estimate, 95% CI, permutation p, Brown-Forsythe p, stratum comparison"
+  success_criteria:
+    - "P1: Permutation test p < 0.05"
+    - "P2: Brown-Forsythe p < 0.05, variance ratio (post/pre) < 1.0"
+    - "P3: At least one pair of task-type strata with non-overlapping 95% bootstrap CIs"
+    - "Stability: bootstrap 95% CI width ≤ 20 papers"
+
+validation:
+  internal_validity:
+    - "Dual-method validation (PELT + piecewise linear regression F-test) prevents single-method artifact"
+    - "Permutation test controls for multiple testing and chance change-point detection"
+    - "Bootstrap CI quantifies estimation uncertainty in paper_count*"
+    - "Sensitivity analysis across PELT penalty range [1, 50]"
+  external_validity:
+    - "Cross-validation: compare paper_count* to S_index threshold from evaleval/benchmark-saturation"
+    - "Cross-validation: compare paper_count* to temporal saturation year (Liao 2022 approach)"
+    - "Limited by PwC data scope — results may not generalize to HELM or OpenLLM Leaderboard"
+
+discussion_synthesis:
+  key_insights:
+    - "Goodhart saturation creates a genuine regime shift (discrete phase transition), not just a smooth trend — this is the core reframing that makes change-point detection appropriate"
+    - "Residual CoV (after linear detrending) is the correct input to PELT — removes the known rho=−0.28 trend before searching for structural breaks"
+    - "Two-level analysis (global + task-type-stratified) simultaneously addresses Gap 1 (Q1) and Gap 2 (Q2)"
+    - "Prof. Rex's challenge that paper_count* might be task-type confounded is addressed by stratification — if strata differ, that's a richer finding, not a flaw"
+  breakthrough_moments:
+    - "Exchange 4 (Prof. Pax): identified that pooling raw CoV values as a series conflates heterogeneity with saturation — residual detrending fix was the key methodological improvement"
+    - "Exchange 6 (Prof. Rex): permutation test requirement and stratum N concern — led to pre-specified PELT vs. F-test selection rule"
+    - "Exchange 7 (Dr. Nova): reframed stratification heterogeneity as a positive finding bridging Gap 1 and Gap 2"
+  resolved_tensions:
+    - "Cross-sectional vs. longitudinal: resolved by linear detrending (removes global trend, leaving residual for structural break detection)"
+    - "Single threshold vs. domain heterogeneity: resolved by two-level analysis (global + stratified)"
+    - "Directionality of change-point: resolved by Brown-Forsythe variance test (not just mean shift)"

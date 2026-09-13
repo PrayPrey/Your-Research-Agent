@@ -1,0 +1,37 @@
+{
+    "has_hallucination": true,
+    "hallucinations": [
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims the main analysis was performed on the learned Q/K/V projection weight matrices using direct SVD of 4096×4096 matrices, but the primary h-e1 code path actually analyzes runtime attention weights captured by forward hooks, not projection weights. In src/analyzer.py, hooks cache attention tensors from model outputs and svd_effective_rank is computed on those attention matrices. The direct weight-matrix analysis only appears later in a separate h-m1 script (run_weight_analysis.py), not in the main experiment pipeline described as the study methodology.",
+            "evidence": "Paper: \"Through singular value decomposition analysis of Query, Key, and Value projection matrices in Mistral-7B...\" and \"SVD computation for 4096×4096 matrices used NumPy's `np.linalg.svd`...\"\nCode (h-e1 src/analyzer.py): `attn_module.register_forward_hook(make_hook(layer_idx))` ... `_capture_attention(...)` caches `attn_weights` with shape `[B, H, L, L]` ... `eff_rank = self.compute_effective_rank(attention_stack)`.\nOnly separate script (h-m1 run_weight_analysis.py) does `Q = layer.self_attn.q_proj.weight.detach().cpu().float()` and SVD on Q/K/V weights."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper defines operator entropy as a log-determinant of the covariance matrix, H(W) = log det((1/n) W^T W), but the implemented code does not compute that quantity. In h-e1/h-m1 src/metrics.py, operator_entropy computes QK = QK^T product, then takes the log of the sum of the top singular values (or Frobenius norm as fallback). In run_weight_analysis.py, a different entropy is used again: Shannon entropy over normalized top-k singular values. Thus the paper reports a methodology inconsistent with the actual implementation.",
+            "evidence": "Paper: `H(W) = log det((1/n) W^T W)`.\nCode (src/metrics.py): `QK = torch.matmul(Q, K.T)` ... `entropy = torch.log(torch.sum(S[:min(10, len(S))])).item()`.\nCode (run_weight_analysis.py): `S_prob = S_combined / S_combined.sum()` ... `entropy = -(S_prob * torch.log(S_prob + 1e-10)).sum().item()`."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper presents concrete h-e1 validation outcomes and aggregate results even though the h-e1 experiment log shows the run was killed before producing results. The main experiment pipeline in h-e1 never completed successfully, so statements that methodology validation passed and that the results came from that described pipeline are unsupported by the provided execution evidence.",
+            "evidence": "Paper: \"### Methodology Validation (h-e1) **Outcome: PASS**\" and \"The methodology validation confirmed... Analysis pipeline successfully processes Mistral-7B...\"\nCode log (h-e1 experiment.log): `./run_analysis.sh: line 99: 2578269 Killed                  python -m src.main`."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper reports exact measured results (effective ranks 1554–1648, β = +0.001453, p = 0.072) as if produced by the stated study, but the only successful run evidenced in the materials is the separate h-m1 weight-analysis script. The h-e1 and h-m1 main analysis pipelines crashed, and the successful script used a different entropy definition from the paper. Therefore the paper blends results from a different script into a narrative about another methodology and experiment.",
+            "evidence": "Paper: \"Effective ranks at τ = 0.99 for layers 20-31... 1554-1648\" and \"Slope: β = +0.001453, p-value: p = 0.072\".\nSuccessful evidence exists only in h-m1 weight-analysis log: `Layer 20: r_eff=1579.33, entropy=6.5826 ... Layer 31: r_eff=1554.33 ... Regression: β=0.001453, p=7.202766e-02`.\nBut the main experimental logs fail: h-e1/h-m1 `experiment.log` shows `Killed`, and h-m1 `experiment_run.log` shows dataset FileNotFoundError."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The paper's statistical test specification is internally incorrect. It states the null hypothesis as H0: β ≥ 0 and alternative HA: β < 0, p < 0.01, but then uses the standard two-sided p-value from scipy.stats.linregress without one-sided adjustment. Moreover, the reported result β = +0.001453 with p = 0.072 is interpreted against a one-sided directional hypothesis, yet the code does not implement a one-sided test. This is an improper application of hypothesis testing.",
+            "evidence": "Paper: \"We tested this via linear regression H(L) = β × L + intercept with null hypothesis H_0: β ≥ 0 and alternative H_A: β < 0, p < 0.01.\"\nCode (src/metrics.py): `slope, intercept, r_value, p_value, std_err = linregress(layer_indices, entropies)`.\nscipy `linregress` returns the conventional p-value for slope significance, not the one-sided β<0 test as specified in the paper."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The paper characterizes effective ranks of about 1554–1648 for 4096-dimensional matrices as \"near full-rank structure\" and \"approaching ~40% of the model dimension.\" Numerically, 38–40% of the dimension is not near full rank in the ordinary linear algebra sense. This is an overstated mathematical interpretation of the reported rank values.",
+            "evidence": "Paper: \"effective ranks of 1554-1647, representing approximately 38-40% of the model dimension (4096)\" and later \"maintain near full-rank structure\" / \"approaching near full-rank\"."
+        }
+    ],
+    "overall_assessment": "Hallucinations were found. The most serious issues are methodology/result mismatches: the paper describes a direct weight-matrix SVD study with a specific entropy formula, but the main provided code analyzes runtime attention matrices and the logged main runs failed. The reported numbers appear to come from a separate fallback script with different entropy computation, making the paper's experimental narrative materially unreliable.",
+    "confidence": 5
+}

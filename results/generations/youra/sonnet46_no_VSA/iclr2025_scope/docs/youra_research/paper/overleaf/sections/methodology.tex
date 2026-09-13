@@ -1,0 +1,61 @@
+\section{Methodology}
+
+\subsection{Design: Mechanism Gate Before Behavioral Test}
+
+We structure evaluation in two sequential parts. The \textbf{mechanism gate (H-M1)} asks: does
+SSD approximate LLaMA-3-8B attention sub-linearly? The \textbf{behavioral test (H-E1)} asks:
+does conversion strategy produce a task-type interaction on LongBench v2? This sequencing is
+deliberate: if the mechanism gate fails, behavioral degradation reflects distillation failure;
+if it passes, behavioral degradation reflects bounded-state architecture.
+
+\subsection{Mechanism Gate: SSD Frobenius Scaling (H-M1)}
+
+We load LLaMA-3-8B (bfloat16) and extract per-layer attention matrices at
+$N \in \{512, 1024, 2048\}$ on 50 random inputs from \texttt{monology/pile-uncopyrighted}
+(seed=42) at $N=512$ and 5 inputs at $N=1024, 2048$. For each of 32 layers, we materialize
+the $N \times N$ attention and SSD transfer matrices using MOHAWK's official
+\texttt{materialize\_mixer} implementation and fit by minimizing Frobenius distance:
+\begin{equation}
+  \mathcal{L}(\theta) = \left\| \text{materialize\_mixer}(\theta, N) - M_{\text{attn}} \right\|_F
+\end{equation}
+using Adam (lr$=10^{-3}$, 500 steps, float32). \textbf{Normalized error} $= \text{raw\_error} / N$
+enables fair comparison across lengths and matches MOHAWK Table~6 scale.
+
+\textbf{Gate criteria:} (1) log-log slope $\beta \leq 0.5$; (2) 90th percentile error/$N \leq 0.3$
+at max $N$.
+
+\subsection{Controlled Conversion Comparison (H-E1)}
+
+Four model variants, all using fixed LLaMA-3-8B:
+
+\begin{table}[h]
+\centering
+\caption{Model variants for controlled comparison.}
+\begin{tabular}{lll}
+\toprule
+\textbf{Model} & \textbf{Method} & \textbf{Budget} \\
+\midrule
+Teacher    & Unconverted LLaMA-3-8B                        & ---         \\
+MOHAWK-SSM & 3-stage distillation, SSD mixer               & $\sim$1B tokens \\
+LAWCAT     & 2-phase, Conv1D + gated linear attention       & $\sim$1B tokens \\
+Hybrid-4   & MOHAWK Stage 3 + 4 middle attention layers    & $\sim$1B tokens \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Primary metric:}
+$\Delta_\text{norm} = (\text{Acc}_\text{teacher} - \text{Acc}_\text{student}) /
+\text{Acc}_\text{teacher}$ per category.
+
+\textbf{Statistical test:} Mixed-effects model
+$\Delta_\text{norm} \sim \text{TaskType} \times \text{Strategy} + (1|\text{Task})$,
+Holm correction. Gate: $\Delta_\text{norm}^\text{MOHAWK}(\text{retrieval}) /
+\Delta_\text{norm}^\text{LAWCAT}(\text{retrieval}) \geq 2.0$, CI $> 1.0$, $p < 0.01$.
+
+\subsection{Depth-Slope Analysis (H-M2)}
+
+Needle depth percentile $=$ keyword\_start\_offset / context\_length. Logistic regression
+$P(\text{correct}) \sim \text{DepthPercentile} + (1|\text{Task})$ per model. Gate:
+$|\beta_\text{depth}^\text{MOHAWK}| \geq 2 \times |\beta_\text{depth}^\text{LAWCAT}|$,
+non-overlapping CIs. \emph{Requires H-E1 checkpoints; statistical pipeline validated on
+proxy data.}

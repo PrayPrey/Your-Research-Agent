@@ -1,0 +1,108 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-25T07:30:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "Gap 1"
+
+hypothesis_draft:
+  title: "Syntax-Aware Beam Search with Validity Scoring for Code Generation"
+  hypothesis_id: "H-SyntaxBeam-v1"
+  core_claim: |
+    Under code generation tasks on HumanEval benchmark with CodeLlama-7B, if we apply
+    beam search (k=5) with combined scoring (final_score = α * log_likelihood + β * syntax_validity_score,
+    where α=0.7, β=0.3, and syntax_validity_score = 1 if ast.parse() succeeds else 0), then syntax
+    error rate will drop from 64-68% baseline to ≤40% (≥40% relative reduction), because beam search
+    explores multiple candidate paths and validity scoring prunes syntactically invalid beams,
+    preventing the model from committing to invalid paths early (which greedy sampling cannot recover from).
+  mechanism: |
+    Four-step causal mechanism:
+    1. Beam search maintains k=5 candidate sequences (vs greedy sampling's single path)
+    2. Each beam scored by α * log_likelihood + β * syntax_validity_score at each step
+    3. Invalid beams (validity_score=0) receive lower scores and are pruned over time
+    4. Final output selected from top-scoring valid beam (incrementally validated throughout generation)
+  predictions:
+    - P1: "Syntax error rate ≤40% on HumanEval-164 (vs 64-68% baseline)"
+    - P2: "Type error rate not +5pp from baseline (no compensatory failure)"
+    - P3: "Pass@1 maintained within -2pp of baseline (generation quality preserved)"
+
+variables_summary:
+  independent: "Generation strategy (greedy baseline vs validity-scored beam search α=0.7, β=0.3, k=5); Beam width k (3, 5, 10); Scoring weights α,β combinations"
+  dependent_primary: "Syntax error rate (percentage of samples with AST parse failures, range 0-100%)"
+  controlled: "Model (CodeLlama-7B), Benchmark (HumanEval-164), Temperature (0.8), Max tokens (512)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in syntax error rate between greedy sampling baseline
+    (64-68%) and validity-scored beam search (α=0.7, β=0.3, k=5) on HumanEval-164 with CodeLlama-7B.
+  statistical_test: "Two-proportion z-test (syntax error rate baseline vs validity-scored beam search)"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Syntax validity as beam search scoring dimension (not hard constraint or soft penalty); targeting dominant failure mode (syntax 64-68%) vs h-m1's minority target (type 20%)"
+  differentiation_summary: |
+    vs h-m1: Different failure mode target (syntax vs type), different mechanism (beam scoring vs greedy penalties)
+    vs NeuroLogic/GeLM: Lightweight validity scoring vs complex semantic constraints
+    vs SYNCHROMESH: Soft scoring guidance vs hard grammar constraints
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "CodeLlama-7B"
+  datasets:
+    - "HumanEval-164"
+  baselines:
+    - "Greedy sampling (temperature=0.8)"
+    - "h-m1 type-constrained decoding (penalty_weight=-2.0)"
+
+measurement_plan:
+  data_collection:
+    - source: "HumanEval-164 benchmark problems"
+    - source: "CodeLlama-7B generated code samples (greedy baseline and validity-scored beam variants)"
+  procedure:
+    - step: "5-problem PoC gate: Test α/β combinations (0.5,0.5), (0.6,0.4), (0.7,0.3), (0.8,0.2) on 5 representative problems"
+    - step: "Gate success criterion: ≥1 combination achieves <45% syntax error rate on 5-problem subset"
+    - step: "If gate passes: Full HumanEval-164 run with optimal α/β from PoC"
+    - step: "Ablation study: Test beam widths k=3, 5, 10 to validate k=5 choice"
+    - step: "Error analysis: Parse all generated samples with ast.parse() for syntax errors, Mypy for type errors"
+    - step: "Correctness evaluation: Execute against test cases for pass@1 metric"
+  success_criteria:
+    - "P1: Syntax error rate ≤40% (≥40% reduction from baseline)"
+    - "P2: Type error rate ≤ baseline + 5pp (no compensatory failure)"
+    - "P3: Pass@1 ≥ baseline - 2pp (generation quality maintained)"
+
+validation:
+  internal_validity:
+    - "Controlled variables: Same model (CodeLlama-7B), benchmark (HumanEval-164), temperature (0.8) across all conditions"
+    - "Randomization: Problem order randomized to avoid order effects"
+    - "Replication: Multiple runs (n=3) to ensure stability of results"
+  external_validity:
+    - "Generalization to other benchmarks: Test on MBPP (974 problems) to validate beyond HumanEval"
+    - "Generalization to other models: Test on CodeLlama-13B to validate across model sizes"
+    - "Generalization to other languages: Test on Java/C++ code generation (if AST parsers available)"
+
+discussion_synthesis:
+  key_insights:
+    - "h-m1 failure analysis revealed syntax errors (64-68%) dominate over type errors (20%) — targeting the right failure mode is critical"
+    - "Beam search allows exploration of multiple paths (vs greedy's committed path), enabling recovery from early invalid choices"
+    - "Validity scoring as a dimension (not hard constraint) balances correctness with fluency"
+    - "5-problem PoC gate (learned from h-m1's lesson) prevents expensive failures"
+  breakthrough_moments:
+    - "Dr. Nova's reframing from greedy+penalty to beam search with validity scoring shifted the mechanism entirely"
+    - "Prof. Pax's distinction between Variant A (simple parse-check) and Variant B (learned features) clarified feasibility"
+    - "Prof. Vera's precise experimental design (≤40% syntax errors, ±5pp type errors, -2pp pass@1) locked down testable predictions"
+  resolved_tensions:
+    - "Soft penalty magnitude debate resolved by switching to beam search scoring (not greedy logit modulation)"
+    - "Computational cost concern resolved by estimate ~2-4 hours for HumanEval-164 (acceptable for research)"
+    - "Overfitting risk mitigated by deferring Variant B (learned features) to future enhancement"

@@ -1,0 +1,139 @@
+
+\subsubsection{Design Philosophy}
+
+The experimental design prioritizes isolating variance from random seed initialization by enforcing full determinism across all other factors. Complex uncertainty quantification methods introduce multiple variance sources (dropout, ensemble diversity, Bayesian priors). To establish a baseline, this work measures variance from seed initialization alone before adding complexity.
+
+Alternative designs were considered. CIFAR-10 CNNs were excluded because Picard et al. (2021) explored this space. ImageNet ResNets were excluded due to computational cost. Synthetic tasks were excluded because they may not represent real deep learning variance characteristics. The chosen design (simple MLPs on MNIST/Fashion-MNIST) represents the simplest non-trivial case for baseline establishment.
+
+\subsubsection{Experimental Setup}
+
+\#\#\#\# Architectures
+
+Two multilayer perceptron architectures were tested:
+
+\begin{itemize}
+\item 1-layer MLP: 784 $\rightarrow$ 128 $\rightarrow$ 10 (101,770 parameters)
+\item 2-layer MLP: 784 $\rightarrow$ 256 $\rightarrow$ 128 $\rightarrow$ 10 (235,146 parameters)
+\end{itemize}
+
+Both architectures use ReLU activation and cross-entropy loss. Weight initialization follows PyTorch default (Xavier/Kaiming) controlled by random seed. This dual-architecture design tests whether variance scales with network depth.
+
+\#\#\#\# Datasets
+
+Two datasets with identical structure but different task difficulty were selected:
+
+\begin{itemize}
+\item MNIST: $28\times 28$ grayscale handwritten digits, 60,000 train / 10,000 test, 10 classes
+\item Fashion-MNIST: $28\times 28$ grayscale clothing items, 60,000 train / 10,000 test, 10 classes
+\end{itemize}
+
+MNIST achieves approximately 98\% test accuracy with simple models. Fashion-MNIST achieves approximately 88-90\% test accuracy with the same models. This task difficulty difference enables testing whether variance magnitude depends on baseline accuracy.
+
+\#\#\#\# Training Protocol
+
+Deterministic training was enforced through the following controls:
+
+\begin{verbatim}
+torch.manual_seed(seed)
+torch.backends.cudnn.deterministic = True
+torch.use_deterministic_algorithms(True)
+\end{verbatim}
+
+Fixed hyperparameters for all conditions:
+\begin{itemize}
+\item Optimizer: SGD with learning rate 0.01, momentum 0.9
+\item Batch size: 64
+\item Training epochs: 10
+\item No dropout, no batch normalization, no data augmentation
+\end{itemize}
+
+Data loader configuration enforced fixed batch order across all runs. Under these constraints, random seed is the sole source of variance across training runs.
+
+\#\#\#\# Sample Size
+
+Following Rajput and Kumar (2023), N=30 independent random seeds (seeds 0-29) were used per condition. This sample size provides:
+\begin{itemize}
+\item Theoretical basis for Central Limit Theorem application ($N\geq 30$ threshold)
+\item Statistical power $\geq 0.85$ for detecting variance $\sigma \geq 0.1$\% (based on power analysis for one-sample variance test)
+\item Computational feasibility (approximately 6 minutes per condition on H100 GPU)
+\end{itemize}
+
+Total experimental budget: 30 seeds $\times$ 2 architectures $\times$ 2 datasets = 120 training runs.
+
+\subsubsection{Hypothesis Decomposition}
+
+Rather than measuring variance end-to-end, the causal mechanism was decomposed into testable steps:
+
+\textbf{Step 1: Seed $\rightarrow$ Independent Weight Configurations}
+Hypothesis H-M1 tests whether different random seeds produce independent initial weight configurations.
+
+\textbf{Step 2: Different Initializations $\rightarrow$ Different Trajectories $\rightarrow$ Different Minima}
+Hypothesis H-M2 tests whether independent initial weights lead to different optimization trajectories and final model states.
+
+\textbf{Step 3: Different Minima $\rightarrow$ Measurable Variance}
+Hypothesis H-E1 measures test accuracy variance across seeds.
+Hypothesis H-M3 tests bootstrap stability of variance estimates.
+
+\#\#\#\# H-E1: Variance Existence
+
+\textbf{Hypothesis:} Test accuracy variance $\sigma ^2$ is statistically non-zero (p < 0.05) and exceeds practical detectability threshold ($\sigma ^2 \geq$ 0.3\% for $\geq 2/4$ conditions).
+
+\textbf{Measurement:}
+\begin{itemize}
+\item Variance $\sigma ^2$ = Var(test\_accuracies) across 30 seeds per condition
+\item Statistical test: One-sample variance test (chi-squared, $H_0$: $\sigma ^{2}=0$ vs. $H_1$: $\sigma ^2$>0, $\alpha =0.05)$
+\item Practical threshold: $\sigma ^2 \geq$ 0.3\%
+\end{itemize}
+
+\#\#\#\# H-M1: Seed Independence
+
+\textbf{Hypothesis:} Different random seeds create independent weight configurations (mean pairwise distance > 0, p < 0.05).
+
+\textbf{Measurement:}
+\begin{itemize}
+\item Initialize 30 models with seeds 0-29 (no training)
+\item Flatten weight tensors and compute pairwise Euclidean distances for all 435 pairs
+\item Statistical test: One-sample t-test ($H_0$: mean\_distance=0 vs. $H_1$: mean\_distance>0, $\alpha =0.05)$
+\end{itemize}
+
+\#\#\#\# H-M2: Trajectory Divergence
+
+\textbf{Hypothesis:} Different initializations lead to different local minima (final weight distance significantly greater than zero, loss coefficient of variation $\geq$ 1\%).
+
+\textbf{Measurement:}
+\begin{itemize}
+\item Train 30 models to completion (10 epochs) per condition
+\item Compute pairwise distances between final weight configurations
+\item Calculate coefficient of variation of final loss: CV = $\sigma _loss / \mu _loss \times$ 100\%
+\end{itemize}
+
+\#\#\#\# H-M3: Bootstrap Stability
+
+\textbf{Hypothesis:} N=30 provides stable variance estimation (bootstrap 95\% confidence interval width $\leq$ 50\% of point estimate).
+
+\textbf{Measurement:}
+\begin{itemize}
+\item Bootstrap resample 30 test accuracies with B=1000 resamples
+\item Compute variance $\sigma ^2$ for each bootstrap sample
+\item Construct 95\% confidence interval: [percentile(2.5), percentile(97.5)]
+\item Measure relative width: (CI\_upper - CI\_lower) / $\sigma ^2 \times$ 100\%
+\end{itemize}
+
+This hypothesis tests whether Rajput et al.'s $N\geq 30$ criterion provides estimation precision in addition to detection power.
+
+\subsubsection{Metrics and Statistical Tests}
+
+\textbf{Primary metrics:}
+\begin{itemize}
+\item $Test accuracy variance: \sigma ^2 = \Sigma (x_i - \mu )^2 / (n-1)$
+\item Pairwise weight distance: d($w_i$, wⱼ) = $\sqrt(\Sigma (w_i$ - wⱼ)$^{2})$
+\item Coefficient of variation: CV = $\sigma /\mu \times$ 100\%
+\item Bootstrap confidence interval width: (CI\_upper - CI\_lower) / point\_estimate $\times$ 100\%
+\end{itemize}
+
+\textbf{Statistical tests:}
+\begin{itemize}
+\item Variance test: Chi-squared test for $\sigma ^2$ > 0
+\item Independence test: One-sample t-test for mean distance > 0
+\item Significance level: $\alpha$ = 0.05
+\end{itemize}

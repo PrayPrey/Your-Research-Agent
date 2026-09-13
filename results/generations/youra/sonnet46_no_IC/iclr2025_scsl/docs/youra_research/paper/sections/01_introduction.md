@@ -1,0 +1,23 @@
+# Introduction
+
+The best-performing method for spurious correlation robustness does not change the backbone at all.
+
+Deep Feature Reweighting (DFR) [Kirichenko et al., 2022] achieves worst-group accuracy (WGA) of 0.91 on Waterbirds — outperforming GroupDRO (0.88), SAM (0.74), and vanilla ERM (0.72) — yet its ResNet-50 backbone is numerically identical to the ERM backbone it builds upon (cosine similarity = 1.000000 ± 1e-14). DFR simply retrains the classification head on group-balanced data while freezing every backbone weight. Meanwhile, GroupDRO [Sagawa et al., 2019], which achieves WGA 0.88, modifies backbone weights substantially (backbone/head L2 ratio = 6.47–7.03). Both improve over ERM dramatically. They do so through fundamentally different interventions.
+
+This structural paradox — identical backbones achieving near-best WGA; modified backbones achieving near-best WGA — reveals a gap in our mechanistic understanding of robustification methods. The field has focused on *what* these methods achieve (WGA improvement) rather than *how* — specifically, whether improvement comes from changing the backbone's spurious feature encoding, recalibrating the head to use existing features differently, or both. Without this mechanistic distinction, we cannot predict when backbone-level modification is necessary, nor when a simpler head-only intervention suffices.
+
+The key insight enabling our analysis is simple: backbone-level spurious feature encoding and head-level decision making can be measured *separately*. Freezing the backbone and training a linear probe to classify the spurious attribute (land vs. water background) from frozen layer4 features produces a direct, falsifiable measurement of backbone spurious encoding — independent of head behavior. Methods that modify backbone representations to encode less spurious information should produce lower probe accuracy. Methods that achieve WGA improvement purely through head recalibration (like DFR) should not affect probe accuracy at all.
+
+We formalize and test this diagnostic framework with pre-registered statistical tests on 12 publicly available ResNet-50 checkpoints (izmailovpavel/spurious_feature_learning [Izmailov et al., 2022], 3 seeds × 4 methods). Our analysis confirms a three-step verified causal chain for GroupDRO: minority group upweighting (H-M1) → group-balanced gradient propagating through all backbone layers (H-M2) → significantly reduced background linear decodability in layer4 features (H-M3: p = 0.0039, Cohen's d = 6.48). Simultaneously, H-P0 establishes that DFR backbone features are mathematically identical to ERM backbone features — the best WGA method leaves the backbone unchanged.
+
+**Contributions.** Our diagnostic study makes the following contributions:
+
+1. **Empirical backbone-vs-head typology.** We establish, with pre-registered statistical tests, that WGA-improving methods fall into two mechanistically distinct categories: *backbone-modification methods* (GroupDRO, measurably reducing layer4 spurious encoding, p = 0.0039, d = 6.48) and *head-recalibration methods* (DFR, backbone cosine similarity = 1.000000 with ERM). This typology has direct implications for method selection and understanding.
+
+2. **Quantified GroupDRO backbone effect.** We provide the first per-seed, per-method spurious attribute linear probe accuracy for the izmailovpavel checkpoints with paired statistical testing — filling the measurement gap in Izmailov et al. [2022], who reported an aggregate spurious proxy but not per-method probe accuracy with variance estimates.
+
+3. **Verified causal chain for GroupDRO robustification.** We verify all three steps of the proposed mechanism: minority group upweighting (minority fraction = 5.01%), gradient propagation to backbone (backbone/head L2 ratio = 6.47–7.03 across seeds), and reduced spurious decodability (ERM 0.9838 → GroupDRO 0.9530) — providing convergent, pre-registered evidence for each step.
+
+4. **WGA-spurious encoding correlation.** We report, as an exploratory finding, that background probe accuracy correlates negatively with WGA across 9 checkpoints (r = −0.504, SUGGESTIVE; ERM+GroupDRO ablation r = −0.755, p = 0.041, CONFIRMED), suggesting that backbone spurious encoding level is a meaningful signal for downstream WGA performance.
+
+We organize the paper as follows: Section 2 reviews related work on spurious correlation robustification and backbone probing. Section 3 describes our diagnostic methodology. Section 4 details experimental design. Section 5 presents results. Section 6 discusses implications and limitations. Section 7 concludes.

@@ -1,0 +1,127 @@
+# 02_synthesis.yaml - Phase 2A Synthesis (v10.0.0 Free-Parse)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-03-18T03:00:00+00:00"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Difficulty-Stratified Calibration Fingerprint of LLM Code Verifiers via P(True)"
+  hypothesis_id: "H-CalibDiff-v1"
+  core_claim: |
+    When LLMs predict code correctness via P(True) logprob elicitation on HumanEval+/MBPP+,
+    their Expected Calibration Error (ECE) varies systematically with pass@1-bootstrapped
+    difficulty tiers (ΔECE = ECE(hard) - ECE(easy) > 0), beyond what is mechanically induced
+    by accuracy differences, revealing a difficulty-conditioned calibration failure that
+    is not fully correctable by global temperature scaling.
+  mechanism: |
+    Step 1: Generate k=5 solutions per problem → compute pass@1 per model per problem (EvalPlus oracle).
+    Step 2: Stratify problems into hard tier (pass@1=0.0) and easy tier (pass@1≥0.6) per model.
+    Step 3: Elicit P(True) logprob for each (problem, solution) pair as confidence proxy.
+    Step 4: Compute ECE per tier (M=15 bins); compare to tier-specific null baseline;
+            apply global temperature scaling as mechanistic probe.
+    Key mechanism: LLM confidence from pre-training does not align with task-specific
+    difficulty — harder problems (where model rarely generates correct code) lead to
+    greater calibration failure because the model cannot adjust its confidence signal
+    to reflect the lower accuracy regime.
+  predictions:
+    - P1: "ΔECE > 0 in ≥2/3 model families with 95% CI excluding zero (primary)"
+    - P2: "Excess ECE above null baseline larger in hard tier than easy tier (structural miscalibration)"
+    - P3: "ΔECE persists after global temperature scaling (difficulty-conditioned, not globally correctable)"
+    - P4: "DeepSeek-Coder ECE_overall < Llama3-8B ECE_overall (exploratory architecture comparison)"
+
+variables_summary:
+  independent: "Difficulty tier (hard/easy from k=5 pass@1 bootstrap) × Model family (Llama3-8B, CodeLlama-7B, DeepSeek-Coder-6.7B) × Benchmark (HumanEval+, MBPP+)"
+  dependent_primary: "ECE (M=15 bins), ΔECE = ECE(hard) - ECE(easy), with bootstrap 95% CIs"
+  controlled: "EvalPlus oracle (augmented tests), M=15 binning, zero-shot P(True) prompt, global T temperature scaling"
+
+null_hypothesis:
+  h0_statement: |
+    ΔECE ≤ 0 or |ΔECE| < 0.03 in ≥2/3 model families after controlling for base-rate
+    accuracy differences (tier-specific null baseline subtraction), indicating that
+    LLM P(True) calibration does not systematically degrade with difficulty.
+  statistical_test: "Paired bootstrap test on ΔECE; baseline subtraction; temperature scaling probe"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Self-contained pass@1 bootstrap difficulty stratification combined with tier-stratified ECE measurement and temperature scaling mechanistic probe — no prior work combines these three elements for code verification"
+  differentiation_summary: |
+    Kadavath 2022: P(True) for factual Q&A only, no difficulty stratification, no code tasks.
+    Guo 2017: ECE for vision models, no LLMs, no difficulty stratification, no code tasks.
+    Liu 2023 EvalPlus: Measures pass rates, not calibration; no P(True), no ECE.
+    This work: First intersection of P(True) + ECE + EvalPlus + self-contained difficulty bootstrap.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "NousResearch/Meta-Llama-3-8B (non-gated mirror for Llama3-8B)"
+    - "codellama/CodeLlama-7b-hf"
+    - "deepseek-ai/deepseek-coder-6.7b-base"
+  datasets:
+    - "HumanEval+ (164 problems, EvalPlus augmented)"
+    - "MBPP+ (378 problems, EvalPlus augmented)"
+  baselines:
+    - "ECE null baseline (constant confidence = tier accuracy)"
+    - "ECE_overall (pooled, no difficulty stratification)"
+    - "Temperature-scaled ECE (global T from 20% holdout)"
+
+measurement_plan:
+  data_collection:
+    - source: "EvalPlus Python API (check_correctness) for k=5 solutions per problem per model"
+    - source: "HuggingFace model.generate(output_scores=True) for P(True) logprob elicitation"
+    - source: "Run 3 infrastructure (h-e1/code/src/h_e1/) — DataLoader, PytestRunner, P(True) elicitor all validated"
+  procedure:
+    - step: "Load solutions from Run 3 (k=5 per problem, 3 models) if available; else regenerate"
+    - step: "Compute pass@1 via EvalPlus oracle for each (problem, solution) pair"
+    - step: "Assign difficulty tiers: hard = pass@1=0.0, easy = pass@1≥0.6, per model"
+    - step: "Elicit P(True) logprob for each (problem, solution) pair using zero-shot prompt"
+    - step: "Compute ECE with M=15 bins per tier per model; compute MCE as secondary metric"
+    - step: "Compute ΔECE with bootstrap 95% CIs (1000 bootstrap resamples)"
+    - step: "Compute tier-specific null ECE (constant confidence = tier accuracy); compute excess ECE"
+    - step: "Fit global T on 20% holdout (minimize NLL); recompute tier-stratified ECE post-scaling"
+    - step: "Sensitivity analysis: M∈{10,15,20} bins; compare ΔECE stability"
+  success_criteria:
+    - "ΔECE ≥ 0.03 in ≥2/3 model families with 95% CI excluding zero (P1)"
+    - "Excess ECE larger in hard tier than easy tier, p<0.05 bootstrap (P2)"
+    - "ΔECE persists after global T scaling, ≥0.03 in ≥2/3 families (P3)"
+    - "n_hard ≥ 20 and n_easy ≥ 20 per model per benchmark (viability check)"
+
+validation:
+  internal_validity:
+    - "Null baseline comparison isolates structural miscalibration from base-rate accuracy coupling"
+    - "Temperature scaling probe distinguishes global vs. difficulty-conditioned miscalibration"
+    - "Bootstrap CIs quantify sampling uncertainty in ECE estimates"
+    - "M-sensitivity analysis ensures ΔECE is not a binning artifact"
+  external_validity:
+    - "Results measured on both HumanEval+ and MBPP+ (generalization across benchmark families)"
+    - "Three LLM families (general, code-adapted, code-specialized) span architecture diversity"
+    - "Self-contained bootstrap is model-specific — results naturally transfer to any model's difficulty landscape"
+
+discussion_synthesis:
+  key_insights:
+    - "Measurement paper framing is stronger than structural metacognition claim — analogous to Guo 2017's landmark ECE measurement"
+    - "k=5 bootstrap produces only 6 discrete pass@1 values; honest acknowledgment as 'pilot methodology' is required"
+    - "Temperature scaling mechanistic probe (global T vs. tier-specific T) is a secondary novel contribution"
+    - "6-point calibration-difficulty curve per model is the core measurement artifact — a 'calibration fingerprint'"
+    - "ΔECE significance holds in both directions: positive → formal oracle needed; near-zero → LLM confidence sufficient"
+  breakthrough_moments:
+    - "Prof. Rex's regression control (ECE ~ Difficulty + Accuracy) reframed as pre-registered P2 robustness check"
+    - "Prof. Pax's feasibility analysis confirmed all components implementable with existing Run 3 infrastructure"
+    - "Prof. Nova's 'calibration-difficulty fingerprint' reframing transformed measurement study into paradigm-shifting contribution"
+    - "Prof. Rex's 'measurement paper, not metacognition proof' reframing eliminated overreach and strengthened publishability"
+  resolved_tensions:
+    - "k=5 degeneracy concern → resolved by 'pilot methodology' framing + 6-point curve with CIs"
+    - "Base-rate confound → resolved by tier-specific null baseline comparison (P2)"
+    - "Architecture comparison underpoweredness → resolved by labeling as exploratory (P4)"
+    - "Structural vs. global miscalibration ambiguity → resolved by temperature scaling probe (P3)"

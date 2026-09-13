@@ -1,0 +1,249 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-13
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-CBRT-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under conditions where multimodal LLMs use attention-based cross-modal fusion, if adversarial input pairs are generated where each modality individually passes safety classifiers but their joint semantic embedding is optimized toward harmful targets, then the MLLM will produce harmful outputs that bypass individual modality safety checks, because cross-modal binding creates emergent semantics not present in either input alone (analogous to the McGurk Effect in cognitive science).
+
+**Alternative Hypothesis (H0):**
+Cross-modal binding in MLLMs does not create exploitable emergent semantics; inputs classified as safe by individual modality classifiers will also produce safe outputs when jointly interpreted, regardless of their compositional combination.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Attack Type | Independent | CBRT (compositional) vs. single-modality vs. transfer-based (Alignment Curse) vs. dual-perturbation (VLATTACK) | Categorical: 4 levels |
+| Compositional Attack Success Rate (C-ASR) | Dependent | Percentage of attacks where individual modality classifiers predict "safe" but joint MLLM interpretation produces harmful output; measured via GPT-4 judge with standardized rubric | 0-100%, target >50% |
+| Individual Modality Safety Score | Dependent | Binary classification (safe/unsafe) from modality-specific safety classifiers (CLIP-based image classifier, Perspective API for text) | Binary per modality; require both "safe" for CBRT condition |
+| Standard Attack Success Rate (ASR) | Dependent | Percentage of attacks that produce harmful output regardless of individual modality classification | 0-100%, baseline comparison |
+| MLLM Architecture | Controlled | Same model family across comparisons | LLaVA-1.5-7B, GPT-4V, Gemini-1.5 |
+| Harm Category | Controlled | Fixed to 3 initial categories | Weapon assembly, dangerous substance synthesis, targeted harassment |
+| Perturbation Budget (ε) | Controlled | L∞ norm constraint on image perturbations | ε = 8/255 (standard adversarial ML) |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3):**
+
+```
+Step 1: Dual-Objective Optimization
+    ↓
+Step 2: Cross-Modal Attention Binding
+    ↓
+Step 3: Decoder Harmful Generation
+    ↓
+Outcome: Compositional Attack Success
+```
+
+**Step 1 → Step 2: Dual-Objective Optimization → Attention Binding**
+- Mechanism: Gradient-based optimization generates perturbations that minimize distance(joint_embedding, harmful_target) while maximizing distance(individual_embeddings, harmful_target) and satisfying constraint that individual modality classifiers predict "safe"
+- Evidence: PGD and FGSM techniques enable precise embedding manipulation; VLATTACK demonstrates feasibility of multi-objective perturbation optimization
+
+**Step 2 → Step 3: Attention Binding → Harmful Generation**
+- Mechanism: Cross-modal attention layers in MLLMs combine individually-safe visual and textual representations into emergent joint semantics that align with harmful target embedding
+- Evidence: VLSU benchmark shows 34% of errors occur on joint classification despite correct individual modality classification, demonstrating binding creates novel interpretations not present in either input alone
+
+**Step 3 → Outcome: Harmful Generation → Attack Success**
+- Mechanism: MLLM decoder generates harmful output based on joint embedding; modality-specific input filters do not catch the compositional harm
+- Evidence: SACRED-Bench shows 66% ASR for compositional audio attacks on Gemini 2.5 Pro, validating that compositional attacks bypass existing safeguards
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | VLATTACK (NeurIPS 2023) | Dual-perturbation optimization achieves targeted embedding manipulation | Strong |
+| Step2 → Step3 | VLSU (2025) | 34% compositional failure rate despite correct unimodal classification | Strong |
+| Step3 → Outcome | SACRED-Bench (2026) | 66% ASR on compositional audio attacks | Strong |
+
+**Key Tension:**
+- **Tension:** VLSU shows compositional failures occur "naturally" (34% without adversarial optimization), while CBRT requires active optimization to create compositional attacks. Question: Does optimization meaningfully increase C-ASR beyond natural compositional failure rate?
+- **Resolution:** This verification plan tests whether CBRT optimization achieves C-ASR significantly higher than the 34% natural baseline, demonstrating that adversarial targeting amplifies compositional vulnerabilities beyond random failures.
+
+### 1.4 Key Assumptions
+
+1. **Cross-modal binding creates distinct joint semantics**
+   - Supporting evidence: VLSU 34% compositional failure; McGurk Effect in cognitive science
+   - Consequence if violated: Joint embedding equals linear combination of individual embeddings → C-ASR would not exceed baseline single-modality attacks
+
+2. **Individual modality classifiers cannot detect emergent cross-modal harm**
+   - Supporting evidence: VLSU shows 90%+ unimodal accuracy but 20-55% joint accuracy
+   - Consequence if violated: Modality-specific classifiers would catch compositional attacks → CBRT attacks would fail at constraint satisfaction
+
+3. **Gradient-based perturbations can satisfy dual-objective constraints**
+   - Supporting evidence: FGSM, PGD, and adversarial illusions literature demonstrate precise embedding control
+   - Consequence if violated: Trade-off between individual safety preservation and joint harm targeting is infeasible → Cannot generate valid CBRT attacks
+
+4. **MLLMs process inputs through attention-based cross-modal fusion**
+   - Supporting evidence: Transformer architecture in LLaVA, GPT-4V, Gemini uses cross-attention layers
+   - Consequence if violated: If binding occurs through different mechanism (e.g., late fusion), optimization target would need adjustment
+
+### 1.5 Scope & Boundaries
+
+**Applies to:**
+- Multimodal LLMs with attention-based cross-modal fusion (LLaVA, GPT-4V, Gemini, Qwen-VL)
+- Vision-language models with joint embedding spaces
+- Image-text and potentially audio-text modality combinations
+
+**Does NOT apply to:**
+- Text-only LLMs (no cross-modal binding)
+- Single-modality models
+- Late-fusion architectures where modalities are processed independently until output layer
+- Models with explicit compositional safety classifiers (e.g., SALMONN-Guard)
+
+**Known Limitations:**
+- Initial evaluation focused on 3 harm categories (weapon assembly, dangerous substance synthesis, targeted harassment)
+- White-box access required for attack generation (gradient-based optimization)
+- Black-box transferability evaluation as secondary objective
+- Perturbation imperceptibility assumes L∞ norm constraint sufficient
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Compositional Attack Success Rate):**
+CBRT attacks using individually-safe inputs will achieve C-ASR > 50% on target MLLMs, significantly exceeding the 34% natural compositional failure baseline observed in VLSU.
+
+*Measurement*:
+- C-ASR > 50% with p < 0.05 (one-sample t-test against μ₀=34%)
+- Statistical test: One-sample t-test, n ≥ 30 attack samples per harm category
+- Effect size: Cohen's d > 0.5 (medium effect)
+
+*Basis*:
+VLSU establishes 34% natural compositional failure rate. SACRED-Bench demonstrates 66% ASR for compositional audio attacks. Our optimization-based approach should achieve performance between these bounds, with target >50% as meaningful improvement over natural failures.
+
+*Success Criteria for Phase 2B*:
+- Primary: C-ASR > 50% (p < 0.05)
+- Falsification: C-ASR ≤ 40% triggers hypothesis refinement
+
+**Secondary Predictions:**
+
+**P2 (Individual Modality Safety Preservation):**
+For all successful CBRT attacks, both individual modality classifiers (image and text) will classify inputs as "safe" (>95% of successful attacks).
+
+*Measurement*: Percentage of C-ASR attacks where both modalities pass safety check
+*Basis*: Constraint satisfaction requirement of dual-objective optimization
+
+**P3 (Baseline Comparison - Differentiation):**
+CBRT C-ASR will exceed single-modality jailbreak ASR by >15 percentage points and differ qualitatively from transfer-based attacks (Alignment Curse) by requiring individually-safe inputs.
+
+*Measurement*:
+- Pairwise comparison: CBRT C-ASR vs. GPTFUZZER ASR, CBRT C-ASR vs. Alignment Curse ASR
+- Qualitative: Verify CBRT inputs pass individual safety filters while baseline attacks do not
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any occur:
+
+1. **Primary Failure**: C-ASR ≤ 40% (not significantly better than natural compositional failures)
+   - Interpretation: Adversarial optimization does not meaningfully amplify compositional vulnerabilities
+
+2. **Constraint Failure**: <80% of successful attacks have individually-safe inputs
+   - Interpretation: Attack success depends on individual modality harm, not compositional emergence
+
+3. **Mechanism Failure**: Ablation shows no difference between optimized CBRT and random compositional pairing
+   - Interpretation: Dual-objective optimization provides no benefit over random combinations
+
+4. **Differentiation Failure**: CBRT C-ASR not significantly different from baseline attacks
+   - Interpretation: CBRT is not a distinct attack surface
+
+### 1.7 SOTA Baseline (Optional)
+
+*Not applicable - CBRT targets novel attack surface discovery, not performance improvement over existing attacks.*
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size (Cohen's d): 0.5 (medium effect, C-ASR 50% vs baseline 34%)
+- Required samples: n ≥ 30 per harm category × 3 categories = 90 total
+- Statistical power: 0.8
+
+**Test Specification:**
+- Primary: One-sample t-test (C-ASR vs μ₀=34%)
+- Secondary: Independent samples t-test (CBRT vs baseline methods)
+- Significance level: α = 0.05 (one-tailed for primary, two-tailed for comparisons)
+- Report format: Mean C-ASR ± Std Dev, 95% CI, Cohen's d, p-value
+
+**Multiple Testing Correction:**
+- Bonferroni correction for 3 harm categories
+- Adjusted α = 0.05/3 = 0.017 per category
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Do CBRT attacks that use individually-safe inputs successfully produce harmful outputs from MLLMs at rates significantly higher than natural compositional failures?"
+- Maps to: Primary prediction (C-ASR > 50% vs baseline 34%)
+- Verification type: Empirical
+- Critical: MUST PASS for CBRT to be validated as meaningful attack method
+
+**SH2 (Mechanism):**
+"Is cross-modal attention binding the causal mechanism that enables individually-safe inputs to combine into harmful outputs?"
+- Maps to: Causal mechanism (3 steps)
+- Decomposes into:
+  - **H-M1:** Dual-objective optimization successfully generates perturbations satisfying both constraints
+  - **H-M2:** Cross-modal attention creates emergent joint semantics distinct from individual representations
+  - **H-M3:** Decoder generates harmful output based on joint embedding
+- Verification type: Ablation studies + mechanistic analysis
+- Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does CBRT represent a distinct attack surface from existing multimodal attacks (transfer-based, dual-perturbation)?"
+- Maps to: Secondary predictions (P3)
+- Verification type: Comparative empirical
+- Critical: Determines novelty and practical value
+
+**Total sub-hypotheses in Phase 2B:** 2 + 3 = 5 (SH1, H-M1, H-M2, H-M3, SH3)
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-CBRT-v1
+- [x] Confidence level specified: 0.82
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (3 steps, evidence_for_links table)
+- [x] Causal chain length (N=3) determined and documented
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (3 predictions, primary marked)
+- [x] Falsification criteria are defined (4 criteria)
+- [x] Baselines are identified for comparison (4 baselines)
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Data Availability:** Are there existing datasets of individually-safe image-text pairs that can be used as seeds for CBRT optimization, or must we generate all attack inputs from scratch?
+
+2. **Computational Resources:** What compute budget is required for gradient-based dual-objective optimization on LLaVA-1.5-7B? Estimate needed for 90 attack samples (30 per harm category).
+
+3. **Black-box Transferability:** Should Phase 2B include black-box transferability evaluation (white-box generation on LLaVA → black-box evaluation on GPT-4V), or defer to later phase?
+
+4. **Defense Interaction:** Should we evaluate against SALMONN-Guard style multimodal safety classifiers, or focus solely on attack capability first?
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-13*

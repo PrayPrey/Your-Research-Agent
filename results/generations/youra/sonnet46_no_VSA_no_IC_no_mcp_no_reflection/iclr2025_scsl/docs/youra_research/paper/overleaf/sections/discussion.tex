@@ -1,0 +1,52 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Root Cause: Batch Contamination}
+
+The inversion effect requires a mechanistic explanation.
+We propose \textbf{batch contamination} as the primary candidate: under standard ERM, minority samples incur high loss and large gradient norms.
+With batch size $B=32$ and ${\sim}5\%$ minority prevalence, 1--2 minority samples per batch carry disproportionately large gradient magnitudes.
+These pull the within-batch mean gradient toward the minority gradient direction, increasing minority samples' measured cosine similarity with the mean --- the inversion.
+
+Formally, if minority gradients have magnitude $k > 1$ times majority gradient magnitude, the minority contribution to the batch mean is $\propto k \cdot n_\text{min} / B$.
+With $k$ potentially large at epoch~1 (due to high minority loss) and $n_\text{min} = 1$, a single minority sample's gradient contribution to the mean may be comparable to majority contributions combined.
+
+\textbf{Prevalence evidence:} CelebA's weaker inversion (0.246 vs.\ 0.150) at much lower prevalence (${\sim}0.8\%$) is quantitatively consistent with contamination being proportional to $k \cdot n_\text{min} / B$.
+
+\subsection{Alternative Explanations}
+
+\textbf{Gradient compression at last layer:} The Linear(2048, 2) projects to 2 class logits; group-discriminative signal in earlier 2048-dim representations may be destroyed.
+Penultimate-layer alignment experiments would distinguish this from batch contamination --- this is an immediate next step.
+
+\textbf{ImageNet pretraining:} At epoch~1, both majority and minority samples may produce similar fine-tuning gradients, reducing directional discriminability.
+This may compound with contamination at early epochs.
+
+These alternatives are not ruled out by the current experiments.
+The batch contamination hypothesis is supported by the prevalence-dependent pattern across datasets, but definitive separation requires additional ablations.
+
+\subsection{The Path Forward}
+
+A \textbf{two-pass global mean gradient} is expected to address the root cause:
+\begin{enumerate}
+  \item Pass 1: Standard ERM training
+  \item Pass 2: Compute $\bar{g}_\text{global} = \frac{1}{N}\sum_{i=1}^N g_i$ over full training set
+  \item Align each sample's gradient against $\bar{g}_\text{global}$ (not per-batch mean)
+\end{enumerate}
+The global mean is stable, majority-dominated across thousands of samples, and robust to per-batch minority gradient spikes.
+Annotation-free property preserved.
+Computational cost: one additional full-dataset pass per epoch.
+Whether this correction resolves the inversion remains to be empirically validated.
+
+\subsection{Limitations}
+
+\begin{itemize}
+  \item \textbf{Single seed (42):} Appropriate for PoC existence test; failure margin (0.27--0.78) is replication-grade.
+  \item \textbf{CelebA 16K subsample:} Group composition ratios preserved; conclusion unchanged.
+  \item \textbf{Last layer only:} Cannot conclude all layers fail; penultimate layer untested.
+  \item \textbf{Global mean gradient untested:} Identified corrective direction, not yet empirically validated.
+\end{itemize}
+
+\subsection{Broader Implications}
+
+The batch contamination failure mode may affect any method using within-batch gradient statistics for minority identification in imbalanced settings.
+Methods should prefer globally computed gradient reference directions over per-batch statistics when minority prevalence is low and minority samples have high loss.

@@ -1,0 +1,1 @@
+When work is complete, verify the relevant experiment/paper artifacts were inspected, ensure any requested output file was written to the specified path, and, if code changed, run the most relevant targeted tests or note why tests were not run. For analysis-only tasks, confirm the classification is backed by file-and-line evidence from both code/results and paper text.

@@ -1,0 +1,191 @@
+epic_1_data_preparation:
+  tasks:
+  - dependencies: []
+    description: Download hotpotqa, 2wikimqa, musique from HuggingFace THUDM/LongBench
+    estimated_time: 10min
+    id: h-e1-data-01
+    title: Download LongBench dataset
+  - dependencies:
+    - h-e1-data-01
+    description: Parse context field on "\n\n" delimiter, validate 10-30 passages
+      per question
+    estimated_time: 15min
+    id: h-e1-data-02
+    title: Implement passage segmentation
+  - dependencies:
+    - h-e1-data-01
+    description: Word count + spaCy NER entity density (Simple < 10 words, < 0.3 density)
+    estimated_time: 20min
+    id: h-e1-data-03
+    title: Implement query complexity labeling
+  - dependencies:
+    - h-e1-data-02
+    description: rank_bm25 integration (k1=1.5, b=0.75, top_k=10)
+    estimated_time: 25min
+    id: h-e1-data-04
+    title: Implement BM25 retrieval
+  - dependencies:
+    - h-e1-data-02
+    description: Load facebook/contriever-msmarco, encode query+passages, top_k=10
+    estimated_time: 30min
+    id: h-e1-data-05
+    title: Implement Contriever retrieval
+  - dependencies:
+    - h-e1-data-04
+    - h-e1-data-05
+    description: Save passage IDs, BM25 scores, Contriever scores per question
+    estimated_time: 15min
+    id: h-e1-data-06
+    title: Store retrieval results
+  - dependencies:
+    - h-e1-data-06
+    description: Unit tests for passage count range, score ranges, no missing data
+    estimated_time: 20min
+    id: h-e1-data-07
+    title: Validate data pipeline
+  - dependencies:
+    - h-e1-data-07
+    description: Pickle preprocessed_longbench_h-e1.pkl for fast loading
+    estimated_time: 10min
+    id: h-e1-data-08
+    title: Cache processed dataset
+  total_tasks: 8
+epic_2_model_attention:
+  tasks:
+  - dependencies: []
+    description: HuggingFace meta-llama/Llama-2-7b-chat-hf (FP16, device_map=auto)
+    estimated_time: 15min
+    id: h-e1-model-01
+    title: Load Llama-2-7B-Chat model
+  - dependencies: []
+    description: PyTorch hook to capture attention weights (batch_size, num_heads,
+      seq_len, seq_len)
+    estimated_time: 25min
+    id: h-e1-model-02
+    title: Implement AttentionCollector hook class
+  - dependencies:
+    - h-e1-model-01
+    - h-e1-model-02
+    description: Install hook on model.layers[-1].self_attn (last decoder layer)
+    estimated_time: 10min
+    id: h-e1-model-03
+    title: Register hooks on model layers
+  - dependencies:
+    - h-e1-model-02
+    description: Average over heads, sum over generated tokens, map to passages
+    estimated_time: 30min
+    id: h-e1-model-04
+    title: Implement attention aggregation
+  - dependencies:
+    - h-e1-model-01
+    description: Track token positions for each passage during prompt tokenization
+    estimated_time: 25min
+    id: h-e1-model-05
+    title: Implement passage boundary tracking
+  - dependencies:
+    - h-e1-model-03
+    - h-e1-model-04
+    - h-e1-model-05
+    description: Verify attention shape, non-zero values, passage boundary correctness
+    estimated_time: 20min
+    id: h-e1-model-06
+    title: Unit test attention extraction
+  total_tasks: 6
+epic_3_execution:
+  tasks:
+  - dependencies:
+    - h-e1-data-08
+    - h-e1-model-06
+    description: Batch size 1 for attention extraction stability
+    estimated_time: 10min
+    id: h-e1-exec-01
+    title: Implement question batching
+  - dependencies:
+    - h-e1-exec-01
+    description: Generate answers for 600 questions with attention extraction (~2
+      GPU-hours)
+    estimated_time: 120min
+    id: h-e1-exec-02
+    title: Run generation loop
+  - dependencies:
+    - h-e1-exec-02
+    description: Save NumPy arrays per question (attentions/question_{id}.npy)
+    estimated_time: 5min
+    id: h-e1-exec-03
+    title: Save attention outputs
+  - dependencies:
+    - h-e1-exec-02
+    description: Exact match or F1 > 0.5 against ground truth
+    estimated_time: 20min
+    id: h-e1-exec-04
+    title: Implement answer correctness labeling
+  - dependencies:
+    - h-e1-exec-01
+    description: Save checkpoints every 100 questions for resume capability
+    estimated_time: 15min
+    id: h-e1-exec-05
+    title: Checkpoint intermediate results
+  total_tasks: 5
+epic_4_correlation:
+  tasks:
+  - dependencies:
+    - h-e1-exec-03
+    description: scipy.stats.spearmanr wrapper, return rho + p-value
+    estimated_time: 15min
+    id: h-e1-corr-01
+    title: Implement Spearman correlation
+  - dependencies:
+    - h-e1-corr-01
+    description: BM25 vs attention, Contriever vs attention for all 600 questions
+    estimated_time: 10min
+    id: h-e1-corr-02
+    title: Compute per-question correlations
+  - dependencies:
+    - h-e1-corr-02
+    - h-e1-exec-04
+    description: Group by retriever type, query complexity, answer correctness
+    estimated_time: 20min
+    id: h-e1-corr-03
+    title: Stratified analysis
+  - dependencies:
+    - h-e1-corr-02
+    description: 1000 resamples for 95% CI on mean rho
+    estimated_time: 15min
+    id: h-e1-corr-04
+    title: Bootstrap confidence intervals
+  - dependencies:
+    - h-e1-corr-03
+    description: Scatter plots (retrieval score vs attention weight), heatmaps, boxplots
+    estimated_time: 25min
+    id: h-e1-corr-05
+    title: Generate correlation plots
+  - dependencies:
+    - h-e1-corr-05
+    description: Generate 02d_validation_h-e1.md with gate decision
+    estimated_time: 30min
+    id: h-e1-corr-06
+    title: Write validation report
+  total_tasks: 6
+epic_5_baselines:
+  tasks:
+  - dependencies:
+    - h-e1-corr-01
+    description: Shuffle scores 1000 times, compute mean rho (expect ~0)
+    estimated_time: 10min
+    id: h-e1-base-01
+    title: Implement random retrieval baseline
+  - dependencies:
+    - h-e1-corr-01
+    description: Flat attention weights, compute rho (expect ~0)
+    estimated_time: 10min
+    id: h-e1-base-02
+    title: Implement uniform attention baseline
+  - dependencies:
+    - h-e1-corr-02
+    - h-e1-base-01
+    - h-e1-base-02
+    description: t-test observed rho vs random baseline (p < 0.05)
+    estimated_time: 15min
+    id: h-e1-base-03
+    title: Statistical significance test
+  total_tasks: 3

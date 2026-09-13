@@ -1,0 +1,77 @@
+\section{Experimental Setup}
+
+We design experiments to answer four research questions that progressively validate the TC-SSM mechanism:
+
+\begin{description}
+\item[RQ1:] Does task-relevant structure exist in pretrained hidden states, discoverable without supervision?
+\item[RQ2:] Can self-supervised embeddings capture task-discriminative patterns?
+\item[RQ3:] Can low-rank modulation efficiently condition SSM dynamics?
+\item[RQ4:] Does TC-SSM preserve adaptation capability compared to transformer baseline?
+\end{description}
+
+Each question maps to a stage in the TC-SSM pipeline and tests a specific claim from our hypothesis.
+
+\subsection{Datasets}
+
+We evaluate on SuperGLUE, a standard few-shot NLP benchmark with established protocols:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Task & Description & Train & Val & Metric \\
+\midrule
+BoolQ & Boolean QA & 9,427 & 3,270 & Accuracy \\
+CB & CommitmentBank & 250 & 57 & F1/Accuracy \\
+COPA & Causal reasoning & 400 & 100 & Accuracy \\
+RTE & Textual entailment & 2,490 & 277 & Accuracy \\
+WiC & Word-in-context & 5,428 & 638 & Accuracy \\
+WSC & Winograd schema & 804 & 104 & Accuracy \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+SuperGLUE provides diverse NLU tasks with varying difficulty and dataset sizes, enabling us to test adaptation across conditions. We use 8-shot and 16-shot protocols following standard practice, with 3 random seeds per configuration.
+
+\subsection{Baselines}
+
+We compare against methods representing sequential conversion-then-adaptation approaches:
+
+\textbf{Standard Distillation:} Knowledge distillation from BERT-base to Mamba-130M using KL divergence on logits and MSE on hidden states, without task conditioning. This isolates the contribution of our task-conditioned approach.
+
+\textbf{Mamba + LoRA (post-hoc):} Vanilla Mamba-130M with LoRA adaptation ($r=16$, $\alpha=32$) applied after training. This represents the conventional pipeline where conversion and adaptation are decoupled.
+
+\textbf{Transformer baseline:} Fine-tuned BERT-base on each task. This establishes the adaptation capability ceiling that TC-SSM aims to preserve.
+
+\subsection{Implementation Details}
+
+\textbf{Model architecture:} TC-SSM extends Mamba-130M (24 layers, d\_model=768, d\_state=16) with task-conditioned blocks. Task embeddings have dimension 32 with rank-32 modulation.
+
+\textbf{Task discovery:} K-means clustering ($K=8$) on BERT-base [CLS] embeddings extracted from 660 validation samples across 5 SuperGLUE tasks.
+
+\textbf{Embedding learning:} InfoNCE contrastive training with $\tau=0.1$, trained for 10 epochs with AdamW (lr=1e-4, batch size 32).
+
+\textbf{Conversion training:} 2000 steps with combined loss (KL + 0.5$\times$MSE + 0.1$\times$adaptation regularizer), AdamW (lr=2e-5), batch size 8, gradient clipping at 1.0.
+
+\textbf{Few-shot adaptation:} Maximum 100 gradient steps, AdamW (lr=2e-5), batch size 8. We measure steps to reach 95\% of fine-tuned ceiling accuracy.
+
+\textbf{Hardware:} Single NVIDIA A100 GPU. Conversion training completes in approximately 4 hours.
+
+\subsection{Evaluation Metrics}
+
+\textbf{Primary metrics:}
+\begin{itemize}
+\item Few-shot accuracy gap: $|\text{Acc}_{\text{TC-SSM}} - \text{Acc}_{\text{transformer}}|$ (threshold: $\leq$5\%)
+\item Adaptation speed: Steps to 95\% ceiling (threshold: $<$100)
+\item Computational overhead: FLOPs ratio vs vanilla Mamba (threshold: $<$2$\times$)
+\end{itemize}
+
+\textbf{Mechanism validation metrics:}
+\begin{itemize}
+\item Cluster purity: Fraction of majority-class samples per cluster
+\item NMI/ARI: Normalized mutual information and adjusted Rand index
+\item Linear probe accuracy: Task classification from frozen embeddings
+\item State variance ANOVA: F-statistic for task-conditioned state differences
+\end{itemize}
+
+Statistical significance assessed via t-tests ($p<0.05$) across seeds for primary metrics and ANOVA for mechanism validation.

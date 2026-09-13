@@ -1,0 +1,75 @@
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Overview}
+
+Building on the theoretical intuition that spurious-minority samples should have gradients conflicting with the majority-dominated batch mean, we define a \textbf{Gradient Alignment Score} as the negated cosine similarity between a sample's per-sample last-layer gradient and the within-batch mean gradient.
+A low alignment score (conflicting direction) serves as the minority membership signal --- the core of the proposed Gradient Alignment Debiasing (GAD) framework.
+
+We measure whether the gradient alignment score achieves higher ROC-AUC than per-sample loss as a binary predictor of spurious-minority group membership, at multiple training epochs.
+The intervention (upweighting) is not evaluated here --- it is only motivated if the directional signal surpasses loss.
+
+\subsection{Per-Sample Gradient Alignment Score}
+
+Let $f_\theta: \mathcal{X} \to \mathbb{R}^C$ be a neural network.
+For a mini-batch $\mathcal{B} = \{(x_i, y_i)\}_{i=1}^{B}$, define per-sample last-layer gradients:
+\begin{equation}
+  g_i = \nabla_{\theta_{\text{fc}}} \mathcal{L}(f_\theta(x_i), y_i)
+\end{equation}
+and batch-mean gradient $\bar{g} = \frac{1}{B} \sum_{i=1}^{B} g_i$.
+The alignment score is:
+\begin{equation}
+  a_i = 1 - \frac{g_i \cdot \bar{g}}{\|g_i\|_2 \cdot \|\bar{g}\|_2} \in [0, 2]
+\end{equation}
+where high $a_i$ indicates gradient conflict with the batch mean (predicted minority signal).
+ROC-AUC of $a_i$ below 0.5 means minority samples have \emph{lower} conflict scores --- equivalently, higher raw cosine similarity with the batch mean --- the opposite of the directional hypothesis.
+
+\textbf{Rationale for last-layer scope:} Restricting to $\theta_{\text{fc}}$ (Linear(2048, $C$), 4,098 parameters for $C=2$) provides computational feasibility with vmap and directly captures class-discriminative gradient direction.
+
+\textbf{Rationale for cosine similarity:} Magnitude-invariant, isolating the directional component from per-sample loss magnitude --- the theorized advantage over loss-based proxies.
+
+\subsection{Efficient Computation via vmap}
+
+\begin{verbatim}
+from torch.func import functional_call, vmap, grad
+
+def per_sample_loss(params, buffers, x, y):
+    pred = functional_call(model, (params, buffers), (x.unsqueeze(0),))
+    return F.cross_entropy(pred, y.unsqueeze(0))
+
+ft_per_sample_grad = vmap(grad(per_sample_loss), in_dims=(None, None, 0, 0))
+fc_params = {k: v for k, v in model.named_parameters() if 'fc' in k}
+per_sample_grads = ft_per_sample_grad(fc_params, {}, x_batch, y_batch)
+\end{verbatim}
+
+The vmap scope is restricted to \texttt{model.fc}; the backbone is frozen during probe computation.
+Per-batch gradient storage: $32 \times 4{,}098 = 131\text{K}$ floats.
+
+\subsection{Probe Injection Protocol}
+
+At each checkpoint epoch $e \in \{1, 5, 10, 25, 50\}$, after standard ERM training:
+\begin{enumerate}
+  \item Freeze model parameters.
+  \item Run full pass over training set (batch size 32).
+  \item Compute $a_i$ and $\ell_i$ for all $N$ training samples.
+  \item Evaluate ROC-AUC of each against binary minority group membership labels.
+\end{enumerate}
+
+\subsection{Training Configuration}
+
+\begin{table}[h]
+\centering
+\caption{Training hyperparameters.}
+\label{tab:training}
+\begin{tabular}{lll}
+\toprule
+\textbf{Parameter} & \textbf{Waterbirds} & \textbf{CelebA} \\
+\midrule
+Model & ResNet-50 (IMAGENET1K\_V1) & ResNet-50 (IMAGENET1K\_V1) \\
+Optimizer & SGD, lr=0.001, mom=0.9, wd=1e-4 & SGD, lr=0.0001, mom=0.9, wd=1e-4 \\
+Batch size & 32 & 32 \\
+Train size & 4,795 & 16,000 (stratified subsample) \\
+Seed & 42 & 42 \\
+\bottomrule
+\end{tabular}
+\end{table}

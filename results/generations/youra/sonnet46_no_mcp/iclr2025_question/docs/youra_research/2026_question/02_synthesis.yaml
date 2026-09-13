@@ -1,0 +1,127 @@
+# 02_synthesis.yaml - Phase 2A Synthesis (v10.0.0 Free-Parse)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-05-11T00:00:00"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Semantic Entropy Superiority for Hallucination Detection: A Controlled Cross-Signal Comparison on HaluEval-QA"
+  hypothesis_id: "H-SemanticEntropyUQ-v1"
+  core_claim: |
+    Semantic entropy achieves statistically significantly higher AUROC for binary hallucination
+    detection on HaluEval-QA than both token-level entropy and SelfCheckGPT-BERTScore (N=5),
+    when all methods are applied to the same open-source LLM (LLaMA-2-7B-chat and
+    Mistral-7B-Instruct) under fixed-budget matched inference conditions.
+    This advantage arises because semantic entropy filters surface-form noise via NLI clustering,
+    while token entropy conflates surface and semantic variance, and SelfCheckGPT achieves
+    similar discrimination power at 5× the compute cost.
+  mechanism: |
+    Step 1: LLM token probability distributions contain mixed surface-form and semantic uncertainty.
+    Step 2: Semantic entropy isolates semantic uncertainty by clustering NLI-equivalent responses
+            (via deberta-large-mnli), filtering surface noise that reduces token entropy's discriminative power.
+    Step 3: The cleaner semantic signal produces better AUROC discrimination between hallucinated
+            (high semantic uncertainty) and factual (low semantic uncertainty) responses on HaluEval-QA.
+  predictions:
+    - P1: "Semantic entropy AUROC > token entropy AUROC by ≥ 0.05 on HaluEval-QA (both LLMs, bootstrap p < 0.05)"
+    - P2: "SelfCheckGPT-BERTScore (N=5) AUROC is intermediate between token entropy and semantic entropy"
+    - P3: "AUROC ranking order (semantic entropy ≥ SelfCheckGPT ≥ token entropy) preserved across both LLMs"
+
+variables_summary:
+  independent: "UQ Signal Type (7 levels: 3 token entropy variants, semantic entropy, 3 SelfCheckGPT variants) × LLM Model (2 levels: LLaMA-2-7B-chat, Mistral-7B-Instruct)"
+  dependent_primary: "AUROC for binary hallucination detection on HaluEval-QA (bootstrap 95% CI, N=1000)"
+  controlled: "Inference parameters (temperature, max_new_tokens, tokenizer), dataset sample (fixed 2,000-example stratified), NLI model (deberta-large-mnli), SelfCheckGPT N=5"
+
+null_hypothesis:
+  h0_statement: |
+    There is no statistically significant difference in AUROC for binary hallucination detection
+    on HaluEval-QA among token-level entropy (mean), semantic entropy, and SelfCheckGPT-BERTScore (N=5)
+    when applied to the same LLM under matched inference conditions
+    (all pairwise bootstrap 95% CIs overlap; p ≥ 0.05 for all comparisons).
+  statistical_test: "Bootstrap AUROC comparison with 95% confidence intervals (N=1000 resamples); Bonferroni correction for 3 pairwise comparisons per LLM."
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Controlled cross-signal comparison eliminating benchmark and model confounds from prior work (Kuhn 2023 on TriviaQA only; Manakul 2023 on WikiBio only). First AUROC comparison of all three UQ signal families + all SelfCheckGPT variants on HaluEval-QA."
+  differentiation_summary: |
+    Kuhn et al. (2023) established semantic entropy but evaluated on different benchmarks without SelfCheckGPT comparison.
+    Manakul et al. (2023) established SelfCheckGPT but evaluated on biography generation without entropy baselines.
+    Xiong et al. (2023) compared confidence elicitation methods but not specifically AUROC on hallucination benchmarks.
+    This study is the first to place all three signal families on the same benchmark, same LLMs, same statistical framework.
+    Additionally novel: stratification by HaluEval question type (QA/dialogue/summarization), all SelfCheckGPT variants, 3 token entropy aggregations.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "meta-llama/Llama-2-7b-chat-hf"
+    - "mistralai/Mistral-7B-Instruct-v0.2"
+  datasets:
+    - "HaluEval-QA (2,000 stratified examples from ~10K total)"
+  baselines:
+    - "token_entropy_mean"
+    - "token_entropy_first"
+    - "token_entropy_logprob"
+    - "semantic_entropy (lorenzkuhn/semantic_uncertainty + deberta-large-mnli)"
+    - "selfcheckgpt_bertscore_n5 (potsawee/selfcheckgpt)"
+    - "selfcheckgpt_nli_n5"
+    - "selfcheckgpt_ngram_n5"
+
+measurement_plan:
+  data_collection:
+    - source: "HaluEval-QA: stratified 2,000-example sample (balanced hallucinated/factual). Load via HuggingFace datasets API."
+    - source: "LLM generations: for each example, generate 1 greedy response (for entropy) + 5 stochastic samples at temp=1.0 (for SelfCheckGPT). Save to disk to avoid re-generation."
+    - source: "Token scores: extracted via model.generate(output_scores=True, return_dict_in_generate=True)."
+  procedure:
+    - step: "1. Stratified sample 2,000 examples from HaluEval-QA (balanced by question type and hallucination label)"
+    - step: "2. For each example × model: generate greedy response (temp=0) + 5 stochastic samples (temp=1.0), save all logits"
+    - step: "3. Compute token entropy variants (mean, first, logprob) from greedy generation logits"
+    - step: "4. Run semantic entropy: load semantic_uncertainty codebase, run NLI clustering on 5 stochastic samples, compute semantic entropy"
+    - step: "5. Run SelfCheckGPT variants (BERTScore, NLI, nGram) on 5 stochastic samples vs. greedy response"
+    - step: "6. Compute AUROC for each UQ signal vs. HaluEval-QA binary labels using sklearn.metrics.roc_auc_score"
+    - step: "7. Bootstrap 1000 resamples for each AUROC; compute 95% CI and pairwise p-values"
+    - step: "8. Stratify results by HaluEval question type (QA/dialogue/summarization)"
+    - step: "9. Repeat steps 2-8 for second LLM (Mistral-7B-Instruct)"
+    - step: "10. Compute Spearman rank correlation of method rankings across the two LLMs (P3 test)"
+  success_criteria:
+    - "AUROC(semantic entropy) > AUROC(token_entropy_mean) by ≥ 0.05 with non-overlapping 95% bootstrap CIs for both LLMs (P1)"
+    - "AUROC(SelfCheckGPT-BERTScore) falls between AUROC(token_entropy_mean) and AUROC(semantic entropy) or is not significantly different from semantic entropy (P2)"
+    - "Spearman ρ ≥ 0.8 for method AUROC rankings across LLaMA-2-7B and Mistral-7B (P3)"
+
+validation:
+  internal_validity:
+    - "Fixed experimental conditions (same tokenizer, same inference parameters, same dataset sample) prevent method-specific confounds"
+    - "Pre-specified token entropy aggregation strategy prevents post-hoc cherry-picking"
+    - "Bonferroni correction prevents false positives from multiple comparisons (3 UQ methods × 2 LLMs = 6 primary tests)"
+    - "NLI model fixed to official Kuhn 2023 implementation (deberta-large-mnli) prevents NLI-quality confounds"
+  external_validity:
+    - "Two LLM families (LLaMA-2 architecture, Mistral architecture) improves generalizability beyond single model"
+    - "HaluEval-QA covers diverse factual QA questions; stratification by question type enables subgroup analysis"
+    - "Public code and data enable independent replication"
+    - "Acknowledged limitation: results may not generalize to larger models (>13B), closed-source models, or non-English QA"
+
+discussion_synthesis:
+  key_insights:
+    - "The core gap is a benchmark confound: Kuhn (TriviaQA) and Manakul (WikiBio) never competed on the same field — this study creates the level playing field."
+    - "Signal efficiency is a practical novelty: semantic entropy achieves higher discrimination in a single forward pass vs. SelfCheckGPT's N forward passes."
+    - "HaluEval's label noise (ChatGPT-generated) is a limitation but not a fatal flaw — it affects all methods equally and can be analyzed via question-type stratification."
+    - "The negative-result framing (token entropy ≈ semantic entropy) is equally valuable: if confirmed, it shows semantic clustering adds no value over simpler token entropy."
+    - "Cross-model stability is the high-impact scientific question — if the ranking reverses for Mistral, practitioners need model-specific guidance."
+  breakthrough_moments:
+    - "Exchange 3 (Dr. Sage): Reframing from 'ranking study' to 'cross-model stability of ranking' elevated scientific significance substantially."
+    - "Exchange 6 (Prof. Rex): Identifying token entropy aggregation ambiguity as a pre-registration requirement prevented a critical post-hoc analysis flaw."
+    - "Exchange 7 (Dr. Nova): Turning HaluEval label noise from a limitation into an analysis variable (question-type stratification) added genuine novelty."
+  resolved_tensions:
+    - "Tension: 3 LLMs (Dr. Sage) vs. 2 LLMs (Prof. Pax) — resolved in favor of 2 LLMs for compute feasibility, with cross-model stability as a prediction rather than exhaustive coverage."
+    - "Tension: Token entropy underspecified — resolved by pre-specifying all 3 aggregation strategies and reporting best-performing as the baseline."
+    - "Tension: SelfCheckGPT variant selection bias — resolved by reporting all 3 variants and using best-performing for primary comparison."

@@ -1,0 +1,10 @@
+﻿# Title
+Gaze-Driven Curriculum Learning: Using Eye-Tracking Data to Dynamically Prioritize Training Samples
+
+## Motivation
+Current machine learning models are trained on uniformly sampled or randomly ordered data, ignoring the human learning principle of starting with easier examples and progressively tackling harder ones. Eye-tracking data reveals which visual patterns humans find salient or challenging, providing natural difficulty indicators. This research addresses the gap between human-inspired learning strategies and ML training paradigms, potentially improving model efficiency, interpretability, and alignment with human perception.
+
+## Main Idea
+We propose a curriculum learning framework that leverages eye-gaze patterns to automatically order and weight training samples. The methodology consists of: (1) Collecting eye-tracking data from humans performing vision tasks (e.g., object recognition, scene understanding), extracting gaze-based difficulty metrics such as fixation duration, saccade frequency, and revisitation patterns; (2) Training a difficulty estimator network that predicts these gaze-derived metrics for unlabeled images; (3) Implementing an adaptive curriculum scheduler that dynamically reorders training batches based on predicted difficulty, starting with samples showing simpler gaze patterns.
+
+Expected outcomes include faster convergence, improved sample efficiency (particularly in low-data regimes), and better alignment between model attention and human visual strategies. This approach could significantly impact domains like medical imaging, where expert gaze patterns could guide model training on rare pathologies, and autonomous driving, where human attention patterns inform safety-critical perception systems. The framework naturally extends to active learning scenarios where gaze complexity guides data collection priorities.

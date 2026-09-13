@@ -1,0 +1,91 @@
+
+We test the semantic validity hypothesis through controlled experiments on MNIST digit classification, designed to isolate augmentation-induced label noise effects from general training dynamics. Our methodology follows from the core insight: if horizontal flip introduces label noise for asymmetric digits, we should observe (1) differential degradation on asymmetric versus symmetric digit classes, (2) monotonic dose-response where degradation increases with flip probability, and (3) absence of effects under semantically valid augmentation like rotation.
+
+\subsubsection{Dataset and Task}
+
+We use MNIST handwritten digit classification: 60,000 training images and 10,000 test images across 10 digit classes {0, 1, ..., 9}, grayscale $28\times 28$ pixels, pixel values normalized to [0, 1]. MNIST is selected for five reasons: (1) known baseline performance (~99\% test accuracy), (2) clear semantic asymmetry (digits partition into symmetric {0, 1, 8} and asymmetric {2, 3, 5, 6, 7, 9} classes), (3) established folklore (practitioners consistently avoid horizontal flip), (4) low task complexity (high baseline accuracy creates low-noise environment, maximizing statistical power), and (5) computational efficiency (fast training enables multi-seed validation).
+
+\subsubsection{Digit Grouping by Symmetry}
+
+A critical design choice is grouping digits by horizontal reflection symmetry rather than analyzing overall accuracy. This grouping operationalizes our semantic validity hypothesis: horizontal flip should harm only asymmetric digits.
+
+\textbf{Symmetric digits} {0, 1, 8}: Horizontally flipped images are visually nearly identical to canonical images. Flipping these digits produces semantically valid training examples---the flipped image remains a canonical representation of the labeled class.
+
+\textbf{Asymmetric digits} {2, 3, 5, 6, 7, 9}: Horizontally flipped images are visually non-canonical or ambiguous. Digit '2' becomes a leftward curve when flipped; digit '5' loop moves from top-right to top-left. These flipped images retain their original labels (by augmentation design), creating label noise: the model sees both canonical '2' and mirror-reversed '2', both labeled '2', but only canonical '2' appears in the test set.
+
+We compute per-class test accuracy for all 10 digits, then group by symmetry:
+\begin{itemize}
+\item \textbf{Asymmetric accuracy}: Mean accuracy across digits {2, 3, 5, 6, 7, 9} (6 classes)
+\item \textbf{Symmetric accuracy}: Mean accuracy across digits {0, 1, 8} (3 classes)
+\end{itemize}
+
+This grouping increases statistical power compared to individual digit analysis, while isolating the semantic validity effect.
+
+\subsubsection{Augmentation Conditions}
+
+We test five augmentation conditions: baseline (no augmentation), three flip probabilities, and rotation control.
+
+\textbf{Baseline (No Augmentation)}: Training uses only ToTensor() and Normalize(mean=0.1307, std=0.3081) transformations. This establishes expected MNIST performance without augmentation-induced effects.
+
+\textbf{Horizontal Flip Conditions}: We apply RandomHorizontalFlip(p) for p $\in$ {0.3, 0.5, 0.9}, where p is the probability that a given training image is flipped during each epoch. These probabilities span low, medium, and high flip rates, enabling dose-response analysis. Crucially, flip augmentation retains original labels. A training image of digit '2' has probability p of being flipped each epoch, but its label remains '2' regardless. This creates label noise for asymmetric digits.
+
+\textbf{Rotation Control (Semantically Valid Augmentation)}: We apply RandomRotation(degrees=15), uniformly sampling rotation angles in [-15°, +15°]. Rotation is selected as a positive control: small rotations preserve digit recognizability while introducing visual diversity. This design isolates semantic invalidity from general augmentation effects. Both flip and rotation increase training set diversity. If degradation were due to increased training noise, both should harm performance. If degradation is specific to semantic invalidity, flip should harm asymmetric digits while rotation should not.
+
+\subsubsection{Model Architecture and Training}
+
+We use a standard CNN architecture following PyTorch official MNIST examples:
+\begin{itemize}
+\item Conv2d(1 $\rightarrow$ 32, kernel=3) + ReLU + Conv2d(32 $\rightarrow$ 64, kernel=3) + ReLU
+\item MaxPool2d(kernel=2)
+\item Dropout(p=0.25)
+\item Fully Connected (9216 $\rightarrow$ 128) + ReLU
+\item Dropout(p=0.5)
+\item Fully Connected (128 $\rightarrow$ 10)
+\end{itemize}
+
+This architecture (~100K parameters) is shallow but representative of resource-constrained settings and canonical MNIST baselines. Training hyperparameters differ across sub-hypotheses:
+
+\textbf{Primary Experiments (h-e1, h-m)}:
+\begin{itemize}
+\item Optimizer: Adadelta (learning rate 1.0)
+\item Scheduler: StepLR (step size=1, gamma=0.7)
+\item Batch size: 64, Epochs: 14
+\item Loss: NLLLoss
+\end{itemize}
+
+\textbf{Mechanism Validation (h-m1)}:
+\begin{itemize}
+\item Optimizer: Adam (learning rate 0.001)
+\item Scheduler: StepLR (gamma=0.7)
+\item Batch size: 64, Variable epochs with early stopping (patience=5)
+\item Loss: NLLLoss
+\end{itemize}
+
+\subsubsection{Experimental Design: Four Sub-Hypotheses}
+
+We validate the main semantic validity hypothesis through four sub-hypotheses with escalating rigor:
+
+\textbf{h-e1 (EXISTENCE)}: Proof-of-concept testing whether the differential effect exists. Single-seed experiment (n=1) testing baseline, flip p=0.5, and rotation conditions. Success criteria: asymmetric accuracy lower under flip vs. baseline, symmetric accuracy stable (|$\Delta |$ < 1\%), rotation neutral (asymmetric difference from baseline < 1\%).
+
+\textbf{h-m1 (MECHANISM)}: Dose-response validation testing whether degradation increases monotonically with flip probability. Multi-seed experiment (n=5 random seeds) testing flip probabilities p $\in$ {0.0, 0.3, 0.5, 0.9}. Success criteria: Spearman $\rho$ < 0 with p < 0.05.
+
+\textbf{h-c1 (CONDITION)}: Positive control validation testing whether rotation shows no differential effect. Single-seed experiment (n=1) comparing baseline and rotation conditions. Success criteria: both differentials < 2\% threshold; difference between baseline and rotation differentials < 1\%.
+
+\textbf{h-m (EXTENDED MECHANISM)}: Full causal chain validation. Multi-seed experiment (n=5) testing all four flip probabilities plus rotation control. Success criteria: Spearman $\rho$ < 0 with p < 0.05; rotation asymmetric accuracy within 1\% of baseline.
+
+\subsubsection{Evaluation Metrics and Statistical Tests}
+
+\textbf{Per-class accuracy}: For each digit class c $\in$ {0, ..., 9}, we compute test accuracy as the fraction of correct predictions on test set images labeled c.
+
+\textbf{Group accuracy}: Mean per-class accuracy across digit groups:
+\begin{itemize}
+\item Asymmetric accuracy = mean($Acc_2, Acc_3, Acc_5, Acc_6, Acc_7, Acc_{9})$
+\item Symmetric accuracy = mean($Acc_0, Acc_1, Acc_{8})$
+\end{itemize}
+
+\textbf{Dose-response analysis}: For experiments testing multiple flip probabilities, we compute Spearman rank correlation coefficient $\rho$ between flip probability and asymmetric accuracy. Spearman is chosen because it tests monotonicity (rank-based) rather than linearity. Significance is assessed via p-value with $\alpha =0.05$ threshold.
+
+\textbf{Effect size}: We report both raw accuracy differences (percentage points) and Cohen's d for key comparisons.
+
+\textbf{Reproducibility}: All experiments except h-e1 and h-c1 use n=5 random seeds. We report mean $\pm$ standard deviation across seeds.
+

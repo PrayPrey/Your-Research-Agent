@@ -1,0 +1,8 @@
+# Title
+Latent Landscape Theory: Predicting Deep Generative Model Performance via Geometric Order Parameters
+
+# Motivation
+Selecting optimal deep generative model (DGM) architectures currently requires exhaustive training—a computationally prohibitive process. While theory proves universal approximation, it lacks predictive tools for architecture selection. Neural Architecture Search offers empirical solutions but remains a black box with high costs. We address this gap by introducing geometric order parameters that predict architecture performance before training, reducing computational costs by seven orders of magnitude while providing interpretable, theory-driven guidance.
+
+# Main Idea
+We hypothesize that DGM performance is predictable from geometric compatibility between dataset manifold properties (intrinsic dimensionality, curvature, modality structure) and architecture-specific latent space constraints. We define three order parameters: Φ_structure (latent curvature via Ollivier-Ricci), Φ_efficiency (dimensionality utilization), and Φ_stability (mode coverage uniformity). Our causal mechanism: datasets with specific geometric properties require matching latent geometries—VAEs impose near-zero curvature (Gaussian prior), diffusions allow flexible time-varying geometry, GANs lack constraints but risk instability, and flows preserve volume. We test whether order parameter-based architecture rankings correlate with empirical FID rankings (Kendall-τ > 0.7) across 10 datasets and 4 architecture families. Success enables pre-training architecture selection in ~10 minutes versus days, with interpretable geometric diagnostics explaining why specific architectures succeed on given datasets.

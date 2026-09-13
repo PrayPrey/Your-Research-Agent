@@ -1,0 +1,56 @@
+
+\subsubsection{3.1 Problem Setting}
+
+Consider a pre-trained LLaMA-3.1-8B transformer with frozen base weights. Two sets of lightweight trainable parameters are added:
+
+\begin{itemize}
+\item \textbf{LoRA adapters}: low-rank matrices A∈ℝ^{d×r}, B∈ℝ^{r×d} (r=16, α=32) injected into Q, K, V projections across all transformer layers.
+\item \textbf{Locret retaining heads}: per-layer two-layer MLPs (W₁, W₂) that compute a contextual importance score (CIS) for each token position, initialized from the pre-trained hyx21/Locret-llama-3.1-8B-instruct checkpoint.
+\end{itemize}
+
+In the baseline pipeline (B3: sequential LoRA→Locret), LoRA adapters are first trained on a task classification objective; then Locret retaining heads are trained on language modeling loss with the LoRA parameters frozen. In JointLoRA-KV, both parameter sets are trained simultaneously on the task classification objective.
+
+\subsubsection{3.2 Differentiable KV Budget Mask}
+
+Hard KV eviction (retaining the top-k tokens by CIS score) is non-differentiable. JointLoRA-KV replaces it during training with a soft sigmoid mask:
+
+$$M_{\text{soft}}(c) = \sigma\!\left(\frac{c - \theta}{\tau}\right)$$
+
+where c ∈ ℝ^L is the vector of CIS scores for a sequence of length L, θ is the adaptive threshold (the k-th largest CIS value for retention budget b = 0.50), τ = 0.1 controls the sharpness of the sigmoid, and σ(·) is the element-wise sigmoid function. This mask allows gradients from the task classification loss to flow continuously through the weighted KV representations to the Locret head weights W₁, W₂.
+
+At inference time, the hard top-k eviction is restored. The discrepancy between soft training and hard inference is handled by a straight-through estimator (STE): during the forward pass, the hard mask is used for the final output; during the backward pass, gradients flow through the soft mask.
+
+\subsubsection{3.3 Training Procedure}
+
+The training objective is standard cross-entropy classification loss:
+
+$$\mathcal{L} = \mathcal{L}_{\text{CE}}(f_{\text{LoRA+Locret}}(x;\, M_{\text{soft}}),\, y)$$
+
+Two separate learning rate groups are used to address the different gradient magnitudes and convergence dynamics of the two parameter sets:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+Parameter Group & Learning Rate & Weight Decay \\
+\midrule
+LoRA (A, B matrices) & 1×10⁻⁴ & 0.01 \\
+Locret (W₁, W₂ per layer) & 5×10⁻⁴ & 0.01 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Additional training configuration: gradient accumulation over 8 steps (effective batch size 32), gradient clipping at norm 1.0, cosine learning rate schedule with 6\% warmup, attention implementation set to "eager" (required for hook-based Q/K/V capture).
+
+\subsubsection{3.4 Baselines}
+
+Three baselines are defined:
+
+\begin{itemize}
+\item \textbf{B1 (Frozen Locret)}: LoRA is trained on the task classification objective; Locret retaining heads are fixed at their LM-pretrained values. This isolates the effect of jointly training Locret heads from the effect of KV eviction alone.
+\item \textbf{B2 (LoRA only, 100\% budget)}: LoRA fine-tuning without KV eviction, serving as an approximate accuracy ceiling.
+\item \textbf{B3 (Sequential LoRA→Locret)}: The standard practice; LoRA is trained first on the task objective, then Locret is trained on language modeling loss. This is the primary comparison baseline. Full-scale comparison against B3 on LongBench-QA is the subject of H-M3, which was not executed.
+\end{itemize}
+
+The H-M1 PoC experiment compares JointLoRA-KV against B1, not B3. The B3 comparison is planned for H-M3.
+

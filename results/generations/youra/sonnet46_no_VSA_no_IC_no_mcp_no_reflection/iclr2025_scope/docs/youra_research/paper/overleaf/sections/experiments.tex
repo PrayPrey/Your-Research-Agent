@@ -1,0 +1,58 @@
+\section{Experimental Setup}
+\label{sec:experiments}
+
+This section describes the experimental design for h-e1, our MUST\_WORK existence check for projection-only LoRA on Mamba-130m.
+
+\subsection{Research Questions}
+
+\textbf{RQ1:} Does standard projection-only LoRA produce any measurable classification learning on Mamba-130m? If the SSM scan gradient barrier hypothesis is correct, LoRA adapters should receive negligible task-discriminative gradient and produce no meaningful accuracy improvement over zero-shot.
+
+\textbf{RQ2:} Is the failure mode, if present, consistent across multiple classification tasks? A task-specific failure could have a task-specific explanation; a cross-task failure with the same signature points to an architectural cause.
+
+\textbf{RQ3:} Is the failure detectable from training-time diagnostics without waiting for epoch-end accuracy? The loss oscillation pattern provides a practitioner-relevant early-stopping signal.
+
+\subsection{Datasets}
+
+\begin{table}[h]
+\centering
+\caption{GLUE tasks evaluated.}
+\label{tab:datasets}
+\begin{tabular}{@{}llllll@{}}
+\toprule
+\textbf{Dataset} & \textbf{Task} & \textbf{Train (used)} & \textbf{Val} & \textbf{Classes} & \textbf{Why Chosen} \\
+\midrule
+SST-2 & Binary sentiment & 4,000 & 872 & 2 & Primary gate; community reference comparison \\
+MNLI & Three-class NLI & 4,000 & 9,815 & 3 & Cross-task check; can reveal negative transfer \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{SST-2} provides a clean binary classification task where the majority-class baseline is approximately 50.9\%. Flat accuracy at this level across training epochs is an unambiguous failure signal.
+
+\textbf{MNLI} provides a structurally different task requiring understanding of entailment relationships. The three-class structure creates the possibility of \emph{negative transfer}: a model whose prediction distribution collapses to a single class will score below random chance on the non-majority class sub-population. MNLI degradation rules out the ``needs more training'' explanation.
+
+QNLI and QQP were planned but not evaluated. A GPU memory contention event (17.75 MiB free on an H100 NVL with concurrent processes) caused an out-of-memory failure before the v9 training loop began.
+
+\subsection{Baselines}
+
+\textbf{Zero-shot Mamba-130m:} The pretrained base model evaluated on GLUE tasks using lm-evaluation-harness multiple-choice prompting, with no classification head and no fine-tuning. This establishes what the model achieves without any adaptation.
+
+\textbf{Random baseline:} For SST-2 binary classification, random guessing yields $\sim$50\%. For MNLI three-class classification, the theoretical random baseline is $\sim$33\%.
+
+\subsection{Implementation Details}
+
+All experiments use the HuggingFace \texttt{state-spaces/mamba-130m-hf} checkpoint: a 24-layer causal Mamba-1 SSM with hidden dimension 768, inner dimension 1536, and the GPT-NeoX-20B tokenizer (50k vocabulary). Approximately 130M total parameters.
+
+LoRA configuration: rank 8, $\alpha = 16$, dropout 0.05, targeting \texttt{in\_proj}, \texttt{out\_proj}, \texttt{x\_proj} across all 24 layers. 1,484,288 trainable parameters (1.14\%). The \texttt{dt\_proj} layer was excluded from Condition A as the standard community configuration; an attempt to include it (v9) caused CUDA out-of-memory on the shared cluster before any training steps.
+
+Compute: H100 NVL (93 GiB total; shared GPU environment). v8 completed successfully.
+
+\subsection{Evaluation Metrics}
+
+\textbf{Per-epoch accuracy:} Classification accuracy on the full validation split computed at the end of each epoch.
+
+\textbf{Per-batch cross-entropy loss:} Logged at every gradient step to characterize the training-time optimization trajectory.
+
+\textbf{LoRA installation verification:} Before accepting any result, we confirm (1) LoRA keys exist in the model state dictionary at expected paths, (2) LoRA weight matrices are non-zero after training, and (3) the trainable parameter count matches the theoretical expectation.
+
+\textbf{Gate criterion:} SST-2 accuracy $> 0.70$ after three epochs.

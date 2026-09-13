@@ -1,0 +1,587 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m2"
+  hypothesis_type: "MECHANISM"
+  incremental_base: "h-m1"
+  tier: "FULL"
+  total_budget: 30
+  created_at: "2026-05-11T11:10:00+00:00"
+  phase: "Phase 3"
+  description: "NLI Clustering Aggregation Behavior Analysis"
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 12
+  subtasks: 13
+  failsafe: 1
+  total: 27
+  within_budget: true
+
+tasks:
+  # ─── ENVIRONMENT SETUP (priority 94) ────────────────────────────────────────
+  - id: "ENV-1"
+    title: "Environment Setup & H-E1/H-M1 Output Verification"
+    type: "setup"
+    priority: 94
+    description: >
+      Create h-m2/code/ directory structure with tests/ subfolder. Verify all
+      required input files exist: h-e1/code/data/halueval_qa_2k.json (2000 entries),
+      h-e1/code/outputs/stochastic_samples.jsonl (2000 lines),
+      h-e1/code/outputs/uq_scores/semantic_entropy.json,
+      h-m1/code/outputs/experiment_results.json.
+      Install dependencies: numpy, scipy, matplotlib, seaborn, tqdm.
+      transformers + torch only needed for NLI re-clustering fallback path.
+    acceptance_criteria:
+      - "h-m2/code/ directory structure created with tests/__init__.py"
+      - "All 4 H-E1/H-M1 input files verified to exist"
+      - "pip install numpy scipy matplotlib seaborn tqdm completes without error"
+      - "import numpy, scipy, matplotlib, seaborn, tqdm all succeed"
+    dependencies: []
+    reference_files:
+      - file: "03_prd.md"
+        section: "7. Dependencies"
+      - file: "03_architecture.md"
+        section: "File Organization"
+
+  # ─── EPIC TASKS (priority 93–50) ────────────────────────────────────────────
+  - id: "A-1"
+    title: "Config Module"
+    type: "implementation"
+    priority: 93
+    complexity: 6
+    description: >
+      Implement ExperimentConfig dataclass in h-m2/code/config.py with all fields:
+      seed=42, n_bootstrap=1000, n_samples_per_example=5,
+      aggregation_gate_threshold=0.50, aggregation_ci_lower_threshold=0.30,
+      collapse_rate_threshold=0.20, correlation_threshold=0.10.
+      All input paths (relative to h-m2/code/), output paths, visualization settings
+      (dpi=150, per-figure figsize). Also write config.yaml schema. get_config() helper.
+    acceptance_criteria:
+      - "ExperimentConfig dataclass with all fields and correct defaults"
+      - "config.yaml file matches dataclass fields"
+      - "Paths resolve correctly relative to h-m2/code/"
+      - "nli_model_id field included (required by load_nli_pipeline)"
+    dependencies: ["ENV-1"]
+    reference_files:
+      - file: "03_config.md"
+        section: "ExperimentConfig Dataclass"
+      - file: "03_architecture.md"
+        section: "ExperimentConfig"
+
+  - id: "A-2"
+    title: "Data Loader — Primary Path"
+    type: "implementation"
+    priority: 90
+    complexity: 8
+    description: >
+      Implement data_loader.py primary loading functions:
+      load_labels() loads hallucination labels from halueval_qa_2k.json as np.ndarray (2000,) int.
+      load_cluster_counts_from_se_json() attempts to extract per-example cluster counts
+      from semantic_entropy.json — expected to return None (float scores only, not cluster counts).
+      validate_cluster_counts() asserts len==2000, clamps values to [1,5], warns on out-of-range.
+      load_cluster_counts() implements 3-priority loader: se_json → hm1_summary → nli_recluster.
+    acceptance_criteria:
+      - "load_labels() returns np.ndarray shape (2000,) with values in {0,1}"
+      - "load_cluster_counts_from_se_json() returns None (float scores, not cluster counts)"
+      - "validate_cluster_counts() clamps to [1,5] and raises if len != 2000"
+      - "load_cluster_counts() tries all 3 sources in priority order"
+    dependencies: ["A-1"]
+    reference_files:
+      - file: "03_architecture.md"
+        section: "DataLoader"
+      - file: "03_prd.md"
+        section: "FR-1: Load H-E1 Cluster Count Data"
+
+  - id: "A-3"
+    title: "Data Loader — Fallback NLI Re-clustering"
+    type: "implementation"
+    priority: 87
+    complexity: 14
+    description: >
+      Implement fallback NLI re-clustering path in data_loader.py.
+      _get_nli_pipeline_for_recluster() injects h-e1/code to sys.path and loads
+      deberta-large-mnli via load_nli_pipeline() from h-e1/code/uq_signals.py.
+      _cluster_count_for_example() calls cluster_by_nli(samples, nli_pipeline, batch_size=16)
+      and returns len(set(cluster_ids.values())) in [1,5].
+      load_cluster_counts_from_stochastic_samples() iterates all 2000 examples with tqdm,
+      sorts by record["id"], returns np.ndarray (2000,) int.
+      CRITICAL: cluster_by_nli() returns Dict[int,int] ({sample_idx: cluster_id});
+      use cluster_by_nli from h-e1/uq_signals.py (NOT inspect_cluster_distribution from h-m1).
+    acceptance_criteria:
+      - "sys.path injection for h-e1/code works before import"
+      - "load_nli_pipeline requires cfg.nli_model_id attribute"
+      - "_cluster_count_for_example returns int in [1,5]"
+      - "load_cluster_counts_from_stochastic_samples returns ndarray shape (2000,)"
+      - "tqdm progress bar shown during re-clustering"
+    dependencies: ["A-2"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-3: Data Loader — Fallback NLI Re-clustering"
+      - file: "03_logic.md"
+        section: "External Dependencies API"
+      - file: "02c_experiment_brief.md"
+        section: "Implementation Research Summary"
+
+  - id: "L-3-1"
+    title: "Subtask: load_stochastic_samples + _get_nli_pipeline_for_recluster"
+    type: "subtask"
+    priority: 49
+    parent_epic: "A-3"
+    description: >
+      Implement load_stochastic_samples(path) to load stochastic_samples.jsonl
+      returning List[Dict] with {id, samples: List[str]}.
+      Implement _get_nli_pipeline_for_recluster(cfg) with sys.path.insert(0, cfg.h_e1_code_dir),
+      then import load_nli_pipeline from uq_signals; create minimal config-like object
+      with nli_model_id if needed.
+    acceptance_criteria:
+      - "load_stochastic_samples returns list of 2000 dicts"
+      - "Each dict has 'id' (int) and 'samples' (List[str] len=5)"
+      - "_get_nli_pipeline_for_recluster successfully imports from h-e1/code"
+      - "FileNotFoundError raised with clear message if stochastic_samples.jsonl missing"
+    dependencies: ["A-3"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-3-1"
+
+  - id: "L-3-2"
+    title: "Subtask: _cluster_count_for_example + NLI batch wiring"
+    type: "subtask"
+    priority: 48
+    parent_epic: "A-3"
+    description: >
+      Implement _cluster_count_for_example(samples, nli_pipeline, batch_size=16).
+      Calls cluster_by_nli(samples, nli_pipeline, batch_size) which returns Dict[int,int].
+      Returns len(set(cluster_ids.values())) — the number of distinct semantic clusters.
+      Handle edge case: single sample → return 1.
+    acceptance_criteria:
+      - "_cluster_count_for_example returns int in [1, n_samples]"
+      - "Single sample list returns cluster_count=1"
+      - "Uses cluster_by_nli from h-e1/code/uq_signals.py (not h-m1 inspect_cluster_distribution)"
+    dependencies: ["L-3-1"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-3-2"
+
+  - id: "L-3-3"
+    title: "Subtask: load_cluster_counts_from_stochastic_samples orchestration"
+    type: "subtask"
+    priority: 47
+    parent_epic: "A-3"
+    description: >
+      Implement full loop: load records, sort by id, iterate with tqdm,
+      call _cluster_count_for_example per record, return np.array(counts, dtype=int).
+      Slice samples to cfg.n_samples_per_example (default 5).
+    acceptance_criteria:
+      - "Returns np.ndarray shape (2000,) dtype int"
+      - "Records sorted by record['id'] before processing"
+      - "tqdm progress bar with desc='NLI re-clustering'"
+      - "Values in [1, 5] after clamping"
+    dependencies: ["L-3-2"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-3-3"
+
+  - id: "A-4"
+    title: "Aggregation Rate + Bootstrap CI"
+    type: "analysis"
+    priority: 84
+    complexity: 10
+    description: >
+      Implement analysis.py bootstrap functions.
+      compute_aggregation_rate(cluster_counts, n_samples=5) = float(np.mean(cluster_counts < n_samples)).
+      bootstrap_aggregation_ci(cluster_counts, n_resamples=1000, seed=42, n_samples=5):
+      uses np.random.default_rng(seed) with .integers() for reproducible resampling,
+      percentile method [2.5, 97.5], returns {aggregation_rate, ci_lower, ci_upper, gate_pass}.
+      gate_pass = (aggregation_rate >= 0.50 AND ci_lower >= 0.30).
+    acceptance_criteria:
+      - "compute_aggregation_rate returns float in [0.0, 1.0]"
+      - "bootstrap_aggregation_ci with seed=42 is deterministic"
+      - "CI uses percentile method [2.5, 97.5] on 1000 bootstrap rates"
+      - "gate_pass correctly AND-combines both threshold conditions"
+    dependencies: ["A-3"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-4: Aggregation Rate + Bootstrap CI"
+      - file: "03_prd.md"
+        section: "FR-2: Compute Aggregation Rate"
+
+  - id: "L-4-1"
+    title: "Subtask: compute_aggregation_rate"
+    type: "subtask"
+    priority: 46
+    parent_epic: "A-4"
+    description: >
+      Implement compute_aggregation_rate(cluster_counts, n_samples=5).
+      Single line: return float(np.mean(cluster_counts < n_samples)).
+      Validate input is np.ndarray with values in [1,5].
+    acceptance_criteria:
+      - "Returns correct rate for known inputs (e.g., all-5 array → 0.0)"
+      - "Returns 1.0 for all-1 array (all fully collapsed)"
+    dependencies: ["A-4"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-4-1"
+
+  - id: "L-4-2"
+    title: "Subtask: bootstrap_aggregation_ci"
+    type: "subtask"
+    priority: 45
+    parent_epic: "A-4"
+    description: >
+      Implement bootstrap_aggregation_ci with np.random.default_rng(seed).integers(),
+      vectorized inner loop (cluster_counts[idx] < n_samples), percentile [2.5, 97.5],
+      gate_pass combining both conditions.
+    acceptance_criteria:
+      - "Same seed produces identical CI across runs"
+      - "gate_pass=False when aggregation_rate < 0.50 even if ci_lower >= 0.30"
+      - "gate_pass=False when ci_lower < 0.30 even if aggregation_rate >= 0.50"
+    dependencies: ["L-4-1"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-4-2"
+
+  - id: "A-5"
+    title: "Distribution Statistics"
+    type: "analysis"
+    priority: 80
+    complexity: 7
+    description: >
+      Implement compute_distribution_stats(cluster_counts) returning dict with
+      mean_cluster_count, std_cluster_count, median_cluster_count,
+      histogram {1:int, 2:int, 3:int, 4:int, 5:int}.
+      Implement compute_collapse_rate(cluster_counts) = float(np.mean(cluster_counts == 1)).
+    acceptance_criteria:
+      - "histogram keys are strings '1' through '5'"
+      - "sum of histogram values == 2000"
+      - "collapse_rate in [0.0, 1.0]"
+    dependencies: ["A-4"]
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-4: Cluster Count Distribution Statistics"
+      - file: "03_architecture.md"
+        section: "A-5"
+
+  - id: "A-6"
+    title: "Point-Biserial Correlation"
+    type: "analysis"
+    priority: 76
+    complexity: 8
+    description: >
+      Implement compute_pointbiserial_correlation(labels, cluster_counts) in analysis.py.
+      Uses scipy.stats.pointbiserialr(labels, cluster_counts).
+      Returns {r_pb: float, p_value: float, meaningful: bool (|r_pb| >= 0.10)}.
+      Two-tailed p-value. Direction hypothesis: lower cluster_count → factual (label=0) → expected r_pb > 0.
+    acceptance_criteria:
+      - "Returns correct (r_pb, p_value) from scipy.stats.pointbiserialr"
+      - "meaningful=True when |r_pb| >= 0.10"
+      - "p_value is two-tailed"
+    dependencies: ["A-5"]
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-5: Point-Biserial Correlation"
+      - file: "03_architecture.md"
+        section: "A-6"
+
+  - id: "A-7"
+    title: "Gate Evaluation + Results Serialization"
+    type: "evaluation"
+    priority: 72
+    complexity: 9
+    description: >
+      Implement evaluate_gate(bootstrap_result, cfg) returning 'PASS', 'PARTIAL', or 'PIVOT':
+        PASS:    aggregation_rate >= 0.50 AND ci_lower >= 0.30
+        PARTIAL: 0.30 <= aggregation_rate < 0.50
+        PIVOT:   aggregation_rate < 0.30
+      Implement stratified_aggregation_by_type(cluster_counts, dataset, n_samples).
+      Implement save_results() and validate_results_schema() checking all required keys.
+    acceptance_criteria:
+      - "evaluate_gate returns correct string for all 3 cases"
+      - "PIVOT documented as A2 violation in results"
+      - "Results dict contains all required_keys from RESULTS_SCHEMA"
+      - "experiment_results.json parseable with json.load()"
+    dependencies: ["A-5", "A-6"]
+    reference_files:
+      - file: "03_config.md"
+        section: "A-7: Gate Evaluation + Results Serialization"
+      - file: "03_prd.md"
+        section: "FR-7: Gate Evaluation"
+
+  - id: "C-7-1"
+    title: "Subtask: gate logic config + threshold constants"
+    type: "subtask"
+    priority: 44
+    parent_epic: "A-7"
+    description: >
+      Implement gate threshold constants in config (0.50, 0.30) and evaluate_gate()
+      in analysis.py. Document PARTIAL band [0.30, 0.50) as weak-pass zone.
+    acceptance_criteria:
+      - "evaluate_gate('PASS') when rate=0.55, ci_lower=0.45"
+      - "evaluate_gate('PARTIAL') when rate=0.40, ci_lower=0.25"
+      - "evaluate_gate('PIVOT') when rate=0.13, ci_lower=0.10"
+    dependencies: ["A-7"]
+    reference_files:
+      - file: "03_config.md"
+        section: "C-7-1"
+
+  - id: "C-7-2"
+    title: "Subtask: results JSON schema validation"
+    type: "subtask"
+    priority: 43
+    parent_epic: "A-7"
+    description: >
+      Implement validate_results_schema(results) checking all required keys are present.
+      Used by run_experiment.py before writing experiment_results.json.
+    acceptance_criteria:
+      - "Raises KeyError with missing key name when required field absent"
+      - "Passes silently when all required keys present"
+    dependencies: ["C-7-1"]
+    reference_files:
+      - file: "03_config.md"
+        section: "C-7-2"
+
+  - id: "A-8"
+    title: "Figures — Required"
+    type: "visualization"
+    priority: 68
+    complexity: 7
+    description: >
+      Implement plot_aggregation_rate(aggregation_rate, ci_lower, ci_upper, gate_threshold, output_path)
+      in visualize.py. Bar chart showing aggregation rate with bootstrap CI error bar vs.
+      gate threshold dashed line at 0.50. Colors: bar=#4C72B0, threshold=#DD8452 dashed.
+      figsize=(7,5), dpi=150. Save to h-m2/figures/aggregation_rate.png.
+    acceptance_criteria:
+      - "figures/aggregation_rate.png created"
+      - "Threshold line at 0.50 visible as dashed orange line"
+      - "Error bar shows [ci_lower, ci_upper] interval"
+      - "dpi=150, figsize=(7,5)"
+    dependencies: ["A-7"]
+    reference_files:
+      - file: "03_config.md"
+        section: "A-9 Visualization Config Table"
+      - file: "03_prd.md"
+        section: "FR-8: Visualization"
+
+  - id: "A-9"
+    title: "Figures — Additional"
+    type: "visualization"
+    priority: 64
+    complexity: 9
+    description: >
+      Implement remaining 4 plot functions in visualize.py:
+      plot_cluster_count_dist(cluster_counts, output_path) — histogram of values 1-5, figsize=(8,5)
+      plot_cluster_count_by_label(cluster_counts, labels, output_path) — box plot hallucinated vs factual, figsize=(7,5)
+      plot_cluster_count_cdf(cluster_counts, threshold=4, output_path) — CDF with vertical dashed line at x=4, figsize=(8,5)
+      plot_aggregation_by_type(type_rates, output_path) — bar chart by type, skip if None, figsize=(9,5)
+      All at dpi=150.
+    acceptance_criteria:
+      - "cluster_count_dist.png, cluster_count_by_label.png, cluster_count_cdf.png created"
+      - "CDF plot has vertical dashed line at x=4 (N-1=4)"
+      - "aggregation_by_type.png created only if type_rates is not None"
+      - "All figures at dpi=150"
+    dependencies: ["A-7"]
+    reference_files:
+      - file: "03_config.md"
+        section: "A-9: Figures — Additional"
+      - file: "03_architecture.md"
+        section: "A-9"
+
+  - id: "C-9-1"
+    title: "Subtask: per-figure size/color config"
+    type: "subtask"
+    priority: 42
+    parent_epic: "A-9"
+    description: >
+      Implement FIGURE_COLORS dict in visualize.py with primary=#4C72B0,
+      secondary/threshold=#DD8452. Apply correct figsize per figure from config.
+    acceptance_criteria:
+      - "Each figure uses its configured figsize from ExperimentConfig"
+      - "FIGURE_COLORS constants used consistently across all plots"
+    dependencies: ["A-9"]
+    reference_files:
+      - file: "03_config.md"
+        section: "C-9-1"
+
+  - id: "C-9-2"
+    title: "Subtask: CDF threshold marker config"
+    type: "subtask"
+    priority: 41
+    parent_epic: "A-9"
+    description: >
+      Implement CDF_THRESHOLD_VALUE=4 (N-1=5-1) as vertical dashed line in plot_cluster_count_cdf.
+      THRESHOLD_LINESTYLE='--', THRESHOLD_LINEWIDTH=2.0. Skip aggregation_by_type.png gracefully if None.
+    acceptance_criteria:
+      - "CDF plot has ax.axvline(x=4, linestyle='--', linewidth=2.0, color='#DD8452')"
+      - "plot_aggregation_by_type skips saving if type_rates is None"
+    dependencies: ["C-9-1"]
+    reference_files:
+      - file: "03_config.md"
+        section: "C-9-2"
+
+  - id: "A-10"
+    title: "Validation Report"
+    type: "reporting"
+    priority: 60
+    complexity: 7
+    description: >
+      Implement write_validation_report(results, output_path) to write 04_validation.md
+      at h-m2/ with: gate decision (PASS/PARTIAL/PIVOT), all metric tables,
+      distribution histogram, figure references, PIVOT documentation (if applicable).
+      Include: aggregation_rate with CI, collapse_rate, mean_cluster_count, r_pb, p_value,
+      cluster_count_source, timestamp.
+    acceptance_criteria:
+      - "04_validation.md written to h-m2/ folder"
+      - "Gate status clearly stated (PASS/PARTIAL/PIVOT)"
+      - "All primary metrics in table format"
+      - "PIVOT documented as A2 violation if gate_result=='PIVOT'"
+      - "Figure file references included"
+    dependencies: ["A-7"]
+    reference_files:
+      - file: "03_prd.md"
+        section: "8. Success Criteria"
+      - file: "03_architecture.md"
+        section: "A-10"
+
+  - id: "A-11"
+    title: "Unit Tests"
+    type: "testing"
+    priority: 56
+    complexity: 10
+    description: >
+      Implement tests/ directory: conftest.py with 4 fixtures (cluster_counts_pass,
+      cluster_counts_pivot, cluster_counts_partial, mock_labels) all seeded with seed=42.
+      test_analysis.py: test compute_aggregation_rate, bootstrap_aggregation_ci (n_resamples=200 for speed),
+      evaluate_gate for all 3 cases, compute_collapse_rate.
+      test_data_loader.py: test validate_cluster_counts clamping and length check.
+    acceptance_criteria:
+      - "pytest tests/ runs without error"
+      - "test_evaluate_gate_pass, test_evaluate_gate_pivot, test_evaluate_gate_partial all pass"
+      - "bootstrap CI tests use n_resamples=200 (fast)"
+      - "validate_cluster_counts clamping test passes"
+    dependencies: ["A-4", "A-5", "A-6"]
+    reference_files:
+      - file: "03_config.md"
+        section: "A-11: Unit Tests"
+      - file: "03_architecture.md"
+        section: "A-11"
+
+  - id: "C-11-1"
+    title: "Subtask: conftest.py fixtures"
+    type: "subtask"
+    priority: 40
+    parent_epic: "A-11"
+    description: >
+      Implement tests/conftest.py with cluster_counts_pass (~0.80 agg rate),
+      cluster_counts_pivot (~0.13 agg rate, realistic H-M1 scenario),
+      cluster_counts_partial (~0.38 agg rate), mock_labels (1000 each class, shuffled seed=42).
+    acceptance_criteria:
+      - "cluster_counts_pass fixture: compute_aggregation_rate returns >= 0.50"
+      - "cluster_counts_pivot fixture: compute_aggregation_rate returns < 0.30"
+      - "cluster_counts_partial fixture: compute_aggregation_rate returns in [0.30, 0.50)"
+    dependencies: ["A-11"]
+    reference_files:
+      - file: "03_config.md"
+        section: "C-11-1"
+
+  - id: "C-11-2"
+    title: "Subtask: test assertions config"
+    type: "subtask"
+    priority: 39
+    parent_epic: "A-11"
+    description: >
+      Implement test_analysis.py key assertions per fixture. Use n_resamples=200 for
+      all bootstrap calls in tests (fast execution). Implement test_data_loader.py
+      for validate_cluster_counts clamping and length assertions.
+    acceptance_criteria:
+      - "All tests pass with pytest"
+      - "Bootstrap tests complete in < 5 seconds with n_resamples=200"
+    dependencies: ["C-11-1"]
+    reference_files:
+      - file: "03_config.md"
+        section: "C-11-2"
+
+  - id: "A-12"
+    title: "End-to-End Integration & run_experiment.py"
+    type: "integration"
+    priority: 50
+    complexity: 9
+    description: >
+      Wire all modules in run_experiment.py. 6-step orchestration:
+      [1/6] load_cluster_counts (priority: se_json → hm1_summary → nli_recluster)
+      [2/6] load_labels
+      [3/6] validate_cluster_counts
+      [4/6] compute all statistics (bootstrap CI, distribution, collapse rate, correlation, stratified)
+      [5/6] evaluate gate (PASS/PARTIAL/PIVOT)
+      [6/6] generate all figures
+      Save experiment_results.json, write 04_validation.md.
+      Runtime target: < 2 min (analysis path, no GPU). FileNotFoundError caught with remediation.
+    acceptance_criteria:
+      - "python run_experiment.py completes without error"
+      - "All output files created: experiment_results.json, 04_validation.md, figures/"
+      - "PIVOT result handled gracefully (not an error, documented)"
+      - "FileNotFoundError caught with clear remediation message"
+    dependencies: ["A-7", "A-8", "A-9", "A-10", "A-11"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-12: End-to-End Integration"
+      - file: "03_architecture.md"
+        section: "A-12"
+
+  - id: "L-12-1"
+    title: "Subtask: run() orchestration + load_cluster_counts priority loader"
+    type: "subtask"
+    priority: 38
+    parent_epic: "A-12"
+    description: >
+      Implement full run() with steps 1-5. load_cluster_counts priority loader:
+      try se_json (expects None), try hm1_summary cluster_distribution field,
+      finally call load_cluster_counts_from_stochastic_samples (NLI re-clustering).
+      Wrap in try/except FileNotFoundError with clear message.
+    acceptance_criteria:
+      - "Priority loader falls through to NLI re-clustering when se_json returns None"
+      - "FileNotFoundError includes which file was missing and remediation steps"
+      - "cluster_count_source recorded in results dict"
+    dependencies: ["A-12"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-12-1"
+
+  - id: "L-12-2"
+    title: "Subtask: figure generation + save_results + write_validation_report"
+    type: "subtask"
+    priority: 37
+    parent_epic: "A-12"
+    description: >
+      Implement step 6: mkdir figures/, call all plot functions, skip aggregation_by_type
+      if stratified_aggregation is None. Implement save_results() serializing to
+      outputs/experiment_results.json. Call write_validation_report() to h-m2/04_validation.md.
+    acceptance_criteria:
+      - "figures/ dir created if not exists"
+      - "experiment_results.json valid JSON with all required keys"
+      - "04_validation.md written to h-m2/ (not h-m2/code/)"
+    dependencies: ["L-12-1"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-12-2"
+
+  # ─── FAILSAFE (priority 1) ──────────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: >
+      Verify experiment_results.json and 04_validation.md exist and are valid.
+      Extract gate_result from experiment_results.json and report PASS/PARTIAL/PIVOT
+      for hypothesis-loop continuation. PIVOT is a valid non-failure outcome for
+      SHOULD_WORK gate — pipeline continues to H-M3.
+    acceptance_criteria:
+      - "experiment_results.json parseable with gate_result field"
+      - "04_validation.md exists with gate status"
+      - "Gate result PASS/PARTIAL/PIVOT extracted and reported"
+      - "PIVOT treated as valid outcome (SHOULD_WORK gate)"
+    dependencies: ["A-12"]
+    reference_files:
+      - file: "03_prd.md"
+        section: "8. Success Criteria"
+      - file: "02c_experiment_brief.md"
+        section: "PoC Success Check"

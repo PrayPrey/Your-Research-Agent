@@ -1,0 +1,325 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-c1
+  hypothesis_type: CONDITION
+  tier: FULL
+  total_budget: 30
+  created_at: "2026-08-04"
+  description: "Boundary Test — Kruskal-Wallis + Dunn Q1 vs Q4 on LC_winrate across win_rate quartiles (DV swap from h-m3 delta -> length_controlled_winrate)"
+
+budget_summary:
+  environment_setup: 1
+  data_preparation: 0
+  epic_tasks: 9
+  subtasks: 2
+  failsafe: 1
+  total: 13
+
+tasks:
+  # ── Environment Setup (priority 94) ──────────────────────────────────────
+  - id: "T-0"
+    title: "Environment Setup"
+    type: setup
+    priority: 94
+    description: >
+      Verify all required packages are installed: numpy, scipy, scikit-posthocs,
+      matplotlib, seaborn, pandas, statsmodels.
+      Create docs/youra_research/h-c1/figures/ directory if not exists.
+      Confirm CSV exists at docs/data_AlpacaEval_2/weighted_alpaca_eval_gpt4_turbo_leaderboard.csv.
+      Copy/reference h-m3 experiment as base (experiment_hm3.py -> experiment_hc1.py).
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_prd.md"
+        section: "7. Dependencies"
+      - file: "docs/youra_research/h-c1/03_config.md"
+        section: "Dependencies"
+    acceptance_criteria:
+      - "scikit-posthocs importable"
+      - "figures/ directory exists"
+      - "CSV file accessible"
+      - "experiment_hc1.py base created from h-m3"
+
+  # ── Epic Tasks (priority 93 → 50) ────────────────────────────────────────
+  - id: "A-1"
+    title: "Project Setup — Constants + load_data()"
+    type: setup
+    priority: 93
+    description: >
+      Create experiment_hc1.py with all module-level constants:
+      HYPOTHESIS_ID='h-c1', CSV_PATH, FIGURES_DIR (h-c1/figures), OUTPUT_PATH (h-c1/04_validation.md),
+      RESULTS_PATH (h-c1/experiment_results.json), N_BOOTSTRAP=1000, RANDOM_STATE=42, ALPHA=0.05,
+      N_QUARTILES=4, QUARTILE_LABELS=['Q1','Q2','Q3','Q4'], MIN_N_CLEAN=200, MIN_GROUP_SIZE=5,
+      DEPENDENT_VAR='length_controlled_winrate', GATE_KW_P=ALPHA, GATE_DUNN_Q1_Q4=ALPHA,
+      HM3_QUARTILE_MEDIANS_DELTA={'Q1': 2.19, 'Q2': 2.96, 'Q3': 5.43, 'Q4': 0.91}.
+      Implement load_data(csv_path) -> pd.DataFrame:
+      read_csv, dropna, assert N>=200, compute delta (keep for comparison figure),
+      create quartile via pd.qcut(win_rate, q=4, labels=QUARTILE_LABELS),
+      assert all group sizes >= 5.
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_architecture.md"
+        section: "Epic Tasks A-1"
+      - file: "docs/youra_research/h-c1/03_config.md"
+        section: "A-1: Experiment Constants"
+    complexity: 4
+    acceptance_criteria:
+      - "All imports succeed"
+      - "load_data() returns df with quartile column and delta column"
+      - "All quartile group sizes >= 5 asserted"
+
+  - id: "A-2"
+    title: "Adapt load_data — DV Context Setup"
+    type: implementation
+    priority: 92
+    description: >
+      Adapt load_data to note that LC_winrate is the primary DV (not delta).
+      Keep delta computation for comparison figure only.
+      Add logging of LC_winrate range alongside delta range.
+      Quartile split is IDENTICAL to h-m3 (pd.qcut on win_rate, q=4).
+      Reference: docs/youra_research/h-c1/03_logic.md Adapted Functions section.
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_logic.md"
+        section: "Adapted Functions"
+      - file: "docs/youra_research/h-c1/03_prd.md"
+        section: "FR-1 FR-2"
+    complexity: 5
+    acceptance_criteria:
+      - "length_controlled_winrate range logged"
+      - "delta computed but labeled as secondary"
+      - "Quartile split identical to h-m3"
+
+  - id: "A-3"
+    title: "Adapt run_kruskal_wallis — DV Swap to LC_winrate"
+    type: implementation
+    priority: 91
+    description: >
+      Adapt run_kruskal_wallis(df) from h-m3: change DV from 'delta' to 'length_controlled_winrate'.
+      q_groups = [df[df['quartile']==q]['length_controlled_winrate'].values for q in QUARTILE_LABELS]
+      H_stat, kw_p = scipy.stats.kruskal(*q_groups)
+      epsilon_sq = (H_stat - k + 1) / (N - k)
+      Compute quartile_medians, quartile_means, quartile_sizes, quartile_q25, quartile_q75.
+      Check monotonic_trend: all(medians[i] < medians[i+1]).
+      Returns dict with all results. Expected: H >> 100, p << 1e-100 (given r_partial=0.9851).
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_logic.md"
+        section: "A-3: Adapt run_kruskal_wallis"
+      - file: "docs/youra_research/h-c1/03_prd.md"
+        section: "FR-3 FR-4"
+    complexity: 6
+    acceptance_criteria:
+      - "DV is length_controlled_winrate (not delta)"
+      - "H_stat, kw_p, epsilon_sq computed"
+      - "quartile_medians dict has Q1-Q4 keys with LC_winrate values"
+      - "monotonic_trend checked"
+
+  - id: "A-4"
+    title: "Adapt run_dunn_posthoc + evaluate_gate — Dual Gate"
+    type: implementation
+    priority: 90
+    description: >
+      Adapt run_dunn_posthoc(df): change val_col from 'delta' to 'length_controlled_winrate'.
+      sp.posthoc_dunn(df, val_col='length_controlled_winrate', group_col='quartile', p_adjust='bonferroni')
+      Returns 4x4 DataFrame of Bonferroni-corrected p-values.
+      Extract dunn_q1q4_p = float(dunn_matrix.loc['Q1', 'Q4']).
+
+      Adapt evaluate_gate to DUAL condition (H-C1 change vs h-m3's KW-only gate):
+      evaluate_gate(kw_p, dunn_q1q4_p, alpha, quartile_medians) -> dict
+      passes_gate = (kw_p < alpha) AND (dunn_q1q4_p < alpha)
+      Returns {passes_gate, kw_passed, dunn_passed, gate_label, monotonic_trend}.
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_logic.md"
+        section: "A-4: Adapt run_dunn_posthoc + evaluate_gate"
+      - file: "docs/youra_research/h-c1/03_prd.md"
+        section: "FR-5 FR-7"
+    complexity: 7
+    acceptance_criteria:
+      - "val_col='length_controlled_winrate' in posthoc_dunn call"
+      - "Bonferroni correction applied"
+      - "Dual gate: BOTH kw_p < 0.05 AND dunn_q1q4_p < 0.05 required"
+      - "evaluate_gate returns kw_passed and dunn_passed separately"
+
+  - id: "A-5"
+    title: "Implement run_bootstrap_dunn_ci (NEW)"
+    type: implementation
+    priority: 89
+    description: >
+      NEW function not in h-m3. Bootstrap 95% CI on Dunn Q1 vs Q4 Bonferroni p-value.
+      rng = np.random.default_rng(RANDOM_STATE)
+      For i in range(N_BOOTSTRAP=1000):
+        idx = rng.choice(len(df), size=len(df), replace=True)
+        df_boot = df.iloc[idx].reset_index(drop=True)
+        dunn_boot = sp.posthoc_dunn(df_boot, val_col='length_controlled_winrate',
+                                     group_col='quartile', p_adjust='bonferroni')
+        boot_ps[i] = float(dunn_boot.loc['Q1', 'Q4'])
+      ci_lower, ci_upper = np.percentile(boot_ps, [2.5, 97.5])
+      Returns {ci_lower, ci_upper, bootstrap_p_values: list}.
+      Expected runtime: ~30-60s (1000 posthoc_dunn calls on N=222).
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_logic.md"
+        section: "L-5-1: run_bootstrap_dunn_ci"
+      - file: "docs/youra_research/h-c1/03_prd.md"
+        section: "FR-5"
+    complexity: 9
+    acceptance_criteria:
+      - "run_bootstrap_dunn_ci implemented with 1000 resamples"
+      - "ci_lower, ci_upper computed via percentile [2.5, 97.5]"
+      - "bootstrap_p_values list returned for diagnostics"
+
+  - id: "A-6"
+    title: "Adapt Figure Functions + New Figures"
+    type: implementation
+    priority: 88
+    description: >
+      Adapt all h-m3 figure functions to use LC_winrate as DV (label changes).
+      Add 2 new figures vs h-m3:
+      1. _gate_metrics_bar: bar chart of KW p and Dunn Q1 vs Q4 p vs 0.05 threshold
+         (log scale y-axis, green=significant, red=not)
+      2. _comparison_hm3_hc1: side-by-side quartile median bars for delta (H-M3 from
+         HM3_QUARTILE_MEDIANS_DELTA constant) vs LC_winrate (H-C1 from kw_results).
+
+      save_all_figures(df, kw_results, dunn_matrix, bootstrap_results, figures_dir) saves 4 figs:
+      fig1_lc_winrate_boxplot.png, fig2_scatter_winrate_lc_winrate.png,
+      fig3_dunn_heatmap.png, fig4_comparison_hm3_hc1.png (or fig4_quartile_median_bar.png)
+      Use matplotlib.use('Agg') for headless rendering.
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_logic.md"
+        section: "A-6: Adapt Visualization"
+      - file: "docs/youra_research/h-c1/03_prd.md"
+        section: "FR-9"
+    complexity: 8
+    acceptance_criteria:
+      - "4 PNG files saved to h-c1/figures/"
+      - "_gate_metrics_bar implemented (dual gate metrics)"
+      - "_comparison_hm3_hc1 implemented (H-M3 delta vs H-C1 LC_winrate)"
+      - "All axis labels updated from 'delta' to 'LC_winrate'"
+
+  - id: "A-7"
+    title: "Adapt write_validation_report"
+    type: implementation
+    priority: 87
+    description: >
+      Adapt write_validation_report for H-C1 outputs:
+      - Dual gate table (KW condition + Dunn Q1 vs Q4 condition + overall)
+      - Quartile median LC_winrate table (not delta)
+      - Bootstrap CI row: Dunn Q1 vs Q4 p-value 95% CI [ci_lower, ci_upper]
+      - H-M3 comparison table: Δ (H-M3) vs LC_winrate (H-C1) per test
+      - Drop OLS section (not in H-C1)
+      - Add Spearman rho(win_rate, LC_winrate) result
+      Writes to docs/youra_research/h-c1/04_validation.md.
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_logic.md"
+        section: "A-7: Adapt write_validation_report"
+      - file: "docs/youra_research/h-c1/03_prd.md"
+        section: "FR-10"
+    complexity: 7
+    acceptance_criteria:
+      - "04_validation.md generated with dual gate table"
+      - "Bootstrap CI row for Dunn Q1 vs Q4 included"
+      - "H-M3 comparison table included"
+      - "Gate PASS/FAIL clearly stated"
+
+  - id: "A-8"
+    title: "Wire main() + JSON output"
+    type: implementation
+    priority: 86
+    description: >
+      Implement main() in experiment_hc1.py orchestrating:
+      1. load_data(CSV_PATH) -> df
+      2. run_kruskal_wallis(df) -> kw_results
+      3. run_dunn_posthoc(df) -> dunn_matrix (always run for H-C1 gate)
+      4. dunn_q1q4_p = float(dunn_matrix.loc['Q1', 'Q4'])
+      5. evaluate_gate(kw_p, dunn_q1q4_p, ALPHA, quartile_medians) -> gate_result
+      6. run_bootstrap_dunn_ci(df, N_BOOTSTRAP, RANDOM_STATE) -> bootstrap_results
+      7. run_spearman(df, N_BOOTSTRAP, RANDOM_STATE) -> spearman_results
+      8. save_all_figures(df, kw_results, dunn_matrix, bootstrap_results, FIGURES_DIR)
+      9. write_validation_report(kw_results, gate_result, dunn_matrix,
+                                  bootstrap_results, spearman_results, figure_paths, OUTPUT_PATH)
+      10. Write results_hc1.json with hypothesis_id='h-c1' and all key metrics
+      11. sys.exit(0 if gate_result['passes_gate'] else 1)
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_architecture.md"
+        section: "Functions — main()"
+      - file: "docs/youra_research/h-c1/03_logic.md"
+        section: "Adapted Functions"
+    complexity: 5
+    acceptance_criteria:
+      - "main() orchestrates full 11-step pipeline"
+      - "Dunn run BEFORE evaluate_gate (dual gate needs dunn_q1q4_p)"
+      - "results_hc1.json written with hypothesis_id='h-c1'"
+      - "sys.exit(0) if gate passes, sys.exit(1) if fails"
+
+  - id: "A-9"
+    title: "End-to-End Validation"
+    type: implementation
+    priority: 85
+    description: >
+      Run experiment_hc1.py end-to-end and verify:
+      - 04_validation.md exists and contains PASS or FAIL gate result
+      - All 4 figure files exist in h-c1/figures/
+      - results_hc1.json exists with gate outcome
+      - KW p and Dunn Q1 vs Q4 p logged to stdout
+      - Script exits with code 0 (expected PASS given r_partial=0.9851)
+      Log verification_state context for Phase 4 handoff.
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_prd.md"
+        section: "8. Success Criteria"
+    complexity: 6
+    acceptance_criteria:
+      - "04_validation.md exists"
+      - "4 figure files exist"
+      - "results_hc1.json readable"
+      - "Script exit code 0 (gate PASS)"
+
+  # ── Logic Subtasks (priority 49 → 20) ────────────────────────────────────
+  - id: "L-5-1"
+    title: "run_bootstrap_dunn_ci() full implementation"
+    type: subtask
+    parent: "A-5"
+    priority: 49
+    description: >
+      Full implementation per 03_logic.md L-5-1:
+      rng = np.random.default_rng(RANDOM_STATE)
+      For each of 1000 resamples: idx = rng.choice(n, size=n, replace=True),
+      df_boot = df.iloc[idx].reset_index(drop=True),
+      dunn_boot = sp.posthoc_dunn(df_boot, val_col='length_controlled_winrate',
+                                   group_col='quartile', p_adjust='bonferroni'),
+      boot_ps[i] = float(dunn_boot.loc['Q1', 'Q4']).
+      ci_lower, ci_upper = np.percentile(boot_ps, [2.5, 97.5]).
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_logic.md"
+        section: "L-5-1: Bootstrap loop"
+
+  - id: "L-5-2"
+    title: "evaluate_gate() dual condition logic"
+    type: subtask
+    parent: "A-4"
+    priority: 48
+    description: >
+      Full implementation per 03_logic.md L-5-2:
+      both_conditions_met = (kw_p < alpha) AND (dunn_q1q4_p < alpha)
+      passes_gate = both_conditions_met
+      monotonic_trend = all(quartile_medians[Q[i]] < quartile_medians[Q[i+1]] for i in range(3))
+      Returns {passes_gate, both_conditions_met, monotonic_trend, gate_label,
+               gate_type='SHOULD_WORK', kw_passed, dunn_passed}.
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_logic.md"
+        section: "L-5-2: evaluate_gate dual"
+
+  # ── Failsafe ─────────────────────────────────────────────────────────────
+  - id: "FAILSAFE"
+    title: "Pipeline Continuation Checkpoint"
+    type: failsafe
+    priority: 1
+    description: >
+      Final checkpoint: verify 04_validation.md exists and contains gate result.
+      If gate FAILS (SHOULD_WORK): document in verification_state.yaml as scope limitation
+      (capability-alignment relationship holds at population level via H-E1/H-M1/H-M2/H-M3,
+      but boundary monotonicity at quartile extremes not confirmed).
+      Pipeline continues regardless — H-C1 is the final sub-hypothesis.
+      SHOULD_WORK failure does NOT invalidate H-E1 through H-M3 (all MUST_WORK/SHOULD_WORK PASS).
+    reference_files:
+      - file: "docs/youra_research/h-c1/03_prd.md"
+        section: "8. Success Criteria"
+    acceptance_criteria:
+      - "04_validation.md exists with gate result"
+      - "verification_state.yaml updated with validation.status"
+      - "Pipeline continues to Phase 4 completion regardless of gate outcome"

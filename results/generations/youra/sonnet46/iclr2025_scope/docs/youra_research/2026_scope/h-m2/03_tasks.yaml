@@ -1,0 +1,751 @@
+version: '1.1'
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_id_upper: H-M2
+  tier: FULL
+  total_budget: 30
+  generated_at: '2026-05-08T08:20:00Z'
+  source_documents:
+  - 03_prd.md
+  - 03_architecture.md
+  - 03_logic.md
+  - 03_config.md
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+
+  # ── Environment Setup (priority 94) ────────────────────────────────────────
+
+  - id: task-001
+    epic: Environment Setup
+    title: Setup development environment for h-m2
+    description: |
+      Install required packages:
+        pip install torch>=2.0 transformers>=4.40 datasets>=2.18 numpy>=1.24
+                    scipy>=1.11 matplotlib>=3.7 seaborn>=0.12
+
+      Note: pingouin is NOT required for h-m2 (scipy handles Kendall tau).
+
+      Verify GPU availability:
+        nvidia-smi  # Select lowest-memory GPU
+        export CUDA_VISIBLE_DEVICES=<GPU_ID>
+
+      Verify LLaMA-3-8B model access:
+        python -c "from transformers import AutoModelForCausalLM; \
+          AutoModelForCausalLM.from_pretrained('meta-llama/Meta-Llama-3-8B')"
+
+      Create output directories:
+        mkdir -p h-m2/figures h-m2/code/tests
+
+      Copy h-e1 modules into h-m2/code/:
+        cp h-e1/code/data_utils.py h-m2/code/data_utils.py
+        cp h-e1/code/measure_sparsity.py h-m2/code/measure_sparsity.py
+    feature_tag: setup
+    priority: 94
+    source_document: 03_prd.md
+    complexity: null
+    test_requirements: Environment setup does not require tests.
+    reference_files:
+      prd: 03_prd.md#non-functional-requirements
+      config: 03_config.md#environment-setup-instructions
+
+  # ── Epic Implementation Tasks (priority 93–83) ─────────────────────────────
+
+  - id: task-002
+    epic: A-1 - Environment Setup
+    title: '[A-1] Environment validation and module copy from h-e1'
+    description: |
+      Verify all dependencies installed; copy h-e1 modules into h-m2/code/.
+
+      1. Verify imports: torch, transformers, datasets, numpy, scipy, matplotlib, seaborn
+      2. Copy h-e1/code/data_utils.py → h-m2/code/data_utils.py (unchanged)
+      3. Copy h-e1/code/measure_sparsity.py → h-m2/code/measure_sparsity.py (unchanged)
+      4. Validate CUDA_VISIBLE_DEVICES set to single GPU
+      5. Create output dirs: h-m2/figures/, h-m2/code/tests/
+      6. Verify meta-llama/Meta-Llama-3-8B accessible via HuggingFace Hub
+    feature_tag: setup
+    priority: 93
+    source_document: 03_architecture.md
+    complexity: 5
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_environment.py
+      - Test: all required packages importable (torch, scipy, seaborn)
+      - Test: h-e1 modules successfully copied and importable from h-m2/code/
+      - Test: output directories created
+    reference_files:
+      architecture: 03_architecture.md#epic-tasks
+      config: 03_config.md#environment-setup-instructions
+
+  - id: task-003
+    epic: A-2 - Config Module
+    title: '[A-2] Implement h-m2 ExperimentConfig dataclass'
+    description: |
+      Extend h-e1 ExperimentConfig with h-m2-specific fields.
+      File: h-m2/code/config.py
+
+      Key changes from h-e1 (verified from h-e1/code/config.py):
+      - REMOVE: short_length=128, long_length=512
+      - ADD: max_length: int = 512  (single sequence length)
+      - REMOVE: results_dir="h-e1/results"
+      - ADD: results_path: str = "h-m2/experiment_results.json"
+      - KEEP: cv_threshold=0.3, tau_threshold=0.6 (rename tau_threshold to cross_dist_tau_threshold)
+      - ADD: cv_pass_min_count: int = 3  (gate: >=3 of 4 epsilon values must pass CV)
+      - ADD: cross_epsilon_tau_threshold: float = 0.7  (adjacent pair gate)
+      - ADD: cross_dist_tau_threshold: float = 0.6  (secondary metric)
+      - UPDATE: figures_dir = "h-m2/figures"
+
+      Update __post_init__:
+      - Remove: short_length < long_length assert
+      - Add: assert cv_pass_min_count in [1,2,3,4]
+      - Add: assert 0 < cross_epsilon_tau_threshold <= 1
+    feature_tag: implementation
+    priority: 92
+    source_document: 03_architecture.md
+    complexity: 6
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_config.py
+      - Test: default values correct (max_length=512, cv_pass_min_count=3)
+      - Test: __post_init__ raises on invalid cv_pass_min_count (e.g., 5)
+      - Test: primary_epsilon in epsilons validated
+    reference_files:
+      architecture: 03_architecture.md#config-h-m2codeconfigpy
+      config: 03_config.md#experimentconfig-dataclass
+
+  - id: task-004
+    epic: A-3 - Dataset Loading
+    title: '[A-3] Verify data_utils.py (copied from h-e1) with max_length=512'
+    description: |
+      File: h-m2/code/data_utils.py (COPIED from h-e1 — no changes needed)
+
+      Verify the following APIs work correctly for h-m2's single max_length=512:
+        load_alpaca_dataloader(tokenizer, cfg, max_length=512) → DataLoader
+          - 512 samples from tatsu-lab/alpaca train split, seed=42
+          - batch_size=8, shuffle=False
+
+        load_wikitext_dataloader(tokenizer, cfg, max_length=512) → DataLoader
+          - 512 sliding-window chunks from wikitext-103-raw-v1 test split
+          - batch_size=8, shuffle=False
+
+      Note: Both functions take max_length as positional 3rd arg (not keyword-only).
+      Call convention verified from h-e1 code: load_alpaca_dataloader(tokenizer, cfg, cfg.max_length)
+    feature_tag: data-pipeline
+    priority: 91
+    source_document: 03_architecture.md
+    complexity: 7
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_data_utils.py
+      - Test: load_alpaca_dataloader returns DataLoader with batch_size=8
+      - Test: load_wikitext_dataloader returns DataLoader with correct length
+      - Use mock tokenizer to avoid model download in tests
+    reference_files:
+      architecture: 03_architecture.md#datautils-h-m2codedata_utilspy
+      logic: 03_logic.md#external-dependencies-api
+
+  - id: task-005
+    epic: A-4 - Multi-Epsilon Sparsity Measurement
+    title: '[A-4] Implement measure_all_epsilons wrapper (2 datasets × 4 epsilons)'
+    description: |
+      File: h-m2/code/measure_sparsity.py
+      Copy h-e1/code/measure_sparsity.py as base (unchanged), then add:
+
+      NEW: measure_all_epsilons(model, alpaca_dl, wikitext_dl, cfg)
+        -> Tuple[Dict[float, np.ndarray], Dict[float, np.ndarray]]
+
+      Implementation:
+        alpaca_sparsity = {}
+        wikitext_sparsity = {}
+        for eps in cfg.epsilons:   # [0.001, 0.01, 0.05, 0.1]
+          print(f"Measuring: epsilon={eps}, dataset=alpaca")
+          alpaca_sparsity[eps] = measure_layer_sparsity(model, alpaca_dl, eps, cfg)
+          print(f"Measuring: epsilon={eps}, dataset=wikitext")
+          wikitext_sparsity[eps] = measure_layer_sparsity(model, wikitext_dl, eps, cfg)
+        return alpaca_sparsity, wikitext_sparsity
+
+      Total: 8 forward-pass sequences (hooks auto-cleaned in measure_layer_sparsity finally block).
+      Returns: ({eps: ndarray(32,)}, {eps: ndarray(32,)})
+    feature_tag: experiment
+    priority: 90
+    source_document: 03_architecture.md
+    complexity: 9
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_measure_sparsity.py
+      - Test: measure_all_epsilons returns 2 dicts each with 4 keys
+      - Test: each value is ndarray of shape (32,) with values in [0, 1]
+      - Use 2-layer mock model to avoid GPU in tests
+    reference_files:
+      architecture: 03_architecture.md#measuresparsity-h-m2codemeasure_sparsitypy
+      logic: 03_logic.md#a-4-multi-epsilon-sparsity-measurement-complexity-9-budget-1-subtask
+
+  - id: task-006
+    epic: A-5 - Cross-Epsilon Tau Computation
+    title: '[A-5] Implement compute_metrics.py — CV per epsilon + 6 pairwise cross-epsilon tau'
+    description: |
+      File: h-m2/code/compute_metrics.py (NEW — primary new module)
+
+      compute_cv_per_epsilon(sparsity_dict, epsilons) -> Dict[float, float]:
+        from scipy.stats import variation
+        result = {}
+        for eps in epsilons:
+          result[eps] = float(variation(sparsity_dict[eps]))  # std/mean
+        return result
+
+      count_cv_pass(cv_per_epsilon, threshold=0.3) -> Tuple[int, Dict[float, bool]]:
+        passed = {eps: (cv > threshold) for eps, cv in cv_per_epsilon.items()}
+        return sum(passed.values()), passed
+
+      ADJACENT_PAIRS = [(0.001, 0.01), (0.01, 0.05), (0.05, 0.1)]
+
+      compute_cross_epsilon_tau(sparsity_dict, epsilons) -> Dict[str, Dict[str, float]]:
+        from itertools import combinations
+        from scipy.stats import kendalltau
+        results = {}
+        for e1, e2 in combinations(epsilons, 2):   # 6 pairs
+          key = f"{e1}_vs_{e2}"
+          tau, p_value = kendalltau(sparsity_dict[e1], sparsity_dict[e2], variant='b')
+          results[key] = {"tau": float(tau), "p_value": float(p_value)}
+        return results
+        # Keys: "0.001_vs_0.01", "0.001_vs_0.05", "0.001_vs_0.1",
+        #       "0.01_vs_0.05", "0.01_vs_0.1", "0.05_vs_0.1"
+    feature_tag: experiment
+    priority: 89
+    source_document: 03_architecture.md
+    complexity: 12
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_compute_metrics.py
+      - Test: compute_cross_epsilon_tau returns exactly 6 pairs
+      - Test: identical sparsity vectors → tau ≈ 1.0 (or -1.0 for reverse)
+      - Test: count_cv_pass correctly counts threshold crossings
+      - Use synthetic 32-dim arrays (no model needed)
+    reference_files:
+      architecture: 03_architecture.md#computemetrics-h-m2codecompute_metricspy
+      logic: 03_logic.md#a-5-cross-epsilon-tau-computation-complexity-12-budget-2-subtasks
+
+  - id: task-007
+    epic: A-6 - Cross-Distribution Tau (Secondary)
+    title: '[A-6] Implement compute_cross_dist_tau for Alpaca vs WikiText per epsilon'
+    description: |
+      In h-m2/code/compute_metrics.py (add to A-5 module):
+
+      compute_cross_dist_tau(alpaca_sparsity, wikitext_sparsity, epsilons)
+        -> Dict[float, Dict[str, float]]:
+        results = {}
+        for eps in epsilons:
+          tau, p_value = kendalltau(alpaca_sparsity[eps], wikitext_sparsity[eps], variant='b')
+          results[eps] = {"tau": float(tau), "p_value": float(p_value)}
+        return results  # secondary metric: Alpaca vs WikiText tau per epsilon
+
+      Expected: all 4 values >= 0.6 (h-e1 confirmed tau_calibration=0.786 at epsilon=0.01).
+      This is a NON-GATE metric (for paper reporting only).
+    feature_tag: experiment
+    priority: 88
+    source_document: 03_architecture.md
+    complexity: 8
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Add to tests/test_compute_metrics.py
+      - Test: compute_cross_dist_tau returns 4 entries (one per epsilon)
+      - Test: identical vectors → tau ≈ 1.0
+    reference_files:
+      architecture: 03_architecture.md#epic-tasks
+      logic: 03_logic.md#a-7-gate-evaluation-complexity-10-budget-2-subtasks
+
+  - id: task-008
+    epic: A-7 - Gate Evaluation
+    title: '[A-7] Implement evaluate_gate and verify_mechanism_activated'
+    description: |
+      In h-m2/code/compute_metrics.py (add to module):
+
+      ADJACENT_PAIRS = [(0.001, 0.01), (0.01, 0.05), (0.05, 0.1)]
+
+      evaluate_gate(cv_per_epsilon, tau_matrix, cfg) -> Tuple[bool, Dict]:
+        cv_pass_count, cv_pass_dict = count_cv_pass(cv_per_epsilon, cfg.cv_threshold)
+        cv_gate_passed = cv_pass_count >= cfg.cv_pass_min_count  # >= 3
+
+        adjacent_tau = {}
+        for (e1, e2) in ADJACENT_PAIRS:
+          adjacent_tau[f"{e1}_vs_{e2}"] = tau_matrix[f"{e1}_vs_{e2}"]["tau"]
+        max_adjacent_tau = max(adjacent_tau.values())
+        tau_gate_passed = max_adjacent_tau >= cfg.cross_epsilon_tau_threshold  # >= 0.7
+
+        gate_pass = cv_gate_passed and tau_gate_passed
+        failed_conditions = []
+        if not cv_gate_passed:
+          failed_conditions.append(f"CV pass count={cv_pass_count} < {cfg.cv_pass_min_count}")
+        if not tau_gate_passed:
+          failed_conditions.append(f"max adjacent tau={max_adjacent_tau:.4f} < {cfg.cross_epsilon_tau_threshold}")
+
+        return gate_pass, {
+          "gate_result": "PASS" if gate_pass else "FAIL",
+          "cv_pass_count": cv_pass_count, "cv_pass_dict": cv_pass_dict,
+          "max_adjacent_tau": max_adjacent_tau, "adjacent_pair_results": adjacent_tau,
+          "failed_conditions": failed_conditions, "all_tau_pairs": tau_matrix,
+        }
+
+      verify_mechanism_activated(sparsity_dict, tau_matrix, epsilons) -> Tuple[bool, Dict]:
+        data_complete = all(len(sparsity_dict[eps]) == 32 for eps in epsilons)
+        tau_complete = len(tau_matrix) == 6
+        values_valid = all(0.0 < float(sparsity_dict[eps].mean()) < 1.0 for eps in epsilons)
+        indicators = {"data_complete": data_complete, "tau_complete": tau_complete, "values_valid": values_valid}
+        return all(indicators.values()), indicators
+    feature_tag: experiment
+    priority: 87
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Add to tests/test_compute_metrics.py
+      - Test: evaluate_gate PASS when cv_pass_count=4 and max_adjacent_tau=0.9
+      - Test: evaluate_gate FAIL when cv_pass_count=2 (below 3)
+      - Test: evaluate_gate FAIL when max_adjacent_tau=0.6 (below 0.7)
+      - Test: verify_mechanism_activated returns False when tau_matrix has < 6 keys
+    reference_files:
+      architecture: 03_architecture.md#epic-tasks
+      logic: 03_logic.md#a-7-gate-evaluation-complexity-10-budget-2-subtasks
+
+  - id: task-009
+    epic: A-8 - Visualization
+    title: '[A-8] Implement all 4 visualization figures in visualize.py'
+    description: |
+      File: h-m2/code/visualize.py (NEW — 4 figures for h-m2)
+
+      plot_gate_metrics(cv_per_epsilon, tau_matrix, cfg, save_path):
+        - 2-panel figure: left=CV per epsilon bars (0.3 dashed threshold), right=adjacent tau bars (0.7 threshold)
+        - Color green if above threshold, red if below
+
+      plot_cross_epsilon_tau_heatmap(tau_matrix, epsilons, save_path):
+        - Build 4x4 symmetric matrix: diagonal=1.0, off-diagonal from tau_matrix
+        - seaborn.heatmap(annot=True, vmin=0, vmax=1, fmt=".2f")
+        - axis labels: epsilon values as strings
+
+      plot_sparsity_profiles_overlay(sparsity_dict, epsilons, save_path):
+        - 4 lines, x=range(32), y=sparsity per layer, different color per epsilon
+        - Legend: epsilon values, xlabel="Layer Index", ylabel="Sparsity Fraction"
+
+      plot_cv_per_epsilon(cv_per_epsilon, cfg, save_path):
+        - Bar chart: x=epsilon values, y=CV; dashed line at cv_threshold=0.3
+        - Color bars: green if CV>0.3, red otherwise
+
+      generate_all_figures(sparsity_dict, cv_per_epsilon, tau_matrix, cfg):
+        - os.makedirs(cfg.figures_dir, exist_ok=True)
+        - Calls all 4 plot functions with paths in cfg.figures_dir
+        - All saved as PNG, dpi=150
+    feature_tag: experiment
+    priority: 86
+    source_document: 03_architecture.md
+    complexity: 11
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_visualize.py
+      - Use matplotlib.use("Agg") in test setup
+      - Test: generate_all_figures creates 4 PNG files
+      - Test: plot functions don't raise exceptions with valid 32-dim input
+    reference_files:
+      architecture: 03_architecture.md#visualize-h-m2codevisualizepy
+      config: 03_config.md#a-8-visualization
+
+  - id: task-010
+    epic: A-9 - Main Runner Integration
+    title: '[A-9] Implement run_experiment.py main orchestrator'
+    description: |
+      File: h-m2/code/run_experiment.py (NEW)
+
+      load_model_and_tokenizer(cfg) -> (model, tokenizer):
+        model = AutoModelForCausalLM.from_pretrained(
+          cfg.model_name,  # "meta-llama/Meta-Llama-3-8B"
+          torch_dtype=torch.float16, device_map="auto")
+        model.eval()
+        tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+        if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
+        return model, tokenizer
+
+      save_results(cv_per_epsilon, tau_matrix, cross_dist_tau, gate_result, gate_details, alpaca_sparsity, cfg):
+        output = {
+          "hypothesis": "h-m2", "gate_result": gate_details["gate_result"],
+          "cv_per_epsilon": {str(k): v for k,v in cv_per_epsilon.items()},
+          "cv_pass_count": gate_details["cv_pass_count"],
+          "max_adjacent_tau": gate_details["max_adjacent_tau"],
+          "tau_matrix": tau_matrix, "cross_dist_tau": {str(k): v for k,v in cross_dist_tau.items()},
+          "failed_conditions": gate_details["failed_conditions"],
+          "sparsity_profiles": {str(eps): sv.tolist() for eps,sv in alpaca_sparsity.items()},
+        }
+        with open(cfg.results_path, "w") as f: json.dump(output, f, indent=2)
+
+      main():
+        cfg = ExperimentConfig()
+        np.random.seed(cfg.seed); torch.manual_seed(cfg.seed)
+        os.makedirs(cfg.figures_dir, exist_ok=True)
+        model, tokenizer = load_model_and_tokenizer(cfg)
+        alpaca_dl = load_alpaca_dataloader(tokenizer, cfg, cfg.max_length)
+        wikitext_dl = load_wikitext_dataloader(tokenizer, cfg, cfg.max_length)
+        alpaca_sparsity, wikitext_sparsity = measure_all_epsilons(model, alpaca_dl, wikitext_dl, cfg)
+        mechanism_ok, indicators = verify_mechanism_activated(alpaca_sparsity, {}, cfg.epsilons)
+        assert mechanism_ok, f"Mechanism not activated: {indicators}"
+        cv_per_epsilon = compute_cv_per_epsilon(alpaca_sparsity, cfg.epsilons)
+        tau_matrix = compute_cross_epsilon_tau(alpaca_sparsity, cfg.epsilons)
+        cross_dist_tau = compute_cross_dist_tau(alpaca_sparsity, wikitext_sparsity, cfg.epsilons)
+        gate_pass, gate_details = evaluate_gate(cv_per_epsilon, tau_matrix, cfg)
+        generate_all_figures(alpaca_sparsity, cv_per_epsilon, tau_matrix, cfg)
+        save_results(cv_per_epsilon, tau_matrix, cross_dist_tau, gate_pass, gate_details, alpaca_sparsity, cfg)
+        # Print gate summary to stdout
+        print(f"\n=== GATE: {gate_details['gate_result']} ===")
+        print(f"CV robustness: {gate_details['cv_pass_count']}/4 epsilons pass CV > 0.3")
+        for eps, cv in cv_per_epsilon.items():
+          print(f"  epsilon={eps}: CV={cv:.4f}")
+        print(f"Max adjacent tau: {gate_details['max_adjacent_tau']:.4f} (threshold >= 0.7)")
+    feature_tag: experiment
+    priority: 85
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_run_experiment.py
+      - Test: save_results writes valid JSON with gate_result key
+      - Test: main() with mock components runs without error
+      - Test: setup (seeds, dirs) works correctly
+    reference_files:
+      architecture: 03_architecture.md#runexperiment-h-m2coderun_experimentpy
+      logic: 03_logic.md#a-9-main-runner-integration-complexity-10-budget-2-subtasks
+
+  - id: task-011
+    epic: A-10 - Results JSON
+    title: '[A-10] Implement structured results JSON with complete gate metadata'
+    description: |
+      Ensure experiment_results.json contains complete structured output:
+      {
+        "hypothesis": "h-m2",
+        "gate_result": "PASS" or "FAIL",
+        "cv_per_epsilon": {"0.001": <float>, "0.01": <float>, "0.05": <float>, "0.1": <float>},
+        "cv_pass_count": <int>,
+        "max_adjacent_tau": <float>,
+        "adjacent_pair_results": {
+          "0.001_vs_0.01": <float>, "0.01_vs_0.05": <float>, "0.05_vs_0.1": <float>
+        },
+        "tau_matrix": {
+          "0.001_vs_0.01": {"tau": <float>, "p_value": <float>},
+          ... (6 pairs total)
+        },
+        "cross_dist_tau": {
+          "0.001": {"tau": <float>, "p_value": <float>},
+          ... (4 epsilon values)
+        },
+        "failed_conditions": [...],
+        "sparsity_profiles": {"0.001": [<32 floats>], ...}
+      }
+      Verify JSON is valid and parseable for Phase 6 paper writing.
+    feature_tag: experiment
+    priority: 84
+    source_document: 03_architecture.md
+    complexity: 7
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Test: JSON output is valid and parseable
+      - Test: gate_result key present
+      - Test: tau_matrix has 6 pairs
+      - Test: sparsity_profiles has 32 floats per epsilon
+    reference_files:
+      architecture: 03_architecture.md#epic-tasks
+      logic: 03_logic.md#a-9-main-runner-integration-complexity-10-budget-2-subtasks
+
+  - id: task-012
+    epic: A-11 - Unit Tests
+    title: '[A-11] Implement unit test suite for h-m2 modules'
+    description: |
+      Create comprehensive test suite in h-m2/code/tests/:
+
+      test_compute_metrics.py:
+        - test_cv_per_epsilon: known array → verify CV formula (std/mean)
+        - test_count_cv_pass: 3/4 pass scenario
+        - test_cross_epsilon_tau_count: 4 epsilons → 6 pairs
+        - test_identical_tau: identical vectors → tau=1.0
+        - test_evaluate_gate_pass: cv_pass=4, max_adj_tau=0.9 → PASS
+        - test_evaluate_gate_fail_cv: cv_pass=2 → FAIL
+        - test_evaluate_gate_fail_tau: max_adj_tau=0.5 → FAIL
+
+      test_visualize.py:
+        - test_generate_all_figures: creates 4 PNG files in temp dir
+        - Uses matplotlib.use("Agg") + 32-dim mock sparsity arrays
+
+      test_run_experiment.py (smoke tests):
+        - test_save_results: writes valid JSON with required keys
+        - test_main_integration: runs main() with mock model/dataloaders (skip if no GPU)
+
+      Run all tests: pytest h-m2/code/tests/ -v
+    feature_tag: testing
+    priority: 83
+    source_document: 03_architecture.md
+    complexity: 9
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Tests are the deliverable
+      - All tests pass with pytest (no GPU required for unit tests)
+      - No placeholder tests (assert True, pass, ...)
+    reference_files:
+      architecture: 03_architecture.md#epic-tasks
+      config: 03_config.md#a-11-unit-test-configuration
+
+  # ── Logic Subtasks (priority 49–37) ────────────────────────────────────────
+
+  - id: task-013
+    epic: A-5 - Cross-Epsilon Tau (Subtask)
+    title: '[A-5-ST1] Implement compute_cv_per_epsilon + count_cv_pass'
+    description: |
+      In compute_metrics.py:
+      - compute_cv_per_epsilon: use scipy.stats.variation(sv) = std(sv)/mean(sv)
+      - count_cv_pass: dict comprehension {eps: cv > threshold}; sum True values
+      - Handle edge case: mean=0 (all sparsity=0) → CV=nan → treat as fail
+      Verify: for h-e1 Alpaca at epsilon=0.01, expected CV ≈ 0.544
+    feature_tag: experiment
+    priority: 49
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_compute_metrics.py
+    reference_files:
+      logic: 03_logic.md#a-5-cross-epsilon-tau-computation-complexity-12-budget-2-subtasks
+
+  - id: task-014
+    epic: A-5 - Cross-Epsilon Tau (Subtask)
+    title: '[A-5-ST2] Implement compute_cross_epsilon_tau with kendalltau_b'
+    description: |
+      In compute_metrics.py:
+      - Use itertools.combinations(epsilons, 2) for all 6 pairs
+      - kendalltau(vec_i, vec_j, variant='b') — variant='b' handles ties correctly
+      - Key format: f"{e1}_vs_{e2}" where (e1,e2) from combinations (e1 < e2 in list order)
+      - Verify exactly 6 keys: "0.001_vs_0.01", "0.001_vs_0.05", "0.001_vs_0.1",
+        "0.01_vs_0.05", "0.01_vs_0.1", "0.05_vs_0.1"
+      - Note: DO NOT use h-e1's compute_kendall_tau (lacks variant='b')
+    feature_tag: experiment
+    priority: 48
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_compute_metrics.py
+    reference_files:
+      logic: 03_logic.md#a-5-cross-epsilon-tau-computation-complexity-12-budget-2-subtasks
+
+  - id: task-015
+    epic: A-7 - Gate Evaluation (Subtask)
+    title: '[A-7-ST1] Implement evaluate_gate with adjacent-pair filtering'
+    description: |
+      In compute_metrics.py:
+      - ADJACENT_PAIRS constant at module level: [(0.001,0.01),(0.01,0.05),(0.05,0.1)]
+      - Only check 3 adjacent pairs for tau gate (not all 6)
+      - max_adjacent_tau = max of 3 adjacent pair tau values
+      - gate_pass = (cv_pass_count >= cfg.cv_pass_min_count) AND (max_adjacent_tau >= cfg.cross_epsilon_tau_threshold)
+      - Return structured gate_details dict with all components for JSON serialization
+    feature_tag: experiment
+    priority: 47
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_compute_metrics.py
+    reference_files:
+      logic: 03_logic.md#a-7-gate-evaluation-complexity-10-budget-2-subtasks
+
+  - id: task-016
+    epic: A-7 - Gate Evaluation (Subtask)
+    title: '[A-7-ST2] Implement verify_mechanism_activated + compute_cross_dist_tau'
+    description: |
+      In compute_metrics.py:
+      - verify_mechanism_activated: check len(sparsity_dict[eps])==32 for all eps,
+        len(tau_matrix)==6, all mean sparsity in (0,1)
+      - compute_cross_dist_tau: loop over epsilons, kendalltau(alpaca[eps], wikitext[eps], variant='b')
+      - Note: verify_mechanism called BEFORE tau_matrix computed → pass {} for tau_matrix
+        in initial check; only data_complete and values_valid checked at that stage
+    feature_tag: experiment
+    priority: 46
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_compute_metrics.py
+    reference_files:
+      logic: 03_logic.md#a-7-gate-evaluation-complexity-10-budget-2-subtasks
+
+  - id: task-017
+    epic: A-9 - Main Runner (Subtask)
+    title: '[A-9-ST1] Implement load_model_and_tokenizer + measure_all_epsilons integration'
+    description: |
+      In run_experiment.py:
+      - load_model_and_tokenizer: use torch.float16 + device_map="auto"
+        CRITICAL: tokenizer.pad_token = tokenizer.eos_token if pad_token is None
+      - In main(): call load_alpaca_dataloader(tokenizer, cfg, cfg.max_length) — positional 3rd arg
+      - Call measure_all_epsilons(model, alpaca_dl, wikitext_dl, cfg) → 8 measurements
+      - After measurement: call verify_mechanism_activated(alpaca_sparsity, {}, cfg.epsilons)
+        assert mechanism_ok before proceeding to analysis
+    feature_tag: experiment
+    priority: 45
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_run_experiment.py
+    reference_files:
+      logic: 03_logic.md#a-9-main-runner-integration-complexity-10-budget-2-subtasks
+
+  - id: task-018
+    epic: A-9 - Main Runner (Subtask)
+    title: '[A-9-ST2] Implement save_results JSON + main() stdout gate summary'
+    description: |
+      In run_experiment.py:
+      - save_results: serialize all numpy values to Python native (via .tolist(), float())
+        Output keys: hypothesis, gate_result, cv_per_epsilon, cv_pass_count,
+        max_adjacent_tau, tau_matrix (6 pairs), cross_dist_tau (4 eps), failed_conditions,
+        sparsity_profiles (32-element lists)
+      - main() stdout gate summary format:
+        "=== GATE: PASS/FAIL ==="
+        "CV robustness: N/4 epsilons pass CV > 0.3"
+        for each epsilon: "  epsilon=X: CV=Y.YYYY [PASS/FAIL]"
+        "Max adjacent tau: T.TTTT (threshold >= 0.7)"
+        if failed: "FAILED: <condition>"
+    feature_tag: experiment
+    priority: 44
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_run_experiment.py
+    reference_files:
+      logic: 03_logic.md#a-9-main-runner-integration-complexity-10-budget-2-subtasks
+
+  - id: task-019
+    epic: A-4 - Multi-Epsilon Measurement (Subtask)
+    title: '[A-4-ST1] Implement measure_all_epsilons with hook cleanup verification'
+    description: |
+      In measure_sparsity.py (copied from h-e1 + this addition):
+      - measure_all_epsilons loops over cfg.epsilons × 2 datasets = 8 calls
+      - measure_layer_sparsity already removes hooks in finally block — no extra cleanup needed
+      - Print progress: f"Measuring: epsilon={eps}, dataset={name}"
+      - After all measurements: validate shapes with assert statements
+        assert all(v.shape == (32,) for v in alpaca_sparsity.values())
+        assert all(v.shape == (32,) for v in wikitext_sparsity.values())
+    feature_tag: experiment
+    priority: 43
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_measure_sparsity.py
+    reference_files:
+      logic: 03_logic.md#a-4-multi-epsilon-sparsity-measurement-complexity-9-budget-1-subtask
+
+  - id: task-020
+    epic: A-8 - Visualization (Subtask)
+    title: '[A-8-ST1] Implement plot_gate_metrics + plot_cross_epsilon_tau_heatmap'
+    description: |
+      In visualize.py:
+      plot_gate_metrics(cv_per_epsilon, tau_matrix, cfg, save_path):
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        # Left: CV per epsilon bars
+        ax1.bar([str(e) for e in epsilons], [cv_per_epsilon[e] for e in epsilons])
+        ax1.axhline(cfg.cv_threshold, linestyle='--', label='threshold=0.3')
+        # Right: adjacent pair tau bars
+        adj_keys = [f"{e1}_vs_{e2}" for e1,e2 in ADJACENT_PAIRS]
+        ax2.bar(adj_keys, [tau_matrix[k]["tau"] for k in adj_keys])
+        ax2.axhline(cfg.cross_epsilon_tau_threshold, linestyle='--', label='threshold=0.7')
+        plt.savefig(save_path, dpi=150, bbox_inches='tight'); plt.close()
+
+      plot_cross_epsilon_tau_heatmap(tau_matrix, epsilons, save_path):
+        mat = np.eye(4)  # diagonal = 1.0
+        eps_list = list(epsilons)
+        for i,e1 in enumerate(eps_list):
+          for j,e2 in enumerate(eps_list):
+            if i < j:
+              key = f"{e1}_vs_{e2}"; val = tau_matrix[key]["tau"]
+              mat[i,j] = mat[j,i] = val
+        labels = [str(e) for e in eps_list]
+        sns.heatmap(mat, annot=True, xticklabels=labels, yticklabels=labels,
+                    vmin=0, vmax=1, fmt=".2f", cmap="YlOrRd")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight'); plt.close()
+    feature_tag: experiment
+    priority: 42
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_visualize.py (Agg backend)
+    reference_files:
+      logic: 03_logic.md#a-5-cross-epsilon-tau-computation-complexity-12-budget-2-subtasks
+      config: 03_config.md#a-8-visualization
+
+  - id: task-021
+    epic: A-8 - Visualization (Subtask)
+    title: '[A-8-ST2] Implement plot_sparsity_profiles_overlay + plot_cv_per_epsilon + generate_all_figures'
+    description: |
+      In visualize.py:
+      plot_sparsity_profiles_overlay(sparsity_dict, epsilons, save_path):
+        colors = ['blue', 'orange', 'green', 'red']
+        for i, eps in enumerate(epsilons):
+          plt.plot(range(32), sparsity_dict[eps], color=colors[i], label=f"ε={eps}")
+        plt.xlabel("Layer Index"); plt.ylabel("Sparsity Fraction")
+        plt.legend(); plt.savefig(save_path, dpi=150, bbox_inches='tight'); plt.close()
+
+      plot_cv_per_epsilon(cv_per_epsilon, cfg, save_path):
+        colors = ['green' if cv > cfg.cv_threshold else 'red' for cv in cv_per_epsilon.values()]
+        plt.bar([str(e) for e in cv_per_epsilon], list(cv_per_epsilon.values()), color=colors)
+        plt.axhline(cfg.cv_threshold, linestyle='--', color='black', label='threshold=0.3')
+        plt.savefig(save_path, dpi=150, bbox_inches='tight'); plt.close()
+
+      generate_all_figures(sparsity_dict, cv_per_epsilon, tau_matrix, cfg):
+        os.makedirs(cfg.figures_dir, exist_ok=True)
+        figs_dir = cfg.figures_dir
+        epsilons = cfg.epsilons
+        plot_gate_metrics(cv_per_epsilon, tau_matrix, cfg, f"{figs_dir}/gate_metrics.png")
+        plot_cross_epsilon_tau_heatmap(tau_matrix, epsilons, f"{figs_dir}/cross_epsilon_tau_heatmap.png")
+        plot_sparsity_profiles_overlay(sparsity_dict, epsilons, f"{figs_dir}/sparsity_profiles_overlay.png")
+        plot_cv_per_epsilon(cv_per_epsilon, cfg, f"{figs_dir}/cv_per_epsilon.png")
+    feature_tag: experiment
+    priority: 41
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_visualize.py
+    reference_files:
+      config: 03_config.md#a-8-visualization
+
+  - id: task-022
+    epic: A-11 - Unit Tests (Subtask)
+    title: '[A-11-ST1] Test infrastructure: fixtures, Agg backend, mock arrays'
+    description: |
+      In h-m2/code/tests/:
+      conftest.py:
+        import matplotlib; matplotlib.use("Agg")
+        import numpy as np, pytest
+        EPSILONS = [0.001, 0.01, 0.05, 0.1]
+
+        @pytest.fixture def mock_sparsity_dict():
+          # Returns {epsilon: ndarray(32,)} with realistic values
+          rng = np.random.default_rng(42)
+          return {eps: rng.uniform(0.1, 0.9, 32) for eps in EPSILONS}
+
+        @pytest.fixture def mock_identical_dict():
+          # All epsilon sparsity vectors identical → tau=1.0
+          arr = np.linspace(0.1, 0.9, 32)
+          return {eps: arr.copy() for eps in EPSILONS}
+
+      Key test cases (verify test_compute_metrics.py):
+        - test_identical_tau: compute_cross_epsilon_tau(mock_identical_dict) → all tau ≈ 1.0
+        - test_cv_formula: variation([1,2,3,4]) = std/mean = known value
+        - test_evaluate_gate_pass: cv_pass=4 + max_adj_tau=0.9 → gate_pass=True
+    feature_tag: testing
+    priority: 40
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: Tests are the deliverable.
+    reference_files:
+      config: 03_config.md#a-11-unit-test-configuration
+
+  # ── Failsafe (priority 1) ───────────────────────────────────────────────────
+
+  - id: task-023
+    epic: Pipeline Management
+    title: Pipeline Continuation Checkpoint
+    description: /full-pipeline-unattended - FAILSAFE CONTINUATION TASK
+    feature_tag: pipeline-continue
+    priority: 1
+    source_document: system
+    complexity: null
+    test_requirements: Failsafe task does not require tests.
+    reference_files: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 11
+  subtasks: 10
+  failsafe: 1
+  total: 23

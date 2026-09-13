@@ -1,0 +1,50 @@
+
+\subsubsection{KV Cache Compression}
+
+H2O \citep{zhang2023h2o} tracks accumulated attention scores across layers to identify heavy-hitter tokens that contribute most to attention computations. By retaining 20\% of heavy-hitter tokens plus recent tokens, H2O achieves $29\times$ throughput improvement on OPT-6.7B with minimal accuracy loss. H2O's uniform attention-based policy treats all tokens identically regardless of retrieval provenance.
+
+StreamingLLM \citep{xiao2024streamingllm} preserves initial attention sink tokens plus a sliding window of recent context, enabling infinite-length streaming with constant memory. StreamingLLM's fixed window discards distant but semantically relevant retrieved passages, which is problematic for multi-hop QA requiring evidence synthesis across documents.
+
+DynamicKV \citep{liu2024dynamickv} extends H2O with per-layer budget allocation, observing that different transformer layers exhibit distinct attention patterns. Per-layer eviction improves efficiency by 2-3\% over global budgets. ProvenanceCache is complementary---per-layer budgets could be applied to provenance-aware tiers.
+
+These methods operate on attention scores computed from the original context, requiring expensive prefill passes before eviction. ProvenanceCache uses retrieval metadata available at preprocessing time, enabling eviction before the first generation token.
+
+\subsubsection{Dense Retrieval for RAG}
+
+DPR \citep{karpukhin2020dpr} trains dual BERT encoders on question-passage pairs, achieving state-of-the-art open-domain QA results. Contriever \citep{Izacard2021} extends DPR to unsupervised learning via contrastive pretraining.
+
+These retrieval systems produce relevance scores and passage boundaries as byproducts of retrieval. Downstream generation models typically discard this metadata after concatenating retrieved passages into a single context string. This work demonstrates that retrieval scores generalize from passage ranking (retrieval task) to attention prediction (generation task), with Contriever showing $\rho$=0.612 Spearman correlation---57\% stronger than lexical BM25 ($\rho$=0.391).
+
+\subsubsection{Diversity in Information Retrieval}
+
+Maximal Marginal Relevance (MMR) \citep{carbonell1998mmr} balances relevance and novelty via a weighted combination: $\lambda \times$ relevance + (1-$\lambda ) \times$ diversity (embedding cosine distance from already-selected documents). MMR with $\lambda =0.5$ produces diverse result sets without excessive relevance sacrifice.
+
+Coverage-based ranking \citep{clarke2008novelty} models query intent as a distribution over subtopics, rewarding documents that cover under-represented aspects. These methods target retrieval ranking (top-k selection from large candidate pools). ProvenanceCache extends diversity principles to cache eviction---memory-constrained retention where all passages are initially in cache, and we must select which to preserve.
+
+Diversity matters asymmetrically by task type: +14.71\% F1 gain on multi-hop QA versus +6.16\% on single-hop factoid QA. This finding validates that multi-hop reasoning is a coverage problem (maximize diverse evidence span), not a ranking problem (maximize top-k scores).
+
+\subsubsection{Multi-Hop Question Answering}
+
+HotpotQA \citep{yang2018hotpotqa} introduced the bridge entity task: answering ''What nationality is the director of film X?'' requires retrieving (1) ''X was directed by Y'' and (2) ''Y has nationality Z.'' Both passages are semantically relevant to the query, but neither alone suffices.
+
+MuSiQue \citep{trivedi2022musique} extends multi-hop reasoning to disconnected reasoning chains requiring 2-4 hops across compositional questions. These datasets motivate diversity-aware eviction: naïve top-k retention by relevance over-allocates cache budget to redundant passages about Entity A, evicting critical bridging facts about Entity B.
+
+Experiments on LongBench multi-doc QA (subset of HotpotQA + narrativeqa + triviaqa) demonstrate that MMR diversity scoring prevents this failure mode, achieving 2.$4\times$ larger gains on multi-hop questions than single-hop factoid QA.
+
+\subsubsection{Relationship to Prior Work}
+
+ProvenanceCache differs from prior KV cache compression in three ways:
+
+\begin{enumerate}
+\item \textbf{Metadata source}: Uses retrieval provenance (passage boundaries, Contriever scores) rather than runtime attention (H2O, DynamicKV) or positional heuristics (StreamingLLM).
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Eviction timing}: Applies provenance-based eviction before first generation token (at preprocessing), not after accumulated attention tracking.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Task-aware diversity}: Incorporates MMR diversity metric to prevent redundant high-relevance passage retention on multi-hop tasks.
+\end{enumerate}
+
+To our knowledge, this is the first work to condition KV cache eviction on retrieval metadata and empirically validate that retrieval scores predict attention patterns during generation ($\rho$=0.612 correlation).

@@ -1,0 +1,601 @@
+version: "1.1"
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_id_upper: H-M1
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-05-04T16:00:00Z"
+  source_documents:
+    - 03_prd.md
+    - 03_architecture.md
+    - 03_logic.md
+    - 03_config.md
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ── Data Preparation (priority 100) ──────────────────────────────────────
+  - id: task-001
+    epic: Data Preparation
+    title: Download Waterbirds dataset
+    description: |
+      Download Waterbirds dataset from GroupDRO repository.
+      Source: https://github.com/kohpangwei/group_DRO
+      Method: Clone repo and run download script (or manually assemble from CUB + Places datasets).
+      Place in: ./data/waterbirds/
+      Verify: train 4795, val 1199, test 4795 samples; metadata CSV with core_label + spurious_label columns.
+    feature_tag: data-preparation
+    priority: 100
+    source_document: 03_prd.md
+    complexity: null
+    test_requirements: Data download tasks do not require tests.
+    reference_files:
+      prd: "03_prd.md#41-primary-dataset-waterbirds"
+
+  # ── Environment Setup (priority 99) ──────────────────────────────────────
+  - id: task-002
+    epic: Environment Setup
+    title: Setup development environment
+    description: |
+      Install required packages:
+        torch>=1.12.0
+        torchvision>=0.13.0
+        numpy>=1.21.0
+        scipy>=1.7.0
+        matplotlib>=3.5.0
+        seaborn>=0.11.0
+        pandas>=1.3.0
+        pyyaml>=5.4.0
+        tqdm>=4.62.0
+
+      External repositories for reference:
+        - GroupDRO: https://github.com/kohpangwei/group_DRO (Waterbirds loader)
+        - DFR: https://github.com/PolinaKirichenko/dfr (gradient hook patterns)
+
+      Set CUDA_VISIBLE_DEVICES to single empty GPU before running experiments.
+    feature_tag: setup
+    priority: 99
+    source_document: 03_prd.md
+    complexity: null
+    test_requirements: Environment setup does not require tests.
+    reference_files:
+      prd: "03_prd.md#7-technical-dependencies"
+
+  # ── Epic Tasks (priority 98 downward) ─────────────────────────────────────
+  - id: task-003
+    epic: A-1
+    title: Setup & Config
+    description: |
+      Copy h-e1/code/data/waterbirds.py into h-m1/code/data/waterbirds.py (no changes needed).
+      Create config.py with TrainConfig (from H-E1, batch_size=64 override, seeds=[1,2,3]),
+      GDRConfig (early_window_epochs=[2,4,6], p_threshold=0.05, min_seeds_pass=2, he1_delta_path=null),
+      and ExperimentConfig composing both.
+      Create configs/waterbirds.yaml with full YAML schema (see 03_config.md#full-configswaterbirdsyaml).
+    feature_tag: setup
+    priority: 98
+    source_document: 03_architecture.md
+    complexity: 5
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_config.py
+      - Test load_config() loads waterbirds.yaml without error
+      - Test TrainConfig field values match YAML (batch_size=64, seeds=[1,2,3])
+      - Test GDRConfig defaults (early_window_epochs=[2,4,6], p_threshold=0.05)
+    reference_files:
+      architecture: "03_architecture.md#A-1"
+      config: "03_config.md#a-8-experiment-runner-config"
+
+  - id: task-004
+    epic: A-2
+    title: Data Loader Verification
+    description: |
+      Verify WaterbirdsDataset returns correct batch dict keys: image, core_label, spurious_label.
+      Write smoke test confirming:
+        - dict keys present: image [3,224,224], core_label int, spurious_label int
+        - label ranges: core_label in {0,1}, spurious_label in {0,1}
+        - all 3 splits load (train/val/test)
+        - batch_size=64 works without error
+    feature_tag: data-pipeline
+    priority: 97
+    source_document: 03_architecture.md
+    complexity: 5
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_data.py
+      - Test WaterbirdsDataset train split loads with correct keys
+      - Test label ranges (core_label, spurious_label in {0,1})
+      - Test get_waterbirds_loader batch shape: image [B,3,224,224]
+    reference_files:
+      architecture: "03_architecture.md#A-2"
+      logic: "03_logic.md#external-dependencies-base-hypothesis"
+
+  - id: task-005
+    epic: A-3
+    title: ERM Trainer (Copy + Extend)
+    description: |
+      Copy H-E1 train.py to h-m1/code/train.py.
+      Extend train_one_seed signature: add analyzer: GradientAlignmentAnalyzer parameter.
+      At each checkpoint_interval epoch (every 2 epochs), call:
+        result = analyzer.log_epoch_gradients(train_loader, criterion)
+      Return dict: {seed, gdr_series, spurious_grad_norms, core_grad_norms}.
+      Training config: SGD lr=1e-3, momentum=0.9, wd=1e-4, batch=64, 30 epochs.
+    feature_tag: training
+    priority: 96
+    source_document: 03_architecture.md
+    complexity: 8
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_train.py
+      - Test train_one_seed runs 2 epochs without error (mock analyzer)
+      - Test analyzer.log_epoch_gradients called at checkpoint epochs
+      - Test return dict has gdr_series key with correct length after training
+    reference_files:
+      architecture: "03_architecture.md#A-3"
+      logic: "03_logic.md#h-m1-train-override-a-3-reference"
+
+  - id: task-006
+    epic: A-4
+    title: GradientAlignmentAnalyzer
+    description: |
+      Implement gradient_analyzer.py with GradientAlignmentAnalyzer class:
+        - extract_features(loader) -> Tuple[Tensor(N,2048), Tensor(N,), Tensor(N,)]
+          Frozen backbone (model.eval() + torch.no_grad()), collects features+labels.
+        - compute_label_gradient_norm(features, label_tensor, criterion) -> float
+          fc-only backward: model.fc.zero_grad() -> logits=model.fc(features) ->
+          loss.backward() -> grad_norm=model.fc.weight.grad.norm(p=2).item()
+        - log_epoch_gradients(loader, criterion) -> Dict[str, float]
+          Calls extract_features + 2x compute_label_gradient_norm,
+          returns {spurious_grad_norm, core_grad_norm, gdr=spurious/(core+1e-8)},
+          appends to history buffers.
+        - get_history() -> Dict[str, List[float]]
+          Returns {spurious_grad_norms, core_grad_norms, gdr_series}, length=15.
+    feature_tag: model
+    priority: 95
+    source_document: 03_architecture.md
+    complexity: 14
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_gradient_analyzer.py
+      - Test extract_features returns shapes (N,2048), (N,), (N,)
+      - Test compute_label_gradient_norm returns positive float
+      - Test log_epoch_gradients returns dict with spurious_grad_norm, core_grad_norm, gdr keys
+      - Test get_history length=15 after 15 calls to log_epoch_gradients
+      - Test GDR = spurious/core ratio (mock known norms)
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#a-4-gradientalignmentanalyzer-complexity-14-budget-4-subtasks"
+
+  - id: task-007
+    epic: A-5
+    title: GDR Metric & Wilcoxon
+    description: |
+      Implement analyze.py functions:
+        - compute_mean_early_gdr(gdr_series, early_epochs, checkpoint_interval) -> float
+          early_epochs=[2,4,6], checkpoint_interval=2 -> indices [0,1,2] -> mean(gdr_series[0:3])
+        - run_wilcoxon_test(spurious_norms_early, core_norms_early) -> Dict[str,float]
+          scipy.stats.wilcoxon(spurious, core, alternative='greater')
+          Returns {stat, p_value}
+        - check_gate(analysis, cfg) -> bool: seeds_pass >= min_seeds_pass AND wilcoxon_pass >= min_seeds_pass
+      Save per-seed GDR arrays as CSV: results/h-m1/gdr_seed_{seed}.csv
+    feature_tag: evaluation
+    priority: 94
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_analyze.py
+      - Test compute_mean_early_gdr with known gdr_series (indices 0,1,2 extracted)
+      - Test run_wilcoxon_test returns {'stat': float, 'p_value': float}
+      - Test check_gate PASS: seeds_pass>=2 AND wilcoxon_pass>=2
+      - Test check_gate FAIL: seeds_pass<2
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#a-5-gdr-metric--wilcoxon-complexity-10-budget-2-subtasks"
+
+  - id: task-008
+    epic: A-6
+    title: Pearson Temporal Alignment
+    description: |
+      Implement in analyze.py:
+        - load_he1_delta(delta_path) -> np.ndarray: loads H-E1 delta(t) JSON, returns array shape (15,)
+        - run_pearson_correlation(gdr_series, delta_series) -> Dict[str,float]
+          scipy.stats.pearsonr(gdr_series, delta_series), returns {r, p_value}
+      Integrate into run_analysis(): if he1_delta_path set, compute Pearson per seed.
+      Cross-validation: confirm GDR peaks align with delta(t) > 0 window (epochs 2-8).
+    feature_tag: evaluation
+    priority: 93
+    source_document: 03_architecture.md
+    complexity: 9
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_pearson.py
+      - Test load_he1_delta loads JSON and returns ndarray shape (15,)
+      - Test run_pearson_correlation returns {'r': float, 'p_value': float}
+      - Test with known correlated arrays -> r > 0.9
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      config: "03_config.md#a-6-pearson-temporal-alignment-config"
+      logic: "03_logic.md#a-5-gdr-metric--wilcoxon-complexity-10-budget-2-subtasks"
+
+  - id: task-009
+    epic: A-7
+    title: Visualization (4 Figures)
+    description: |
+      Implement visualize.py with all 4 figures:
+        Fig 1 (required): plot_mean_early_gdr_bar(analysis, figures_dir)
+          Bar chart mean Early GDR per seed vs 1.0 threshold with error bars.
+          analysis keys: mean_early_gdr_per_seed List[float], std_early_gdr float.
+        Fig 2: plot_gdr_timeline(seed_results, delta_series, figures_dir)
+          GDR(t) line per seed + mean, secondary y-axis for H-E1 delta(t).
+        Fig 3: plot_grad_norm_dual_axis(seed_results, figures_dir)
+          Dual-axis: spurious_grad_norm(t) and core_grad_norm(t) with seed variance bands.
+        Fig 4: plot_early_late_violin(seed_results, early_epochs, figures_dir)
+          Violin plots GDR early window (epochs 1-6) vs late (epochs 25-30).
+      All figures saved to h-m1/figures/.
+    feature_tag: evaluation
+    priority: 92
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_visualize.py
+      - Test plot_mean_early_gdr_bar saves PNG file (mock analysis dict)
+      - Test plot_gdr_timeline saves PNG file (mock seed_results)
+      - Test figures_dir is created if it does not exist
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#a-7-visualization-complexity-10-budget-2-subtasks"
+
+  - id: task-010
+    epic: A-8
+    title: Experiment Runner & Gate Report
+    description: |
+      Implement run_experiment.py orchestrating full pipeline:
+        1. load_config(config_path) -> ExperimentConfig
+        2. ERM training (3 seeds) via train_one_seed with GradientAlignmentAnalyzer
+        3. run_analysis(seed_results, cfg.gdr) -> analysis dict
+        4. check_gate(analysis, cfg.gdr) -> PASS/FAIL
+        5. generate_all_figures(seed_results, analysis, delta_series, cfg.figures_dir)
+        6. Write results/h-m1/summary.json (full schema per 03_logic.md#results-schema)
+      Print: "[H-M1] Gate: PASS/FAIL | mean_early_GDR={:.3f} | Wilcoxon p={:.4f}"
+    feature_tag: experiment
+    priority: 91
+    source_document: 03_architecture.md
+    complexity: 9
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_run_experiment.py
+      - Test main() with mock train + analyze (skip actual training)
+      - Test summary.json is written with required keys
+      - Test PASS/FAIL printed to stdout
+    reference_files:
+      architecture: "03_architecture.md#A-8"
+      config: "03_config.md#a-8-experiment-runner-config"
+      logic: "03_logic.md#a-9-end-to-end-validation-complexity-10-budget-2-subtasks"
+
+  - id: task-011
+    epic: A-9
+    title: End-to-End Validation (3 seeds)
+    description: |
+      Run full experiment end-to-end:
+        python run_experiment.py --config configs/waterbirds.yaml --device cuda:0
+      Verify:
+        - All 3 seeds complete without error
+        - GDR logging produces 15 checkpoints per seed
+        - summary.json written with gate result
+        - 4 figures saved to h-m1/figures/
+        - Hard gate assertion: assert np.mean(early_gdr_per_seed) > 1.0
+      If gate fails: document result with actual GDR values for Phase 4 analysis.
+    feature_tag: validation
+    priority: 90
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_e2e.py
+      - Test full run with 2 epochs (fast mode) completes without error
+      - Test GDR series has correct number of checkpoints
+      - Test summary.json contains all required keys
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: "03_logic.md#a-9-end-to-end-validation-complexity-10-budget-2-subtasks"
+
+  # ── Logic Subtasks (priority 49 downward) ─────────────────────────────────
+  - id: task-012
+    epic: A-4
+    title: "L-4-1: extract_features implementation"
+    description: |
+      Implement GradientAlignmentAnalyzer.extract_features():
+        - model.eval() + torch.no_grad() context
+        - Forward pass through backbone (pre-fc): use avgpool hook or layer4+avgpool+flatten
+        - Collect batch["image"] -> features [B,2048]
+        - Collect batch["core_label"], batch["spurious_label"]
+        - Concatenate across all batches -> (features [N,2048], core_labels [N,], spurious_labels [N,])
+    feature_tag: model
+    priority: 49
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test extract_features output shapes (N,2048), (N,), (N,).
+    reference_files:
+      logic: "03_logic.md#pseudo-code-extract_features"
+
+  - id: task-013
+    epic: A-4
+    title: "L-4-2: compute_label_gradient_norm implementation"
+    description: |
+      Implement GradientAlignmentAnalyzer.compute_label_gradient_norm():
+        - features.detach() (no gradient through backbone)
+        - model.fc.zero_grad()
+        - logits = model.fc(features_detached) [N,2]
+        - loss = criterion(logits, label_tensor.to(device))
+        - loss.backward()
+        - grad_norm = model.fc.weight.grad.norm(p=2).item()
+        - model.fc.zero_grad()  # cleanup
+        - return grad_norm (positive float)
+    feature_tag: model
+    priority: 48
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test returns positive float; test fc.weight.grad is None after cleanup.
+    reference_files:
+      logic: "03_logic.md#pseudo-code-compute_label_gradient_norm"
+
+  - id: task-014
+    epic: A-4
+    title: "L-4-3: log_epoch_gradients implementation"
+    description: |
+      Implement GradientAlignmentAnalyzer.log_epoch_gradients():
+        - features, core_labels, spurious_labels = self.extract_features(loader)
+        - spurious_norm = self.compute_label_gradient_norm(features, spurious_labels, criterion)
+        - core_norm = self.compute_label_gradient_norm(features, core_labels, criterion)
+        - gdr = spurious_norm / (core_norm + 1e-8)
+        - Append all 3 to history buffers
+        - Return {'spurious_grad_norm': spurious_norm, 'core_grad_norm': core_norm, 'gdr': gdr}
+    feature_tag: model
+    priority: 47
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test return dict keys; test history buffers grow by 1 per call.
+    reference_files:
+      logic: "03_logic.md#a-4-gradientalignmentanalyzer-complexity-14-budget-4-subtasks"
+
+  - id: task-015
+    epic: A-4
+    title: "L-4-4: get_history implementation"
+    description: |
+      Implement GradientAlignmentAnalyzer.get_history():
+        - Return dict with keys: spurious_grad_norms, core_grad_norms, gdr_series
+        - Each value is List[float] of length=number of logged epochs
+        - After full 30-epoch training with interval=2: length should be 15
+        - Verify no mutation of internal state on call
+    feature_tag: model
+    priority: 46
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test length=15 after 15 log calls; test returns copy not reference.
+    reference_files:
+      logic: "03_logic.md#a-4-gradientalignmentanalyzer-complexity-14-budget-4-subtasks"
+
+  - id: task-016
+    epic: A-5
+    title: "L-5-1: compute_mean_early_gdr implementation"
+    description: |
+      Implement analyze.compute_mean_early_gdr():
+        - early_epochs=[2,4,6], checkpoint_interval=2
+        - indices = [(e // checkpoint_interval) - 1 for e in early_epochs] -> [0,1,2]
+        - return float(np.mean([gdr_series[i] for i in indices]))
+        - Input: gdr_series List[float] length=15
+    feature_tag: evaluation
+    priority: 45
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test with gdr_series=[2.0,1.5,1.2,...] -> mean([2.0,1.5,1.2])=1.567.
+    reference_files:
+      logic: "03_logic.md#a-5-gdr-metric--wilcoxon-complexity-10-budget-2-subtasks"
+
+  - id: task-017
+    epic: A-5
+    title: "L-5-2: run_wilcoxon_test implementation"
+    description: |
+      Implement analyze.run_wilcoxon_test():
+        - from scipy.stats import wilcoxon
+        - stat, p = wilcoxon(spurious_norms_early, core_norms_early, alternative='greater')
+        - Inputs: np.ndarray shape (3,) each (3 early checkpoints)
+        - Returns: {'stat': float, 'p_value': float}
+        - Handle edge case: if all differences zero, wilcoxon raises ValueError -> return {'stat': 0.0, 'p_value': 1.0}
+    feature_tag: evaluation
+    priority: 44
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test with spurious=[1.5,1.3,1.2], core=[1.0,0.9,0.8] -> p<0.05.
+    reference_files:
+      logic: "03_logic.md#a-5-gdr-metric--wilcoxon-complexity-10-budget-2-subtasks"
+
+  - id: task-018
+    epic: A-7
+    title: "L-7-1: plot_mean_early_gdr_bar implementation"
+    description: |
+      Implement visualize.plot_mean_early_gdr_bar():
+        - Input: analysis dict with mean_early_gdr_per_seed List[float] (3 seeds) + std_early_gdr float
+        - Bar chart: x=seeds [1,2,3], y=mean_early_GDR per seed
+        - Error bars: ±std_early_gdr
+        - Horizontal threshold line at y=1.0 (red dashed)
+        - Labels: xlabel="Seed", ylabel="Mean Early GDR", title="H-M1: Mean Early GDR per Seed"
+        - Save: figures_dir/mean_early_gdr_bar.png (dpi=150)
+        - Return: absolute path to saved figure
+    feature_tag: evaluation
+    priority: 43
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test saves PNG; test threshold line at y=1.0 present in axes.
+    reference_files:
+      logic: "03_logic.md#a-7-visualization-complexity-10-budget-2-subtasks"
+
+  - id: task-019
+    epic: A-7
+    title: "L-7-2: plot_gdr_timeline implementation"
+    description: |
+      Implement visualize.plot_gdr_timeline():
+        - Input: seed_results Dict[int, {'gdr_series': List[float]}] + delta_series np.array shape (15,)
+        - X-axis: checkpoint epochs [2,4,6,...,30] (15 points)
+        - Primary Y-axis: GDR(t) per seed (thin lines) + mean GDR (thick line)
+        - Secondary Y-axis: delta(t) from H-E1 (dashed orange)
+        - Legend: per-seed GDR, mean GDR, H-E1 delta(t)
+        - Save: figures_dir/gdr_timeline.png (dpi=150)
+        - Return: absolute path
+    feature_tag: evaluation
+    priority: 42
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test saves PNG; test secondary axis present.
+    reference_files:
+      logic: "03_logic.md#a-7-visualization-complexity-10-budget-2-subtasks"
+
+  - id: task-020
+    epic: A-9
+    title: "L-9-1: check_gate implementation"
+    description: |
+      Implement analyze.check_gate():
+        - seeds_pass = sum(1 for g in analysis['mean_early_gdr_per_seed'] if g > 1.0)
+        - wilcoxon_pass = sum(1 for r in analysis['wilcoxon_results'].values() if r['p_value'] < cfg.p_threshold)
+        - gate_pass = (seeds_pass >= cfg.min_seeds_pass) and (wilcoxon_pass >= cfg.min_seeds_pass)
+        - Print: f"[H-M1 Gate] seeds_pass={seeds_pass}/{len(seeds)}, wilcoxon_pass={wilcoxon_pass}/{len(seeds)}"
+        - Print: f"[H-M1 Gate] Result: {'PASS' if gate_pass else 'FAIL'}"
+        - Returns bool (does NOT raise AssertionError — caller decides)
+    feature_tag: evaluation
+    priority: 41
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test PASS with 3/3 seeds >1.0; test FAIL with 1/3 seeds >1.0.
+    reference_files:
+      logic: "03_logic.md#a-9-end-to-end-validation-complexity-10-budget-2-subtasks"
+
+  - id: task-021
+    epic: A-9
+    title: "L-9-2: summary.json writer implementation"
+    description: |
+      Implement results summary JSON writer in run_experiment.py:
+        - Write full schema (per 03_logic.md#results-schema-summaryjson) to results/h-m1/summary.json
+        - Keys: hypothesis, gate, mean_early_gdr, std_early_gdr, mean_early_gdr_per_seed,
+                wilcoxon_results, pearson_correlation, per_seed, figures, seeds_passed_gdr,
+                seeds_passed_wilcoxon, gate_criteria
+        - Create results/h-m1/ directory if not exists
+        - Use json.dump with indent=2
+    feature_tag: evaluation
+    priority: 40
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Test summary.json contains all required top-level keys; test valid JSON.
+    reference_files:
+      logic: "03_logic.md#results-schema-summaryjson"
+
+  # ── Config Subtasks (priority 39 downward) ────────────────────────────────
+  - id: task-022
+    epic: A-6
+    title: "C-6-1: GDRConfig dataclass"
+    description: |
+      Implement GDRConfig dataclass in config.py:
+        @dataclass
+        class GDRConfig:
+            early_window_epochs: List[int] = field(default_factory=lambda: [2, 4, 6])
+            p_threshold: float = 0.05
+            min_seeds_pass: int = 2
+            he1_delta_path: Optional[str] = None
+      Validation:
+        - early_window_epochs values must be multiples of checkpoint_interval
+        - p_threshold: 0 < p_threshold <= 1.0
+        - min_seeds_pass: 1 <= min_seeds_pass <= 5
+    feature_tag: setup
+    priority: 39
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: Test GDRConfig defaults; test field types correct.
+    reference_files:
+      config: "03_config.md#a-6-pearson-temporal-alignment-config"
+
+  - id: task-023
+    epic: A-6
+    title: "C-6-2: YAML schema + validation"
+    description: |
+      Add gdr section to configs/waterbirds.yaml:
+        gdr:
+          early_window_epochs: [2, 4, 6]
+          p_threshold: 0.05
+          min_seeds_pass: 2
+          he1_delta_path: null
+      Add field validation in load_config():
+        - Check early_window_epochs are valid checkpoints
+        - Check p_threshold in (0, 1]
+        - Check min_seeds_pass <= len(train.seeds)
+        - If he1_delta_path not null: check file exists
+    feature_tag: setup
+    priority: 38
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: Test load_config() with invalid p_threshold raises ValueError.
+    reference_files:
+      config: "03_config.md#a-6-pearson-temporal-alignment-config"
+
+  - id: task-024
+    epic: A-8
+    title: "C-8-1: ExperimentConfig dataclass"
+    description: |
+      Implement ExperimentConfig dataclass in config.py:
+        @dataclass
+        class ExperimentConfig:
+            train: TrainConfig
+            gdr: GDRConfig
+            results_dir: str = "./results/h-m1"
+            figures_dir: str = "./figures"
+      Ensure TrainConfig and GDRConfig are imported and composed correctly.
+      ExperimentConfig.train.batch_size defaults to 64 (H-M1 override).
+    feature_tag: setup
+    priority: 37
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: Test ExperimentConfig instantiation with valid sub-configs.
+    reference_files:
+      config: "03_config.md#a-8-experiment-runner-config"
+
+  - id: task-025
+    epic: A-8
+    title: "C-8-2: load_config() + waterbirds.yaml"
+    description: |
+      Implement load_config(config_path) -> ExperimentConfig in config.py:
+        with open(config_path) as f: raw = yaml.safe_load(f)
+        train_cfg = TrainConfig(**raw["train"])
+        gdr_cfg = GDRConfig(**raw.get("gdr", {}))
+        return ExperimentConfig(train=train_cfg, gdr=gdr_cfg,
+                                results_dir=raw.get("results_dir", "./results/h-m1"),
+                                figures_dir=raw.get("figures_dir", "./figures"))
+      Write complete configs/waterbirds.yaml as specified in 03_config.md.
+    feature_tag: setup
+    priority: 36
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: |
+      Test load_config("configs/waterbirds.yaml") returns ExperimentConfig.
+      Test train.batch_size=64, train.seeds=[1,2,3], gdr.p_threshold=0.05.
+    reference_files:
+      config: "03_config.md#full-configswaterbirdsyaml"
+
+  # ── Failsafe (priority 1) ─────────────────────────────────────────────────
+  - id: task-026
+    epic: Pipeline Management
+    title: Pipeline Continuation Checkpoint
+    description: /full-pipeline-unattended - FAILSAFE CONTINUATION TASK
+    feature_tag: pipeline-continue
+    priority: 1
+    source_document: system
+    complexity: null
+    test_requirements: Failsafe task does not require tests.
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 9
+  subtasks: 14
+  failsafe: 1
+  total: 26

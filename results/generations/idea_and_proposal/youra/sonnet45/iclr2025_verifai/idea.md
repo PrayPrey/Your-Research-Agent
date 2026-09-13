@@ -1,0 +1,8 @@
+# Title
+Conformal Prediction for Probabilistic Correctness Guarantees in LLM-Generated Code
+
+# Motivation
+LLM-based code generation faces a critical trust gap: formal verification provides strong correctness guarantees but is computationally intractable at scale, while probabilistic AI methods lack reliability assurances. Existing approaches offer either deterministic proofs (too expensive) or heuristic confidence scores (no guarantees). This creates barriers for deploying LLM-generated code in practice, where developers need calibrated uncertainty estimates to make informed decisions about code acceptance.
+
+# Main Idea
+We propose applying conformal prediction with domain-specific calibration to provide distribution-free probabilistic correctness guarantees for LLM-generated code. The framework operates through three causal steps: (1) collect 100-1000+ verified code samples from narrow domains to establish empirical quantiles of nonconformity scores, (2) evaluate new LLM-generated code using lightweight verification oracles (type checkers, static analyzers, test suites) to compute nonconformity scores, and (3) map these scores to prediction intervals [p_lower, p_upper] with guaranteed coverage rates matching theoretical (1-α) levels. Under the exchangeability assumption (validated via Maximum Mean Discrepancy < 0.10), this produces calibrated uncertainty quantification without requiring full formal verification. Expected outcomes include 90-95% empirical coverage matching theoretical guarantees, 15% tighter intervals with multi-oracle ensembles, and practical deployment guidance for non-safety-critical applications where probabilistic assurances suffice.

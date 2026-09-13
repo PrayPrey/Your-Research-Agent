@@ -1,0 +1,252 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  generated_at: "2026-08-04"
+  phase: "Phase 3"
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks: 6
+  total: 14
+  budget_remaining: 1
+
+tasks:
+  # ── DATA PREPARATION (priority 100-95) ──────────────────────────
+  - id: "DATA-1"
+    title: "Clone TrustLLM repository and verify results/ folder"
+    type: data-preparation
+    priority: 100
+    description: |
+      Clone HowieHwong/TrustLLM from GitHub and verify the results/ directory
+      contains per-model per-dimension JSON files.
+      Command: git clone https://github.com/HowieHwong/TrustLLM.git
+      Verify: results/ folder exists with JSON files for 6 dimensions × 16 models.
+    reference_files:
+      - file: "03_prd.md"
+        section: "4. Data Specification"
+      - file: "02c_experiment_brief.md"
+        section: "Dataset"
+    acceptance_criteria:
+      - "TrustLLM/results/ directory exists"
+      - "JSON files present for truthfulness, safety, fairness, robustness, privacy, machine_ethics"
+      - "At least 16 model entries found"
+
+  # ── ENVIRONMENT SETUP (priority 94) ──────────────────────────────
+  - id: "SETUP-1"
+    title: "Install Python dependencies"
+    type: setup
+    priority: 94
+    description: |
+      Create virtual environment and install all required packages.
+      pip install numpy>=1.24 pandas>=1.5 scipy>=1.10 scikit-learn>=1.2
+               networkx>=3.0 statsmodels>=0.14 matplotlib>=3.7 seaborn>=0.12 pingouin>=0.5
+      Write requirements.txt to h-e1/code/requirements.txt
+    reference_files:
+      - file: "03_prd.md"
+        section: "9. Dependencies"
+      - file: "03_architecture.md"
+        section: "Requirements"
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "requirements.txt written"
+
+  # ── EPIC TASKS (priority 93-50) ───────────────────────────────────
+  - id: "E-1"
+    title: "Data Loading: Parse TrustLLM JSON and build annotated DataFrame"
+    type: data-pipeline
+    priority: 93
+    complexity: 9
+    complexity_breakdown: "Size(2)+Dep(2)+Algo(2)+Int(3)"
+    description: |
+      Implement h-e1/code/data_loader.py:
+      - load_trustllm_scores(results_dir): parse results/*.json → 16×6 DataFrame
+      - add_annotations(scores_df): add log10_params + is_RLHF columns (16 models)
+      - validate(df): VIF check, missing values check, floor/ceiling effect check
+      MODEL_ANNOTATIONS dict hardcoded for all 16 models (see C-1-1).
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Module: DataLoader"
+      - file: "03_config.md"
+        section: "MODEL_ANNOTATIONS"
+      - file: "03_prd.md"
+        section: "4. Data Specification"
+    subtasks:
+      - id: "C-1-1"
+        title: "MODEL_ANNOTATIONS dict (16 models × {log10_params, is_RLHF})"
+    acceptance_criteria:
+      - "scores_df shape == (16, 6)"
+      - "columns: truthfulness, safety, fairness, robustness, privacy, machine_ethics"
+      - "log10_params and is_RLHF columns added correctly"
+      - "validate() returns no errors for TrustLLM v0.3.0 data"
+
+  - id: "E-2"
+    title: "Baseline Analysis: Raw Spearman correlation matrix"
+    type: analysis
+    priority: 85
+    complexity: 8
+    complexity_breakdown: "Size(2)+Dep(2)+Algo(2)+Int(2)"
+    description: |
+      Implement raw_spearman_matrix() and partial_pearson_matrix() in analysis.py:
+      - raw_spearman_matrix(scores_df): 15-pair Spearman, returns (rho_6x6, pval_6x6)
+      - partial_pearson_matrix(): residualize then corrcoef for sensitivity check
+      - check_sign_divergence(): flag pairs where Spearman and Pearson signs differ
+      AnalysisConfig dataclass (C-2-1): alpha=0.05, bonferroni_alpha=0.0033, df_residual=12
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Module: Analysis"
+      - file: "03_logic.md"
+        section: "Full Module Signatures Reference"
+      - file: "03_config.md"
+        section: "AnalysisConfig"
+    subtasks:
+      - id: "C-2-1"
+        title: "AnalysisConfig dataclass with all statistical thresholds"
+    acceptance_criteria:
+      - "rho_raw shape == (6, 6), symmetric"
+      - "15 upper-triangle values computed"
+      - "sign_divergence returns list (may be empty)"
+
+  - id: "E-3"
+    title: "Partial Spearman: OLS residualization + t-test + Bonferroni filter"
+    type: analysis
+    priority: 92
+    complexity: 12
+    complexity_breakdown: "Size(3)+Dep(2)+Algo(4)+Int(3)"
+    description: |
+      Implement the primary analysis in analysis.py:
+      - ols_residualize(scores_df, covariates_df): OLS per dimension on [log10_params, is_RLHF]
+      - _partial_spearman_tstat(rho, n, k): t-stat with df=n-2-k=12, floor guard 1e-10
+      - partial_spearman_matrix(): 15-pair loop → rho_partial (6×6), pval (6×6), significant_pairs
+      Gate: significant_pairs non-empty (≥1 pair with |rho|>0.5 AND p<0.0033)
+    reference_files:
+      - file: "03_logic.md"
+        section: "E-3: Partial Spearman"
+      - file: "03_architecture.md"
+        section: "Module: Analysis"
+      - file: "02c_experiment_brief.md"
+        section: "Core Mechanism Implementation"
+    subtasks:
+      - id: "L-3-1"
+        title: "ols_residualize(): LinearRegression per dim on covariates, return residual DataFrame"
+      - id: "L-3-2"
+        title: "_partial_spearman_tstat(): df=12, 1e-10 floor, two-sided p from t_dist.sf"
+      - id: "L-3-3"
+        title: "partial_spearman_matrix(): 15-pair loop with Bonferroni filter, return significant_pairs"
+    acceptance_criteria:
+      - "residuals shape == (16, 6)"
+      - "rho_partial shape == (6, 6), diagonal=1.0"
+      - "exactly 15 pairs evaluated"
+      - "p-values computed with df=12 (NOT df=14)"
+      - "GATE: at least 1 significant pair found (|rho|>0.5, p<0.0033)"
+
+  - id: "E-4"
+    title: "Clustering: Distance matrix, average-linkage k=2, silhouette, MST"
+    type: analysis
+    priority: 80
+    complexity: 9
+    complexity_breakdown: "Size(2)+Dep(3)+Algo(2)+Int(2)"
+    description: |
+      Implement clustering.py:
+      - build_distance_matrix(rho_partial): D = 1 - |rho_partial|, diagonal=0
+      - run_clustering(dist_matrix): average-linkage k=2, returns (labels_6, silhouette)
+      - build_mst(rho_partial, dim_names): networkx MST, H-E2 prerequisite output
+      - get_dendrogram_linkage(dist_matrix): scipy linkage for dendrogram
+      ClusterConfig: n_clusters=2, linkage='average', metric='precomputed' (C-4-1)
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Module: Clustering"
+      - file: "03_logic.md"
+        section: "Tensor Shapes"
+      - file: "03_config.md"
+        section: "ClusterConfig"
+    subtasks:
+      - id: "C-4-1"
+        title: "ClusterConfig dataclass: n_clusters=2, linkage=average, metric=precomputed"
+    acceptance_criteria:
+      - "dist_matrix shape == (6, 6), diagonal=0"
+      - "labels_6 length == 6 (one per dimension)"
+      - "silhouette computed (float)"
+      - "MST is a networkx Graph with 5 edges"
+
+  - id: "E-5"
+    title: "Visualization: 4 figures saved to h-e1/figures/"
+    type: evaluation
+    priority: 75
+    complexity: 10
+    complexity_breakdown: "Size(3)+Dep(2)+Algo(1)+Int(4)"
+    description: |
+      Implement visualization.py — 4 figures at 300 DPI:
+      1. plot_partial_corr_bar(): 15-pair bar chart sorted desc, red=significant, line at 0.5
+      2. plot_heatmap_comparison(): side-by-side 6×6 heatmaps (RdBu_r, annot=True)
+      3. plot_dendrogram(): scipy dendrogram with 2-cluster color threshold
+      4. plot_scatter_confound(): before/after residualization scatter colored by is_RLHF
+      Output: h-e1/figures/01_bar.png, 02_heatmaps.png, 03_dendrogram.png, 04_scatter.png
+    reference_files:
+      - file: "03_logic.md"
+        section: "E-5: Visualization"
+      - file: "03_architecture.md"
+        section: "Module: Visualization"
+      - file: "03_prd.md"
+        section: "FR-6: Visualization"
+    subtasks:
+      - id: "L-5-1"
+        title: "plot_partial_corr_bar(): 15 pairs sorted by |rho| desc, significance coloring"
+      - id: "L-5-2"
+        title: "plot_heatmap_comparison(): seaborn dual heatmap, RdBu_r, vmin=-1 vmax=1"
+      - id: "L-5-3"
+        title: "plot_dendrogram() + plot_scatter_confound(): scipy dendro + before/after scatter"
+    acceptance_criteria:
+      - "4 PNG files written to h-e1/figures/"
+      - "All figures at 300 DPI"
+      - "Bar chart has Bonferroni threshold line at 0.5"
+      - "Heatmaps show raw vs partial comparison"
+
+  - id: "E-6"
+    title: "Orchestration: main.py integration, gate check, JSON serialization, logging"
+    type: evaluation
+    priority: 70
+    complexity: 8
+    complexity_breakdown: "Size(2)+Dep(3)+Algo(1)+Int(2)"
+    description: |
+      Implement main.py:
+      - run_experiment(trustllm_results_dir, output_dir): full pipeline orchestration
+      - check_gate(significant_pairs): returns bool (len >= 1)
+      - serialize_results(results, out_path): writes experiment_results_phase3.json
+      - argparse CLI: --results-dir, --output-dir
+      Write gate result to console (PASS/FAIL) and append to h-e1/experiment.log
+      JSON output: rho_raw, rho_partial, pvals, significant_pairs, silhouette, cluster_labels
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Module: Main"
+      - file: "03_prd.md"
+        section: "8. Success Criteria"
+      - file: "03_prd.md"
+        section: "FR-7: Results Serialization"
+    acceptance_criteria:
+      - "python main.py --results-dir TrustLLM/results --output-dir h-e1 runs without error"
+      - "experiment_results_phase3.json written"
+      - "Gate result printed: PASS or FAIL"
+      - "experiment.log updated"
+
+  # ── FAILSAFE (priority 1) ─────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline continuation checkpoint"
+    type: checkpoint
+    priority: 1
+    description: |
+      After all tasks complete: verify gate result in experiment_results_phase3.json.
+      If gate PASSED: update verification_state.yaml validation.status = COMPLETED.
+      If gate FAILED: log failure reason, update gate.satisfied = false.
+      This task is always executed last regardless of intermediate results.
+    reference_files:
+      - file: "03_prd.md"
+        section: "8. Success Criteria"
+    acceptance_criteria:
+      - "verification_state.yaml updated with gate result"
+      - "experiment_results_phase3.json contains 'gate_passed' boolean field"

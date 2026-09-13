@@ -1,0 +1,44 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Key Findings}
+
+\textbf{Finding 1: Offline variance profiling is analytically valid.} The $4.24\times$ mean variance advantage ($p=2.22\times10^{-6}$) confirms that frozen-model pass rate profiling reliably identifies a statistically distinct problem subset. The method works as a selection tool.
+
+\textbf{Finding 2: The distribution is more degenerate than assumed.} 91.7\% all-fail under constrained generation exceeds the 69.25\% theoretical rate. Generation parameter constraints critically shape the effective training data pool --- characterizing this distribution empirically is a necessary first step before any selection method can be designed.
+
+\textbf{Finding 3: Cold-start is a necessary precondition.} 50,000+ generation attempts producing zero reward is not stochastic --- it is deterministic given the current parameter configuration. The $\sigma=0$ identity tells us no data selection method can help when $k=0$ for every problem in every group.
+
+\subsection{Root Cause Analysis and Resolution Protocol}
+
+Cold-start (zero reward across all 50,000+ generation attempts) admits several candidate explanations. We enumerate and rank them by evidence.
+
+\textbf{Candidate 1 (Most likely): Generation parameter mismatch.} Profiling used vLLM with \texttt{max\_new\_tokens=128}; training uses HF GRPOTrainer with \texttt{max\_completion\_length=512}. The 29 problems identified as high-variance ($p_i=0.25$ at \texttt{max\_new\_tokens=128}) may require longer completions to produce correct solutions. Under training conditions, they may all collapse to $p_i=0$. \textit{Evidence for:} the truncation ratio is severe (128 vs.\ 512 tokens); \texttt{max\_new\_tokens} is the single parameter most likely to prevent solution completion for many code problems. \textit{Evidence against:} we cannot confirm this without re-profiling under training-identical parameters.
+
+\textbf{Candidate 2 (Plausible): Prompt format mismatch.} The prompt format used during vLLM profiling may differ from the chat template applied by GRPOTrainer. A different instruction prefix or separator token could change the model's generation behavior enough to shift pass rates from 0.25 to 0.0. \textit{Evidence for:} instruction-tuned models are sensitive to prompt format; this is a common deployment-time failure mode. \textit{Evidence against:} both paths use the same base model and were configured to use the same prompt template, though this was not verified by logging decoded prompts.
+
+\textbf{Candidate 3 (Possible): Model behavioral drift between profiling and training initialization.} If any state (e.g., random seed, adapter loading) differs between profiling and training, the effective model distribution could differ. \textit{Evidence for:} low prior probability; the model checkpoint is identical. \textit{Evidence against:} unlikely given the same checkpoint is loaded in both phases.
+
+\textbf{Candidate 4 (Less likely): Execution harness mismatch.} The subprocess execution harness (timeout, working directory, import availability) may differ between profiling and training reward evaluation. \textit{Evidence for:} execution environment differences can silently flip pass/fail outcomes. \textit{Evidence against:} both use the same reward function implementation; no execution errors were logged.
+
+\textbf{Resolution protocol (prescriptive, not yet empirically validated):} The proposed fix --- re-profiling with training-identical parameters (same prompt format, \texttt{max\_new\_tokens=max\_completion\_length=512}, same execution harness) --- would directly distinguish Candidates 1 and 2 from 3 and 4. If the 29 currently-selected problems retain $p_i\geq0.25$ after aligned re-profiling, cold-start is a training-phase issue (warm-start initialization or higher LR). If they collapse to $p_i=0$, Candidate 1 or 2 is confirmed. \textbf{This protocol is proposed as future work; we did not execute it in this study.}
+
+Cold-start does not invalidate offline variance profiling as a design --- it identifies a deployment precondition: \textit{profiling-training parameter alignment must be verified before training begins.}
+
+\subsection{Limitations}
+
+\begin{enumerate}
+\item \textbf{Cold-start prevents empirical mechanism validation.} P2 (gradient concentration) and P1 (HumanEval+ improvement) are contingent on nonzero reward signal. The selection method is validated analytically; training-phase benefit requires cold-start resolution. The proposed resolution protocol (Section~\ref{sec:discussion}) is prescriptive and has not been empirically executed --- validating it is left as future work.
+
+\item \textbf{Profiling parameters ($k=4$, \texttt{max\_new\_tokens=128}) differ from training (\texttt{max\_completion\_length=512}).} The mismatch arose from hardware constraints (sequential HF inference at $k=8$, \texttt{max\_new\_tokens=512} required $\sim$8h) and vLLM-TRL incompatibility. This is the most likely root cause of cold-start among several candidates.
+
+\item \textbf{Only 29/374 problems usable for variance selection.} The severely degenerate distribution narrows the selection pool. $k\geq8$ with \texttt{max\_new\_tokens}$\geq$512 would reveal richer intermediate-difficulty structure.
+
+\item \textbf{Single-run training experiments, no multi-seed validation.} For the cold-start negative result, replication is unnecessary --- zero reward across 50,000+ attempts is not stochastic. For future positive-result claims, 3+ seeds are required.
+
+\item \textbf{Root cause is inferred, not confirmed.} We identify parameter mismatch as the most likely explanation but do not empirically verify it. The resolution protocol in Section~\ref{sec:discussion} remains unexecuted.
+\end{enumerate}
+
+\subsection{Broader Impact}
+
+We recommend that future RLEF data selection papers report \texttt{frac\_reward\_zero\_std} trajectories as a baseline diagnostic to confirm training regime viability before claiming selection advantages. Practitioners deploying data selection for RLEF should verify pass@$k > 0$ on target problems under training-identical generation parameters before investing in offline or online selection infrastructure.

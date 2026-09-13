@@ -1,0 +1,159 @@
+\section{Methodology}
+
+Building on our observation that compiler errors fall outside typical LLM training distributions, we design a systematic approach to study error format as an independent variable. Our methodology has three components: (1) structured error formatting with controlled conditions, (2) an information preservation test to ensure fair comparison, and (3) a fix specificity framework to investigate optimal hint levels.
+
+\subsection{Overview}
+
+The core idea is to transform raw compiler output into structured templates that align with natural language patterns. Rather than terse, technical tracebacks, we organize error information into labeled sections: PROBLEM, LOCATION, CONTEXT, and ROOT\_CAUSE. Critically, we design multiple format conditions that control for potential confounds:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Condition} & \textbf{Description} & \textbf{Purpose} \\
+\midrule
+Raw & Direct compiler/linter output & Baseline \\
+Verbose-Raw & Expanded raw output, unstructured & Control for length \\
+Structured & Template format with section labels & Treatment \\
+Scrambled & Structured content, random section order & Control for information \\
+\bottomrule
+\end{tabular}
+\caption{Experimental conditions for format comparison.}
+\end{table}
+
+The Scrambled condition is key to causal inference: it contains identical information to Structured but with randomly permuted section order. If Structured outperforms Scrambled, the effect is due to organizational structure, not information content.
+
+\subsection{Structured Error Format}
+
+Our structured format transforms raw errors into a consistent template:
+
+\begin{lstlisting}
+=== ERROR REPORT ===
+
+PROBLEM: [error_type]: [error_message]
+
+LOCATION: Line [line_number] in [file_name]
+
+CONTEXT:
+[surrounding_code_snippet]
+    ^ [pointer_to_error]
+
+ROOT_CAUSE: [explanation_of_why_error_occurred]
+
+FIX_HINT: [optional, level-dependent guidance]
+\end{lstlisting}
+
+\textbf{Design Rationale}: The section labels create parsing anchors that help the model identify relevant information. The consistent structure enables pattern matching against similar examples in training data. The explicit ROOT\_CAUSE section provides causal explanation rather than just symptom description.
+
+\subsubsection{Error Parser Implementation}
+
+We implement a parser that extracts structured information from Python tracebacks:
+
+\begin{lstlisting}[language=Python]
+@dataclass
+class StructuredError:
+    line_number: int
+    error_type: str
+    error_message: str
+    code_context: str
+    root_cause: Optional[str] = None
+\end{lstlisting}
+
+The parser uses regex-based extraction to identify line numbers, exception types, and relevant code context from raw traceback output. We support 8 common error types: \texttt{NameError}, \texttt{TypeError}, \texttt{IndexError}, \texttt{KeyError}, \texttt{ZeroDivisionError}, \texttt{ValueError}, \texttt{AttributeError}, and \texttt{SyntaxError}.
+
+\subsection{Information Preservation Test}
+
+To ensure our format transformation preserves all diagnostic information, we design a reconstruction test (sub-hypothesis h-m1):
+
+\begin{enumerate}
+    \item \textbf{Generate pairs}: Create (raw\_error, structured\_error) pairs for 500 samples across 8 error types
+    \item \textbf{Reconstruction task}: Ask a third-party LLM to reconstruct original error details from the structured format
+    \item \textbf{Measure accuracy}: Compare reconstructed fields against ground truth
+\end{enumerate}
+
+\textbf{Success criterion}: $>$95\% reconstruction accuracy across all fields (line\_number, error\_type, error\_message, code\_context).
+
+This test validates that any performance differences between conditions are due to format, not information loss. Our experiments achieved 100\% reconstruction accuracy in validation mode, confirming information preservation.
+
+\subsection{Fix Specificity Framework}
+
+Motivated by scaffolding theory from HCI research \citep{vygotsky1978zpd}, we investigate whether intermediate-level hints outperform both extremes. We define four specificity levels:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Level} & \textbf{Name} & \textbf{Example} \\
+\midrule
+0 & No hint & (diagnostic only) \\
+1 & General strategy & ``convert types to match'' \\
+2 & Specific pattern & ``use str(x) or int(y)'' \\
+3 & Exact fix & ``str(count)'' \\
+\bottomrule
+\end{tabular}
+\caption{Fix specificity levels.}
+\end{table}
+
+\textbf{Theoretical basis}: Vygotsky's Zone of Proximal Development suggests that optimal scaffolding provides enough guidance to activate relevant knowledge without bypassing the learning/reasoning process. Level 3 (exact fix) may create copy-paste dependency, while Level 0 provides insufficient guidance.
+
+\subsubsection{Hint Generation}
+
+We implement a hint generator that produces appropriately-leveled fix suggestions:
+
+\begin{lstlisting}[language=Python]
+def generate_hint(error: StructuredError, level: int) -> str:
+    if level == 0:
+        return ""  # No hint
+    elif level == 1:
+        return get_general_strategy(error.error_type)
+    elif level == 2:
+        return get_specific_pattern(error)
+    else:  # level == 3
+        return get_exact_fix(error)
+\end{lstlisting}
+
+Hints are generated based on error type and context, with Level 2 providing common fix patterns and Level 3 providing exact code replacements.
+
+\subsection{Experimental Design}
+
+\subsubsection{Format Comparison (h-m2)}
+
+We use a paired comparison design to isolate structure effects:
+
+\begin{enumerate}
+    \item \textbf{Sample selection}: 500 code errors from HumanEval+/MBPP+ model failures
+    \item \textbf{Condition assignment}: Each error is formatted in both Structured and Scrambled conditions
+    \item \textbf{Repair execution}: Apply self-repair with CodeLlama-7B for each condition
+    \item \textbf{Outcome measurement}: Binary success/failure per sample
+    \item \textbf{Statistical test}: McNemar's test for paired binary outcomes
+\end{enumerate}
+
+\textbf{Causal inference}: If Structured $>$ Scrambled with $p < 0.05$, we conclude that organizational structure drives improvement, controlling for information content.
+
+\subsubsection{Fix Specificity Test (h-m3)}
+
+We extend the design to test fix specificity levels:
+
+\begin{enumerate}
+    \item \textbf{Within-subject design}: Same error instances across all 4 levels
+    \item \textbf{Seeded randomization}: Ensure reproducibility
+    \item \textbf{Statistical analysis}: Mixed-effects model with quadratic contrast
+\end{enumerate}
+
+\textbf{Prediction}: Inverted-U pattern with peak at Level 1-2.
+
+\subsubsection{Scale Interaction Test (h-c1)}
+
+We test whether format benefits vary by model scale:
+
+\begin{enumerate}
+    \item \textbf{Factorial design}: 2 (Format) $\times$ 3 (Model: 7B, 34B, GPT-4)
+    \item \textbf{Analysis}: Two-way ANOVA with interaction term
+    \item \textbf{Success criterion}: Significant interaction ($p < 0.05$, $\eta^2 > 0.01$)
+\end{enumerate}
+
+\subsection{Implementation}
+
+All experiments use the EvalPlus benchmark framework \citep{guo2024evalplus} for evaluation, ensuring rigorous testing with 80$\times$ more test cases than original HumanEval/MBPP. Models are accessed via HuggingFace (CodeLlama) and OpenAI API (GPT-4). Temperature is fixed at 0.0 for deterministic comparison. Maximum repair iterations is set to 5.
+
+Code is organized into modules: \texttt{errors.py} (parsing), \texttt{prompts.py} (formatting), \texttt{models.py} (inference), \texttt{repair\_loop.py} (orchestration), \texttt{evaluate.py} (metrics), and \texttt{analysis.py} (statistics). All code is available in our supplementary materials.

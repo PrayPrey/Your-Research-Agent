@@ -1,0 +1,66 @@
+\section{Methodology}
+
+\subsection{Dataset: h-e2 Survival Panel}
+
+Our analysis is based on the \textbf{h-e2 panel}, a validated survival dataset constructed from Papers With Code \cite{paperwithcode2025}. The panel covers 87 parent tasks from the Koch et al.\ \cite{koch2021reduced} 87-task taxonomy, spanning 2015--2023. Each row corresponds to a benchmark that achieved plurality status (highest SOTA score for its task) at some point in the observation window.
+
+\textbf{Panel statistics:} 345 rows; 87 tasks; 2015--2023; validated across 10 prior pipeline attempts (14/14 unit tests pass).
+
+\textbf{Survival variables:} \texttt{duration} (years benchmark held plurality); \texttt{event} = 1 if displaced, 0 if right-censored.
+
+\textbf{Baseline covariates:} \texttt{task\_age} (years since task appeared in PWC); \texttt{log\_publication\_volume} (log total paper count for task). Note: \texttt{benchmark\_introduction\_year} excluded due to perfect collinearity with \texttt{task\_age} ($|r|$ = 1.000), detected automatically by Gate G4.
+
+\subsection{Diversity Predictor Construction}
+
+We construct diversity predictors from \textbf{pwc-archive/evaluation-tables} \cite{paperwithcode2025} (HuggingFace, CC-BY-SA-4.0, 326k rows after PyArrow flattening). The key field is \texttt{paper\_url}, identifying distinct paper submissions per benchmark.
+
+\textbf{Primary predictor:} \texttt{log\_unique\_paper\_count\_at\_intro\_z} = $\log_{1p}$(unique \texttt{paper\_url} count per benchmark through introduction year), $z$-standardized. Measures breadth of community participation in paper submissions at introduction.
+
+\textbf{Secondary predictor:} \texttt{paper\_diversity\_ratio\_at\_intro\_z} = (unique count / total submission rows), $z$-standardized. Normalizes by total volume, removing time-accumulation effects.
+
+\textbf{Join:} Task paths matched via rapidfuzz \texttt{token\_sort\_ratio} (threshold = 85), achieving 86.2\% coverage (75/87 benchmarks). Predictor collinearity: Pearson $r$ = $-0.324$ --- independent constructs.
+
+\subsection{5-Gate FAIL FAST Pre-Validation Protocol}
+\label{sec:failfast}
+
+A key methodological contribution is the \textbf{FAIL FAST protocol} (H-E1), which validates data quality \emph{before} any Cox regression. Gates are evaluated in order; failure routes to hypothesis revision.
+
+\begin{table}[h]
+\centering
+\caption{FAIL FAST Gate Results}
+\label{tab:gates}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Gate & Name & Criterion & Value & Status \\
+\midrule
+G0 & Join Coverage & $\geq$80\% benchmarks with non-null \texttt{paper\_url} & 0.862 & PASS \\
+G1 & Primary Time-Indep. & partial $r^{2}$(log\_count\_z $\sim$ temporal) $>$ 0.01 & 0.605 & PASS \\
+G2 & Secondary Time-Indep. & partial $r^{2}$(diversity\_ratio\_z $\sim$ temporal) $>$ 0.01 & 0.975 & PASS \\
+G3 & Variance & std(diversity\_ratio) $>$ 0.10 & 0.246 & PASS \\
+G4 & Multicollinearity & max VIF $<$ 10 & 2.14 & PASS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Partial $R^{2}$ computation:} Regress predictor on [\texttt{task\_age}, \texttt{benchmark\_introduction\_year}] via OLS; take $R^{2}$ of residuals. Partial $R^{2} \gg 0.01$ indicates the predictor retains genuine cross-benchmark information beyond temporal trend.
+
+\subsection{Cox Proportional Hazards Model}
+
+We use \textbf{CoxPHFitter(penalizer=0.1)} from lifelines \cite{davidson2019lifelines}.
+
+\textbf{M0 (baseline):} $h(t) = h_{0}(t) \cdot \exp(\beta_{1}\cdot\texttt{task\_age} + \beta_{2}\cdot\texttt{log\_publication\_volume})$
+
+\textbf{M1 (diversity predictor):} $h(t) = h_{0}(t) \cdot \exp(\beta_{1}\cdot\texttt{task\_age} + \beta_{2}\cdot\texttt{log\_publication\_volume} + \beta_{3}\cdot\texttt{log\_unique\_paper\_count\_at\_intro\_z})$
+
+\textbf{LRT:} LRT stat $= -2\cdot(\ell(M0) - \ell(M1))$, df = 1; $p$ from chi-squared distribution.
+
+\textbf{Success criteria (pre-specified):} P1 (primary): LRT $p < 0.05$ AND $|\text{HR}-1| \geq 0.10$.
+
+\textbf{Direction protocol (pre-specified, no post-hoc modification):}
+\begin{itemize}
+  \item HR $<$ 1, $p <$ 0.05 $\to$ H1 lock-in
+  \item HR $>$ 1, $p <$ 0.05 $\to$ H2 saturation
+  \item $p >$ 0.05 (G0--G4 pass) $\to$ H0 null
+\end{itemize}
+
+\textbf{Complete-case analysis:} 87/345 rows dropped (NaN); 258 complete-case rows; EPV $\approx$ 86.

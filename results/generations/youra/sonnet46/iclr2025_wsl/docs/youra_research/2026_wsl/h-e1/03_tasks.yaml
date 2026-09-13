@@ -1,0 +1,397 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-03-16T12:45:00+00:00"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: true
+    excluded_count: 4
+    excluded_ids: ["L-2-1", "L-2-2", "L-4-4", "C-1-1"]
+    reason: "Fixed tasks (data+env+failsafe=3) + 6 epics + 5 subtasks = 14 <= 15 budget"
+
+tasks:
+  # ─── DATA PREPARATION (priority 100-95) ───────────────────────────────────
+  - id: "task-001"
+    epic: "Data Pipeline"
+    title: "Download Unterthiner FC-MLP Zoo (MNIST)"
+    description: |
+      Download the Unterthiner MNIST model zoo from Google Research storage.
+      URL: https://storage.googleapis.com/gresearch/dnn_predict_accuracy/small_mnist_networks.pkl
+      Save to: data/unterthiner_mnist_zoo.pkl
+      Verify: >= 500 models loaded after download.
+      Code snippet in 03_prd.md Section 4.1.
+    feature_tag: "data-preparation"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Verify file exists at data/unterthiner_mnist_zoo.pkl
+      - Verify len(zoo_data) >= 500
+      - Verify each entry has keys: 'weights', 'train_acc', 'test_acc'
+    reference_files:
+      architecture: "03_architecture.md#Epic-E1-Data-Pipeline"
+      logic: null
+      config: "03_config.md#DataConfig"
+
+  # ─── ENVIRONMENT SETUP (priority 94) ──────────────────────────────────────
+  - id: "task-002"
+    epic: "Environment Setup"
+    title: "Install Python dependencies and verify environment"
+    description: |
+      Install all required Python packages:
+        torch>=1.13, numpy>=1.21, scipy>=1.7, scikit-learn>=0.24,
+        matplotlib>=3.4, seaborn>=0.11, pyyaml>=5.4, tqdm>=4.62
+      Create requirements.txt.
+      Verify: import torch; import scipy.stats; from scipy.stats import spearmanr
+      Set CUDA_VISIBLE_DEVICES to single GPU with lowest memory usage (check nvidia-smi).
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - All imports succeed without error
+      - torch.cuda.is_available() == True (or CPU fallback documented)
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#ExperimentConfig"
+
+  # ─── EPIC IMPLEMENTATION TASKS (priority 93-50) ───────────────────────────
+  - id: "task-003"
+    epic: "E-1: Data Pipeline"
+    title: "Implement data_loader.py: ZooDataset, preprocessing, permutation stress"
+    description: |
+      Implement src/data_loader.py with:
+      - load_zoo(pkl_path) -> list[dict]: load pickle, validate >= 500 samples
+      - compute_gen_gap(sample) -> float: train_acc - test_acc
+      - apply_permutation_stress(weight_matrices, severity) -> list[Tensor]
+      - ZooDataset(samples, mode="flat"|"nft"): Dataset returning (flat_vec, gap) or (list[Tensor], gap)
+      - get_dataloaders(pkl_path, batch_size=64, train_ratio=0.8, seed=42) -> (train_loader, test_loader)
+      - nft_collate_fn(batch): pads variable-length weight matrices per layer, returns (padded_by_layer, labels, attention_mask)
+      Weight normalization: zero mean, unit std per neuron row (NFT); globally (flat-MLP).
+    feature_tag: "data-pipeline"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - tests/test_data_loader.py with >= 3 test methods:
+        - test_load_zoo_min_samples(): assert len(zoo) >= 500
+        - test_apply_permutation_stress_shapes(): output shapes match input shapes
+        - test_nft_collate_fn_padding(): attention_mask shape == (B, max_total_neurons)
+    reference_files:
+      architecture: "03_architecture.md#Epic-E1-Data-Pipeline"
+      logic: "03_logic.md#Subtask-L-2-4-nft_collate_fn"
+      config: "03_config.md#DataConfig"
+
+  - id: "task-004"
+    epic: "E-2: Model Implementation"
+    title: "Implement models.py: FlatMLPEncoder and NFTEquivariantEncoder"
+    description: |
+      Implement src/models.py with:
+      - FlatMLPEncoder(input_dim, hidden_dim=512): 3x512 ReLU MLP, output Linear(512,1)
+        Input: (B, input_dim) -> Output: (B, 1)
+      - NFTEquivariantEncoder(layer_fan_ins, d_model=128, n_heads=4):
+        - Per-layer projections: nn.ModuleList([nn.Linear(fan_in, d_model) for fan_in in layer_fan_ins])
+        - Equivariant attention: nn.MultiheadAttention(d_model, n_heads, batch_first=True)
+        - LayerNorm + residual connection
+        - Mean pooling over neuron tokens -> (B, d_model)
+        - Regression head: Linear(d_model, 1)
+        - Raises ValueError if any fan_in <= 0
+        - Logs: "NFT tokens: (B={B}, N_neurons={N}, d_model={D})"
+        - Stores last_token_shape, implements get_last_token_shape()
+      See 03_logic.md for complete API signatures and tensor shapes.
+    feature_tag: "model"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - tests/test_models.py with >= 3 test methods:
+        - test_flat_mlp_output_shape(): FlatMLPEncoder(5000)(randn(32,5000)).shape == (32,1)
+        - test_nft_encoder_output_shape(): NFTEquivariantEncoder([784,256])(batch).shape == (B,1)
+        - test_nft_raises_invalid_fan_in(): NFTEquivariantEncoder([-1]) raises ValueError
+    reference_files:
+      architecture: "03_architecture.md#Epic-E2-Model-Implementation"
+      logic: "03_logic.md#E-2-Model-Implementation"
+      config: "03_config.md#NFTModelConfig"
+
+  - id: "task-005"
+    epic: "E-3: Training Loop"
+    title: "Implement train.py: Adam + CosineAnnealingLR, NaN handling, checkpointing"
+    description: |
+      Implement src/train.py with:
+      - set_seed(seed=42): sets torch/numpy/random seeds
+      - train_epoch(model, loader, optimizer, device, model_type) -> float: mean MSE loss
+      - train_model(model, train_loader, n_epochs=100, lr=1e-3, device, model_type, checkpoint_path):
+        - Adam(lr=lr, betas=(0.9,0.999), weight_decay=1e-4)
+        - CosineAnnealingLR(T_max=n_epochs, eta_min=1e-5)
+        - NaN detection: reduce lr to 1e-4, retry once (raises RuntimeError if still NaN)
+        - Save checkpoint at end: torch.save(model.state_dict(), checkpoint_path)
+        - Returns {"train_loss_history": list[float], "final_epoch": int}
+    feature_tag: "training"
+    priority: 83
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Verify train_model runs 1 epoch without error on tiny synthetic dataset
+      - Verify checkpoint file is saved
+    reference_files:
+      architecture: "03_architecture.md#Epic-E3-Training-Loop"
+      logic: null
+      config: "03_config.md#TrainConfig"
+
+  - id: "task-006"
+    epic: "E-4: Evaluation & Gate"
+    title: "Implement evaluate.py: delta_rho, bootstrap, gate condition, mechanism verification"
+    description: |
+      Implement src/evaluate.py with full evaluation suite.
+      See 03_logic.md for complete pseudo-code and API signatures.
+      Key functions:
+      - apply_stress_and_predict(model, test_loader, severity, device, model_type) -> (preds, labels)
+      - compute_delta_rho(model, test_loader, severity_levels, device, model_type) -> (delta_rho, rho_by_severity)
+      - bootstrap_delta_rho(model, test_loader, device, model_type, n_bootstrap=10000, seed=42) -> (samples, p_value)
+      - holm_correction(p_values) -> corrected_p_values
+      - evaluate_gate_condition(flat_delta, nft_delta, flat_p, nft_p) -> GateResult dict + write gate_result.json
+      - verify_mechanism_activated(model, sample_batch, results) -> (all_pass, indicators)
+      Gate PASS: flat_mlp_delta_rho > 0.10 AND nft_delta_rho < 0.02
+    feature_tag: "evaluation"
+    priority: 78
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - tests/test_evaluate.py with >= 3 test methods:
+        - test_compute_delta_rho_mock(): on constant-output mock model, delta_rho == 0
+        - test_gate_pass(): evaluate_gate_condition(0.15, 0.01, 0.001, 0.001)["pass_gate"] == True
+        - test_gate_fail(): evaluate_gate_condition(0.05, 0.01, 0.1, 0.1)["pass_gate"] == False
+    reference_files:
+      architecture: "03_architecture.md#Epic-E4-Evaluation-Gate"
+      logic: "03_logic.md#E-4-Evaluation-Gate"
+      config: "03_config.md#EvalConfig"
+
+  - id: "task-007"
+    epic: "E-5: Visualization"
+    title: "Implement visualize.py: 4 figures including mandatory delta_rho bar chart"
+    description: |
+      Implement src/visualize.py with:
+      - plot_delta_rho_bar(flat_delta, nft_delta, save_path): MANDATORY bar chart with
+        threshold lines at delta_rho=0.10 (flat-MLP gate) and delta_rho=0.02 (NFT gate)
+      - plot_rho_vs_severity(flat_rho_by_severity, nft_rho_by_severity, save_path):
+        line plot of rho(s) for both models at s in {0, 0.25, 0.5, 1.0}
+      - plot_pred_vs_actual(flat_preds_s0, flat_labels, nft_preds_s0, flat_preds_s1, nft_preds_s1, save_path)
+      - plot_bootstrap_distribution(flat_bootstrap, nft_bootstrap, save_path): histogram
+      - generate_all_figures(results, figures_dir): calls all 4, saves to figures_dir/
+      Create figures/ directory if not exists.
+    feature_tag: "evaluation"
+    priority: 63
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Verify generate_all_figures runs without error on synthetic data
+      - Verify 4 figure files created in figures/ directory
+    reference_files:
+      architecture: "03_architecture.md#Epic-E5-Visualization"
+      logic: null
+      config: null
+
+  - id: "task-008"
+    epic: "E-6: Experiment Runner & Tests"
+    title: "Implement run_experiment.py orchestrating full pipeline"
+    description: |
+      Implement run_experiment.py that orchestrates all modules:
+      1. set_seed(42)
+      2. Download data if missing (data/unterthiner_mnist_zoo.pkl)
+      3. Build flat + NFT dataloaders via get_dataloaders()
+      4. Infer input_dim from first flat sample; layer_fan_ins from first NFT sample
+      5. Initialize FlatMLPEncoder(input_dim) and NFTEquivariantEncoder(layer_fan_ins)
+      6. train_model for both models; save checkpoints/flat_mlp.pt and checkpoints/nft.pt
+      7. compute_delta_rho and bootstrap_delta_rho for both models
+      8. holm_correction on [flat_p, nft_p]
+      9. evaluate_gate_condition -> write results/gate_result.json
+      10. verify_mechanism_activated on NFT model
+      11. generate_all_figures(results, "figures/")
+      12. Write results/h-e1_results.json with all metrics
+      Set CUDA_VISIBLE_DEVICES before launch (check nvidia-smi for empty GPU).
+    feature_tag: "experiment"
+    priority: 58
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Verify run_experiment.py imports without error
+      - Verify results/h-e1_results.json schema on dry run
+    reference_files:
+      architecture: "03_architecture.md#Experiment-Runner"
+      logic: "03_logic.md#Subtask-L-4-4-verify_mechanism_activated"
+      config: "03_config.md#ExperimentConfig"
+
+  # ─── HIGH-COMPLEXITY SUBTASKS (priority 49-2) ─────────────────────────────
+  - id: "task-009"
+    epic: "E-2: Model Implementation"
+    title: "L-2-3: Implement NFTEquivariantEncoder attention forward pass with token logging"
+    description: |
+      Implement the core forward() method of NFTEquivariantEncoder:
+      - For each layer l: tokens_l = layer_projections[l](weight_matrices[l]) -> (B, n_neurons_l, d_model)
+      - Concatenate: all_tokens = torch.cat(token_seqs, dim=1) -> (B, total_neurons, d_model)
+      - Store last_token_shape = (B, total_neurons, d_model)
+      - Log: "NFT tokens: (B={B}, N_neurons={total_neurons}, d_model={d_model})"
+      - Attention: attn_out, _ = self.attn(all_tokens, all_tokens, all_tokens)
+      - Residual + LayerNorm: attn_out = self.norm(attn_out + all_tokens)
+      - Mean pool: pooled = attn_out.mean(dim=1) -> (B, d_model)
+      - Head: return self.head(pooled) -> (B, 1)
+      See 03_logic.md Subtask L-2-3 for exact pseudo-code.
+    feature_tag: "model"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: 14
+    test_requirements: |
+      model = NFTEquivariantEncoder([784, 256])
+      out = model([torch.randn(8,32,784), torch.randn(8,64,256)])
+      assert out.shape == (8, 1)
+      assert model.get_last_token_shape() == (8, 96, 128)
+    reference_files:
+      architecture: "03_architecture.md#Epic-E2-Model-Implementation"
+      logic: "03_logic.md#Subtask-L-2-3"
+      config: "03_config.md#NFTModelConfig"
+
+  - id: "task-010"
+    epic: "E-2: Model Implementation"
+    title: "L-2-4: Implement nft_collate_fn with per-layer padding and attention mask"
+    description: |
+      Implement nft_collate_fn in src/data_loader.py.
+      Each batch item has variable total neuron count across layers.
+      Steps:
+      - Find max n_neurons per layer across batch
+      - For each layer l: create padded_l = zeros(B, max_n_l, fan_in_l)
+        and mask_l = ones(B, max_n_l, bool) (True=ignore padding)
+      - Fill real neurons: padded_l[b,:n,:] = wms[l]; mask_l[b,:n] = False
+      - attention_mask = torch.cat(mask_by_layer, dim=1) -> (B, total_max_neurons)
+      - Return: (padded_by_layer, labels, attention_mask)
+      See 03_logic.md Subtask L-2-4 for complete pseudo-code.
+    feature_tag: "data-pipeline"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: 14
+    test_requirements: |
+      Collate items with [32,64] and [16,128] neurons per layer:
+      - padded_by_layer[0].shape == (2, 32, fan_in_0)
+      - attention_mask.shape == (2, 32+128)
+      - attention_mask[0, 32:] == True (all padding)
+    reference_files:
+      architecture: "03_architecture.md#Epic-E1-Data-Pipeline"
+      logic: "03_logic.md#Subtask-L-2-4"
+      config: null
+
+  - id: "task-011"
+    epic: "E-4: Evaluation & Gate"
+    title: "L-4-1: Implement compute_delta_rho with Spearman rho across severity levels"
+    description: |
+      Implement compute_delta_rho and apply_stress_and_predict in src/evaluate.py.
+      apply_stress_and_predict: run model.eval() inference with permutation stress applied
+        at given severity. For flat: reshape weights -> permute neurons -> reshape back.
+        For NFT: apply apply_permutation_stress to each weight matrix in batch.
+        Return (predictions [N], labels [N]) as numpy arrays.
+      compute_delta_rho: for each severity in severity_levels, call apply_stress_and_predict,
+        compute spearmanr(preds, labels). delta_rho = rho[0.0] - rho[1.0].
+        Raise ValueError if n_samples < 2.
+      See 03_logic.md Subtask L-4-1 for complete pseudo-code.
+    feature_tag: "evaluation"
+    priority: 35
+    source_document: "03_logic.md"
+    complexity: 14
+    test_requirements: |
+      On mock constant-output model: delta_rho == 0.0
+      rho_by_severity keys == {0, 0.25, 0.5, 1.0}
+      ValueError raised when n_samples < 2
+    reference_files:
+      architecture: "03_architecture.md#Epic-E4-Evaluation-Gate"
+      logic: "03_logic.md#Subtask-L-4-1"
+      config: "03_config.md#EvalConfig"
+
+  - id: "task-012"
+    epic: "E-4: Evaluation & Gate"
+    title: "L-4-2: Implement bootstrap_delta_rho with paired resampling and p-value"
+    description: |
+      Implement bootstrap_delta_rho in src/evaluate.py.
+      - Pre-collect preds_s0, preds_s1, labels over full test set (using apply_stress_and_predict)
+      - rng = np.random.default_rng(seed)
+      - For i in range(n_bootstrap): resample idx, compute rho0-rho1 on subsampled preds
+      - p_value = fraction of bootstrap_samples <= 0 (one-sided: H1: delta_rho > 0)
+      - Return: (bootstrap_samples [n_bootstrap], p_value)
+      See 03_logic.md Subtask L-4-2 for exact pseudo-code.
+    feature_tag: "evaluation"
+    priority: 30
+    source_document: "03_logic.md"
+    complexity: 14
+    test_requirements: |
+      Returns (np.ndarray shape (10000,), float)
+      Deterministic output given same seed=42
+      p_value in [0.0, 1.0]
+    reference_files:
+      architecture: "03_architecture.md#Epic-E4-Evaluation-Gate"
+      logic: "03_logic.md#Subtask-L-4-2"
+      config: "03_config.md#EvalConfig"
+
+  - id: "task-013"
+    epic: "E-4: Evaluation & Gate"
+    title: "L-4-3: Implement evaluate_gate_condition and holm_correction"
+    description: |
+      Implement in src/evaluate.py:
+      holm_correction(p_values): step-down Holm procedure.
+        sorted_idx = argsort(p_values); for rank, idx: corrected[idx] = p*( m-rank)
+        enforce monotonicity; clip to [0,1]
+      evaluate_gate_condition(flat_delta, nft_delta, flat_p, nft_p) -> GateResult:
+        pass_gate = (flat_delta > 0.10) AND (nft_delta < 0.02)
+        flat_threshold_met = flat_delta > 0.10
+        nft_threshold_met = nft_delta < 0.02
+        Write results/gate_result.json with full GateResult dict.
+      See 03_logic.md Subtask L-4-3 for gate_result.json schema.
+    feature_tag: "evaluation"
+    priority: 25
+    source_document: "03_logic.md"
+    complexity: 14
+    test_requirements: |
+      evaluate_gate_condition(0.15, 0.01, 0.001, 0.001)["pass_gate"] == True
+      evaluate_gate_condition(0.05, 0.01, 0.1, 0.1)["pass_gate"] == False
+      gate_result.json written with correct schema
+    reference_files:
+      architecture: "03_architecture.md#Epic-E4-Evaluation-Gate"
+      logic: "03_logic.md#Subtask-L-4-3"
+      config: "03_config.md#EvalConfig"
+
+  # ─── FAILSAFE (priority 1) ─────────────────────────────────────────────────
+  - id: "task-014"
+    epic: "Pipeline Continuation"
+    title: "FAILSAFE: Verify gate result and record Phase 4 completion"
+    description: |
+      Pipeline continuation checkpoint. After all tasks complete:
+      1. Verify results/gate_result.json exists and is valid JSON
+      2. Verify results/h-e1_results.json exists
+      3. Log final gate verdict: PASS or FAIL
+      4. If PASS: pipeline continues to H-M1 (next hypothesis)
+      5. If FAIL: MUST_WORK gate failed — stop entire pipeline, report to user
+      This task MUST be the last task executed in Phase 4.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks: 5
+  failsafe: 1
+  total: 14

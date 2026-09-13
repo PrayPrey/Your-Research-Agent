@@ -1,0 +1,47 @@
+# Introduction
+
+Consider a hallucination detector that passes every implementation check: 14 unit tests green, 10,000 real inference calls to Llama-3-8B-Instruct completed, 45,000 NLI pairs scored by a fine-tuned DeBERTa-v3-large cross-encoder, a 5-question mechanism verification confirming scores vary meaningfully in [0,1]. Now measure its performance on 1,000 balanced factual questions from a standard hallucination benchmark. The AUROC is 0.4933 — indistinguishable from a random classifier. A practitioner who deployed this detector would be filtering LLM outputs with zero discriminative power while believing the method is sound.
+
+This is not a story of a broken implementation. It is a story of a broken assumption — and identifying precisely which assumption breaks, and why, is the contribution of this paper.
+
+## The Problem: An Unexamined Regime Assumption
+
+LLM hallucination detection without access to model internals (logit probabilities, attention weights) has become an active research area as proprietary APIs have proliferated. Among training-free black-box approaches, sampling-based semantic consistency has emerged as the dominant paradigm: generate $N$ stochastic samples from the LLM, measure their pairwise semantic agreement via NLI or embedding similarity, and use this consistency score as a hallucination proxy — inconsistent outputs signal uncertainty, consistent outputs signal grounded knowledge.
+
+This paradigm rests on a foundational behavioral assumption: *hallucinated outputs are semantically diverse across samples because the model lacks grounded knowledge, while correct outputs converge because the model's parametric knowledge is concentrated*. This assumption was validated empirically for GPT-3 on open-ended biography generation [Manakul et al., 2023] and for smaller open-source models on open-ended QA [Kuhn et al., 2023]. Both studies confirmed that sampling-based consistency correlates with factual accuracy in their respective settings.
+
+The assumption, however, has been silently extended: practitioners and researchers now apply SelfCheckGPT-style methods to instruction-tuned models — models trained with reinforcement learning from human feedback (RLHF) — on structured factual QA tasks, without verifying that the hallucination regime is the same. RLHF fine-tuning fundamentally changes model output distributions: it reinforces high-confidence, consistent answers, suppressing the stochastic variation that sampling-based methods rely on. Whether instruction-tuned models produce stochastically diverse hallucinations — or whether RLHF has collapsed their output distribution even for wrong beliefs — is an empirical question that has not been systematically addressed.
+
+## The Deeper Problem: Systematic Confabulation vs. Stochastic Hallucination
+
+We argue that two distinct hallucination regimes exist for LLMs, and that sampling-based consistency methods are only theoretically valid in one of them:
+
+**Stochastic hallucination** (where sampling-based methods work): The model lacks grounded knowledge and samples from a broad, uncertain distribution. Hallucinated responses differ semantically across samples. NLI consistency scores are low for hallucinated questions and high for correctly answered ones — the discriminative signal exists.
+
+**Systematic confabulation** (where sampling-based methods fail): RLHF fine-tuning has reinforced specific answer patterns, producing confident, consistent outputs even for factually wrong beliefs. The model's sampling distribution is peaked regardless of factual accuracy. Both correct and hallucinated questions yield high consistency scores. No discriminative signal exists.
+
+The critical gap in the literature is that no study has characterized which regime instruction-tuned models inhabit on structured factual QA — the task type most commonly encountered in deployed question-answering systems. Without this characterization, practitioners cannot know whether deploying sampling-based consistency detectors in their systems will provide genuine signal or false assurance.
+
+## Our Contribution: Regime Characterization with Clean Attribution
+
+We present a controlled empirical investigation of sampling-based NLI consistency (SMC-NLI; N=10 samples, DeBERTa-v3-large cross-encoder) applied to Llama-3-8B-Instruct on HaluEval QA [Li et al., 2023] — a representative instruction-tuned model on a widely-used factual hallucination benchmark. Our experimental design includes two features that enable clean causal attribution:
+
+1. **Dual-metric design**: We run both NLI-based (SMC-NLI) and embedding-based (SMC-Embed) consistency scoring in parallel. If NLI OOD (out-of-distribution for short factual answers) were the failure mode, SMC-Embed would serve as a fallback. If both fail equally, the failure is mechanism-level — in the shared consistency signal, not the scorer.
+
+2. **Mechanism verification**: Before full-scale evaluation, we verify that scores vary meaningfully on 5 questions (distinguishing "broken code" from "wrong hypothesis"). Combined with 14 unit tests, this ensures the negative result is attributable to the hypothesis, not the implementation.
+
+Our key findings are: (1) SMC-NLI achieves AUROC=0.4933 on HaluEval QA with Llama-3-8B-Instruct — indistinguishable from random; (2) SMC-Embed achieves AUROC=0.4859 — equally at chance level; (3) the mean SMC-NLI score for correctly-labeled questions (0.6236) is essentially identical to hallucinated-labeled questions (0.6299), with a gap of 0.006 — noise level over N=1000 questions; (4) the implementation is correct by independent verification (14/14 tests pass, mechanism check passes).
+
+These findings collectively establish that Llama-3-8B-Instruct operates in the systematic confabulation regime on HaluEval QA: RLHF fine-tuning produces consistent outputs for both correct and wrong beliefs, eliminating the consistency-based discriminative signal.
+
+We make the following contributions:
+
+**C1 (Empirical — Negative Result):** First controlled demonstration that sampling-based consistency (both NLI and embedding variants) achieves chance-level AUROC (≈0.49) on HaluEval QA with Llama-3-8B-Instruct at temperature=0.7, with implementation correctness independently verified. This negative result is specific, replicable, and informative.
+
+**C2 (Theoretical):** Introduction and operationalization of the *stochastic hallucination vs. systematic confabulation* regime distinction as a necessary prerequisite for sampling-based hallucination detection. We show that instruction-tuned models on structured factual QA exhibit systematic confabulation, rendering these methods ineffective for this model-task combination.
+
+**C3 (Empirical — Benchmark Validity):** Evidence that HaluEval QA labels, derived from ChatGPT-generated hallucinations [Li et al., 2023], may not constitute valid evaluation ground truth for hallucination detectors applied to other models (Llama-3-8B-Instruct), raising a cross-model benchmark validity concern for a widely-used evaluation protocol.
+
+**C4 (Infrastructure):** A validated, reusable implementation of the SMC pipeline (LLMSampler, SMCNLIScorer, SMCEmbedScorer) for Llama-3-8B-Instruct, with 10,000 real samples generated and 45,000 NLI pairs scored, available for future experiments in open-ended generation settings where the stochastic hallucination regime may hold.
+
+The remainder of this paper is organized as follows: Section 2 situates our work within the hallucination detection and uncertainty quantification literature. Section 3 describes our methodology, emphasizing the design choices that enable clean attribution. Section 4 presents the experimental setup. Section 5 reports results. Section 6 discusses implications, limitations, and directions for future work. Section 7 concludes.

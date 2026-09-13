@@ -1,0 +1,534 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-31T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap1"
+  gap_title: "Mechanistic Characterization of SGD-Driven Temporal Feature Learning Order"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 11
+  convergence_reason: >
+    All 6 convergence criteria met at Exchange 10-11:
+    SPECIFIC (per-sample last-layer gradient alignment as proxy),
+    MECHANISM (low alignment = conflicting gradient direction = spurious-minority),
+    PREDICTIONS (P1: ROC-AUC comparison, P2: worst-group accuracy vs JTT, P3: temporal layer analysis),
+    NOVELTY (directional vs magnitude signal — handles hard-spurious-majority samples correctly),
+    FEASIBILITY (50 lines PyTorch, 30 GPU-hours, existing repos),
+    OBJECTIONS (Prof. Rex's 3 objections all addressed with mitigations).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: >
+        DNNs trained with ERM/SGD exhibit simplicity bias: spurious (simpler) features
+        are learned before core (more complex) features.
+      status: "BUILD_ON"
+      evidence: "Shah et al. 2020 (formal proof); Geirhos et al. 2020 (~2000 citations); Arpit et al. 2017 (temporal learning dynamics)"
+
+    - claim: >
+        The spectral bias of gradient descent causes low-frequency components of the
+        target function to be learned first.
+      status: "BUILD_ON"
+      evidence: "Rahaman et al. 2019 (~1000 citations); widely replicated"
+
+    - claim: >
+        ERM achieves poor worst-group accuracy on Waterbirds (~72%) and CelebA despite
+        high average accuracy.
+      status: "BUILD_ON"
+      evidence: "Sagawa et al. 2020 Group DRO paper; reproducible with kohpangwei/group_DRO"
+
+    - claim: >
+        JTT (misclassification as proxy for minority) and LfF (high relative loss as proxy)
+        improve worst-group accuracy without group labels but underperform DFR.
+      status: "BUILD_ON"
+      evidence: "Liu et al. 2021 (JTT); Nam et al. 2020 (LfF); Kirichenko et al. 2022 (DFR)"
+
+    - claim: >
+        Per-sample gradient alignment direction with batch mean differs between
+        statistical minority and majority samples on spurious correlation benchmarks
+        where spurious-minority = statistical minority.
+      status: "PROVE_NEW"
+      evidence: "Hypothesized from discussion; not demonstrated on Waterbirds/CelebA"
+
+    - claim: >
+        Online gradient-alignment-based upweighting improves worst-group accuracy
+        over JTT in a single training run.
+      status: "PROVE_NEW"
+      evidence: "Proposed intervention; not experimentally validated"
+
+  scope_reduction_percentage: 67  # 4 BUILD_ON / 6 total = 67% established
+  phase2b_4_instructions: |
+    BUILD_ON claims (1-4) need not be re-verified. Existing literature citations
+    and public benchmark reproductions suffice. Focus experimental effort on
+    PROVE_NEW claims (5-6): measure gradient alignment ROC-AUC vs. loss ROC-AUC
+    (Experiment 1), then test the intervention worst-group accuracy (Experiment 2).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-GAD-v1"
+  confidence_level: 0.72
+  core_hypothesis_statement: |
+    Under standard ERM training on spurious correlation benchmarks (Waterbirds, CelebA,
+    MultiNLI) with random mini-batch sampling, if we compute the cosine similarity between
+    per-sample last-layer gradients and the batch-mean gradient at each training step and
+    use the EMA-smoothed inverse alignment score as an online importance weight, then the
+    trained model will achieve better worst-group accuracy than JTT and LfF baselines,
+    because gradient alignment direction specifically captures spurious-minority membership
+    (conflicting gradient direction with majority batch) in a way that magnitude-based proxies
+    cannot distinguish from hard-but-spurious-majority samples.
+  alternative_hypothesis_h0: |
+    There is no significant difference in worst-group accuracy on Waterbirds and CelebA
+    between ERM training with gradient-alignment-based online upweighting and JTT baseline
+    training (two-sided test, significance level α = 0.05 across 3 random seeds).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Training importance weighting scheme"
+      type: "categorical"
+      operationalization: "Which method assigns sample weights during training"
+      levels:
+        - "ERM (uniform weights)"
+        - "GAD-last (gradient alignment at last layer, EMA β=0.9)"
+        - "GAD-penultimate (gradient alignment at penultimate layer, EMA β=0.9)"
+        - "JTT (two-stage misclassification-based)"
+        - "LfF (amplified-bias model loss ratio)"
+
+    - name: "Dataset"
+      type: "categorical"
+      operationalization: "Which spurious correlation benchmark"
+      levels:
+        - "Waterbirds (ResNet-50)"
+        - "CelebA (ResNet-50)"
+        - "MultiNLI (BERT-base)"
+
+  dependent:
+    - name: "Worst-group accuracy"
+      type: "continuous"
+      operationalization: >
+        Minimum accuracy across the 4 groups (spurious-majority/minority × class label)
+        on the standard test split; range [0, 1]; primary metric from Sagawa et al. 2020
+      primary: true
+
+    - name: "Average accuracy"
+      type: "continuous"
+      operationalization: "Mean accuracy across all test samples; range [0, 1]"
+      primary: false
+
+    - name: "Group membership ROC-AUC (Experiment 1 only)"
+      type: "continuous"
+      operationalization: >
+        ROC-AUC of the gradient alignment score (or per-sample loss, for comparison)
+        for predicting spurious-minority group membership using existing group annotations
+        as gold standard; range [0.5, 1.0]
+      primary: false
+
+  controlled:
+    - name: "Model architecture"
+      operationalization: "ResNet-50 pretrained on ImageNet for vision; BERT-base for MultiNLI; fixed across all compared methods"
+    - name: "Learning rate schedule"
+      operationalization: "Same schedule as JTT/DFR baseline (cosine decay, Adam/SGD, standard settings from group_DRO repo)"
+    - name: "Random seeds"
+      operationalization: "3 fixed seeds per experiment; results reported as mean ± std"
+    - name: "Mini-batch composition"
+      operationalization: "Standard random sampling (no class-balanced batching); batch size 32 for per-sample gradient tracking"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 4
+  steps:
+    - step: 1
+      description: >
+        In early training, ERM with random batches is dominated by spurious-majority samples
+        (~82% on Waterbirds). The batch-mean gradient predominantly encodes the direction
+        that improves classification accuracy on spurious-majority samples — specifically,
+        the gradient direction that encodes the spurious feature (background texture/color).
+      evidence: >
+        Sagawa et al. 2020 (group imbalance in Waterbirds);
+        Arpit et al. 2017 (general patterns learned first — majority patterns dominate early gradients);
+        Shah et al. 2020 (simplicity bias: simpler features dominate early ERM training)
+      falsifier: >
+        If Waterbirds training dynamics show equal gradient norm contributions from
+        spurious-majority and spurious-minority samples in early epochs, step 1 fails.
+
+    - step: 2
+      description: >
+        Spurious-minority samples (e.g., landbirds on water in Waterbirds) cannot be
+        correctly classified via the spurious feature (background). Their gradient direction
+        therefore conflicts with the batch-mean gradient — they push the model in a direction
+        inconsistent with the majority spurious-feature signal. This produces low cosine
+        similarity between their per-sample gradient and the batch-mean gradient.
+      evidence: >
+        Logical consequence of Step 1 + group structure of Waterbirds/CelebA;
+        supported by DFR finding (Kirichenko 2022) that ERM features are good but
+        classifier is spuriously biased toward majority signal
+      falsifier: >
+        If ROC-AUC of per-sample gradient alignment for predicting spurious-minority
+        group membership ≤ 0.5 (no better than chance) on Waterbirds, Step 2 fails.
+
+    - step: 3
+      description: >
+        The EMA-smoothed inverse alignment score (higher for low-alignment = spurious-minority
+        samples) used as an online importance weight shifts the effective training distribution
+        toward the spurious-minority group, preventing the model from fully committing to the
+        spurious feature during the critical early training phase.
+      evidence: >
+        Theoretical: importance weighting shifts the effective training distribution;
+        related to DFR's finding that last-layer reweighting toward minority samples restores
+        worst-group accuracy without changing the feature extractor
+      falsifier: >
+        If training with GAD weights produces a loss landscape with the same
+        Hessian dominant eigenvectors as ERM (no shift toward core feature direction),
+        Step 3 fails. Practical falsifier: GAD worst-group accuracy ≤ ERM baseline.
+
+    - step: 4
+      description: >
+        Because GAD upweighting is online and continuous (computed every batch, updated
+        every step via EMA), the intervention occurs earlier in training and with richer
+        signal than JTT (which requires a complete first-stage training run to identify
+        misclassified samples). This enables better worst-group accuracy in a single training run.
+      evidence: >
+        Logical: online upweighting vs. JTT's two-stage approach;
+        continuous gradient direction vs. binary misclassification signal
+      falsifier: >
+        If JTT (two-stage) achieves equal or higher worst-group accuracy despite
+        the coarser binary signal, Step 4's efficiency claim fails.
+        (Note: the mechanistic claim of Steps 1-3 can still hold even if Step 4 fails)
+
+  key_tension: >
+    The mechanism "low alignment = spurious-minority" relies on spurious-minority samples
+    being the statistical minority in the batch. If class-balanced batching is used,
+    the batch-mean gradient would be equalized, and the alignment signal would weaken.
+    The method is specifically designed for standard random-sampling training, not balanced batching.
+  evidence_summary: |
+    The causal chain rests on three BUILD_ON foundations (simplicity bias, temporal learning order,
+    group imbalance on benchmarks) and two PROVE_NEW links (gradient alignment predicts group membership,
+    online upweighting improves worst-group accuracy). The chain is internally consistent and each
+    step has a clear falsifier, enabling targeted debugging if any step fails.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: >
+      Spurious-minority samples are the statistical minority in standard random mini-batches
+      on Waterbirds and CelebA (i.e., spurious-minority group membership coincides with
+      dataset-level minority).
+    supporting_evidence: >
+      Waterbirds: 82% majority, 18% minority. CelebA: ~94% majority blond-female and
+      non-blond-male. Standard random sampling maintains these ratios in expectation.
+    consequence_if_violated: >
+      If class-balanced batching is used (or if the minority group is actually the majority
+      in some subset of batches), the alignment signal loses its specificity for spurious-minority
+      detection. The method would need to be reformulated for balanced-batch training.
+
+  - id: "A2"
+    assumption: >
+      Last-layer and penultimate-layer gradient alignment signals are computationally
+      feasible with torch.func.vmap on ResNet-50 with batch size ≤ 32.
+    supporting_evidence: >
+      ResNet-50 last layer: 2048 × 2 = 4096 params. At batch_size=32: 32 × 4096 = 131,072 floats.
+      torch.func.vmap supports per-sample gradients efficiently for linear layers.
+    consequence_if_violated: >
+      If vmap OOMs on penultimate layer (2048-dim activations), must use gradient checkpointing
+      or reduce to last-layer only. Mechanistic claim about temporal layer differences cannot be tested.
+
+  - id: "A3"
+    assumption: >
+      EMA smoothing with β=0.9 provides sufficient temporal smoothing of the noisy per-batch
+      alignment signal without introducing excessive lag (so the signal remains responsive to
+      changes in the model's spurious feature reliance).
+    supporting_evidence: >
+      β=0.9 is standard for importance weight smoothing in online learning (effective window ≈ 10 steps).
+      Related to EMA used in LfF for the biased model update.
+    consequence_if_violated: >
+      β too high (e.g., 0.99): signal lags behind model changes, intervention may be too late.
+      β too low (e.g., 0.5): signal is too noisy, causes training instability.
+      Mitigation: grid search over β ∈ {0.5, 0.9, 0.99} as hyperparameter.
+
+  - id: "A4"
+    assumption: >
+      The per-sample last-layer gradient at training time is computable without access to
+      group labels — only the cross-entropy loss gradient with respect to the (predicted) label is needed.
+    supporting_evidence: >
+      Cross-entropy loss gradient computation requires only the network's own prediction and the
+      true class label (not group membership). The gradient alignment computation is annotation-free
+      by construction.
+    consequence_if_violated: >
+      If the gradient alignment signal is only interpretable with group annotation knowledge
+      (e.g., the sign of alignment is ambiguous without knowing majority/minority), the method
+      is not truly annotation-free. Prof. Rex's Experiment 1 validates this assumption.
+
+  - id: "A5"
+    assumption: >
+      The worst-group accuracy metric on standard Waterbirds and CelebA test splits
+      (using existing group annotations) is a valid and sufficient evaluation criterion
+      for determining whether the method succeeds.
+    supporting_evidence: >
+      Standard from Sagawa et al. 2020; used by all comparison methods (JTT, LfF, DFR);
+      reflects the core goal of reducing spurious correlation reliance.
+    consequence_if_violated: >
+      If worst-group accuracy improvements are attributable to increased regularization
+      (not the gradient alignment mechanism), the causal claim fails.
+      Mitigation: compare GAD vs. ERM+L2 regularization as an additional ablation.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Image classification benchmarks with spurious correlations where spurious-minority
+      samples are the statistical minority in random mini-batches (Waterbirds, CelebA)
+    - Text classification with spurious correlations (MultiNLI with hypothesis-only bias)
+    - Training with standard random mini-batch sampling (no class-balanced batching)
+    - Models where per-sample last-layer gradient computation is feasible (ResNet-50, BERT-base)
+    - Settings where group annotations are available only at evaluation time (not annotation-free training)
+  does_not_apply_to: |
+    - Training regimes with class-balanced or group-balanced mini-batch sampling
+    - Settings where spurious-minority group is numerically large (the alignment signal would be weak)
+    - Very large models where per-sample gradient computation is prohibitively expensive
+    - Self-supervised pre-training (no classification loss gradient available)
+    - Settings requiring strict annotation-free evaluation (annotations used at evaluation is acceptable)
+  known_limitations: |
+    - Prof. Rex's confound: mechanism detects statistical minority in batch, not specifically
+      the "spurious feature direction." On Waterbirds/CelebA these coincide, but the mechanistic
+      claim is weaker than initially framed.
+    - Batch size constraint: per-sample gradient computation requires batch_size ≤ 32 on ResNet-50;
+      larger models require gradient checkpointing.
+    - Hyperparameter sensitivity: EMA β and weight clipping threshold require tuning.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: >
+      Per-sample last-layer gradient alignment (cosine similarity with batch mean) provides
+      higher ROC-AUC for predicting spurious-minority group membership than per-sample loss
+      magnitude at at least one training epoch on Waterbirds and CelebA, using existing
+      group annotations as ground truth.
+    test_method: >
+      (1) Train ERM ResNet-50 on Waterbirds and CelebA with standard settings.
+      (2) At epochs {1, 5, 10, 25, 50}, compute per-sample last-layer gradient alignment
+          and per-sample loss for all training samples.
+      (3) Use existing group annotations to label each sample as spurious-minority (1) or not (0).
+      (4) Compute ROC-AUC of alignment score and loss score for predicting spurious-minority membership.
+      (5) Compare ROC-AUC curves across epochs.
+    success_criterion: >
+      Gradient alignment ROC-AUC > per-sample loss ROC-AUC at ≥ 1 epoch
+      on BOTH Waterbirds AND CelebA.
+    falsification: >
+      Gradient alignment ROC-AUC ≤ per-sample loss ROC-AUC at ALL epochs
+      on EITHER Waterbirds OR CelebA.
+
+  - id: "P2"
+    primary: false
+    statement: >
+      Online gradient-alignment debiasing (GAD) with EMA-smoothed inverse alignment weights
+      achieves worst-group accuracy ≥ JTT on Waterbirds and CelebA test sets (3 random seeds).
+    test_method: >
+      (1) Train GAD (ERM + online alignment upweighting, single training run) on Waterbirds and CelebA.
+      (2) Train JTT baseline (from anniesch/jtt) on same datasets.
+      (3) Report worst-group accuracy on standard test splits (mean ± std across 3 seeds).
+    success_criterion: >
+      GAD worst-group accuracy ≥ JTT worst-group accuracy on BOTH Waterbirds AND CelebA
+      (within error bars, or statistically significant improvement).
+    falsification: >
+      GAD worst-group accuracy < JTT worst-group accuracy (outside error bars) on EITHER
+      Waterbirds OR CelebA.
+
+  - id: "P3"
+    primary: false
+    statement: >
+      Penultimate-layer gradient alignment becomes predictive of spurious-minority membership
+      (ROC-AUC > 0.6) at earlier training epochs than last-layer gradient alignment,
+      revealing the temporal structure of spurious feature acquisition.
+    test_method: >
+      (1) Track both last-layer and penultimate-layer gradient alignment at epochs {1, 5, 10, 25, 50}.
+      (2) For each layer, record the first epoch at which ROC-AUC > 0.6 for group membership prediction.
+      (3) Compare the epoch of first-predictive-alignment between layers.
+    success_criterion: >
+      Penultimate-layer alignment achieves ROC-AUC > 0.6 at an earlier epoch than
+      last-layer alignment on at least one of Waterbirds/CelebA.
+    falsification: >
+      Last-layer alignment becomes predictive at the same epoch or earlier than
+      penultimate-layer alignment on both datasets.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "Waterbirds + CelebA (primary); MultiNLI (secondary)"
+    type: "standard"
+    source: "Sagawa et al. 2020 Group DRO paper; Koh et al. 2021 WILDS"
+    path: "Available via kohpangwei/group_DRO repository (standard download scripts)"
+    hypothesis_fit: >
+      Waterbirds and CelebA are the canonical spurious correlation benchmarks with
+      existing group annotations, enabling both annotation-free training and
+      annotation-based evaluation. Worst-group accuracy metric is established
+      and all comparison baselines report on these datasets.
+
+  model:
+    name: "ResNet-50 (vision); BERT-base (NLI)"
+    type: "standard pretrained classifier"
+    source: "torchvision.models.resnet50(pretrained=True); huggingface/bert-base-uncased"
+    hypothesis_fit: >
+      ResNet-50 is the standard backbone for Waterbirds/CelebA in all comparison papers.
+      Last-layer (2048×2) and penultimate-layer (2048-dim) gradient computation is feasible
+      with torch.func.vmap at batch_size=32. BERT-base is standard for MultiNLI.
+
+  baselines:
+    - name: "ERM"
+      method: "Standard empirical risk minimization with uniform sample weights"
+    - name: "JTT"
+      method: "Two-stage: ERM first run for T_1 epochs, identify misclassified samples, retrain with upweighted misclassified set"
+    - name: "LfF"
+      method: "Two-model training: amplified-bias model generates high-loss samples; debiased model upweights them"
+    - name: "ERM + L2 (ablation)"
+      method: "ERM with stronger L2 regularization — controls for the hypothesis that GAD improves via implicit regularization"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: >
+    No existing annotation-free debiasing method uses gradient cosine similarity
+    (directional information) as a training-time proxy for spurious-minority membership.
+    Existing methods (JTT, LfF) use magnitude-based signals (misclassification, high relative loss).
+  key_innovation: >
+    Gradient Alignment Debiasing (GAD): online importance weighting based on per-sample
+    last-layer gradient cosine similarity with batch mean. Directional gradient information
+    can correctly distinguish hard-but-spurious-majority samples (which have high loss but
+    aligned gradients) from spurious-minority samples (which have conflicting gradients).
+    Single-training-run (online), no second stage required.
+  differentiation:
+    - prior_work: "JTT (Liu et al. 2021)"
+      difference: >
+        JTT: binary misclassification proxy after full first-stage training run (2× compute).
+        GAD: continuous directional gradient alignment, online during single training run.
+        GAD can correctly handle samples that JTT misidentifies (hard spurious-majority samples).
+    - prior_work: "LfF (Nam et al. 2020)"
+      difference: >
+        LfF: requires maintaining a parallel biased model throughout training (2× memory).
+        GAD: requires only per-sample gradient tracking for last layer (~200MB for Waterbirds).
+        GAD does not require a separate biased-model hyperparameter (q in GCE loss for LfF).
+    - prior_work: "DFR (Kirichenko et al. 2022)"
+      difference: >
+        DFR: requires group-labeled held-out set for last-layer retraining.
+        GAD: fully annotation-free during training; group annotations used only at evaluation.
+        GAD targets the DFR performance gap but without any labeled data.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "ERM (ResNet-50)"
+      performance: "72.6% worst-group accuracy on Waterbirds"
+      dataset: "Waterbirds"
+      why_insufficient: "Exploits spurious background feature; worst-group (landbirds on water) accuracy is poor"
+
+    - method: "JTT (Liu et al. 2021)"
+      performance: "86.7% worst-group accuracy on Waterbirds"
+      dataset: "Waterbirds"
+      why_insufficient: >
+        Two-stage training (2× compute); binary misclassification proxy confounds hard samples
+        with spurious-minority samples; does not reach DFR performance (~91%)
+
+    - method: "LfF (Nam et al. 2020)"
+      performance: "78.0% worst-group accuracy on Waterbirds"
+      dataset: "Waterbirds"
+      why_insufficient: >
+        Requires parallel biased model (2× memory and complexity); lower than JTT on Waterbirds;
+        high-loss proxy conflates hard examples with minority samples
+
+    - method: "DFR (Kirichenko et al. 2022)"
+      performance: "91.8% worst-group accuracy on Waterbirds"
+      dataset: "Waterbirds"
+      why_insufficient: >
+        Requires group-labeled held-out set (not fully annotation-free);
+        represents the performance ceiling for our method to target
+
+  best_baseline_performance: "JTT: 86.7% worst-group on Waterbirds (annotation-free); DFR: 91.8% (requires labels)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: >
+    Gradient alignment signal must be predictive of spurious-minority membership
+    (P1: ROC-AUC > per-sample loss) — this must be demonstrated before the
+    intervention claim is meaningful.
+  sh2_mechanism: >
+    Online EMA-smoothed inverse gradient alignment upweighting during single ERM
+    training run; last-layer and penultimate-layer variants; batch_size=32;
+    β ∈ {0.9} primary, grid search ablation.
+  sh3_comparison: >
+    Compare against ERM, JTT, LfF on Waterbirds and CelebA worst-group accuracy;
+    DFR as aspirational ceiling. (Baseline comparison deferred to Phase 5 for
+    any further ablations beyond these core comparisons.)
+  open_questions:
+    - "Does penultimate-layer alignment provide strictly earlier signal than last-layer? (P3)"
+    - "Is the alignment signal robust to class-balanced batching, or does it break? (A1)"
+    - "Can the method scale to ViT-B with gradient checkpointing? (A2)"
+    - "Does GAD with EMA β=0.9 achieve ≥ JTT on CelebA in addition to Waterbirds? (P2)"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: >
+    All 6 convergence criteria (SPECIFIC, MECHANISM, PREDICTIONS, NOVELTY, FEASIBILITY, OBJECTIONS)
+    met at Exchange 10-11. Prof. Rex endorsed with precision caveat (mechanism detects statistical
+    minority, not specifically spurious feature direction; benign on Waterbirds/CelebA).
+  clarity_verified: true
+  remaining_objections:
+    - >
+      Mechanism conflates "statistical minority in batch" with "spurious-minority" —
+      acknowledged as precision caveat, benign for empirical claims on target benchmarks.
+    - >
+      torch.func.vmap memory scaling may require gradient checkpointing for large models —
+      documented as implementation risk with known mitigation.
+
+discussion_context:
+  total_exchanges: 11
+  agent_participation:
+    dr_nova: 2    # Exchanges 1, 7
+    prof_vera: 2  # Exchanges 2, 8
+    dr_sage: 1    # Exchange 3
+    prof_pax: 2   # Exchanges 4, 9
+    dr_ally: 2    # Exchanges 5, 10
+    prof_rex: 2   # Exchanges 6, 11
+  paper_citations: 8  # Geirhos, Shah, Arpit, Sagawa, Rahaman, Liu (JTT), Nam (LfF), Kirichenko (DFR)
+  convergence_type: "qualitative"

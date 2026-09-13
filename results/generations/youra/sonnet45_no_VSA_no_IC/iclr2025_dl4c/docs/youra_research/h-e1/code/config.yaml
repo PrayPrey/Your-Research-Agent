@@ -1,0 +1,157 @@
+# h-e1: Binary Feedback Sufficiency Experiment
+# Type: EXISTENCE (PoC)
+# Gate: MUST_WORK
+
+experiment:
+  hypothesis_id: "h-e1"
+  type: "EXISTENCE"
+  gate: "MUST_WORK"
+  description: "Binary feedback achieves dual-threshold sufficiency (≥8pp absolute, ≥80% retention)"
+
+dataset:
+  name: "openai/openai_humaneval"
+  split: "test"
+  num_problems: 164
+  cache_dir: "./data/humaneval"
+
+model:
+  name: "Salesforce/codegen-350M-mono"
+  precision: "fp16"
+  cache_dir: "./models/pretrained"
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - "q_proj"
+    - "v_proj"
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+training:
+  sft:
+    enabled: true
+    optimizer: "adamw"
+    learning_rate: 2.0e-5
+    weight_decay: 0.01
+    epochs: 5
+    batch_size: 8
+    gradient_accumulation_steps: 1
+    max_grad_norm: 1.0
+    warmup_steps: 100
+    lr_scheduler: "linear"
+    checkpoint_dir: "../checkpoints/sft"
+    log_interval: 10
+    save_interval: 100
+
+  grpo_binary:
+    enabled: true
+    optimizer: "adamw"
+    learning_rate: 2.0e-7
+    weight_decay: 0.01
+    steps: 500
+    batch_size: 4
+    samples_per_problem: 4
+    gradient_accumulation_steps: 1
+    max_grad_norm: 1.0
+    kl_coef: 0.1
+    warmup_steps: 50
+    lr_scheduler: "constant"
+    checkpoint_dir: "../checkpoints/grpo_binary"
+    log_interval: 50
+    save_interval: 100
+    early_stopping:
+      enabled: true
+      patience: 100
+      min_reward: 0.1
+
+  grpo_error_type:
+    enabled: true
+    optimizer: "adamw"
+    learning_rate: 2.0e-7
+    weight_decay: 0.01
+    steps: 500
+    batch_size: 4
+    samples_per_problem: 4
+    gradient_accumulation_steps: 1
+    max_grad_norm: 1.0
+    kl_coef: 0.1
+    warmup_steps: 50
+    lr_scheduler: "constant"
+    checkpoint_dir: "../checkpoints/grpo_error_type"
+    log_interval: 50
+    save_interval: 100
+    early_stopping:
+      enabled: true
+      patience: 100
+      min_reward: 0.1
+
+execution_sandbox:
+  timeout: 3.0
+  binary_rewards:
+    pass: 1.0
+    fail: 0.0
+  error_type_rewards:
+    SyntaxError: 0.0
+    TypeError: 0.2
+    NameError: 0.4
+    ValueError: 0.6
+    AssertionError: 0.8
+    Pass: 1.0
+    Timeout: 0.0
+    OtherError: 0.0
+
+generation:
+  training:
+    max_new_tokens: 512
+    temperature: 1.0
+    top_p: 0.95
+    do_sample: true
+    num_return_sequences: 4
+    stop_tokens:
+      - "\n\n"
+      - "def "
+      - "class "
+
+  evaluation:
+    max_new_tokens: 512
+    temperature: 0.0
+    top_p: 1.0
+    do_sample: false
+    num_return_sequences: 1
+    stop_tokens:
+      - "\n\n"
+      - "def "
+      - "class "
+
+evaluation:
+  checkpoint_paths:
+    sft: "../checkpoints/sft/final_checkpoint.pt"
+    binary: "../checkpoints/grpo_binary/final_checkpoint.pt"
+    error_type: "../checkpoints/grpo_error_type/final_checkpoint.pt"
+  output_dir: "../results"
+  save_completions: true
+
+gate:
+  thresholds:
+    absolute_improvement: 8.0
+    retention_ratio: 0.80
+
+hardware:
+  device: "cuda"
+  fp16: true
+
+reproducibility:
+  seed: 42
+  deterministic: true
+  benchmark: false
+
+logging:
+  level: "INFO"
+  log_file: "../logs/experiment.log"
+  console_output: true
+
+state_management:
+  verification_state_path: "../../../../verification_state.yaml"

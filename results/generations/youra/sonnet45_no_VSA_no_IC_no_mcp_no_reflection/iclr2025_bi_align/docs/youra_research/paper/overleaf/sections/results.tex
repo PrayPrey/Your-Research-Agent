@@ -1,0 +1,201 @@
+\section{Results}
+
+\subsection{H-E1 Gate Evaluation Summary}
+
+Table~\ref{tab:h-e1-metrics} presents the quantitative evaluation of H-E1 success criteria.
+
+\begin{table}[h]
+\centering
+\caption{H-E1 validation metrics. Entropy computation technically successful (100\% success rate, all values within valid range [0, ln(2)] $\approx$ [0, 0.693] nats), but dataset format yielded constant value H = 0.6931 nats (exactly ln(2)) across all prompts, resulting in zero variance. Gate outcome: PARTIAL\_FAILURE (mechanism works, dataset-methodology mismatch).}
+\label{tab:h-e1-metrics}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Metric} & \textbf{Target} & \textbf{Actual} & \textbf{Status} \\
+\midrule
+Entropy success rate & $\geq$95\% & 100\% & \checkmark \\
+Entropy variance & >0 nats & 0.0 nats & $\times$ \\
+Valid range [0, ln(2)] & All & 0.6931 & \checkmark \\
+Code execution & No errors & No errors & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Gate Outcome:} PARTIAL\_FAILURE
+\begin{itemize}
+\item \textbf{Passed:} Entropy computable (100\% success), valid range check
+\item \textbf{Failed:} Entropy variance = 0 (all values identical)
+\item \textbf{Interpretation:} Technical validation successful, but dataset format incompatibility prevents diversity measurement
+\end{itemize}
+
+\subsection{Finding 1: Constant Entropy Across All Prompts}
+
+\textbf{Quantitative Summary:}
+\begin{itemize}
+\item \textbf{Mean entropy:} 0.6931 nats (exactly ln(2))
+\item \textbf{Std entropy:} 0.0000 nats
+\item \textbf{Min entropy:} 0.6931 nats
+\item \textbf{Max entropy:} 0.6931 nats
+\item \textbf{Range:} [0.6931, 0.6931] nats (zero spread)
+\end{itemize}
+
+\textbf{Observation:} Despite varying group sizes (5-57 comparisons per prompt), all prompts yielded the same entropy value with 15-digit precision. This constant is exactly ln(2) $\approx$ 0.693147, the theoretical maximum entropy for binary distributions (uniform split p=[0.5, 0.5]).
+
+\textbf{Interpretation:} This is not random variation or measurement error. The constant value indicates a \textbf{structural artifact} of the dataset format, not a diversity pattern in human preferences.
+
+\subsection{Finding 2: Root Cause Analysis — Dataset Structure Mismatch}
+
+We conducted root cause analysis to explain the constant entropy finding. Two competing hypotheses:
+
+\textbf{Hypothesis A: Implementation Bug}
+\begin{itemize}
+\item \textbf{Prediction:} Code error causes entropy calculation to always return ln(2)
+\item \textbf{Test:} Manual calculation for sample prompts
+\item \textbf{Result:} Hand-computed entropy matched automated results (0.6931 nats)
+\item \textbf{Verdict:} REJECTED — implementation correct
+\end{itemize}
+
+\textbf{Hypothesis B: Dataset Format Incompatibility}
+\begin{itemize}
+\item \textbf{Prediction:} Anthropic-HH pairwise structure creates tautological 50/50 split
+\item \textbf{Test:} Inspect aggregated preference counts for sample prompts
+\item \textbf{Result:} All prompts yielded counts [n, n] where n = number of examples in group
+\item \textbf{Verdict:} CONFIRMED — dataset format is root cause
+\end{itemize}
+
+\textbf{Detailed Mechanism:}
+
+Each example in Anthropic-HH represents one pairwise comparison where:
+\begin{itemize}
+\item \textbf{chosen} = preferred response (different text for each example)
+\item \textbf{rejected} = less-preferred response (different text for each example)
+\end{itemize}
+
+\textbf{Critical Issue:} Each comparison evaluates \textbf{different response candidates}. For a ``prompt'' (grouped by first 200 chars):
+\begin{itemize}
+\item Example 1: chosen=A1, rejected=B1
+\item Example 2: chosen=A2, rejected=B2
+\item Example 3: chosen=A3, rejected=B3
+\end{itemize}
+
+Aggregation treats each comparison as ``1 vote for chosen category, 1 vote for rejected category'':
+\begin{itemize}
+\item \texttt{chosen\_count = 3} (one per example)
+\item \texttt{rejected\_count = 3} (one per example)
+\item Distribution: [3, 3] $\rightarrow$ normalized [0.5, 0.5] $\rightarrow$ H = ln(2) = 0.693 nats
+\end{itemize}
+
+\textbf{This is tautological:} By construction, every pairwise example has exactly 1 chosen and 1 rejected response. Aggregating across examples always yields 50/50 split, regardless of actual preference diversity.
+
+\subsubsection{Mathematical Proof: Why Entropy is Constant ln(2)}
+
+Given Anthropic-HH pairwise format:
+\begin{itemize}
+\item Each example compares 2 unique responses (A vs B)
+\item Each has 1 chosen, 1 rejected (by construction)
+\end{itemize}
+
+For any ``prompt group'' (aggregated by first 200 chars):
+\begin{itemize}
+\item Group contains n pairwise examples
+\item Aggregation: n chosen + n rejected = 2n total comparisons
+\item Counts: [n, n]
+\item Probabilities: [n/(2n), n/(2n)] = [0.5, 0.5]
+\item Shannon entropy: H = -$\Sigma$ $p_i$ log($p_i$) = -[0.5$\cdot$ln(0.5) + 0.5$\cdot$ln(0.5)] = ln(2) $\approx$ 0.6931 nats
+\end{itemize}
+
+\textbf{Result:} Every prompt group yields identical entropy ln(2), regardless of n. This is not measurement error — it's a mathematical tautology of the pairwise unique-response format.
+
+\textbf{What Was Intended:}
+
+Multi-annotator format (e.g., OpenAI Summarization):
+\begin{itemize}
+\item Prompt: ``Summarize article X''
+\item Fixed Candidates: \{Summary\_A, Summary\_B, Summary\_C, Summary\_D\}
+\item Annotator 1 chooses: Summary\_A
+\item Annotator 2 chooses: Summary\_A
+\item Annotator 3 chooses: Summary\_B
+\item Annotator 4 chooses: Summary\_C
+\item Annotator 5 chooses: Summary\_C
+\end{itemize}
+
+Aggregation over \textbf{same fixed responses}:
+\begin{itemize}
+\item Votes: \{A: 2, B: 1, C: 2, D: 0\}
+\item Distribution: [0.4, 0.2, 0.4, 0.0] $\rightarrow$ H = 1.06 nats (variance across prompts possible)
+\end{itemize}
+
+\textbf{Key Distinction:} Multi-annotator fixed responses enable per-prompt diversity measurement; pairwise unique responses do not.
+
+\subsection{Finding 3: Technical Validation Success}
+
+Despite dataset incompatibility, entropy computation mechanism validated successfully:
+
+\textbf{Evidence:}
+\begin{enumerate}
+\item \textbf{100\% success rate:} All 100 sampled prompts yielded valid entropy values (no NaN, Inf, or errors)
+\item \textbf{Range validation:} All entropy values within theoretical bounds [0, ln(2)] for binary choices
+\item \textbf{Mathematical correctness:} scipy.stats.entropy correctly applies Shannon formula H = -$\Sigma$ $p_i$ log($p_i$)
+\item \textbf{Reproducibility:} Deterministic results (seed=1) — independent runs yield identical values
+\end{enumerate}
+
+\textbf{Implication:} The entropy computation \textbf{mechanism works}. Issue is not implementation capability but dataset format compatibility. With appropriate multi-annotator data, the same code would measure variance.
+
+\subsection{Dataset Structure Documentation (Methodological Contribution)}
+
+Table~\ref{tab:dataset-formats-detailed} formalizes the dataset format distinction revealed by H-E1 validation.
+
+\begin{table*}[t]
+\centering
+\caption{Dataset structure documentation for preference entropy measurement. Pairwise-unique format optimizes annotation cost (efficient reward model training) but fundamentally cannot measure per-prompt diversity (validated on Anthropic-HH, n=100 prompts). Multi-annotator-fixed format enables entropy measurement at higher annotation cost (N $\times$ M labels per prompt vs 1 label per pairwise comparison; positive case theory-based, untested empirically).}
+\label{tab:dataset-formats-detailed}
+\begin{tabular}{lp{3cm}ccp{2.5cm}p{2cm}}
+\toprule
+\textbf{Format} & \textbf{Structure} & \textbf{Cost} & \textbf{Entropy} & \textbf{Example} & \textbf{Datasets} \\
+\midrule
+Pairwise Unique & Different candidates per comparison & Low & No & A1 vs B1, A2 vs B2 & Anthropic-HH \\
+Multi-Ann. Fixed & Same candidates, N annotators & High & Yes & 5 ann. on \{A,B,C,D\} & OpenAI Sum. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Cost Analysis:}
+\begin{itemize}
+\item \textbf{Pairwise (Anthropic-HH):} 160K comparisons $\times$ 1 annotator = 160K labels
+\item \textbf{Multi-annotator (hypothetical):} 1K prompts $\times$ 20 annotators $\times$ 5 responses = 100K labels (comparable scale, different structure)
+\end{itemize}
+
+Cost is similar in magnitude, but pairwise format distributes labels across \textbf{unique response pairs} (reward model training efficiency), while multi-annotator distributes labels across \textbf{fixed response sets} (diversity measurement capability).
+
+\subsection{Gate Decision Rationale}
+
+\textbf{MUST\_WORK Gate Criteria:}
+\begin{itemize}
+\item \checkmark \textbf{Primary:} Entropy computable (100\% success rate) — PASSED
+\item $\times$ \textbf{Secondary:} Entropy variance > 0 — FAILED (variance = 0)
+\end{itemize}
+
+\textbf{Partial Failure Interpretation:}
+\begin{itemize}
+\item \textbf{Not a fundamental flaw:} Mechanism (entropy computation) validated successfully
+\item \textbf{Dataset-methodology mismatch:} Pairwise unique-response format incompatible with per-prompt diversity measurement (not an implementation issue)
+\item \textbf{Hypothesis status:} Untested (data-limited), not falsified
+\end{itemize}
+
+\textbf{Routing Decision:} Phase 2A-Dialogue (mechanism refinement needed)
+\begin{itemize}
+\item \textbf{Option 1:} Switch to multi-annotator dataset (OpenAI Summarization, Chatbot Arena)
+\item \textbf{Option 2:} Use alternative proxy (response diversity entropy on model outputs)
+\item \textbf{Option 3:} Collect new multi-annotator preference data (1K prompts, 20 annotators each)
+\end{itemize}
+
+\subsection{Limitations of This Validation}
+
+\begin{enumerate}
+\item \textbf{Single dataset tested:} Anthropic-HH only. Structural incompatibility inferred for other pairwise datasets (WebGPT, InstructGPT) but not empirically validated.
+
+\item \textbf{Prompt grouping heuristic:} Used first 200 characters as prompt proxy (no explicit prompt IDs in Anthropic-HH). May group unrelated examples if conversation contexts share prefixes.
+
+\item \textbf{Binary entropy only:} Pairwise format limits to 2-option distributions. Multi-candidate entropy (3+ responses) untested.
+
+\item \textbf{No multi-annotator validation:} Proposed multi-annotator-fixed format measurability is theory-based; no empirical confirmation with OpenAI Summarization or Chatbot Arena data.
+\end{enumerate}

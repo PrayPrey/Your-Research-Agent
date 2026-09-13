@@ -1,0 +1,10 @@
+# Research Idea
+
+## Title
+Capability Readiness Probes: Predicting Emergent Abilities in Foundation Models via Circuit-Specific Activation Monitoring
+
+## Motivation
+Foundation models exhibit surprising emergent capabilities (in-context learning, arithmetic reasoning) that appear suddenly during training, yet current prediction methods rely on aggregate loss thresholds that detect emergence only after it occurs. This unpredictability hinders efficient training and safety monitoring. Recent mechanistic interpretability work has identified specific computational circuits (e.g., induction heads for in-context learning) that underlie these capabilities, but this knowledge hasn't been leveraged for predictive purposes. A method that monitors circuit maturation could provide earlier warning of capability emergence, enabling more efficient training decisions and proactive safety interventions.
+
+## Main Idea
+We hypothesize that lightweight linear probes trained on circuit-specific activation patterns can predict capability emergence earlier than loss-threshold methods because computational circuits mature at trackable rates before behavioral manifestation on benchmarks. Our approach extracts attention head coherence scores and MLP activation geometry from capability-relevant layers using existing interpretability tools, then trains probes to classify pre-emergence versus post-emergence states. Using Pythia and OLMo model checkpoints, we will measure prediction lead time (training steps between probe threshold crossing and benchmark emergence) across three capabilities: in-context learning, arithmetic, and factual recall. Success criteria include achieving >5% training duration lead time with probe AUC >0.8. This framework would transform mechanistic interpretability findings into practical training monitoring tools while providing empirical validation of circuit-capability correspondence theories.

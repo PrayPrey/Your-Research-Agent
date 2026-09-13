@@ -1,0 +1,1 @@
+Useful commands observed in this project: `python run_experiment.py`, `python run_mechanism_validation.py`, `pytest`, `rg <pattern>`, `rg --files`, `ls`, `find`, `stat`, `nl -ba <file> | sed -n 'start,endp'`. Logs/results live under `code/outputs/`, `experiment.log`, `experiment_run*.log`, and JSON artifacts in hypothesis folders.

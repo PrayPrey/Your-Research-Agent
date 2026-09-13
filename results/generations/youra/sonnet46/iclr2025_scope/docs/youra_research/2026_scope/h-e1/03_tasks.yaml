@@ -1,0 +1,477 @@
+version: "1.1"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-05-08T07:00:00Z"
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+  budget_rebalancing:
+    applied: true
+    excluded_count: 2
+    excluded_ids:
+      - "L-E6-2"
+      - "L-E4-1"
+    excluded_reason: "Budget rebalancing — lowest complexity parent epics (E6=11, E4=10); logic integrated into epic tasks"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASKS (priority order: highest first)
+# ═══════════════════════════════════════════════════════════════════════════════
+tasks:
+  # ─── Environment Setup (priority 99) ────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Setup development environment"
+    description: |
+      Install required packages and verify environment for H-E1 experiment.
+
+      Install via pip:
+        torch>=2.0.0
+        transformers>=4.40.0
+        datasets>=2.18.0
+        scipy>=1.11.0
+        numpy>=1.24.0
+        matplotlib>=3.7.0
+        seaborn>=0.12.0
+        peft>=0.10.0
+        accelerate>=0.27.0
+
+      Required setup steps:
+      1. Verify CUDA availability: torch.cuda.is_available()
+      2. Check VRAM >= 15GB for LLaMA-3-8B float16
+      3. Verify HuggingFace Hub token has LLaMA-3-8B access
+      4. Set CUDA_VISIBLE_DEVICES to lowest-memory GPU
+      5. Create output directories: h-e1/figures/, h-e1/results/, h-e1/code/
+
+      Reference repos (for pattern reference, do not copy):
+        - https://github.com/FasterDecoding/TEAL
+        - https://github.com/IST-DASLab/sparsegpt
+        - https://github.com/fszatkowski/activation-sparsity-benchmarking
+    feature_tag: "setup"
+    priority: 99
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#3-environment-requirements"
+
+  # ─── Epic E1: Environment Setup (priority 93) ────────────────────────────────
+  - id: "task-002"
+    epic: "E1"
+    title: "Implement ExperimentConfig and directory setup"
+    description: |
+      Implement the ExperimentConfig dataclass (h-e1/code/config.py) and
+      experiment initialization logic in run_experiment.py.
+
+      Requirements:
+      - ExperimentConfig dataclass with all fields and __post_init__ validation
+      - verify_environment() function: CUDA check, VRAM check (>=15GB), package imports
+      - Create output directories: h-e1/figures/, h-e1/results/ (mkdir -p)
+      - CLI argument parsing for config overrides (optional argparse)
+
+      Files to create:
+        h-e1/code/config.py
+        h-e1/code/run_experiment.py (scaffold/main entry point)
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: |
+      Create tests/test_config.py:
+      - test_default_config_values(): verify all defaults match specification
+      - test_post_init_validation(): test n_samples % batch_size assertion
+      - test_primary_epsilon_in_epsilons(): verify primary_epsilon membership check
+    reference_files:
+      architecture: "03_architecture.md#epic-tasks"
+      logic: null
+      config: "03_config.md#1-experimentconfig-dataclass"
+
+  # ─── Epic E2: Data Pipeline (priority 92) ────────────────────────────────────
+  - id: "task-003"
+    epic: "E2"
+    title: "Implement data loading and preprocessing pipeline"
+    description: |
+      Implement h-e1/code/data_utils.py with Alpaca and WikiText-103 loaders.
+
+      Functions to implement:
+      1. load_alpaca_dataloader(tokenizer, cfg, max_length) -> DataLoader
+         - Load tatsu-lab/alpaca, train split, first 512 samples (seed=42 shuffle)
+         - Tokenize text field, truncate/pad to max_length
+         - Return DataLoader with batch_size=cfg.batch_size
+
+      2. load_wikitext_dataloader(tokenizer, cfg, max_length=512) -> DataLoader
+         - Load wikitext/wikitext-103-raw-v1, test split
+         - Concatenate all text, split into max_length-token chunks
+         - Use first 512 chunks, return DataLoader with batch_size=cfg.batch_size
+
+      Called with: max_length=128 (short) and max_length=512 (long) for Alpaca.
+
+      Files to create:
+        h-e1/code/data_utils.py
+    feature_tag: "data-pipeline"
+    priority: 92
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      Create tests/test_data_utils.py:
+      - test_alpaca_loader_batch_shape(): verify batch["input_ids"].shape == (8, 128) for short
+      - test_alpaca_loader_sample_count(): verify exactly 512 samples loaded
+      - test_wikitext_loader_chunk_length(): verify all chunks are 512 tokens
+    reference_files:
+      architecture: "03_architecture.md#datautils-h-e1codedata_utilspy"
+      logic: null
+      config: "03_config.md#1-experimentconfig-dataclass"
+
+  # ─── Epic E3: Sparsity Measurement Engine (priority 91) ─────────────────────
+  - id: "task-004"
+    epic: "E3"
+    title: "Implement sparsity measurement engine with forward hooks"
+    description: |
+      Implement h-e1/code/measure_sparsity.py — the core measurement module.
+
+      Functions to implement:
+      1. register_hooks(model, epsilon, layer_counts) -> List[RemovableHook]
+         - Register forward hook on model.model.layers[i].mlp.gate_proj for i in range(32)
+         - Hook captures: (output.abs() < epsilon).float().mean().item() per batch
+         - Use make_hook(layer_idx) closure factory (NOT lambda i: ...)
+         - Return list of 32 RemovableHook handles
+
+      2. measure_layer_sparsity(model, dataloader, epsilon, cfg) -> np.ndarray shape (32,)
+         - Call register_hooks(), run forward passes under torch.no_grad()
+         - Use try/finally to guarantee hook removal on exception
+         - Return np.array([np.mean(layer_counts[i]) for i in range(32)])
+
+      3. run_all_conditions(model, alpaca_short, alpaca_long, wikitext_long, cfg) -> dict
+         - Sweep 3 dataloaders × 4 epsilons = 12 calls to measure_layer_sparsity()
+         - Return dict keyed by (dataset_name, epsilon, length): np.ndarray(32,)
+
+      4. verify_mechanism(layer_sparsity, cfg) -> tuple[bool, dict]
+         - Check: len == 32, mean > 0, std > 0.01
+         - Return (all_passed, indicators_dict)
+
+      Files to create:
+        h-e1/code/measure_sparsity.py
+    feature_tag: "experiment"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      Create tests/test_measure_sparsity.py:
+      - test_hook_closure_captures_correct_layer(): verify each hook captures its own layer_idx
+      - test_hook_cleanup_on_exception(): verify hooks removed even when forward pass raises
+      - test_run_all_conditions_key_count(): verify dict has exactly 12 entries (3×4)
+    reference_files:
+      architecture: "03_architecture.md#sparsitymeasurer-h-e1codemeasure_sparsitypy"
+      logic: "03_logic.md#e3-sparsity-measurement-engine-complexity-14-budget-3"
+      config: "03_config.md#1-experimentconfig-dataclass"
+
+  # ─── E3 Subtask L-E3-1: register_hooks (priority 49) ────────────────────────
+  - id: "task-005"
+    epic: "E3"
+    title: "L-E3-1: Implement register_hooks() closure factory"
+    description: |
+      Implement register_hooks() with correct closure pattern.
+
+      Critical: use make_hook(layer_idx) factory pattern (NOT direct lambda with i).
+      Each hook captures: (output.abs() < epsilon).float().mean().item()
+      Hook input shape: [B=8, seq_len, intermediate_size=14336] FloatTensor (fp16)
+      Returns: List[RemovableHook] of length 32.
+
+      See 03_logic.md L-E3-1 for complete pseudo-code.
+    feature_tag: "experiment"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_measure_sparsity.py parent task."
+    reference_files:
+      architecture: "03_architecture.md#sparsitymeasurer-h-e1codemeasure_sparsitypy"
+      logic: "03_logic.md#l-e3-1-register_hooks"
+      config: null
+
+  # ─── E3 Subtask L-E3-2: measure_layer_sparsity (priority 48) ────────────────
+  - id: "task-006"
+    epic: "E3"
+    title: "L-E3-2: Implement measure_layer_sparsity() with try/finally"
+    description: |
+      Implement measure_layer_sparsity() forward pass loop.
+
+      Key requirements:
+      - try/finally block guarantees h.remove() for all 32 hooks even on exception
+      - torch.no_grad() wraps all forward passes
+      - Returns np.ndarray shape (32,) with mean sparsity fraction per layer
+      - Assert len(layer_sparsity) == 32 and mean > 0 after collection
+
+      See 03_logic.md L-E3-2 for complete pseudo-code including edge cases.
+    feature_tag: "experiment"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_measure_sparsity.py parent task."
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#l-e3-2-measure_layer_sparsity"
+      config: null
+
+  # ─── E3 Subtask L-E3-3: run_all_conditions (priority 47) ────────────────────
+  - id: "task-007"
+    epic: "E3"
+    title: "L-E3-3: Implement run_all_conditions() condition sweep"
+    description: |
+      Implement run_all_conditions() sweeping all 12 measurement conditions.
+
+      Conditions: 3 dataloaders × 4 epsilons = 12 calls
+      dataset_configs = [("alpaca", alpaca_short, 128), ("alpaca", alpaca_long, 512), ("wikitext", wikitext_long, 512)]
+      Dict key format: (dataset_name: str, epsilon: float, length: int)
+
+      See 03_logic.md L-E3-3 for complete pseudo-code.
+    feature_tag: "experiment"
+    priority: 47
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_measure_sparsity.py parent task."
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#l-e3-3-run_all_conditions"
+      config: null
+
+  # ─── Epic E4: Metrics Computation (priority 90) ──────────────────────────────
+  - id: "task-008"
+    epic: "E4"
+    title: "Implement metrics computation (CV, Kendall tau)"
+    description: |
+      Implement h-e1/code/compute_metrics.py.
+
+      Functions to implement:
+      1. compute_cv(layer_sparsity: np.ndarray) -> float
+         - Returns sparsity.std() / sparsity.mean()
+         - Guard against mean == 0 (return 0.0)
+
+      2. compute_kendall_tau(sparsity_a, sparsity_b) -> tuple[float, float]
+         - Returns (tau_statistic, p_value) from scipy.stats.kendalltau
+
+      3. compute_all_metrics(condition_results, cfg) -> dict
+         - Loop over 4 epsilons, compute CV + 2 taus (calibration + length) per epsilon
+         - Promote primary_epsilon values to top-level keys: cv_primary, tau_calibration, tau_length
+         - See 03_logic.md L-E4-1 for complete return dict schema
+
+      4. check_gate_conditions(metrics, cfg) -> tuple[bool, dict]
+         - Check cv_primary > cfg.cv_threshold AND tau_calibration >= cfg.tau_threshold
+         - Return (passed, {cv_pass, tau_pass, cv_value, tau_value})
+
+      Files to create:
+        h-e1/code/compute_metrics.py
+    feature_tag: "evaluation"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      Create tests/test_compute_metrics.py:
+      - test_cv_formula(): verify CV = std/mean on known array
+      - test_compute_all_metrics_keys(): verify all expected keys present in result dict
+      - test_gate_conditions_pass(): verify known CV=0.5, tau=0.7 returns (True, ...)
+    reference_files:
+      architecture: "03_architecture.md#metricscomputer-h-e1codecompute_metricspy"
+      logic: "03_logic.md#e4-metrics-computation-complexity-10-budget-1"
+      config: "03_config.md#1-experimentconfig-dataclass"
+
+  # ─── Epic E5: Visualization (priority 89) ────────────────────────────────────
+  - id: "task-009"
+    epic: "E5"
+    title: "Implement all 5 required visualization figures"
+    description: |
+      Implement h-e1/code/visualize.py with all 5 required figures.
+
+      Functions to implement:
+      1. plot_gate_metrics_bar(cv, tau, cfg, save_path) -> None
+         - Bar chart: CV vs 0.3 threshold, tau vs 0.6 threshold
+         - Color: steelblue if pass, tomato if fail; axhline at thresholds
+         - Save to: h-e1/figures/gate_metrics.png
+
+      2. plot_sparsity_profile(alpaca_sparsity, wikitext_sparsity, epsilon, cfg, save_path)
+         - Line plot: 32 layers x-axis, two overlaid lines (Alpaca vs WikiText-103)
+         - Save to: h-e1/figures/sparsity_profile.png
+
+      3. plot_epsilon_sensitivity(metrics, cfg, save_path) -> None
+         - Heatmap/table: CV and tau for each epsilon in {0.001, 0.01, 0.05, 0.1}
+         - Save to: h-e1/figures/epsilon_sensitivity.png
+
+      4. plot_length_sensitivity(alpaca_short_sparsity, alpaca_long_sparsity, tau_length, cfg, save_path)
+         - Two overlaid lines: 128-token vs 512-token Alpaca; annotate tau_length
+         - Save to: h-e1/figures/length_sensitivity.png
+
+      5. plot_rank_correlation_scatter(alpaca_sparsity, wikitext_sparsity, tau, p_value, cfg, save_path)
+         - Scatter: alpaca ranks vs wikitext ranks (double argsort); tau annotation textbox
+         - Save to: h-e1/figures/rank_correlation.png
+
+      6. generate_all_figures(condition_results, metrics, cfg) -> None
+         - Orchestrates all 5 figure calls, creates figures dir, saves all
+
+      Files to create:
+        h-e1/code/visualize.py
+    feature_tag: "evaluation"
+    priority: 89
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      Create tests/test_visualize.py:
+      - test_plot_gate_metrics_creates_file(): verify PNG file exists after call
+      - test_plot_sparsity_profile_two_lines(): verify figure has 2 lines (mocked arrays)
+      - test_generate_all_figures_file_count(): verify 5 PNG files created in figures dir
+    reference_files:
+      architecture: "03_architecture.md#visualizer-h-e1codevisualizepy"
+      logic: "03_logic.md#e5-visualization-complexity-12-budget-3"
+      config: "03_config.md#1-experimentconfig-dataclass"
+
+  # ─── E5 Subtask L-E5-1: plot_sparsity_profile (priority 46) ─────────────────
+  - id: "task-010"
+    epic: "E5"
+    title: "L-E5-1: Implement plot_sparsity_profile()"
+    description: |
+      Implement plot_sparsity_profile() per 03_logic.md L-E5-1.
+      x-axis: layer index 0-31; y-axis: mean sparsity fraction
+      Two overlaid lines: Alpaca (512-tok) vs WikiText-103 (512-tok)
+      xticks every 4 layers; grid alpha=0.3; tight_layout; dpi=150
+    feature_tag: "evaluation"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_visualize.py parent task."
+    reference_files:
+      logic: "03_logic.md#l-e5-1-plot_sparsity_profile"
+      architecture: null
+      config: null
+
+  # ─── E5 Subtask L-E5-2: plot_gate_metrics_bar (priority 45) ─────────────────
+  - id: "task-011"
+    epic: "E5"
+    title: "L-E5-2: Implement plot_gate_metrics_bar()"
+    description: |
+      Implement plot_gate_metrics_bar() per 03_logic.md L-E5-2.
+      Two bars: [cv, tau]; threshold axhlines at 0.3 and 0.6
+      Color: steelblue if value > threshold else tomato
+      Value annotations on top of bars (f"{val:.3f}")
+    feature_tag: "evaluation"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_visualize.py parent task."
+    reference_files:
+      logic: "03_logic.md#l-e5-2-plot_gate_metrics_bar"
+      architecture: null
+      config: null
+
+  # ─── E5 Subtask L-E5-3: plot_rank_correlation_scatter (priority 44) ──────────
+  - id: "task-012"
+    epic: "E5"
+    title: "L-E5-3: Implement plot_rank_correlation_scatter()"
+    description: |
+      Implement plot_rank_correlation_scatter() per 03_logic.md L-E5-3.
+      Compute ranks via double argsort: np.argsort(np.argsort(sparsity))
+      Scatter: alpaca_ranks vs wikitext_ranks; diagonal reference line
+      tau textbox annotation with p-value; ax.transAxes coordinates
+    feature_tag: "evaluation"
+    priority: 44
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_visualize.py parent task."
+    reference_files:
+      logic: "03_logic.md#l-e5-3-plot_rank_correlation_scatter"
+      architecture: null
+      config: null
+
+  # ─── Epic E6: Orchestration (priority 88) ────────────────────────────────────
+  - id: "task-013"
+    epic: "E6"
+    title: "Implement main orchestration and model setup"
+    description: |
+      Implement the main experiment orchestration in h-e1/code/run_experiment.py.
+
+      Functions to implement:
+      1. setup_model_and_tokenizer(cfg) -> tuple[model, tokenizer]
+         - Load meta-llama/Meta-Llama-3-8B, torch_dtype=float16, device_map="auto"
+         - model.eval()
+         - Validate: len(model.model.layers) == 32, else RuntimeError
+         - Validate: hasattr(model.model.layers[i].mlp, "gate_proj") for all i, else RuntimeError
+         - tokenizer.pad_token = tokenizer.eos_token if pad_token is None
+
+      2. save_results(condition_results, metrics, gate_pass, cfg) -> None
+         - Serialize tuple keys to string: f"{dataset}_eps{eps}_len{length}"
+         - Write JSON schema (see 03_logic.md L-E6-2 for full schema)
+         - Path: cfg.results_dir / "results.json"
+
+      3. main(cfg=None) -> None
+         - Full pipeline: setup → data loading → run_all_conditions → compute_all_metrics
+           → check_gate_conditions → generate_all_figures → save_results
+         - Print results table: CV and tau for each epsilon
+         - Print PASS/FAIL gate condition result
+
+      Files to modify/create:
+        h-e1/code/run_experiment.py
+    feature_tag: "experiment"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      Create tests/test_run_experiment.py:
+      - test_setup_model_raises_on_wrong_layer_count(): mock model with 16 layers, verify RuntimeError
+      - test_save_results_json_schema(): verify results.json has required keys
+      - test_main_integration(): smoke test with tiny mock (skip if no GPU)
+    reference_files:
+      architecture: "03_architecture.md#runexperiment-h-e1coderun_experimentpy"
+      logic: "03_logic.md#e6-orchestration-complexity-11-budget-2"
+      config: "03_config.md#1-experimentconfig-dataclass"
+
+  # ─── E6 Subtask L-E6-1: setup_model_and_tokenizer (priority 43) ─────────────
+  - id: "task-014"
+    epic: "E6"
+    title: "L-E6-1: Implement setup_model_and_tokenizer() with validation"
+    description: |
+      Implement setup_model_and_tokenizer() per 03_logic.md L-E6-1.
+      Explicit RuntimeError if n_layers != 32 or gate_proj missing on any layer.
+      tokenizer.pad_token = tokenizer.eos_token (LLaMA-3 has no pad token by default).
+      Print: "Model loaded: 32 layers, gate_proj verified."
+    feature_tag: "experiment"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_run_experiment.py parent task."
+    reference_files:
+      logic: "03_logic.md#l-e6-1-setup_model_and_tokenizer"
+      architecture: null
+      config: null
+
+  # ─── Failsafe (priority 1) ───────────────────────────────────────────────────
+  - id: "task-015"
+    epic: "Pipeline Management"
+    title: "Pipeline Continuation Checkpoint"
+    description: "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK"
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "system"
+    complexity: null
+    test_requirements: "Failsafe task does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUDGET SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks: 7
+  failsafe: 1
+  total: 15

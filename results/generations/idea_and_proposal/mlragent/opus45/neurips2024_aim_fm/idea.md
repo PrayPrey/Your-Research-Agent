@@ -1,0 +1,9 @@
+﻿# Title: Counterfactual Explanation Generation for Medical Foundation Models via Multimodal Perturbation Learning
+
+## Motivation
+Medical Foundation Models (MFMs) increasingly support clinical decisions, yet their "black-box" nature undermines physician trust and patient safety. Existing explanation methods (e.g., saliency maps, attention visualization) show *what* the model focuses on but fail to answer *why* a specific diagnosis was made or *what would change* the prediction. Counterfactual explanations—showing minimal changes needed to alter a diagnosis—align naturally with clinical reasoning ("If the tumor were smaller, the diagnosis would be benign"). However, generating clinically meaningful counterfactuals across multimodal medical data (images, text, lab values) remains unexplored.
+
+## Main Idea
+We propose **MedCF**, a framework that generates multimodal counterfactual explanations for MFMs. The approach involves: (1) training a conditional generative model that learns semantically meaningful perturbations in a shared latent space across modalities (radiology images, clinical notes, structured EHR data); (2) optimizing perturbations using clinical knowledge graphs to ensure counterfactuals respect medical plausibility (e.g., anatomically valid image modifications); (3) introducing a "minimal change" objective that identifies the smallest clinically actionable modifications across modalities that flip the model's prediction.
+
+**Expected Outcomes**: Interpretable, actionable explanations that help clinicians understand MFM reasoning, identify potential model failures, and improve diagnostic confidence. The framework will be evaluated on diagnostic tasks across chest X-rays and clinical reports, measuring explanation fidelity, clinical validity (via physician evaluation), and utility in detecting model biases.

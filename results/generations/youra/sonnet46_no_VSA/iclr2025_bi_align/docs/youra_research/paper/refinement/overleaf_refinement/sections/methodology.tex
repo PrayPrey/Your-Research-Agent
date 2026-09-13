@@ -1,0 +1,64 @@
+
+\subsubsection{3.1 Rationale for Partial Spearman}
+
+If MMLU functions as a shared scale covariate for alignment benchmarks, then the raw Spearman correlation between two alignment benchmarks will be inflated by the shared MMLU-driven variance component. Partial Spearman rank correlation controlling for MMLU removes this shared component before estimating the rank correlation between TruthfulQA and the bias proxy.
+
+Formally, the partial Spearman correlation between X (TruthfulQA MC2) and Y (bias proxy) controlling for Z (MMLU) is computed via the inverse of the rank-based correlation matrix $\Sigma$:
+
+> partial\_rho(X, Y | Z) = $-\Sigma ^{-1}_{XY} / \sqrt(\Sigma ^{-1}_{XX} \cdot \Sigma ^{-1}_{YY})$
+
+We use \texttt{pingouin.partial\textbackslash \_corr(x='TruthfulQA\textbackslash \_MC2', y='BBQ\textbackslash \_accuracy', covar=['MMLU'], method='spearman')} with pingouin version 0.6.1 \citep{Vallat2018Pingouin}, which returns exact p-values via this inverse covariance formulation.
+
+The Fisher z difference test formalizes whether MMLU control significantly changed the correlation:
+
+> z = (z\_raw $-$ z\_partial) / $\sqrt(2/(N-3))$
+
+where z\_raw and z\_partial are the Fisher z transforms of the respective Spearman estimates, and the standard error $\sqrt(2/(N-3))$ is appropriate for dependent (overlapping-sample) correlations from the same N=296 observations. A significant z test indicates that MMLU control materially changed the correlation --- confirming that scale confounding was present \citep{Steiger1980}.
+
+\subsubsection{3.2 Data Assembly}
+
+\textbf{Primary Data Source.} Open LLM Leaderboard v1 \citep{Beeching2023}, accessed from \texttt{open-llm-leaderboard-old/results} on HuggingFace (10,158 result JSON files). The originally planned source (\texttt{fboulnois/llm-leaderboard-csv} v1.3.0) returned a 404 after repository migration. From the available archive, 500 open-weight model JSON files were fetched, yielding 496 models with both TruthfulQA MC2 and MMLU scores. The Open LLM Leaderboard v1 evaluates four benchmarks: ARC Challenge, HellaSwag, MMLU, and TruthfulQA. BBQ is not present in this dataset, having been a HELM-exclusive evaluation run separately.
+
+\textbf{Bias Proxy.} HELM Lite BBQ per-model accuracy (the intended secondary data source) was unavailable. \texttt{lighteval/bbq\textbackslash \_helm} is a question-level QA item corpus rather than per-model aggregate scores (format mismatch). \texttt{stanford-crfm/helm-lite} was not accessible on HuggingFace Hub. The HELM website (crfm-helm.stanford.edu) was unreachable due to DNS restrictions in the execution environment. ARC Challenge normalized accuracy, available within the same \texttt{open-llm-leaderboard-old/results} archive, was substituted as a bias proxy. ARC Challenge measures multiple-choice logical reasoning and factual knowledge across grade-school and challenge-level science questions; it does not measure social bias. All claims in this paper regarding ''bias avoidance'' refer to performance on this ARC proxy, not on genuine BBQ social bias evaluation. This substitution is the principal limitation of the study.
+
+\textbf{Join Procedure.} Model names across the leaderboard source (N=500) and the proxy BBQ source (N=300) were joined using exact \texttt{model\textbackslash \_name} matching (inner join), yielding 299 matched rows. After dropping missing values, the analysis dataset contains N=296 models with complete TruthfulQA MC2, bias-proxy (ARC), and MMLU scores. Fuzzy matching with rapidfuzz WRatio (threshold=75) yielded N=297, gaining one additional model over exact join. A sensitivity sweep of the fuzzy join threshold across values 65--80 confirmed N=297 complete rows at all tested thresholds. The match\_rate of 1.000 is an artifact of both the leaderboard and proxy datasets being sourced from the same \texttt{open-llm-leaderboard-old/results} repository; this match rate would not be expected with a genuinely independent BBQ source such as HELM Lite.
+
+\textbf{Model Families.} Fifty-one model families were identified by prefix-splitting model name strings. Thirty families contained at least three models and were used for clustered BCa bootstrap.
+
+\textbf{Safety Dimension.} HarmBench Table 2 (arXiv:2402.04249), comprising 33 adversarially-tested models, returned zero matches with LLM Leaderboard v1 after rapidfuzz WRatio join at threshold=75. The safety dimension was therefore excluded from all analyses. The study is limited to two alignment dimensions.
+
+\subsubsection{3.3 MMLU Covariate Verification (H-M1)}
+
+Before computing partial correlations, we verify that MMLU is a substantive scale covariate for both benchmarks. We compute Spearman rho and $R^2$ (as $rho^{2})$ for MMLU $\times$ TruthfulQA and MMLU $\times$ bias proxy, with a pre-registered gate criterion of $R^2$ > 0.05 for each pair.
+
+\subsubsection{3.4 Partial Spearman and Fisher Z Test (H-M2)}
+
+The primary analysis computes: (1) raw Spearman rho between TruthfulQA MC2 and the bias proxy (N=296); (2) partial Spearman rho controlling for MMLU via pingouin 0.6.1; (3) BCa 95\% confidence intervals for both estimates via cluster-bootstrap (B=5,000, seed=42, clustered by model family); (4) Fisher z difference test between raw and partial estimates.
+
+Pre-registered success criterion (either sufficient): p < 0.05 OR non-overlapping BCa 95\% CIs.
+
+\subsubsection{3.5 Scenario Classification (H-M3)}
+
+The residual partial\_rho is classified into one of three pre-specified structural scenarios or an ambiguous category:
+
+\begin{itemize}
+\item \textbf{Scenario (a): Independent constructs} --- |partial\_rho| < 0.20
+\item \textbf{Scenario (b): Scale-free coherence} --- partial\_rho > 0.40, with BCa CI entirely above 0.40
+\item \textbf{Scenario (c): Alignment tradeoff} --- partial\_rho < $-0.20$
+\item \textbf{Ambiguous (grey zone):} partial\_rho $\in$ ($-0.20$, +0.40), or BCa CI spanning a scenario boundary
+\end{itemize}
+
+Ambiguous classification was pre-specified as a valid and informative outcome.
+
+\subsubsection{3.6 Robustness and Optional Analyses}
+
+\textbf{Robustness.} (1) Fuzzy join threshold sensitivity sweep (65--80). (2) Family-weighted Fisher z using per-family mean scores. (3) Scenario boundary sensitivity with tight (a=0.15, b=0.35) and wide (a=0.25, b=0.45) boundary variants.
+
+\textbf{Tier 2 (HarmBench).} Planned as a cross-validation using the safety dimension; skipped due to zero model overlap.
+
+\textbf{Tier 3 (RLHF sign test, optional).} For 300 base/chat model pairs identified in the dataset, the sign of the $\Delta BBQ$ (bias proxy) improvement is tested via a binomial sign test to assess whether RLHF fine-tuning systematically increases bias proxy scores.
+
+\subsubsection{3.7 Scope}
+
+The study is observational and cross-sectional, characterizing population-level correlation structure for open-weight LLMs from the LLM Leaderboard v1 era (approximately 2022--2024). It does not permit causal inference about training procedures.
+

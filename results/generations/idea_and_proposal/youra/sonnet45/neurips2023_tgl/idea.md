@@ -1,0 +1,8 @@
+# Title
+HyperWave-TGN: Adaptive Multi-Scale Temporal Graph Learning via Hyperbolic Embeddings and Wavelet Attention
+
+# Motivation
+Real-world temporal graphs exhibit heterogeneous dynamics—neurons fire in milliseconds while social connections evolve over months—yet existing methods apply uniform temporal resolution across all nodes, wasting computation on slow-changing nodes and under-sampling fast-changing ones. This mismatch limits scalability and accuracy in critical applications like brain network analysis, molecular dynamics, and fraud detection. Current approaches either use fixed temporal resolutions or apply uniform multi-scale processing, failing to exploit node-specific temporal characteristics.
+
+# Main Idea
+We propose HyperWave-TGN, which learns node-specific temporal resolutions by embedding nodes in hyperbolic space where distance from origin encodes temporal resolution, combined with wavelet-based multi-scale attention. The core mechanism: (1) hyperbolic embeddings naturally capture temporal scale hierarchies, (2) three-scale wavelet decomposition (fine/medium/coarse) extracts multi-resolution temporal features, and (3) node-specific attention adaptively allocates computation—fast-changing nodes focus on fine wavelets, slow-changing nodes on coarse wavelets. We test on synthetic heterogeneous-temporal graphs, brain networks (HCP), and molecular dynamics, predicting ≥95% baseline accuracy with 30-50% fewer temporal operations. Falsification criteria include resolution alignment (Spearman ρ>0.6 with ground-truth frequencies) and attention specialization (>60% correct scale assignment). This enables billion-scale temporal graph learning with domain-adaptive efficiency.

@@ -1,0 +1,132 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-05T04:30:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "FAIR F1 Operationalized: Binary Keyword Tag Presence Predicts OpenML Dataset Adoption (NB-2, IRR ≥ 1.1)"
+  hypothesis_id: "h-e1-v2"
+  core_claim: |
+    Among OpenML datasets with N_tasks ≥ 1 (N=5,217), having at least one keyword tag
+    (has_tags binary=1) is associated with significantly more registered ML tasks (N_tasks)
+    than untagged datasets, with incidence rate ratio ≥ 1.1 (95% CI lower ≥ 1.1) in NB-2
+    regression controlling for dataset size (log n_instances, log n_features), age (age_years,
+    age²), and decade-of-upload fixed effects (C(decade)).
+  mechanism: |
+    Tags are OpenML platform's primary search index keys (Vanschoren et al. 2014). A dataset
+    with any tags immediately enters keyword-based discovery pathways; untagged datasets do not
+    appear in tag searches. This threshold behavior (platform participation vs. non-participation)
+    explains why binary tag presence predicts adoption more strongly than continuous composite
+    metadata scores (h-e1 lesson: binary description IRR=1.102 > composite score IRR=1.076).
+    Tags are assigned at dataset upload by the creator (creator-only privilege in OpenML v2 API),
+    making them a pre-adoption signal rather than a lagging popularity indicator (Mechanism S1).
+    FAIR F1 theory (Wilkinson 2016) provides the foundational framework: findability via keywords
+    drives reuse.
+  predictions:
+    - P1: "has_tags binary → N_tasks, NB-2 with C(decade), IRR 95% CI lower ≥ 1.1, p < 0.05 [PRIMARY — MUST_WORK gate]"
+    - P2: "log(tag_count+1) → N_tasks, NB-2 restricted to has_tags=1, IRR 95% CI lower ≥ 1.05 [SECONDARY — magnitude above threshold]"
+    - P3: "tag_count categorical (0/1-2/3-5/6+) → N_tasks, monotonic dose-response [TERTIARY — dose-response characterization]"
+
+variables_summary:
+  independent: "has_tags (binary 0/1) [primary P1]; log(tag_count+1) (continuous) [secondary P2]; tag_count categorical [tertiary P3]"
+  dependent_primary: "N_tasks — count of distinct registered ML tasks on dataset (integer ≥ 1, NB-2 outcome; proxy for adoption intensity; NOT task execution run count)"
+  controlled: "log(n_instances), log(n_features), age_years, age² [continuous], C(decade) [categorical FE — primary temporal confounder per h-e1 RC-3 lesson]"
+
+null_hypothesis:
+  h0_statement: |
+    H0-P1: beta(has_tags) ≤ 0 OR IRR 95% CI lower < 1.1 in NB-2 model
+    [has_tags has no material positive effect on N_tasks after decade FE control]
+
+    H0-P2: beta(log_tag_count_p1) ≤ 0 OR IRR 95% CI lower < 1.05 in tagged-only NB-2
+    [count magnitude above binary threshold does not predict additional adoption]
+
+    H0-P3: no monotonic dose-response across tag_count categories in NB-2
+  statistical_test: "NB-2 (smf.negativebinomial, loglike_method='nb2', method='bfgs'); IRR = exp(coef); CI_lower = exp(coef - 1.96*se)"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First NB-2 quantification of binary keyword tag presence → ML dataset adoption on OpenML, grounded in FAIR F1 theory and platform architecture. Extends h-e1 by replacing composite score IV with tag-specific binary measure; adds dose-response characterization (P2, P3)."
+  differentiation_summary: |
+    Prior work gap: no study combines (a) OpenML platform, (b) NB-2 count regression,
+    (c) tag-specific IV (not composite score, not prose length), (d) decade FE as primary control.
+    Yang 2024: HF platform, prose quality metrics. Chapman 2019: survey, no regression.
+    Lachmuth 2025: domain repo, descriptive only. h-e1: same platform+model but composite IV
+    failed IRR threshold. h-e1-v2 is the first attempt with theoretically motivated tag IV.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "NB-2 (primary) via statsmodels.formula.api.negativebinomial"
+    - "Poisson (model selection check if CT test fails)"
+    - "OLS on log(N_tasks) (secondary DV sensitivity)"
+  datasets:
+    - "h-e1/code/data/h_e1/openml_dataset_corpus.csv (N=5,217; 24 cols)"
+  baselines:
+    - "h-e1 composite metadata score model (IRR=1.076; same corpus)"
+    - "Null model (intercept-only NB-2)"
+
+measurement_plan:
+  data_collection:
+    - source: "Reuse existing corpus: h-e1/code/data/h_e1/openml_dataset_corpus.csv"
+    - source: "Parse tags field to derive has_tags (binary) and tag_count (integer)"
+  procedure:
+    - step: "Load corpus CSV (N=5,217 rows × 24 cols)"
+    - step: "Derive has_tags = (tags field non-null and non-empty).astype(int)"
+    - step: "Derive tag_count = tags.str.count(',') + 1 for non-empty rows, else 0"
+    - step: "Derive log_tag_count_p1 = log(tag_count + 1)"
+    - step: "Derive decade = (upload_date.dt.year // 10 * 10).astype(str)"
+    - step: "Verify overdispersion: re-run CT LR test with has_tags model; expect LR stat >> 3.84"
+    - step: "Fit primary model: NB-2(N_tasks ~ has_tags + log_n_instances + log_n_features + age_years + age_sq + C(decade)); method='bfgs'"
+    - step: "Compute P1 IRR = exp(coef['has_tags']); CI_lower = exp(coef - 1.96*se); check ≥1.1"
+    - step: "Fit P2 model on has_tags=1 subset with log_tag_count_p1 IV"
+    - step: "Fit P3 model with tag_count_cat dummies"
+    - step: "Run RC suite: RC-4 (top-1% winsorization), RC-5 (tag_count≥1 restriction), RC-6 (linear tag_count), RC-7 (continuous age-only vs decade FE)"
+  success_criteria:
+    - "P1: IRR 95% CI lower ≥ 1.1 AND p < 0.05 → PRIMARY PASS (MUST_WORK gate met)"
+    - "P2: IRR 95% CI lower ≥ 1.05 AND p < 0.05 → SECONDARY PASS"
+    - "P3: Monotonic IRRs with adjacent-category significance → TERTIARY PASS"
+    - "Partial pass: CI_lower ∈ [1.05, 1.1) → secondary criterion only"
+
+validation:
+  internal_validity:
+    - "Decade FE (C(decade)) in primary model controls temporal confounding — h-e1 critical lesson"
+    - "CT LR test confirms NB-2 appropriate (expected: LR stat > 3.84)"
+    - "BFGS optimizer used (h-e1 confirmed convergence)"
+    - "Top-1% winsorization (RC-4) checks influential N_tasks observations"
+    - "has_tags=1 restriction (RC-5) checks zero-tag MNAR sensitivity"
+  external_validity:
+    - "OpenML platform only — explicit scope boundary"
+    - "Cross-platform generalization (HF, Kaggle, UCI) is future work, not claimed here"
+    - "FAIR F1 theory connection (Wilkinson 2016) provides theoretical generalizability beyond OpenML"
+
+discussion_synthesis:
+  key_insights:
+    - "h-e1 RC-2a pattern (binary description > composite score) directly motivated IV pivot to has_tags"
+    - "OpenML platform architecture (creator-only, upload-time tagging) provides endogeneity defense not available for composite score"
+    - "Two-tier IRR threshold (1.1 primary, 1.05 secondary) allows clean reporting even if primary fails"
+    - "Sample selection (N_tasks≥1) must be explicitly acknowledged — studies 'more adoption' not 'adoption vs none'"
+    - "Prof. Rex's binary IV recommendation converged discussion away from data-adaptive IV choice — cleaner pre-registration"
+  breakthrough_moments:
+    - "Exchange 6: Prof. Rex's three vulnerabilities (DV proxy, endogeneity, MNAR) forced concrete resolution of each"
+    - "Exchange 10: Prof. Pax's platform architecture argument (creator-only, upload-time tags) substantially weakened endogeneity concern"
+    - "Exchange 12: Prof. Rex's recommendation of binary has_tags as fixed primary IV (not data-adaptive) simplified the analysis plan"
+    - "Exchange 13: Dr. Nova's three-prediction structure (P1/P2/P3) enriched contribution beyond simple existence test"
+  resolved_tensions:
+    - "IV choice (composite→binary): resolved in favor of has_tags binary per RC-2a precedent and Prof. Rex's pre-registration argument"
+    - "DV labeling: resolved as N_tasks (not 'run count') with explicit proxy acknowledgment"
+    - "Decade FE placement: confirmed as primary control (not robustness check) per h-e1 lesson"
+    - "Zero-tag MNAR: resolved via binary IV (eliminates ambiguity) + RC-5 sensitivity"
+    - "Data-adaptive vs. fixed primary IV: resolved in favor of fixed (has_tags) for cleaner pre-registration"

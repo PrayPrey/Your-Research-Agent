@@ -1,0 +1,25 @@
+\section{Related Work}
+\label{sec:related}
+
+KV cache eviction has emerged as the dominant approach to managing memory in long-context transformer inference. We organize prior work into three categories: static eviction policies, query-aware dynamic policies, and unified benchmarking efforts.
+
+\emph{Citation note:} All references in this section have not been independently verified due to Semantic Scholar MCP being unavailable during paper generation. All cited arXiv IDs and attributed quantitative claims must be verified against the original papers before submission.
+
+\subsection{Static Eviction Policies}
+
+StreamingLLM~\cite{xiao2023streamingllm} establishes the minimal viable eviction policy: retain a small set of attention sink tokens (typically the first 4 positions) plus a recent sliding window. No importance scoring is required; eviction is purely positional. StreamingLLM demonstrates that models can generate indefinitely without degradation under this scheme, as long as the positional structure of the window is maintained. Like all reviewed methods, StreamingLLM integrates directly with the model's generation loop---no post-hoc cache manipulation. It serves as a lower-bound reference for query-aware methods.
+
+\subsection{Query-Aware Dynamic Policies}
+
+\textbf{H2O}~\cite{zhang2023h2o} proposes cumulative attention accumulation as a token importance metric: each token's importance is the sum of attention weights it has received across all generation steps. H2O evicts low-cumulative-attention tokens at each decode step. The implementation modifies the attention module's per-step forward computation, accumulating importance in-place and applying top-k eviction before each layer appends to \texttt{past\_key\_values}. It reports substantial improvement over StreamingLLM on base models (OPT, LLaMA) and does not compare against prefill-timing alternatives.
+
+\textbf{SnapKV}~\cite{li2024snapkv} introduces prefill-observation importance scoring: instead of accumulating importance during generation, SnapKV examines attention patterns during the prefill phase, averaging attention weights from the last $W$ query tokens to identify positions the query consistently attends to. Eviction occurs once, before generation begins. SnapKV's implementation overrides \texttt{LlamaAttention.forward()} directly---the eviction logic runs inside the attention module. SnapKV conflates metric type (query-conditioned vs.\ cumulative) with eviction timing (prefill vs.\ decode), making it impossible to attribute its advantage to either factor independently.
+
+\textbf{ScissorHands}~\cite{liu2023scissorhands} computes importance during a warmup period (first 32 decode steps), then freezes the eviction schedule, motivated by the observation that attention patterns are persistent across decode steps. Like H2O and SnapKV, ScissorHands integrates its eviction directly within the attention forward pass.
+
+\textbf{PyramidKV}~\cite{cai2024pyramidkv} extends per-token eviction to per-layer budgeting, allocating more KV budget to early layers (which attend broadly) and less to later layers (which attend locally).
+
+\subsection{Why Prior Work Does Not Encounter the DynamicCache Failure}
+\label{sec:why_prior}
+
+A consistent pattern across all reviewed implementations is that eviction occurs inside the attention module's forward computation. The \texttt{DynamicCache} object is never reconstructed from scratch---it is updated incrementally through the standard HuggingFace interface. Our implementation diverged from this pattern, using post-hoc reconstruction via the \texttt{ddp\_cache\_data} parameter. This approach creates an object with correct shapes but invalid internal state. To our knowledge, no paper documents this failure mode because no paper has used post-hoc reconstruction as the implementation pattern. The affirmative value of documenting it is concrete: any researcher building a unified KV eviction benchmark---precisely the controlled comparison the field currently lacks---will reach for the documented HuggingFace API, encounter this silent failure, and lose GPU time to a degenerate run with no error signal. Our paper short-circuits that wasted effort.

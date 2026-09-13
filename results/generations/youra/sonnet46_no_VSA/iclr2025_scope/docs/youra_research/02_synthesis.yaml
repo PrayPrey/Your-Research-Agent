@@ -1,0 +1,128 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-03T14:30:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Task-Type × Conversion-Strategy Interaction in Sub-Quadratic Transformer Conversion (H-Conv1D-v1)"
+  hypothesis_id: "H-Conv1D-v1"
+  core_claim: |
+    Under fixed-budget (≤1B tokens) short-context distillation, converting LLaMA-3-8B
+    to MOHAWK-SSM vs. LAWCAT-linear-attention produces significantly different
+    task-type accuracy profiles on LongBench v2: MOHAWK-SSM exhibits ≥2× larger
+    normalized degradation on retrieval-heavy categories than generation-heavy categories,
+    while LAWCAT exhibits a more uniform profile, due to MOHAWK's bounded state
+    losing exact needle-token positions vs. LAWCAT's Conv1D preserving local context.
+  mechanism: |
+    Step 1: MOHAWK replaces attention with SSD structured mixer.
+    Matrix approximation fidelity is established at short ranges (Frobenius ≈0.097 at N=64).
+
+    Step 2: SSM bounded state (h_t = A·h_{t-1} + B·x_t) causes exponential forgetting of
+    early token positions. Retrieval-heavy tasks require exact needle addresses;
+    generation tasks tolerate lossy compression.
+
+    Step 3: LAWCAT's causal Conv1D provides local attention in a sliding window,
+    preserving short-range token identity for retrieval hops.
+    This produces shallower depth-degradation slope than MOHAWK-SSM.
+  predictions:
+    - P1: "MOHAWK-SSM: Δ_norm(retrieval) / Δ_norm(generation) ≥ 2× with 95% bootstrap CI; significant task-type × strategy interaction p<0.01"
+    - P2: "|β_depth^SSM| ≥ 2× |β_depth^LAWCAT| in needle-depth logistic regression on multi-doc QA and synthetic tasks"
+    - P3: "Hybrid-4: ≤5% Δ_norm across all categories vs. MOHAWK full-replacement ≥10% on retrieval categories"
+
+variables_summary:
+  independent: "Conversion Strategy (3 levels: MOHAWK-SSM, LAWCAT-LinearAttention, Hybrid-4) × Task Category (6 LongBench v2 categories)"
+  dependent_primary: "Normalized accuracy degradation Δ_norm = (Acc_teacher − Acc_student) / Acc_teacher per category"
+  controlled: "Base model (LLaMA-3-8B fixed), distillation budget (≤1B tokens), evaluation benchmark (LongBench v2)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant task-type × conversion-strategy interaction:
+    normalized accuracy degradation is uniform across LongBench v2 categories
+    for both MOHAWK-SSM and LAWCAT-linear-attention conversions.
+  statistical_test: "Mixed-effects model: Δ_norm ~ TaskType * Strategy + (1|Task)"
+  significance_level: 0.01
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First controlled within-subject comparison of MOHAWK-SSM vs. LAWCAT-linear-attention on LongBench v2 with fixed base model (LLaMA-3-8B) — eliminates capability confound that invalidated H-E1"
+  differentiation_summary: |
+    - MOHAWK paper: different base model, no LongBench v2, no cross-strategy comparison
+    - LAWCAT paper: different base model, synthetic retrieval tasks only
+    - Overflow Prevention: scratch-trained models (not converted); provides reusable baseline
+    - H-E1 (failed): between-family capability gap dominated variance; fixed base model eliminates this
+    - H-M2 (partial): KV eviction approach; no eviction mechanism in current hypothesis
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "LLaMA-3-8B (teacher / unconverted baseline)"
+    - "MOHAWK-SSM LLaMA-3-8B (Stage 1+2, SSD mixer, ≤1B tokens)"
+    - "LAWCAT LLaMA-3-8B (Conv1D + gated linear attention, ≤1B tokens)"
+    - "Hybrid-4 LLaMA-3-8B (MOHAWK Stage 3 only, 4 middle attention layers retained)"
+  datasets:
+    - "LongBench v2 (THUDM/LongBench, 503 questions, 6 categories, 8k–2M context)"
+  baselines:
+    - "LLaMA-3-8B unconverted (primary within-subject control)"
+    - "Falcon3-Mamba-7B scratch-trained (reuse Overflow Prevention [2505.07793] published results)"
+
+measurement_plan:
+  data_collection:
+    - source: "Day 0: Frobenius error at N ∈ {512, 1k, 2k, 4k, 8k} — matrix fitting gate (<1 GPU-day)"
+    - source: "Days 1-7: LAWCAT LLaMA-3-8B distillation on C4 (2×A100, ~1B tokens)"
+    - source: "Days 8-14: MOHAWK Stage 1+2 LLaMA-3-8B + Hybrid-4 Stage 3 (4×A100)"
+    - source: "Day 15: LongBench v2 evaluation of all models (~6 hours per model on 1×A100)"
+    - source: "Day 16: Needle-depth sweep logging (multi-doc QA and synthetic subsets, per-example depth logging)"
+  procedure:
+    - step: "Gate check: fit Frobenius error vs N, compute log-log slope; abort if slope > 0.5 or 90th pct error > 0.3 at N=8k"
+    - step: "LAWCAT distillation with alignment ratio monitoring (pre-register ≤0.15 gate); perplexity gap check ≤5%"
+    - step: "MOHAWK Stage 1+2 distillation with hidden-state L2 monitoring; Hybrid-4 Stage 3 only"
+    - step: "LongBench v2 evaluation: per-example accuracy logging with depth metadata for multi-doc QA and synthetic"
+    - step: "Statistical analysis: Δ_norm per category, mixed-effects model, bootstrap CIs, depth-slope regression, mediation analysis"
+  success_criteria:
+    - "Δ_norm^SSM(retrieval) / Δ_norm^LAWCAT(retrieval) ≥ 2.0 with 95% bootstrap CI strictly above 1.0"
+    - "Task-type × strategy interaction: p<0.01 after Holm correction in mixed-effects model"
+    - "|β_depth^SSM| ≥ 2× |β_depth^LAWCAT|, non-overlapping 95% CIs"
+    - "Hybrid-4 Δ_norm ≤ 0.05 on all categories; MOHAWK full Δ_norm ≥ 0.10 on retrieval"
+    - "Frobenius gate: slope ≤ 0.5, 90th pct ≤ 0.3 at N=8k (day 0 gate)"
+    - "Training sanity: alignment ratio ≤ 0.15, perplexity gap ≤ 5% (training gate)"
+
+validation:
+  internal_validity:
+    - "Fixed base model (LLaMA-3-8B) eliminates capability confound (H-E1 lesson)"
+    - "Pre-registered success criteria before experiments run"
+    - "Perplexity gate prevents misinterpreting undertrained model as architectural failure"
+    - "Mediation regression controls for alignment quality and perplexity in strategy effect"
+    - "5 independent disconfirmation pathways prevent confirmation bias"
+  external_validity:
+    - "LongBench v2 is a standard benchmark with published results from diverse model families"
+    - "Overflow Prevention provides directly reusable scratch-trained SSM comparison"
+    - "Results at LLaMA-3-8B scale are representative of 7-10B production deployment tier"
+    - "MOHAWK and LAWCAT pipelines are open-source and reproducible"
+
+discussion_synthesis:
+  key_insights:
+    - "Fixed base model design eliminates H-E1's capability-tier confound — the critical methodological lesson from prior failures"
+    - "LAWCAT's Conv1D mechanism provides mechanistic basis for predicted differential depth-slope, not just general 'linear attention vs SSM' comparison"
+    - "Overflow Prevention paper's LongBench v2 results for scratch-trained SSMs provide directly reusable comparison baseline — no extra training needed"
+    - "Prof. Rex's mediation regression insight ensures architectural vs. training-quality confound is statistically controlled"
+    - "Dr. Sage's triangle framing (converted vs. scratch-trained vs. hybrid) clarifies the experiment's position in the broader literature"
+  breakthrough_moments:
+    - "Exchange 1 (Dr. Nova): recognizing that task-type × strategy interaction is the novel contribution, not just 'which strategy wins overall'"
+    - "Exchange 7 (Dr. Ally): naming H-Conv1D-v1 and proposing scope-bounded primary claim to prevent scope creep from Prof. Rex's layer-localization extension"
+    - "Exchange 11 (Dr. Sage): recognizing Overflow Prevention paper as directly reusable LongBench v2 baseline"
+    - "Exchange 13 (Dr. Ally): explicit decision to defer layer-localization to Phase 4 — preserved publishability of primary experiment"
+  resolved_tensions:
+    - "Prof. Rex vs. Dr. Ally on layer-localization scope: resolved by deferring to Phase 4 while including Hybrid-4 as falsifier"
+    - "Prof. Vera vs. Dr. Sage on 2×2 curriculum design: resolved by Sage's staged design (Stage 1 publishable; Stage 2 only if interaction found)"
+    - "Prof. Rex on architecture-vs-curriculum confound: resolved by pre-registering mediation regression and deferred curriculum ablation"

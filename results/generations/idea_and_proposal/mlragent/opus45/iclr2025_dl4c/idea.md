@@ -1,0 +1,9 @@
+﻿## Title: Execution-Guided Self-Play for Code Agent Alignment
+
+## Motivation:
+Current code generation agents struggle with complex, multi-step programming tasks because they lack robust mechanisms to learn from execution outcomes. While RLHF has shown promise, obtaining high-quality human feedback for code is expensive and doesn't scale. Execution feedback provides a natural, automated reward signal, but naively using pass/fail signals leads to sparse rewards and unstable training. We need methods that can leverage rich execution feedback (errors, outputs, test results) to continuously improve code agents without extensive human annotation.
+
+## Main Idea:
+We propose **ExePlay**, a self-play framework where a code agent iteratively improves by generating, executing, and critiquing its own solutions. The approach works in three phases: (1) **Generation**: the agent attempts programming tasks and receives detailed execution traces; (2) **Critique Generation**: a critic module (same model, different prompt) analyzes execution failures and generates natural language explanations of bugs; (3) **Contrastive Alignment**: we construct preference pairs from successful vs. failed attempts, weighted by execution signal richness (stack traces, assertion failures, output differences).
+
+The key innovation is using structured execution feedback to create fine-grained training signals—not just pass/fail, but partial credit based on test coverage, runtime behavior similarity, and error proximity to correct solutions. We expect this to achieve significant improvements on SWE-Bench and similar agentic coding benchmarks while requiring no human feedback, advancing scalable alignment for code.

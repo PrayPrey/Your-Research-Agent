@@ -1,0 +1,314 @@
+# Implementation Tasks for H-M1
+# Generated: 2026-07-13
+# Hypothesis: H-M1 (MECHANISM - Shared Representation Learning)
+# Tier: FULL (max 30 tasks)
+# Schema Version: 1.1 (includes reference_files)
+
+metadata:
+  hypothesis_id: H-M1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: '2026-07-13T01:21:00.000000+00:00'
+  source_documents:
+    - 03_prd.md
+    - 03_architecture.md
+    - 03_logic.md
+    - 03_config.md
+
+budget_summary:
+  total_tasks: 14
+  data_tasks: 2
+  environment_tasks: 1
+  epic_tasks: 7
+  subtask_count: 4
+  within_budget: true
+  buffer: 16
+
+tasks:
+  # ============================================
+  # PRIORITY TIER 1: Data Preparation (100-95)
+  # ============================================
+
+  - id: D-1
+    title: Verify H-E1 Checkpoint Availability
+    description: Verify that H-E1 trained checkpoints exist and are accessible for representation extraction
+    type: data_preparation
+    priority: 100
+    complexity: 2
+    estimated_time: 10min
+    dependencies: []
+    reference_files:
+      - file: 03_prd.md
+        section: "FR-1: Load Pre-trained Checkpoints"
+      - file: 03_architecture.md
+        section: "CheckpointLoader"
+      - file: 03_logic.md
+        section: "External Dependencies API"
+    acceptance_criteria:
+      - Joint model checkpoint exists at ../h-e1/checkpoints/joint_model_final.pt
+      - DPO-only checkpoint exists at ../h-e1/checkpoints/dpo_only_final.pt
+      - Attr-only checkpoint exists at ../h-e1/checkpoints/attr_only_final.pt
+      - All checkpoints are valid PyTorch state_dicts
+    notes: No download needed - reusing H-E1 trained models
+
+  - id: D-2
+    title: Prepare Probing Dataset (500 samples)
+    description: Extract 500 held-out examples from HH-RLHF test set with preference labels and attribute annotations
+    type: data_preparation
+    priority: 95
+    complexity: 3
+    estimated_time: 15min
+    dependencies: []
+    reference_files:
+      - file: 03_prd.md
+        section: "FR-2: Dataset Preparation for Probing"
+      - file: 03_architecture.md
+        section: "DataModule"
+      - file: 03_config.md
+        section: "PROBING_CONFIG"
+    acceptance_criteria:
+      - 500 samples extracted from HH-RLHF test set
+      - Each sample has preference_label (0 or 1)
+      - Each sample has 3 attribute values (helpfulness, verbosity, creativity)
+      - Tokenized with GPT-2 tokenizer, max_length=256
+      - Split into 400 train / 100 test for probing
+    notes: Dataset already cached from H-E1, just need to prepare subset
+
+  # ============================================
+  # PRIORITY TIER 2: Environment Setup (94)
+  # ============================================
+
+  - id: E-1
+    title: Install Dependencies
+    description: Install PyTorch, transformers, scikit-learn, matplotlib, seaborn for representation analysis
+    type: environment_setup
+    priority: 94
+    complexity: 1
+    estimated_time: 5min
+    dependencies: []
+    reference_files:
+      - file: 03_prd.md
+        section: "External Dependencies"
+      - file: 03_architecture.md
+        section: "Technology Stack"
+    acceptance_criteria:
+      - PyTorch ≥2.0.0 installed
+      - transformers ≥4.30.0 installed
+      - scikit-learn ≥1.3.0 installed
+      - matplotlib ≥3.7.0 and seaborn ≥0.12.0 installed
+      - All packages verified with pip list
+    notes: Standard ML packages, likely already installed from H-E1
+
+  # ============================================
+  # PRIORITY TIER 3: Epic Implementation (93-50)
+  # ============================================
+
+  - id: Epic-1
+    title: Checkpoint Loading Module
+    description: Implement CheckpointLoader to load H-E1 trained models and verify compatibility
+    type: implementation
+    priority: 90
+    complexity: 6
+    estimated_time: 1h
+    dependencies: [D-1]
+    reference_files:
+      - file: 03_architecture.md
+        section: "CheckpointLoader"
+      - file: 03_prd.md
+        section: "FR-1: Load Pre-trained Checkpoints"
+      - file: 03_config.md
+        section: "CHECKPOINT_PATHS"
+    acceptance_criteria:
+      - CheckpointLoader class implemented
+      - load_joint_model() loads and returns JointDPOAttribute model
+      - load_dpo_model() and load_attr_model() load baseline models
+      - verify_checkpoints() checks file existence and architecture compatibility
+      - All models loaded to eval mode with no gradients
+    notes: Critical path - must complete before extraction
+
+  - id: Epic-2
+    title: Hidden State Extraction Pipeline
+    description: Extract layer 47 hidden states from 500 samples using mean pooling
+    type: implementation
+    priority: 85
+    complexity: 8
+    estimated_time: 1.5h
+    dependencies: [Epic-1, D-2]
+    reference_files:
+      - file: 03_architecture.md
+        section: "HiddenStateExtractor"
+      - file: 03_logic.md
+        section: "Epic-2: Hidden State Extraction"
+      - file: 03_config.md
+        section: "EXTRACTION_CONFIG"
+    acceptance_criteria:
+      - HiddenStateExtractor class implemented
+      - extract_from_batch() extracts hidden states with output_hidden_states=True
+      - Mean pooling over sequence dimension implemented
+      - extract_from_dataset() processes 500 samples in batches
+      - Output shape verified: (500, 1600) per model
+      - Hidden states saved to disk for reuse
+    notes: Runtime <5 minutes per model (inference only)
+
+  - id: Epic-3
+    title: Linear Probing Classifiers
+    description: Train preference classifier and attribute regressor on frozen representations
+    type: implementation
+    priority: 80
+    complexity: 11
+    estimated_time: 2h
+    dependencies: [Epic-2]
+    reference_files:
+      - file: 03_architecture.md
+        section: "LinearProbe"
+      - file: 03_logic.md
+        section: "Epic-3: Linear Probing"
+      - file: 03_config.md
+        section: "PROBING_CONFIG"
+      - file: 03_prd.md
+        section: "FR-4: Linear Probing - Preference Classification"
+      - file: 03_prd.md
+        section: "FR-5: Linear Probing - Attribute Regression"
+    acceptance_criteria:
+      - PreferenceProbe (1600 → 2) implemented
+      - AttributeProbe (1600 → 3) implemented
+      - ProbeTrainer with Adam optimizer (lr=1e-3) implemented
+      - Preference probe trained for 20 epochs on 400 samples
+      - Attribute probe trained for 20 epochs on 400 samples
+      - Test accuracy ≥70% for preference classification
+      - Test R² ≥0.6 for all 3 attributes
+    notes: Gate metric - must pass for SHOULD_WORK
+
+  - id: Epic-4
+    title: CKA Similarity Computation
+    description: Implement Centered Kernel Alignment between model representation spaces
+    type: implementation
+    priority: 75
+    complexity: 9
+    estimated_time: 1.5h
+    dependencies: [Epic-2]
+    reference_files:
+      - file: 03_architecture.md
+        section: "CKAComputer"
+      - file: 03_logic.md
+        section: "## Data Flow Summary"
+      - file: 03_config.md
+        section: "CKA_CONFIG"
+      - file: 03_prd.md
+        section: "FR-6: CKA Similarity Computation"
+    acceptance_criteria:
+      - CKAComputer class implemented
+      - center_gram_matrix() centers representations before Gram computation
+      - compute_cka() implements HSIC formula correctly
+      - CKA computed for 3 pairs: (Joint-DPO), (Joint-Attr), (DPO-Attr)
+      - CKA(Joint, DPO) ≤0.7 for gate pass
+    notes: Gate metric - CKA >0.7 indicates insufficient divergence
+
+  - id: Epic-5
+    title: Gradient Alignment Analysis
+    description: Measure cosine similarity between DPO and Attr gradients over training batches
+    type: implementation
+    priority: 70
+    complexity: 10
+    estimated_time: 1.5h
+    dependencies: [Epic-1, D-2]
+    reference_files:
+      - file: 03_architecture.md
+        section: "GradientAnalyzer"
+      - file: 03_logic.md
+        section: "Epic-5: Gradient Alignment Analysis"
+      - file: 03_config.md
+        section: "GRADIENT_CONFIG"
+      - file: 03_prd.md
+        section: "FR-7: Gradient Alignment Measurement"
+    acceptance_criteria:
+      - GradientAnalyzer class implemented
+      - extract_gradients() computes gradients for L_DPO and L_attr separately
+      - backward(retain_graph=True) used for DPO gradient
+      - compute_alignment() calculates cosine similarity
+      - analyze_dataset() samples 10 random batches
+      - Mean cosine ∈ [-0.5, 0.5] for gate pass
+    notes: Gate metric - requires model in train mode but no weight updates
+
+  - id: Epic-6
+    title: Visualization Module
+    description: Generate gate metrics plot, t-SNE, learning curves, and CKA heatmap
+    type: implementation
+    priority: 65
+    complexity: 7
+    estimated_time: 1h
+    dependencies: [Epic-3, Epic-4, Epic-5]
+    reference_files:
+      - file: 03_architecture.md
+        section: "VisualizationModule"
+      - file: 03_config.md
+        section: "VISUALIZATION_CONFIG"
+      - file: 03_prd.md
+        section: "FR-8: Visualization Generation"
+    acceptance_criteria:
+      - plot_gate_metrics() generates bar chart with pass/fail colors
+      - plot_tsne() visualizes 500 points colored by model type
+      - plot_probing_curves() shows training/validation accuracy and R²
+      - plot_cka_heatmap() displays 3×3 similarity matrix
+      - All figures saved to figures/ directory as PNG (300 DPI)
+    notes: Mandatory gate metrics plot required for validation
+
+  - id: Epic-7
+    title: Evaluation & Reporting
+    description: Check gate conditions and generate 04_validation.md with pass/fail determination
+    type: implementation
+    priority: 60
+    complexity: 5
+    estimated_time: 45min
+    dependencies: [Epic-3, Epic-4, Epic-5, Epic-6]
+    reference_files:
+      - file: 03_architecture.md
+        section: "MainRunner"
+      - file: 03_prd.md
+        section: "Success Criteria"
+    acceptance_criteria:
+      - Check all 4 gate metrics against thresholds
+      - Generate 04_validation.md with results table
+      - Include PASS/FAIL determination based on SHOULD_WORK gate
+      - Save all intermediate results (hidden states, probing metrics, CKA matrix)
+      - Generate final summary with actionable next steps
+    notes: Final validation step - determines hypothesis gate result
+
+  # ============================================
+  # PRIORITY TIER 4: Subtasks (49-10)
+  # ============================================
+
+  # Subtasks were allocated in Step 4 but integrated into Epic tasks above
+  # No separate subtasks needed - Epic descriptions cover implementation details
+
+  # ============================================
+  # PRIORITY TIER 5: Failsafe (1)
+  # ============================================
+
+  - id: FAILSAFE-1
+    title: Pipeline Continuation Checkpoint
+    description: Mark H-M1 implementation planning complete and ready for Phase 4 execution
+    type: checkpoint
+    priority: 1
+    complexity: 0
+    estimated_time: 5min
+    dependencies: [Epic-7]
+    reference_files:
+      - file: 03_architecture.md
+        section: "## Implementation Notes for Phase 4"
+    acceptance_criteria:
+      - verification_state.yaml updated with phase3_ready=true
+      - All 7 Epic tasks have implementation code
+      - 03_tasks.yaml exists and is valid
+      - Next phase trigger: Phase 4 coding workflow
+    notes: Ensures pipeline can resume from Phase 4 even if interrupted
+
+# Task extraction summary
+extraction_summary:
+  prd_tasks: 7  # FR-1 through FR-7
+  architecture_epics: 7  # Epic-1 through Epic-7
+  logic_subtasks: 4  # Epic-2, Epic-3 (2), Epic-5 (2)
+  config_subtasks: 3  # Epic-2, Epic-4, Epic-6
+  total_extracted: 14
+  excluded_count: 0  # No budget rebalancing needed (14/30 within FULL tier)

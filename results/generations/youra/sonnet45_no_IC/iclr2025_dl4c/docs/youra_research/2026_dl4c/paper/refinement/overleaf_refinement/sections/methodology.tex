@@ -1,0 +1,34 @@
+
+\subsubsection{Framework Overview}
+
+The core challenge is integrating three heterogeneous reward signals---execution feedback (binary pass/fail), AI feedback (continuous learned scores), and human feedback (subjective quality preferences)---while dynamically adjusting which signal dominates across training phases. Three feedback collectors operate in parallel, each producing rewards for generated code samples. A phase-specific aggregator combines these signals using dynamic weights based on training progress, producing a single scalar reward for PPO policy gradient updates.
+
+The key design question is when to emphasize each signal type. Static weight integration forces a single compromise across all training stages. Our hypothesis is that training has phases requiring different signal emphasis: early training requires strong correctness signal, mid-training benefits from scalable quality feedback, late training needs human oversight for edge cases.
+
+\subsubsection{Dynamic Weight Scheduling}
+
+We implement weight schedules through three distinct patterns. Phase 1 (0--30\% training progress) implements execution-dominant weighting with Gaussian decay. The execution signal receives initial weight 0.800, declining to 0.714 by 30\% progress. This design reflects that functional correctness is prerequisite. The Gaussian decay centered at 10\% progress ensures execution remains strongest throughout Phase 1 while allowing smooth transition.
+
+Phase 2 (30--70\%) shifts emphasis to AI feedback through linear increase peaking at 0.545 around 50\% training progress. AI reward models, trained once on combined execution and human preference data, provide quality feedback on every sample without per-sample annotation cost. This enables quality refinement at scale when the model has established basic correctness but has not yet specialized.
+
+Phase 3 (70--100\%) increases human feedback weight from 0.400 to 0.636 through linear increase. This addresses edge cases and systematic biases where automated signals fail. The monotonic increase reflects growing importance of human judgment as training progresses.
+
+\subsubsection{Reward Normalization and Aggregation}
+
+Combining heterogeneous rewards presents statistical challenges. Execution feedback is binary (aggregated to pass rate), AI feedback is continuous with learned distribution, and human feedback is discrete Likert-scale converted to [0,1]. We apply percentile rank normalization to each reward signal before aggregation. Each sample's reward converts to its percentile rank within the current batch, normalizing all three signals to [0,1] scale regardless of original distributions.
+
+The aggregated reward is computed as the weighted sum of normalized signals, with weights summing to 1 at each training step. This scalar reward drives the PPO policy gradient update exactly as in standard single-reward RL, making our framework compatible with existing PPO implementations.
+
+\subsubsection{Feedback Collection Mechanisms}
+
+Execution feedback runs generated code against automated test cases using subprocess isolation with 5-second timeout. The reward is the fraction of test cases passed (0.0 = all failed, 1.0 = all passed). Syntax errors, runtime exceptions, and timeouts receive reward 0.0.
+
+AI feedback queries a learned reward model---a pretrained language model with scalar prediction head, trained on combined execution results and human preference annotations. The model receives code samples as input and outputs predicted quality scores. For this validation, we use simulated AI feedback based on code quality heuristics rather than a fully trained reward model.
+
+Human feedback uses heuristic-based quality proxies for proof-of-concept validation: code length appropriateness, documentation presence (docstrings and comments), structural quality (proper function definitions and returns), code complexity, and anti-pattern detection. This limitation does not invalidate mechanism validation---the weight scheduling logic is orthogonal to the quality of the human signal---but performance claims would require real annotation in follow-up work.
+
+\subsubsection{Implementation Details}
+
+The framework is implemented using pretrained CodeGen-350M checkpoint. We validate on combined HumanEval (164 samples) and MBPP (874 samples) benchmarks, totaling 1,038 problems. For proof-of-concept mechanism validation, we simulate training trajectories through checkpoint evaluation at specific progress points (0\%, 10\%, 20\%, 30\%, 40\%, 50\%, 60\%, 70\%, 80\%, 90\%, 100\%) rather than performing actual RL training.
+
+Critical limitation: our experiments use pretrained models without actual RL training---no policy gradient updates, no reward optimization. We validate the weight scheduling mechanism, feedback collection, and aggregation logic, but do not perform gradient updates. This means we demonstrate mechanism feasibility, not performance gains. Performance validation requires full RL training with actual reward optimization, deferred to follow-up work.

@@ -1,0 +1,47 @@
+{
+    "has_hallucination": true,
+    "hallucinations": [
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper repeatedly claims to use a mixed-effects logistic regression with a random intercept for benchmark and to evaluate a predictor trained on MMLU and applied cross-benchmark without retraining. The provided code does not implement this. Instead, it fits an ordinary logistic regression / statsmodels Logit only on MMLU with two fixed predictors (margin_z and kl_div), with no random effects and no pooled mixed-effects model across benchmarks. Cross-benchmark evaluation also recomputes z-scored margins separately on each evaluation benchmark rather than preserving a training-set normalization or fitting a benchmark-random-intercept model.",
+            "evidence": "Paper: \"A mixed-effects logistic regression is fitted: logit(P(flip_i = 1)) = β₀ + β₁ · margin_i + u_{d(i)}\" and \"the predictor is trained on MMLU and evaluated on TruthfulQA and ARC-Challenge without retraining\". Code (analysis_pipeline.py): \"X = np.column_stack([margin_z, kl_div])\" and \"logit_model = sm.Logit(y, X_sm).fit(disp=False)\"; run_full_analysis() only fits on \"mmlu\" and evaluate_cross_benchmark() recomputes margin_z via compute_margin_and_flip() on each benchmark."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper defines the H-E1 predictor as depending only on pre-alignment confidence margin, but the implemented model includes KL divergence as an additional predictor. This materially changes the reported methodology because the main results are not from a margin-only model.",
+            "evidence": "Paper: \"The prediction task is: given only v_base(i), predict flip_i before M_aligned is applied.\" and the displayed model is \"logit(P(flip_i = 1)) = β₀ + β₁ · margin_i + u_{d(i)}\". Code (analysis_pipeline.py): docstring \"Fit logistic regression: logit P(flip) = β₀ + β₁·margin_z + β₂·kl_div.\" and \"X = np.column_stack([margin_z, kl_div])\"."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The paper reports partial η² as an effect size from the mixed-effects logistic regression, but the code computes \"partial_eta2\" as 1 - llf/llnull, which is McFadden pseudo-R², not partial η². Treating this quantity as partial η² is mathematically incorrect.",
+            "evidence": "Paper: \"Effect size is reported as partial η²\" and values such as \"η² = 0.2892\". Code (analysis_pipeline.py): \"# McFadden pseudo-R² as partial eta² approximation\" followed by \"partial_eta2 = float(1 - (logit_model.llf / logit_model.llnull))\"."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper states that H-M1 significance is assessed via a one-tailed permutation test with 1,000 shuffles. The code does not perform any permutation test. It instead conducts a one-sample t-test on the three trailing eigenvalues against the dominant eigenvalue, which is a completely different statistical procedure.",
+            "evidence": "Paper: \"Statistical significance is assessed via a one-tailed permutation test (1,000 shuffles)\". Code (analysis_anisotropy.py): \"t_stat, p_two_tailed = stats.ttest_1samp(trailing, popmean=dominant)\" and then \"p_one_tailed = p_two_tailed / 2.0\"."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims H-M2 computes variance of logit-delta magnitudes, specifically var(||Δ_i||), after KL-divergence residualization. The code instead computes per-item variance across the 4 coordinates of Δ_i, i.e., np.var(delta, axis=1), and then residualizes that scalar. This is a different quantity from variance of vector magnitudes.",
+            "evidence": "Paper: \"the variance of logit delta magnitudes — var(‖Δ_i‖) within quintile — is computed after KL-divergence residualization\". Code (analysis_variance.py): \"delta_var = np.var(delta, axis=1)  # (N,)\"."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper states that H-M2 uses one-tailed Welch's t-test on KL-residualized quantities with bootstrap confidence intervals. However, the code stores raw Q1 delta_var values for testing rather than the residualized values, so the statistical test is not run on the quantity described in the paper.",
+            "evidence": "Paper: \"One-tailed Welch's t-test ... after KL residualization.\" Code (analysis_variance.py): in compute_variance_by_quintile(), after residualization it explicitly sets \"q1_residuals = delta_var_q\" with comment \"Store raw delta_var values (not OLS residuals) for t-test\"."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper reports H-M2 one-tailed Welch test statistics and effect sizes that do not match the saved experiment outputs. In particular, the ARC p-value reported in the paper is 0.992, while the experiment_results.json gives 0.992362086397669, and more importantly the paper's narrative claim that \"SFT mean Q1 delta variance exceeds DPO mean Q1 delta variance\" is inconsistent with the reported variances, where DPO Q1 variance is larger than SFT on MMLU and ARC. The stated interpretation of the direction is therefore fabricated or incorrect relative to the actual outputs.",
+            "evidence": "Paper: \"The direction is reversed across all three benchmarks: SFT mean Q1 delta variance exceeds DPO mean Q1 delta variance.\" But Table 3 gives MMLU Q1 DPO variance 0.7073 vs SFT 0.2229, and paper also reports ARC DPO 1.952 vs SFT 0.272. Saved results (h-m2/experiment_results.json): MMLU q1_variance_ratio 1.179887..., ARC q1_variance_ratio 2.386349..., both > 1 in favor of larger DPO variance."
+        },
+        {
+            "type": "Nonexistent Citations",
+            "description": "Several citations appear unverifiable or highly suspect from the information given, especially forward-dated or unusually specific references. The strongest example is a 2026 arXiv preprint ('The Magic Correlations: Understanding Knowledge Transfer from Pretraining to Supervised Fine-Tuning', arXiv:2602.11217) cited as existing work. Based on the provided materials, there is no support that this citation exists, and it is presented as established literature despite being future-dated relative to most references.",
+            "evidence": "References section: \"Fan, S., Paparas, D., Noy, N., Xiong, B., Sachdeva, N., & Isik, B. (2026). The Magic Correlations: Understanding Knowledge Transfer from Pretraining to Supervised Fine-Tuning. arXiv preprint arXiv:2602.11217.\""
+        }
+    ],
+    "overall_assessment": "Hallucinations were found. The most serious issues are methodological misreporting: the paper describes mixed-effects models, permutation tests, and specific residualized variance definitions that are not what the code implements. There is also at least one likely nonexistent citation and some result interpretation inconsistencies in H-M2. Overall, the paper is not reliable as a faithful report of the underlying experiments.",
+    "confidence": 5
+}

@@ -1,0 +1,70 @@
+
+\subsubsection{3.1 Framework Overview}
+
+The BCBHS framework was designed around a two-stage verification structure. The first stage establishes that domain-specific health signals exist with sufficient discriminative power (H-E1) and that submission accumulation Granger-causes score compression in real panel data (H-M1). The second stage, contingent on the first, was intended to build a Cox proportional hazards survival model predicting time-to-discriminative-collapse and to validate prospective early-warning lead times. The second stage (H-M3, H-M4) was not executed in this work.
+
+\subsubsection{3.2 Panel Construction}
+
+\textbf{Data source.} The quarterly leaderboard panel was constructed from the \texttt{pwc-archive/evaluation-tables} HuggingFace archive, which provides historical Papers With Code leaderboard data from 2018 to 2025. The raw dataset contains 48,311 submission rows across 1,120 tasks.
+
+\textbf{Qualifying benchmarks.} Benchmarks were filtered to those with at least 20 model submissions and at least 2 years of submission history. This yielded 466 qualifying benchmarks across CV and NLP domains.
+
+\textbf{Panel structure.} Submissions were aggregated to quarterly resolution. For each benchmark-quarter pair (B, t), two derived quantities were computed: \texttt{score_var_top10} (variance of scores among the top-10 submitted models in that quarter) and \texttt{cumulative_count} (total submissions to that benchmark as of quarter t). The panel contains 6,938 observations.
+
+\subsubsection{3.3 Domain-Specific Health Estimators H_d(B, t)}
+
+The BCBHS framework uses domain-specific signals because CV, NLP, and tabular benchmarks exhibit different saturation phenotypes:
+
+\textbf{CV — Score variance proxy.}
+
+$$H_d^{\text{CV}}(B, t) = \text{score\_var\_top10}(B, t)$$
+
+CV saturation was hypothesized to manifest as score \textit{convergence}: as models overfit the test distribution, their scores cluster, reducing variance among the top-k. A lower H_d^CV value signals saturation. Empirically, this direction was confirmed (see Section 5.1).
+
+\textbf{NLP — Contamination-adjusted deviation signal.}
+
+$$H_d^{\text{NLP}}(B, t) = \text{NMD}(B, t)$$
+
+NLP saturation was hypothesized to manifest as score \textit{divergence}: contaminated models produce anomalously high scores, increasing the normalized mean deviation (NMD) of the top-k score distribution. A higher H_d^NLP signals saturation. The originally planned ConStat S_index was unavailable (PWC REST API shut down July 2025); NMD was used as a fallback.
+
+\textbf{Tabular — Block-bootstrapped Kendall τ rank stability.}
+
+$$H_d^{\text{Tab}}(B, t) = \hat{\tau}_{\text{block}}(B, t)$$
+
+Tabular saturation was hypothesized to manifest as premature rank stabilization. The block-bootstrapped Kendall rank correlation between top-k orderings at quarters t and t−1 was computed with 1,000 bootstrap iterations over model family blocks. A higher $\hat{\tau}_{\text{block}}$ signals saturation.
+
+All three signals use a 24-month (8-quarter) lookback window, selected based on discriminability analysis across multiple lookback window lengths (Section 5.1).
+
+\subsubsection{3.4 Compression Event Detection}
+
+A compression event for benchmark B at quarter t is defined as:
+
+$$\text{compression\_event}(B, t) = \mathbf{1}\left[\text{score\_var\_top10}(B, t) < \mu_\sigma - 1.5 \cdot \hat{\sigma}_{\text{measurement}}(B)\right]$$
+
+where $\hat{\sigma}_{\text{measurement}}(B)$ is estimated from repeated submissions of the same model within a quarter. The event requires the threshold to be sustained for at least 2 consecutive quarters. The median $\hat{\sigma}_{\text{measurement}}$ across 7,592 benchmarks (from the broader pre-filter archive) is 0.3323. The broader benchmark set was used for sigma estimation to avoid overfitting the noise threshold to the smaller 466-benchmark qualified subset.
+
+\subsubsection{3.5 Granger Causality Analysis}
+
+To test whether submission accumulation temporally precedes score compression, Granger causality analysis was applied to the quarterly panel. For each benchmark with at least 9 quarterly observations (lag + 5 minimum), a vector autoregression (VAR) model was estimated with \texttt{cumulative_count} and \texttt{score_var_top10} as endogenous variables, following ADF stationarity testing with iterative first-differencing. Both forward (submissions → compression) and reverse (compression → submissions) directions were tested. The panel-level result reports the minimum p-value across all benchmarks with sufficient time series length.
+
+Granger causality establishes temporal predictability — that past values of submission count improve forecasts of score compression beyond the latter's own history — but does not rule out confounding variables such as benchmark age or task adoption lifecycle.
+
+\subsubsection{3.6 Existence Validation Approach (H-E1)}
+
+To validate H_d discriminative power in controlled conditions prior to real-data analysis, synthetic panels of 20 saturated and 20 healthy benchmarks per domain were constructed, calibrated to match real PWC panel statistics (median $\hat{\sigma}_{\text{measurement}} = 0.3323$, empirical submission count distribution). The gate criterion was Mann-Whitney U p < 0.05 AND |Cohen's d| > 0.5 in at least 2 of 3 domains.
+
+\textbf{Pipeline summary:}
+
+```
+PWC HuggingFace archive (48,311 rows)
+    → filter (≥20 submissions, ≥2 years)
+Quarterly panel (6,938 rows × 466 benchmarks)
+    → domain-specific H_d computation
+H_d signals (CV: score_var_top10; NLP: NMD; Tabular: τ_block)
+    → compression detection (1.5σ, ≥2 consecutive quarters)
+Compression events (389 events, 145 benchmarks, 31.1\%)
+    → Granger causality (ADF stationarity → VAR → F-test)
+Granger result: submissions → compression (p=1.854e-05, lag=2)
+    → [NOT EXECUTED: collapse event recalibration → Cox PH model]
+```
+

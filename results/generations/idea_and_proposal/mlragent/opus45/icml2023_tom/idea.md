@@ -1,0 +1,9 @@
+﻿# Title: Theory of Mind-Guided Prompt Engineering for Improved Human-AI Collaboration
+
+## Motivation
+Current LLMs often fail to accurately model user intent, leading to misaligned responses that require extensive back-and-forth clarification. This stems from a fundamental gap: LLMs lack explicit mechanisms to reason about users' knowledge states, goals, and expectations. While prompt engineering has advanced significantly, it rarely incorporates principled ToM reasoning to anticipate what users actually need versus what they literally ask. Bridging this gap could dramatically improve first-response accuracy and reduce user frustration in human-AI collaboration settings.
+
+## Main Idea
+I propose developing **ToM-Aware Prompting (TAP)**, a framework that augments LLM prompts with explicit mental state inference modules. The methodology involves three components: (1) a user model that infers the user's likely knowledge level, unstated goals, and implicit assumptions from conversation history; (2) a perspective-taking module that generates hypotheses about potential misunderstandings before responding; and (3) a response calibration step that adjusts explanation depth and content based on inferred user states.
+
+We will evaluate TAP on collaborative tasks (code assistance, educational tutoring, creative writing) measuring task completion efficiency, user satisfaction, and clarification request frequency. Expected outcomes include reduced conversation turns to task completion and improved perceived AI understanding. This work provides a practical ToM operationalization while offering insights into how explicit mental modeling improves human-AI alignment.

@@ -1,0 +1,7 @@
+# Abstract
+
+Can you fine-tune what a model cannot do? We show the answer is no: parameter-efficient fine-tuning (PEFT) methods like LoRA adapt existing architectural capabilities but cannot add missing ones. When causal state-space models achieve below-random zero-shot accuracy on tasks requiring bidirectional reasoning, fine-tuning fails catastrophically regardless of hyperparameters.
+
+We evaluate Mamba-130M on three GLUE classification tasks. The model achieves 81% accuracy on sentiment classification (+31pp above random, p<0.001), demonstrating genuine language understanding when task structure aligns with causal processing. Yet the same checkpoint achieves only 38% on paraphrase detection (−12pp below random, p=0.003)—systematically worse than guessing because symmetric question comparison requires bidirectional reasoning absent in causal architectures.
+
+This below-random zero-shot performance reveals architectural incompatibility that PEFT cannot overcome. We establish zero-shot evaluation as a mandatory gate before fine-tuning: below-random accuracy signals structurally impossible tasks, preventing wasted compute. Our findings challenge the assumption that PEFT methods developed for transformers transfer seamlessly to sub-quadratic architectures (state-space models, linear attention). As efficient architectures proliferate, validating architectural alignment before fine-tuning becomes essential.

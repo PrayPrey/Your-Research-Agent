@@ -1,0 +1,8 @@
+# Title
+Metacognitive Video Annotation: Uncertainty-Guided Active Learning for Cost-Efficient MLLM Annotation with Quality Guarantees
+
+# Motivation
+Video foundation models require massive annotated datasets, but high-quality video annotation is prohibitively expensive and scarce. Existing MLLM-based annotation systems (e.g., VideoPrefer) achieve scale but lack quality guarantees, limiting adoption in high-stakes domains like medical imaging, autonomous vehicles, and legal applications. The hallucination problem in foundation models remains the biggest barrier to practical deployment. We address this critical gap by adapting proven medical imaging uncertainty quantification techniques to video-language annotation, enabling cost reduction while maintaining statistical quality guarantees.
+
+# Main Idea
+We hypothesize that a metacognitive MLLM annotation system combining Bayesian uncertainty quantification (MC Dropout/Ensemble), temporal uncertainty aggregation, and confidence calibration will reduce video annotation costs by ≥80% while achieving ≥90% accuracy (95% CI). The causal mechanism: (1) quantify per-frame uncertainty via MC Dropout, (2) calibrate confidence scores using temperature scaling, (3) aggregate temporal uncertainty to clip-level via max pooling, (4) validate uncertainty-error correlation (ρ≥0.5 gate), then (5) route high-uncertainty samples to human annotators via active learning. We test on dense video captioning (MSR-VTT, WebVid-10M) comparing uncertainty-guided versus random sampling. Success requires passing the correlation gate and achieving quality targets at ≤20% human annotation budget, enabling economically viable high-quality video dataset creation.

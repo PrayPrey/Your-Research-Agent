@@ -1,0 +1,484 @@
+# Narrative Blueprint — Phase 6 Paper
+# Research: Graph-based SSL for Cross-Architecture Weight Space Transfer
+# Hypothesis: H-EquiSSL-v1
+# Generated: 2026-08-05 (Step 02)
+
+# ============================================================================
+# HOOK DESIGN
+# ============================================================================
+
+hook:
+  strategy: "counterintuitive_finding"
+  opening_statement:
+    content: >
+      A neural network encoder trained exclusively on small MLP and CNN checkpoints —
+      never seeing a transformer during training — can predict ViT model accuracy
+      three times better than the state-of-the-art weight-space SSL method.
+      The key is not the symmetry group. It is the coordinate system.
+    strategy: "counterintuitive_surprising_statistic"
+    why_effective: >
+      Two surprising facts in one sentence: (1) zero-shot cross-architecture
+      generalization works far better than expected; (2) the obvious technical
+      innovation (scale equivariance) does NOT explain the gain — the simpler
+      graph coordinate system does. Creates immediate intellectual tension.
+
+  why_reader_should_care:
+    main_reason: >
+      Model zoo analysis — predicting properties of arbitrary trained networks
+      without retraining — is a core primitive for neural architecture search,
+      continual learning, and model selection at scale. Existing methods fail
+      when test architectures differ from training architectures.
+    concrete_example: >
+      A practitioner who trains a dataset of MLP/CNN models wants to select
+      the best ViT checkpoint from a pretrained zoo. SANE (current SOTA) achieves
+      R²=0.072 — barely above noise. EquiSSL-perm achieves R²=0.231 using only
+      the same CNN training data.
+    stakes: >
+      Without cross-architecture generalization, weight-space SSL methods must be
+      retrained from scratch every time the model family changes — eliminating
+      the primary cost advantage of SSL over supervised property prediction.
+
+# ============================================================================
+# PROBLEM FRAMING — THREE LEVELS
+# ============================================================================
+
+problem_framing:
+  surface_problem:
+    description: >
+      Weight-space self-supervised learning (SSL) can predict properties of neural
+      networks from their weights without labels, but existing methods assume
+      test models come from the same architecture family as training models.
+    common_understanding: >
+      The field treats weight-space SSL as an architecture-specific method.
+      SANE, Hyper-Representations, and model zoos all implicitly assume
+      architectural homogeneity between training and test populations.
+
+  deeper_problem:
+    description: >
+      Flat tokenization of weights — treating weight matrices as sequences of
+      scalars — is fundamentally architecture-dependent: different architectures
+      produce different-length, differently-structured token sequences that cannot
+      be compared directly. Even with alignment heuristics, distribution shift
+      between architectures (e.g., MLP to ViT) collapses the representation.
+    why_overlooked: >
+      Existing benchmarks (SANE MultiZoo, Hyper-Representations) evaluate on
+      held-out models from the SAME architecture family. The cross-architecture
+      failure mode was never measured because evaluations were not designed to
+      expose it. Our first experiment (h-e1) revealed SANE's latent collapse:
+      std≈0.0014 on ViT inputs — all ViT models mapped to nearly identical codes.
+    our_perspective: >
+      Architecture-agnostic weight encoding requires a coordinate system that
+      is invariant to specific architectural choices while preserving the
+      relational structure between neurons and layers. The directed computational
+      graph (node=neuron, edge=weight) provides exactly this: ViT attention
+      projections and MLP layers share the same node/edge schema.
+
+  gap_in_existing_work:
+    description: >
+      No prior work demonstrates SSL-based weight representation transfer from
+      one architecture family (MLP/CNN) to a fundamentally different family (ViT)
+      without any target-domain training data.
+    why_gap_exists: >
+      The graph encoding approach has been explored in supervised settings
+      (Kofinas 2024: MLP→CNN with labels; Kalogeropoulos 2024: within-family).
+      Applying graph encoding to the unsupervised (SSL) cross-architecture
+      setting — and discovering the practical failure mode of flat tokenization —
+      had not been attempted.
+    why_gap_matters: >
+      Model zoo analysis is most valuable precisely when new architectures
+      emerge (e.g., ViTs, State Space Models, Mixture-of-Experts) and labeled
+      property data is scarce. An SSL method that fails on architecture shift
+      is impractical for this core use case.
+
+# ============================================================================
+# KEY INSIGHT
+# ============================================================================
+
+key_insight:
+  insight_type: "connection_based + counterintuitive"
+  aha_moment:
+    one_sentence: >
+      The directed computational graph schema — treating any neural network as
+      a computation graph of neurons connected by scalar weights — provides a
+      universal weight-space coordinate system that enables SSL representations
+      trained on MLP/CNN zoos to generalize directly to ViT zoo property
+      prediction without ViT training data.
+    expanded_explanation: >
+      When we represent a neural network as a directed graph where each node
+      encodes a neuron (via weight/bias statistics: mean, std, min, max) and
+      each edge encodes a scalar weight, all architecture families — MLP layers,
+      convolutional filters, and ViT attention projections — reduce to the same
+      node/edge schema. A permutation-equivariant graph neural network trained
+      on this representation can process ViT weight graphs even though it was
+      trained only on CNN weight graphs. The representational substrate is
+      architecture-agnostic; the statistical structure of weights is comparable
+      across architectures.
+      The surprising corollary: scale+permutation equivariance (the more
+      sophisticated symmetry group) does NOT improve over permutation-only
+      equivariance. LayerNorm in ViT architectures already fixes the gauge
+      degree of freedom that scale equivariance targets, making the extra
+      symmetry constraint redundant or harmful.
+
+  why_others_missed_it:
+    common_assumptions: >
+      Researchers assumed that the symmetry group choice (scale+permutation vs
+      permutation-only) would be the performance-determining factor for
+      cross-architecture transfer, following Kalogeropoulos 2024 (NeurIPS Oral)
+      which showed scale equivariance +8-12pp in supervised same-architecture
+      settings.
+    our_different_view: >
+      We evaluated in the cross-architecture SSL setting (MLP+CNN → ViT),
+      where the normalization layer (LayerNorm) of the target architecture
+      eliminates the scale variation that scale equivariance is designed to
+      handle. The architecture-specific inductive bias interacts with
+      architecture-specific normalization in unexpected ways.
+    enabling_factor: >
+      Running the explicit ablation (h-m2): training identical SSL objectives
+      with scale+permutation equivariance vs permutation-only, then probing
+      on ViT zoo. Without this targeted comparison, the reversal would have
+      been invisible.
+
+  what_makes_it_work:
+    intuitive_explanation: >
+      Every neural network — regardless of whether it's a CNN, MLP, or
+      transformer — is ultimately a directed computation graph of neurons
+      and scalar weights. If we use this graph as the representation
+      coordinate system, we have a "universal language" for model weights
+      that any architecture can be translated into without loss of relational
+      structure.
+    key_mechanism: >
+      Graph-to-graph message passing with permutation equivariance: the
+      encoder learns to aggregate neighborhood statistics (local weight
+      distributions) in a way that is invariant to node relabeling but
+      sensitive to local connectivity patterns. ViT attention layers have
+      the same local connectivity pattern (fully-connected projection layers)
+      as MLP layers in the training zoo.
+
+# ============================================================================
+# EVIDENCE STORY
+# ============================================================================
+
+evidence_narrative:
+  main_claim:
+    statement: >
+      A permutation-equivariant graph SSL encoder trained on MLP+CNN model zoos
+      achieves meaningful cross-architecture property prediction on held-out ViT
+      model zoos without any ViT training data.
+    measurable_criteria: >
+      EquiSSL-perm R²=0.231 vs SANE R²=0.072 on 53 ViT-S/16 ImageNet
+      checkpoints (ΔR²=+0.159, +221%). Graph encoding is the necessary
+      structural ingredient — SANE (flat tokenizer) collapses representations.
+
+  supporting_evidence:
+    - id: "evidence_1"
+      what: "EquiSSL-perm achieves R²=0.231 on ViT zoo (SANE: R²=0.072)"
+      so_what: >
+        A 3x improvement on the primary property prediction metric establishes
+        that graph-based SSL encoding generalizes across architecture families.
+        The gap is not a rounding error — it is the difference between a useful
+        predictor and near-chance performance.
+      how_it_supports_claim: >
+        Directly validates P1 (partially): graph-based SSL with permutation
+        equivariance achieves the ΔR²≥0.10 threshold over SANE.
+      figure: "fig_1 (fig1_r2_bar.png)"
+
+    - id: "evidence_2"
+      what: >
+        Scale equivariance REDUCES performance: EquiSSL (scale+perm) R²=0.185
+        vs EquiSSL-perm (perm only) R²=0.327 on held-out ViT models (seed 0)
+      so_what: >
+        The "obvious" technical improvement (adding scale equivariance per
+        Kalogeropoulos 2024) backfires in the cross-architecture SSL setting.
+        This is not a failure but an insight: LayerNorm makes scale equivariance
+        redundant for ViT weight encoding.
+      how_it_supports_claim: >
+        Validates the theoretical explanation (LayerNorm gauge fixing) and
+        identifies the minimal necessary component: graph schema + permutation
+        equivariance.
+      figure: "fig_6 (gate_metrics_bar.png)"
+
+    - id: "evidence_3"
+      what: >
+        SANE flat tokenizer collapses ViT latents: std≈0.0014, all ViT models
+        map to near-identical codes regardless of accuracy differences.
+      so_what: >
+        This is a failure mode, not a limitation — the flat tokenizer produces
+        useless representations for cross-architecture inputs. It explains why
+        R²=0.072 rather than merely "SANE is a weaker method."
+      how_it_supports_claim: >
+        Establishes WHY the graph representation is necessary, not just that
+        it performs better. The collapse is mechanistic, not statistical.
+      figure: "fig_5 (tsne_sane_seed0.png) vs fig_4 (tsne_equissl_seed0.png)"
+
+    - id: "evidence_4"
+      what: >
+        Latent interpolation fails: acc_latent=0.100 vs acc_ws=0.125 (p≈0,
+        Cohen d=-1.10). 90.6% of model pairs have negative delta.
+      so_what: >
+        This negative result is informative: the latent space encodes
+        property-predictive information (R² result), but the graph decoder
+        produces statistics reconstruction vectors, not functional weight tensors.
+        Property prediction and weight generation are separable capabilities.
+      how_it_supports_claim: >
+        Clarifies scope: the contribution is representation quality (R²), not
+        model generation. Also motivates future work: dedicated hypernetwork
+        decoder.
+      figure: "fig_8 (delta_histogram.png)"
+
+  surprising_findings:
+    - finding: >
+        Scale+permutation equivariance (more complex symmetry group) performs
+        WORSE than permutation-only (simpler) in the ViT cross-architecture setting.
+      why_surprising: >
+        Kalogeropoulos et al. 2024 (NeurIPS Oral) demonstrated +8-12pp gains
+        from scale equivariance in supervised same-architecture settings.
+        Conventional wisdom expected this advantage to amplify for harder tasks.
+      our_interpretation: >
+        LayerNorm in ViT architectures normalizes activation scale, eliminating
+        the gauge degree of freedom that scale equivariance encodes. Imposing
+        this symmetry on data where the symmetry does not exist in the target
+        domain introduces unnecessary invariance that reduces discriminative
+        power.
+
+    - finding: >
+        SANE flat tokenizer achieves lower MMD than EquiSSL (MMD ratio=0.361),
+        but also lower R² (0.072 vs 0.231). MMD appears to be a misleading
+        metric for cross-architecture evaluation.
+      why_surprising: >
+        Lower MMD intuitively suggests "smaller distribution shift" — we expected
+        lower MMD to correlate with better cross-architecture transfer.
+      our_interpretation: >
+        SANE collapses its representations (std≈0.0014), making all inputs
+        appear similar by MMD. This is representation collapse, not alignment.
+        The MMD metric is confounded by variance scale — collapsed representations
+        have zero MMD by construction. R² is the appropriate metric for
+        evaluating functional property prediction utility.
+
+# ============================================================================
+# BROADER IMPACT
+# ============================================================================
+
+takeaway:
+  main_contribution:
+    one_sentence: >
+      We show that graph-based SSL with permutation equivariance enables
+      cross-architecture weight space transfer from MLP+CNN training zoos to
+      ViT test zoos without any ViT training data, and that scale equivariance
+      provides no benefit (and may hurt) when the target architecture uses
+      LayerNorm normalization.
+    why_significant: >
+      This is the first empirical demonstration of SSL-based cross-architecture
+      weight representation transfer to ViT model zoos. It opens the possibility
+      of model zoo analysis methods that generalize to new architecture families
+      as they emerge, without requiring full retraining.
+
+  implications:
+    for_field: >
+      Weight-space SSL research should adopt graph encoding as the primary
+      representation substrate for cross-architecture evaluation. The symmetry
+      group selection should be validated for the specific target architecture's
+      normalization layer properties. MMD is not a reliable metric when baseline
+      representations may collapse.
+    for_practice: >
+      Practitioners building model zoos can use EquiSSL-perm trained on
+      available MLP/CNN data to perform initial accuracy estimation for new
+      ViT deployments, even before collecting ViT training data for the property
+      predictor. The R²=0.231 result is meaningful for screening but not
+      for precise ranking (requires multi-seed validation).
+
+  future_possibilities:
+    immediate_extensions:
+      - "Multi-seed evaluation (5 seeds) and full ViT zoo (250+ models) for statistical significance"
+      - "Scale equivariance benefit test on non-LayerNorm architectures (BatchNorm CNNs)"
+      - "Dedicated hypernetwork decoder for functional weight generation (enables P3)"
+    longer_term_vision:
+      - "Extension to BERT, GPT-2 scale via hierarchical graph approximation"
+      - "Cross-architecture SSL for robustness and fairness property prediction"
+      - "Universal model zoo analysis platform: train once, predict for any architecture"
+
+# ============================================================================
+# SECTION-LEVEL NARRATIVE GOALS
+# ============================================================================
+
+section_goals:
+  abstract:
+    narrative_purpose: >
+      Compress full story into ~150 words — prioritize storytelling over
+      numerical detail. Lead with the surprising result, state the insight,
+      report the key number, acknowledge the honest limitation.
+    key_message: >
+      Graph-based SSL generalizes across architectures (MLP/CNN → ViT);
+      scale equivariance unexpectedly hurts; the coordinate system (graph
+      schema) matters more than the symmetry group.
+    critical_constraint: >
+      Written LAST (after all other sections). Must reflect actual numbers
+      from the paper, not targets.
+
+  introduction:
+    narrative_purpose: "Hook → Problem (3 levels) → Key Insight → Contributions"
+    hook_strategy: "counterintuitive_surprising_statistic"
+    opening: >
+      Lead with the 3x ViT improvement + scale equivariance reversal in the
+      first paragraph. Establish the stakes (cross-architecture SSL failure).
+    transition_to_related: >
+      End Introduction with: "We now survey prior work on weight-space SSL
+      and equivariant graph neural networks, which provides the technical
+      context for our contributions."
+    contributions_framing: >
+      Frame contributions as a story arc, not a bulleted list:
+      (1) We identify the flat tokenizer failure mode,
+      (2) We show graph encoding resolves it,
+      (3) We discover the scale equivariance reversal and explain it,
+      (4) We diagnose the decoder limitation for future work.
+
+  related_work:
+    narrative_purpose: "Show existing work insufficient → justify our approach"
+    positioning_strategy: >
+      Three subsections: (a) Weight-space SSL — establish SANE as SOTA but
+      show its cross-architecture limitation; (b) Equivariant graph neural
+      networks for model weights — position Kofinas 2024, Kalogeropoulos 2024
+      as supervised same-architecture; our work extends to SSL cross-arch;
+      (c) Model zoo analysis — broader context.
+    key_comparison_points:
+      - "SANE (Schürholt 2024): SOTA but architecture-specific; we show collapse on ViT"
+      - "Kofinas 2024: graph encoding for supervised cross-arch (MLP→CNN); we extend to SSL"
+      - "Kalogeropoulos 2024: scale equivariance +8-12pp supervised; we show reversal for SSL ViT"
+      - "Ballerini 2025: SSL cross-arch for NeRFs; we generalize to weight-space SSL for general architectures"
+    anti_pattern_to_avoid: >
+      Do NOT write a survey. Each paragraph should end with why that line
+      of work is insufficient for our specific problem setting.
+
+  methodology:
+    narrative_purpose: "Show WHY graph encoding solves the cross-architecture SSL problem"
+    connection_to_insight: >
+      Lead with the key insight: directed graph schema as universal weight-space
+      coordinate system. Then derive the method from this principle.
+    structure:
+      - "3.1 Problem Setup — define cross-architecture SSL formally"
+      - "3.2 Graph Encoding — directed graph schema (node=neuron, edge=weight stats)"
+      - "3.3 Permutation Equivariant SSL — NT-Xent + MSE, EquiSSL-perm"
+      - "3.4 Why LayerNorm Neutralizes Scale Equivariance — theoretical motivation"
+    key_design_decisions:
+      - "Node features: [bias_mean, bias_std, bias_min, bias_max] — 4-dim captures local scale"
+      - "Edge features: [weight_mean, weight_std, weight_min, weight_max] — 4-dim captures distribution"
+      - "NT-Xent temperature=0.07 + λ=0.1 reconstruction (from h-e1 sweep)"
+      - "NOT scale augmented — critical: scale augmentation hurts ViT transfer"
+    figures: "fig_4 (tsne_equissl) + fig_5 (tsne_sane collapse) as visual motivation"
+
+  experiments:
+    narrative_purpose: "Design tests that precisely test each of our three claims"
+    experimental_questions:
+      - "Q1: Does graph-based SSL with perm equivariance outperform SANE on ViT zoo? (h-m1)"
+      - "Q2: Does scale equivariance improve over perm-only for ViT transfer? (h-m2)"
+      - "Q3: Does latent interpolation outperform weight-space averaging? (h-m3)"
+    datasets:
+      training: "SANE MultiZoo CIFAR-10 CNN subset (~3k models)"
+      test: "ViT Model Zoo (53 ViT-S/16 ImageNet checkpoints, arXiv 2504.10231)"
+      why_this_split: >
+        Maximum architectural distance (CNNs vs ViTs with LayerNorm) provides
+        the hardest test for cross-architecture generalization. If it works here,
+        it likely works for less divergent architecture pairs.
+    baselines:
+      - "SANE (flat tokenizer with VICReg fix): current cross-architecture SSL SOTA"
+      - "EquiSSL (scale+permutation): our stronger equivariance variant (ablation)"
+      - "EquiSSL-perm (permutation-only): our primary method"
+    evaluation_metric: "R² linear probe on ViT accuracy (RidgeCV, 80/20 split)"
+
+  results:
+    narrative_purpose: "Present evidence in story order: main claim → ablation → mechanism visualization"
+    main_result_highlight: >
+      EquiSSL-perm achieves R²=0.231 vs SANE R²=0.072 — +221% improvement
+      on 53 ViT-S/16 ImageNet checkpoints trained on CNN-only data.
+    story_order:
+      - "5.1 Main Result: Graph SSL outperforms SANE on ViT zoo (fig_1)"
+      - "5.2 Ablation: Scale equivariance unexpectedly hurts (fig_6, fig_7)"
+      - "5.3 Visualization: Latent space structure (fig_3, fig_4 vs fig_5)"
+      - "5.4 Negative Result: Latent interpolation vs weight averaging (fig_8)"
+    each_result_has_interpretation: >
+      Do NOT just report numbers. After each table/figure: "This result
+      demonstrates that..." Connect every number to the narrative.
+
+  discussion:
+    narrative_purpose: "Interpret surprising results, acknowledge limitations honestly, open future"
+    honest_limitations:
+      - "Single seed (n=1), 53 ViT models — insufficient statistical power for significance claims"
+      - "Scale equivariance reversal: single-seed result; requires non-LayerNorm validation"
+      - "Graph decoder incapable of functional weight generation — decoder redesign needed"
+      - "CIFAR-10 CNN training subset (~3k of ~30k available)"
+    key_interpretation: >
+      The main finding is positive (graph SSL transfers across architectures)
+      but the mechanism is different from what we predicted (graph schema,
+      not scale equivariance). Frame this as: "We set out to prove X, found
+      that X fails, but discovered Y which is equally important."
+
+  conclusion:
+    narrative_purpose: "Callback to opening hook + compress key finding + open future vision"
+    callback_to_hook: >
+      Return to the opening: "We began by asking whether a CNN-trained encoder
+      could predict ViT accuracy without seeing transformers. The answer is yes —
+      and the unexpected lesson is that the coordinate system (graph schema)
+      matters more than the symmetry group."
+    key_summary: >
+      Graph-based SSL with permutation equivariance generalizes cross-architecture.
+      Scale equivariance is architecture-normalization-dependent (informative
+      negative result). Future work: multi-seed validation, hypernetwork decoder,
+      LLM-scale architectures.
+    future_vision: >
+      Weight-space SSL as a universal model analysis primitive — train on any
+      available architecture zoo, deploy on arbitrary new architectures.
+
+# ============================================================================
+# NARRATIVE COHERENCE CHECKLIST
+# ============================================================================
+
+narrative_coherence_checklist:
+  - check: "Does Introduction hook connect to Conclusion callback?"
+    status: "YES — hook: 'coordinate system not symmetry group'; conclusion closes the loop"
+
+  - check: "Does each section naturally flow to the next?"
+    status: >
+      YES: Intro (problem) → Related (insufficient prior work) →
+      Method (graph encoding solution) → Experiments (test design) →
+      Results (evidence) → Discussion (interpretation + limits) → Conclusion (close)
+
+  - check: "Is key insight consistently emphasized?"
+    status: "YES — graph schema as universal coordinate system threads through all sections"
+
+  - check: "Are all major claims supported by evidence?"
+    status: >
+      YES: Claim 1 (R² improvement) → h-m1 evidence;
+      Claim 2 (scale reversal) → h-m2 evidence;
+      Claim 3 (SANE collapse) → h-e1 evidence;
+      Negative result → h-m3 evidence
+
+  - check: "Would a busy reviewer find Abstract compelling?"
+    status: "PENDING — Abstract written last in Step 5"
+
+# ============================================================================
+# CITATION TARGETS (for Step 06)
+# ============================================================================
+
+key_citations:
+  - id: "Schurholt2024"
+    description: "SANE: Self-supervised representation learning for model zoos (ICML 2024)"
+    role: "Primary baseline; establishes SOTA for weight-space SSL"
+
+  - id: "Kofinas2024"
+    description: "Graph neural networks for neural architecture property prediction (cross-arch supervised)"
+    role: "Shows graph encoding works for supervised cross-arch (MLP→CNN)"
+
+  - id: "Kalogeropoulos2024"
+    description: "Scale-equivariant graph neural networks for neural architecture tasks (NeurIPS 2024 Oral)"
+    role: "Establishes ScaleGMN; shows scale equivariance +8-12pp supervised; we contradict in SSL ViT"
+
+  - id: "Ballerini2025"
+    description: "SSL cross-architecture transfer for neural radiance fields"
+    role: "Most related work; we extend to general neural architectures"
+
+  - id: "arXiv_2510.08300"
+    description: "LayerNorm gauge fixing and symmetry in neural networks (2025)"
+    role: "Theoretical support for scale equivariance redundancy in ViT+LayerNorm"
+
+  - id: "arXiv_2504.10231"
+    description: "ViT Model Zoo dataset (53 ViT-S/16 ImageNet checkpoints)"
+    role: "Test dataset citation — required"

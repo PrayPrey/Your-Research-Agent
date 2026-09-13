@@ -1,0 +1,50 @@
+\section{Methodology}
+\label{sec:method}
+
+Our experimental design is motivated by a single question: does semantic entropy's advantage over token entropy at 65B scale \citep{Kuhn2023} hold at 7B scale, and if so, what is the mechanism?
+To answer this, we need all four major uncertainty proxy types evaluated under identical conditions --- same model, same questions, same samples, same evaluation metric.
+
+\subsection{Models and Datasets}
+
+\textbf{Language Models.}
+We use Llama-2-7B (\texttt{meta-llama/Llama-2-7b-hf}) for all sampling-based methods (SE, TE, SCG) and Llama-2-7B-Chat (\texttt{meta-llama/Llama-2-7b-chat-hf}) for verbalized confidence \citep{Touvron2023}.
+Both models use \texttt{float16} precision with \texttt{device\_map="auto"}.
+
+\textbf{Datasets.}
+We evaluate on two factual QA benchmarks.
+\textbf{TriviaQA} \citep{Joshi2017} provides open-domain factual recall with alias-normalized exact-match labels (N=98, seed=42).
+TriviaQA incorrect outputs tend to be paraphrase-diverse --- wrong answers vary substantially in wording.
+\textbf{TruthfulQA} \citep{Lin2022a} provides adversarial misconception questions.
+We use the yes/no prefix subset (N=141 of 817 total), filtering to questions whose gold answer begins with ``yes'' or ``no'', enabling exact-match evaluation without judge-based scoring.
+This subset preserves TruthfulQA's core adversarial-misconception structure while allowing automated correctness labeling; evaluation on the full set would require GPT-4 or human judges, which we leave for future work.
+TruthfulQA incorrect outputs tend to be deterministically wrong --- models consistently repeat the same misconception.
+The two benchmarks are chosen to contrast output diversity structures.
+
+\subsection{Uncertainty Estimation Methods}
+
+All stochastic methods use K=10 samples at temperature 0.7, \texttt{max\_new\_tokens}=50, matching \citet{Kuhn2023} for comparability.
+
+\textbf{Token Entropy (TE)} computes mean per-token Shannon entropy over the softmax distribution from a single greedy-decoded response:
+\begin{equation}
+\text{TE}(x) = \frac{1}{|x|} \sum_{t=1}^{|x|} H(\text{softmax}(\text{logits}_t))
+\end{equation}
+
+\textbf{Semantic Entropy (SE)} generates K=10 stochastic samples and clusters them via bidirectional NLI entailment (\texttt{cross-encoder/nli-deberta-v3-large}), then computes entropy over the cluster distribution using logsumexp aggregation \citep{Kuhn2023}.
+
+\textbf{SelfCheckGPT BERTScore (SCG)} computes pairwise BERTScore consistency across K=10 samples; uncertainty $= 1 -$ mean agreement \citep{Manakul2023}.
+
+\textbf{Verbalized Confidence (VC)} prompts Llama-2-7B-Chat to self-report 0--100\% confidence after answering, parsed with a regex cascade.
+
+\textbf{AUROC convention (critical):} All uncertainty scores are negated before AUROC computation --- higher uncertainty = higher score = higher probability of incorrectness.
+This convention follows \citet{Kuhn2023} and is applied uniformly in the primary evaluation (H-E1).
+
+\subsection{Evaluation}
+
+\textbf{AUROC} is computed with bootstrap 95\% CIs (n=1000, stratified, seed=42).
+Non-overlapping CIs serve as the primary significance criterion.
+\textbf{ECE} (10-bin adaptive binning) is computed for VC only.
+
+\subsection{Mechanism Measurement}
+
+For RQ2, we compute intra-cluster TE variance: variance of per-sample TE scores within NLI-equivalent clusters.
+This directly measures whether TE varies within groups that SE treats as semantically identical.

@@ -1,0 +1,75 @@
+
+\subsubsection{Phase 2C.5 Feasibility Gate Design}
+
+The proposed gate inserts between Phase 2C (experiment design, which specifies model and dataset) and Phase 3 (implementation planning). This timing provides sufficient information for memory estimation (model name, parameter count, dataset requirements available) while preventing planning effort on unrunnable configurations.
+
+\textbf{Memory Estimation Formula:}
+
+```
+Total_VRAM = Model_params × dtype_size × (1 + optimizer_multiplier + gradient_multiplier) 
+           + activation_estimate 
+           + framework_overhead
+```
+
+Where:
+\begin{itemize}
+\item \texttt{Model_params}: Parameter count from model specification
+\item \texttt{dtype_size}: 2 bytes (BFloat16/FP16) or 4 bytes (FP32)
+\item \texttt{optimizer_multiplier}: 2.0 for AdamW (momentum + variance states)
+\item \texttt{gradient_multiplier}: 1.0 (gradients same size as model)
+\item \texttt{activation_estimate}: Batch_size × sequence_length × hidden_dim × layer_count (approximately 50-100GB depending on configuration; we use 75GB as midpoint)
+\item \texttt{framework_overhead}: ~10\% of base memory for PyTorch internals and inter-GPU communication
+\end{itemize}
+
+\textbf{Example calculation (Mixtral-8x7B):}
+```
+Model_memory = 47B × 2 bytes = 94 GB
+Optimizer_memory = 47B × 2 × 2 = 188 GB
+Gradient_memory = 47B × 2 = 94 GB
+Activation_estimate = 75 GB
+Framework_overhead = (94 + 188 + 94) × 0.10 = 38 GB
+Total_required = 489 GB
+
+Available = 5× H100 (95GB each) = 475 GB
+Status: INFEASIBLE (exceeds capacity by 14GB)
+```
+
+\textbf{Validation threshold:} Configurations requiring >85\% of available VRAM are flagged. This conservative threshold provides safety margin for estimation errors and memory fragmentation.
+
+\textbf{Gate integration protocol:}
+\begin{enumerate}
+\item Input: Phase 2C experiment specification (model name, dataset, training parameters)
+\item Estimation: Apply memory formula using model metadata (parameter count from model cards, HuggingFace repositories)
+\item Validation: Compare estimated requirement vs available hardware
+\item Output: PASS (≤85\% capacity) or FAIL (>85\% capacity)
+\item Action on FAIL: Block Phase 3, surface reformulation options (scale-down model, reduce scope, enable optimization, justify hardware expansion)
+\end{enumerate}
+
+\textbf{Design limitations:}
+
+Activation memory varies with runtime factors (actual batch size, sequence lengths, gradient checkpointing strategy). Conservative estimates may produce false positives (flagging feasible configurations). Framework overhead varies by framework (PyTorch, JAX, TensorFlow) and parallelism strategy; 10\% is an approximation. Multi-GPU efficiency gaps (inter-GPU communication buffers, activation synchronization) are partially compensated by the 85\% threshold but may still be underestimated for complex parallelism. The formula assumes AdamW optimizer (2× multiplier); other optimizers differ (SGD: 1×, Adafactor: ~0.5×).
+
+\subsubsection{Retrospective Validation on Failure Case}
+
+Applying the proposed gate to our failed experiment:
+
+\textbf{Phase 2C Output:}
+\begin{itemize}
+\item Model: Mixtral-8x7B-v0.1 (47B parameters, BFloat16)
+\item Dataset: GLUE + SuperGLUE (17 tasks)
+\item Training: 5 epochs, batch size 32, gradient accumulation 4 steps
+\item Available hardware: 5× H100 NVL (95GB each = 475GB total)
+\end{itemize}
+
+\textbf{Gate Estimation:}
+\begin{itemize}
+\item Total required: 489 GB (calculation shown above)
+\item Available: 475 GB
+\item Utilization: 103\%
+\item \textbf{Status: FAIL (exceeds 85\% threshold)}
+\end{itemize}
+
+\textbf{Gate Action:}
+Block Phase 3 with message: "Estimated memory (489GB) exceeds available capacity (475GB, 103\% utilization). Reformulation required." Suggest alternatives: scale-down to smaller model (Phi-2, GPT-2), reduce task count, enable 8-bit quantization, or justify acquiring additional hardware.
+
+\textbf{Outcome:} Would have prevented 10-16 hours of Phase 3-4 implementation on this infeasible configuration, enabling informed reformulation before effort investment.

@@ -1,0 +1,8 @@
+# Title
+Adaptive Runtime Defense Against Dual-Modality Backdoor Attacks on LLM Embodied Agents
+
+# Motivation
+LLM-powered embodied agents (autonomous vehicles, robots) face critical security threats from dual-modality backdoor attacks combining text and visual triggers, achieving 90%+ attack success rates. Existing defenses fail: static testing frameworks (HarmBench, AgentDojo) cannot monitor runtime execution, while unsupervised runtime defenses (BlindGuard) lack dual-modality coverage and adaptive learning. This creates a dangerous gap for safety-critical applications requiring continuous protection against evolving attacks during deployment.
+
+# Main Idea
+We propose an adaptive runtime defense system combining three bio-inspired mechanisms: (1) **AIS-based behavior monitoring** using negative selection to profile normal agent execution patterns from AgentDojo tasks, detecting anomalies exceeding 2 standard deviations; (2) **Dual-modality fusion detector** using CLIP/LLaVA encoders to identify cross-modal semantic inconsistencies (cosine similarity <0.7) in text-visual backdoor triggers, strengthened through adversarial training on HarmBench attacks; (3) **ALMA-inspired adaptive learning** achieving 80%+ detection on novel attacks within 2-3 update cycles. Python middleware integration enables lightweight deployment (<10% overhead) across Langchain/AutoGPT frameworks. Controlled experiments on 1,214 samples (AgentDojo + HarmBench + AutoBackdoor) target ≥80% detection rate and <5% false positives, outperforming BlindGuard's unsupervised approach by 10-15% through supervised adversarial training and dual-modality coverage—the first production-ready runtime defense for vision-language embodied agents.

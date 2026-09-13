@@ -1,0 +1,81 @@
+
+\subsubsection{3.1 Research Question and Hypothesis}
+
+The primary question is whether the optimal GPT-2-scored perplexity filtering threshold $\tau$* is a monotonically increasing function of model capacity. Formally, the tested claim is:
+
+> \textbf{H-E1 (existence)}: Under fixed model architecture (Pythia-style) and fixed tokens-seen budget on FineWeb, the optimal PPL threshold $\tau$\textit{ is smaller for the 7.9M-parameter model than for the 18.1M-parameter model: $\tau$}(7.9M) $\leq \tau$*(18.1M).
+
+The proposed mechanism has three steps: (1) PPL filtering changes the token distribution of the training corpus by removing high-perplexity (diverse, noisy) documents; (2) model capacity determines how well a model can exploit distributional diversity --- smaller models may overfit on noisy documents while larger models can extract signal from diverse examples; and (3) this capacity--diversity trade-off manifests as a scale-dependent optimal filtering threshold in downstream benchmark performance.
+
+\subsubsection{3.2 Experimental Design}
+
+The experiment is a fully crossed 3 $\times$ 2 $\times$ 2 $\times$ 2 factorial design:
+\begin{itemize}
+\item \textbf{PPL threshold} $\tau \in$ {20, 35, 50} (applied using GPT-2 as the reference model)
+\item \textbf{Deduplication Jaccard threshold} J $\in$ {0.7, 0.9} (MinHash-based)
+\item \textbf{Model scale}: 7.9M parameters (labeled 14M in model nomenclature), 18.1M parameters (labeled 31M)
+\item \textbf{Random seed}: {1, 2}
+\end{itemize}
+
+This yields 24 total training runs (3 $\times$ 2 $\times$ 2 $\times$ 2). The gate condition is direction-based: $\tau$\textit{(7.9M) $\leq \tau$}(18.1M), with both models above the HellaSwag random baseline of 0.25.
+
+The original hypothesis (H-CurationScale-v1) targeted 70M and 160M parameter models with 50B training tokens and formal ANCOVA (p < 0.05, partial $\eta^2 \geq$ 0.15). The experiments reported here operate at approximately $50\times$ smaller scale due to compute and storage constraints. The scope reduction is documented as a limitation.
+
+\subsubsection{3.3 Corpus Curation}
+
+The source corpus is FineWeb (HuggingFaceFW/fineweb, sample-10BT subset). 50,000 documents are streamed and processed through two curation stages:
+
+\textbf{Perplexity filtering}: Documents are scored by computing per-token negative log-likelihood loss using GPT-2 (117M parameters), truncated to 1,024 tokens, and the document-level perplexity is computed as exp(mean loss). Documents with perplexity $\leq \tau$ are retained.
+
+\textbf{Near-duplicate removal}: MinHash deduplication is applied using character n-grams of length 24, minhash length 256, seed 42. For J=0.7: num\_buckets=20, hashes\_per\_bucket=13. For J=0.9: num\_buckets=8, hashes\_per\_bucket=13. The lsh amplification threshold is approximately $t \approx (1/B)^{(1/R)}$.
+
+Retention statistics from the 50,000-document sample (as reported in experiment logs):
+\begin{itemize}
+\item $\tau =20$: 6,882--6,891 documents retained ($\approx 13.8$%; representing approximately 3.5% of the original 5,000-document subsample used in h-e1 PoC, per h-e1 validation report)
+\item $\tau =35$: 28,020--28,064 documents retained ($\approx 56.1$%)
+\item $\tau =50$: 39,951--40,020 documents retained ($\approx 80.0$%)
+\end{itemize}
+
+Note: The retention rates of 3.5\% (176/5,000), ~16\%, and 41.5\% (2,074/5,000) cited in the paper summary documents and final paper (06\_paper\_final.md) correspond to the h-e1 PoC experiment that used a 5,000-document sample. The h-e1-v2 definitive experiment used a 50,000-document sample, yielding the retention counts above. Deduplication had minimal effect: fewer than 100 additional documents were removed after deduplication in each condition, indicating FineWeb documents in this sample are largely non-duplicate.
+
+Training corpora are formed by repeat-sampling from each filtered corpus to reach approximately 1 billion tokens total. Given the small filtered corpus sizes, repetition factors are large: for $\tau =20$ with ~6,882 documents (approximately 350K tokens per the h-e1 PoC), this implies roughly thousands of repetitions to reach 1B tokens.
+
+\subsubsection{3.4 Model Architecture and Training}
+
+Models are trained from scratch using Pythia-style GPT architectures implemented in HuggingFace Transformers:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+Parameter & Value \\
+\midrule
+Architecture & GPT-2 style (Pythia-compatible) \\
+Optimizer & AdamW \\
+Learning rate & 1 $\times 10^{-3}$ \\
+LR schedule & Cosine decay to 1 $\times 10^{-4}$ \\
+Warmup steps & 50 \\
+Training steps & 500 \\
+Batch size & 131,072 tokens \\
+Context length & 2,048 tokens \\
+Total tokens & $\approx 1B$ (repeat-sampled) \\
+Hardware & NVIDIA H100 80GB \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The 7.9M-parameter model (labeled ''14M'') and 18.1M-parameter model (labeled ''31M'') are distinct Pythia-style architectures. Actual parameter counts are confirmed from experiment logs: \texttt{Model 14M-label (7.9M params)}, \texttt{Model 31M-label (18.1M params)}.
+
+A warning appears in training logs that some document token sequences exceed the model's maximum sequence length of 1,024 tokens; these are truncated. This applies across all conditions uniformly.
+
+\subsubsection{3.5 Evaluation}
+
+Each of the 24 trained models is evaluated using HellaSwag 0-shot normalized accuracy on the full validation set (10,003 examples) via the lm-evaluation-harness. No MMLU evaluation is performed, as MMLU 4-shot accuracy is at the random baseline (0.25 for 4-choice questions) for all sub-100M parameter models at this training duration, as confirmed by the preliminary h-e1 experiment.
+
+\subsubsection{3.6 Analysis}
+
+The primary analysis computes, for each model scale, the mean HellaSwag acc\_norm across seeds and deduplication conditions for each PPL threshold. The optimal threshold $\tau$\textit{ for each scale is the argmax over $\tau \in$ {20, 35, 50}. The gate criterion is $\tau$}(7.9M) $\leq \tau$*(18.1M) with both models above the random baseline.
+
+No formal ANOVA or ANCOVA was conducted for the direction-based gate, as the experiment was not powered for formal statistical inference (two seeds per condition). Contamination rate was not measured as a covariate; deduplication results indicate FineWeb is already largely clean in this sample. The deduplication $\times$ scale interaction (Prediction P3 of the original hypothesis) and learning curve convergence rate differential (Prediction P4) are not analyzed in these experiments due to disk constraints and insufficient repeated measurements.

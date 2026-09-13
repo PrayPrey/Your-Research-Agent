@@ -1,0 +1,226 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-CrossModalSafety-v1
+**Confidence Level:** 0.75
+
+**Main Hypothesis:**
+Under conditions where multimodal AI systems process combined inputs (text, image, video, audio, code), if neural binding-inspired cross-modal attention mechanisms are applied to map all modalities into a shared safety latent space with super-additive loss training, then cross-modal attack detection accuracy will exceed modality-specific baselines by >20% and UniGuard by >10%, because the binding mechanism captures emergent threat patterns invisible in individual modalities through unified representation learning.
+
+**Alternative Hypothesis (H0):**
+There is no significant difference in cross-modal attack detection performance between unified neural binding-inspired architectures and existing approaches (UniGuard's joint-signal method or modality-specific ensemble), indicating that emergent cross-modal threats either do not exist at measurable scale or are already captured by current methods.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Cross-modal attention binding | Independent | Attention-based mechanism mapping modality encoders (BERT, ViT, Wav2Vec2, CodeBERT) to shared 512-dim safety embedding space | Binary: enabled/disabled |
+| Super-additive loss weight (λ) | Independent | Hyperparameter in loss L = L_class + λ * max(0, ΣP_i - P_combined) | 0.1 - 1.0 (default: 0.5) |
+| Number of modalities | Independent | Count of modality types processed simultaneously | 2-5 modalities |
+| Cross-modal attack detection accuracy | Dependent | F1-score on cross-modal attack classification on held-out test set | 0.0 - 1.0 (target: >0.85) |
+| Super-additivity ratio | Dependent | P_combined / ΣP_individual; ratio >1.0 indicates super-additivity | Target: >1.2 |
+| False positive rate | Dependent | Proportion of benign inputs incorrectly flagged | Target: <0.05 |
+| Encoder architectures | Controlled | Fixed: BERT-base, ViT-B/16, Wav2Vec2-base, CodeBERT-base | Fixed |
+| Embedding dimension | Controlled | Shared safety space dimensionality | Fixed: 512 |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=4 steps):**
+
+```
+Step 1: Modality Encoders → Shared Safety Latent Space
+    ↓
+Step 2: Shared Space → Cross-Modal Attention Binding
+    ↓
+Step 3: Binding → Super-Additive Detection Signal
+    ↓
+Step 4: Super-Additive Signal → Improved Attack Detection (>10% over UniGuard)
+```
+
+**Step 1: Modality-specific encoders → Shared Safety Latent Space**
+- Mechanism: Contrastive learning projects heterogeneous inputs into unified 512-dim embedding
+- Evidence: CLIP-style multimodal training creates semantic bridges across modalities
+- Falsification: Embedding quality metrics < 0.7 threshold
+
+**Step 2: Shared Safety Latent Space → Cross-Modal Attention Binding**
+- Mechanism: Multi-head attention identifies correlations between modality embeddings
+- Evidence: Tan et al. (2021) bioinspired multisensory neural networks
+- Falsification: No statistically significant cross-modal attention patterns (p > 0.05)
+
+**Step 3: Cross-Modal Attention Binding → Super-Additive Detection Signal**
+- Mechanism: Explicit super-additive loss trains for emergent threat detection
+- Evidence: Nature Communications (2025) super-additive plasticity
+- Falsification: Super-additivity ratio < 1.0 after training
+
+**Step 4: Super-Additive Detection Signal → Improved Cross-Modal Attack Detection**
+- Mechanism: Enhanced signal captures patterns joint-signal approaches miss
+- Evidence: UniGuard baseline leaves ~26% improvement ceiling
+- Falsification: ≤10% improvement over UniGuard
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | CLIP, Tan et al. (2021) | Contrastive learning creates cross-modal alignment | Strong |
+| Step2 → Step3 | Krauhausen et al. (2024) | Bio-inspired associative learning | Medium |
+| Step3 → Step4 | Nature Comm (2025) | Super-additive plasticity enables emergent detection | Medium |
+| Step4 → Outcome | UniGuard (2024), SafeWatch (2024) | Baselines show room for improvement | Strong |
+
+**Key Tension:**
+- **Tension:** Tan et al. (2021) and Krauhausen et al. (2024) demonstrate neural binding on neuromorphic hardware, but our approach uses software-based transformer attention.
+- **Resolution:** This verification plan explicitly tests whether attention-as-binding produces measurable super-additivity (ratio > 1.2) as primary validation.
+
+### 1.4 Key Assumptions
+
+1. **Cross-modal attacks are prevalent and growing**
+   - Evidence: SpeechGuard 90% attack success; UniGuard cross-modal analysis
+   - If violated: Problem may not warrant approach complexity
+
+2. **Attention mechanisms can approximate neural binding**
+   - Evidence: Tan et al. (2021) cross-modal binding mechanism
+   - If violated: Architecture requires fundamental redesign
+
+3. **Contrastive learning creates meaningful shared embeddings**
+   - Evidence: CLIP, ALIGN success across modalities
+   - If violated: Modality-specific approaches remain necessary
+
+4. **Cross-modal attack datasets are obtainable**
+   - Evidence: SafeWatch 2M videos, Aegis2.0 34k samples
+   - If violated: Synthetic generation required
+
+5. **Unified safety taxonomy applies across modalities**
+   - Evidence: Stability AI AUP, Aegis2.0 12 categories
+   - If violated: Separate taxonomies needed per modality
+
+### 1.5 Scope & Boundaries
+
+**Applies to:**
+- Multimodal AI systems (2-5 modalities: text, image, video, audio, code)
+- Cross-modal jailbreak attacks
+- Batch processing and moderate-latency real-time (<200ms)
+
+**Does NOT apply to:**
+- Single-modality attacks
+- Ultra-low latency (<50ms)
+- Adversarial robustness against guardrail evasion
+- Streaming video processing
+
+**Known Limitations:**
+- Requires minimum 8GB GPU memory
+- Fine-tuning needed for new modalities
+- Performance limited by training data coverage
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Cross-Modal Attack Detection vs SOTA ~74%):**
+Our approach will achieve F1-score > 84%
+
+*Measurement*: F1-score > 84% with p < 0.05 (paired t-test vs UniGuard, n ≥ 25 runs)
+
+*Success Criteria*: F1-score > 84% (p < 0.05)
+*Falsification*: F1-score ≤ 74% (no improvement over UniGuard)
+
+**Secondary Predictions:**
+
+**P2 (Super-Additivity Validation):**
+Super-additivity ratio > 1.2 on cross-modal attack samples
+
+**P3 (Modular Expansion):**
+New modality addition via fine-tuning: <15% degradation, <20% compute
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any occur:
+1. **Primary Failure**: F1-score ≤ 74%
+2. **Mechanism Failure**: Super-additivity ratio ≤ 1.0
+3. **Comparative Failure**: No advantage on ANY dimension
+
+### 1.7 SOTA Baseline
+
+| Method | Performance | Year |
+|--------|-------------|------|
+| UniGuard | 74% detection (ASR: 25.2%) | 2024 |
+| SafeWatch | +28.2% over prior SOTA | 2024 |
+| No Defense | 18.4% detection (ASR: 81.6%) | 2024 |
+
+**Performance Tier:** Medium (70-90%)
+**Target:** 84%+ (10+ points over UniGuard)
+
+### 1.8 Statistical Verification Design
+
+**Sample Size:** n ≥ 25 runs (5 seeds × 5 attack configs)
+**Effect Size:** Cohen's d = 1.0 (large)
+**Test:** Paired t-test, α = 0.05 (one-tailed)
+**Report:** Mean diff, 95% CI, Cohen's d, p-value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does neural binding-inspired cross-modal attention achieve measurably higher accuracy than modality-specific ensemble baselines on cross-modal attacks?"
+- Maps to: Primary Prediction P1
+- Verification type: Empirical
+- Critical: MUST PASS
+
+**SH2 (Mechanism):**
+"Is the proposed 4-step causal mechanism the actual cause of improved performance?"
+- Maps to: Causal mechanism (N=4)
+- Decomposes to: H-M1 through H-M4
+- Verification type: Causal analysis with ablations
+
+**SH3 (Comparison):**
+"Does our approach outperform UniGuard by >10% on matched benchmarks?"
+- Maps to: Predictions P2/P3
+- Verification type: Comparative empirical
+
+### Readiness Checklist
+
+- [x] Hypothesis in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned (H-CrossModalSafety-v1)
+- [x] Confidence level specified (0.75)
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables operationalized
+- [x] Causal mechanism with evidence (N=4 steps)
+- [x] Key tension identified with resolution
+- [x] Assumptions list consequences if violated
+- [x] 3 testable predictions (primary marked)
+- [x] Falsification criteria defined
+- [x] Baselines identified (UniGuard, Ensemble, No Defense)
+- [x] SH1, SH2, SH3 clear
+
+### Open Questions
+
+1. **Dataset availability:** Need cross-modal attack samples; may require synthetic generation via RedAgent methodology
+
+2. **Compute requirements:** Estimate 4× A100 80GB for training with 4 parallel encoders
+
+3. **Evaluation protocol:** Compare with UniGuard released model AND reimplementation
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

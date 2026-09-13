@@ -1,0 +1,61 @@
+
+\subsubsection{3.1 Problem Formulation}
+
+Supervised weight-space property prediction is defined as follows. Given a set of trained neural networks $\{(\theta_i, y_i)\}_{i=1}^N$, where $\theta_i \in \mathbb{R}^d$ are the weight parameters and $y_i \in \mathbb{R}$ is a ground-truth property (test accuracy), an encoder $f_\phi$: $\mathbb{R}^d \rightarrow \mathbb{R}^h$ and a prediction head $g_\psi$: $\mathbb{R}^h \rightarrow \mathbb{R}$ are learned to minimize mean squared error on held-out models. Performance is measured by $R^2$ on a fixed test split shared across all encoder types.
+
+\textbf{Efficiency ratio.} The primary evaluation metric is:
+
+    $\text{EfficiencyRatio} = N_{\text{plain},90} / N_{\text{equiv},90}$
+
+where $N_{x,90}$ is the minimum training size at which encoder $x$ reaches 90\% of its peak $R^2$. A ratio $\geq 2$ indicates the equivariant encoder reaches equivalent relative performance at half or less the data required by the plain encoder. This metric focuses on the practically relevant question of how many training models are needed, not the absolute performance ceiling.
+
+\subsubsection{3.2 Dataset}
+
+The \textbf{ModelZooDataset CIFAR-10 CNN zoo} [Schürholt et al., 2022] consists of approximately 9,000 convolutional neural networks trained on CIFAR-10 with systematically varied hyperparameters (architecture, learning rate, weight decay, dropout, batch normalization). The standardized shared train/test split from the repository is used, ensuring all encoder types are trained and evaluated on identical splits. Training sizes N $\in$ {100, 250, 500, 1000, full} are evaluated; the full training set contains approximately 7,000 models and the test set is fixed at approximately 2,000 models.
+
+The CIFAR-10 zoo was selected because it is the larger and more challenging zoo. The MNIST MLP zoo was not available in the local experimental environment; extension to that zoo is noted as a scope limitation (Section 6.2).
+
+A notable property of this zoo: accuracy variance is 0.025 (models cluster near convergence), which is below the diversity threshold specified in the experimental plan. This partially violates Assumption A1 and may compress the absolute $R^2$ scale for all encoders. The relative efficiency ratio between encoder types is preserved by this property, as all encoders face the same target distribution.
+
+\subsubsection{3.3 Encoder Architectures}
+
+Three conditions are compared, all operating in the medium parameter tier (50K--200K parameters):
+
+\textbf{Flat-MLP (plain baseline).} All weight parameters are flattened into a single vector and processed by a standard MLP with 3 hidden layers, hidden dimension 256, ReLU activations (~190K parameters). This encoder is permutation-sensitive by construction: permuting neurons in any layer changes the output.
+
+\textbf{Flat-MLP + PermAug (augmented intermediate).} Identical to flat-MLP but during training each model's first hidden layer weights are randomly permuted before flattening, with $11\times$ expansion (N\_base = 100 produces 1,100 effective training samples). Augmentation effectiveness is verified: aug\_diff=4.12 >> $10^{-6}$, and dataset size is confirmed at $11\times$ base for each training size. The PermAug condition had an implementation bug in the primary experiment (H-E1) where identical random seeds produced identical augmented and non-augmented datasets; this was corrected in the follow-up experiment (H-M3). All PermAug results reported here are from the corrected implementation.
+
+\textbf{GNN-NFN (structural equivariant encoder).} The GNN-NFN architecture \citep{Kofinas2024Graph} represents each neural network as a computational graph and processes it with permutation-equivariant message-passing operations equivariant to the permutation group of each layer. Configuration: 4 layers, hidden dimension 64 (~180K parameters).
+
+DWSNets \citep{Navon2023Equivariant} was excluded from property prediction experiments because it requires M>2 fully connected layers; the CIFAR-10 CNN zoo uses 2 FC layers, creating an architectural incompatibility. DWSNets equivariance is verified structurally on synthetic 4-layer MLP weight tensors (Section 5.2) but DWSNets property prediction results are not reported.
+
+\subsubsection{3.4 Training Protocol}
+
+All encoders: Adam optimizer, learning rate $1\times 10^{-3}$, weight decay $1\times 10^{-4}$, batch size 64, 100 epochs. Hyperparameters were fixed based on full-data condition tuning and held constant across all training sizes --- a standard practice in learning curve studies. A potential confound at small N is that these hyperparameters may not be optimal for N=100, particularly for the architecturally more complex GNN-NFN; this is discussed in Section 6.2.
+
+\subsubsection{3.5 Evaluation Metrics}
+
+\begin{itemize}
+\item \textbf{Test $R^2$}: primary metric.
+\item \textbf{Sample efficiency ratio}: N\_plain,90 / N\_equiv,90 (N\_equiv,90 interpolated from the learning curve).
+\item \textbf{Bootstrap 95\% CI}: percentile method, 1,000 resamples.
+\item \textbf{PermAug fraction of equivariant gap}: ($R^{2}_PermAug - R^{2}_flat)$ / ($R^{2}_GNN-NFN - R^{2}_flat)$, measured at each training size.
+\end{itemize}
+
+\subsubsection{3.6 Equivariance Verification}
+
+To verify that equivariant encoders are structurally permutation-equivariant (not merely empirically consistent), 50 random permutations are applied to each of 200 randomly sampled CIFAR-10 zoo models and the maximum absolute output difference is recorded. This produces 10,000 checks for GNN-NFN and flat-MLP. For DWSNets (architecturally incompatible with CNN zoo weights), verification uses 50 synthetic 4-layer MLP weight tensors with 20 permutations each (1,000 checks). Equivariance is a structural architectural property independent of training; these checks are performed with randomly initialized encoder weights (H-E1 trained checkpoints were not available at the time of mechanism verification).
+
+\subsubsection{3.7 Experimental Phasing}
+
+The experiment was conducted in four sequential phases:
+
+\begin{itemize}
+\item \textbf{H-E1} (primary): GNN-NFN and flat-MLP training at all N; PermAug condition had implementation bug (identical to flat-MLP).
+\item \textbf{H-M1} (mechanism): Equivariance verification for GNN-NFN, DWSNets, and flat-MLP.
+\item \textbf{H-M2} (efficiency ratio): Learning curve analysis and efficiency ratio computation, loading H-E1 stored results.
+\item \textbf{H-M3} (PermAug): Corrected PermAug implementation, loading H-M2 baselines for flat-MLP and GNN-NFN.
+\end{itemize}
+
+All conditions share the same test split and baseline checkpoints for flat-MLP and GNN-NFN, but PermAug training was conducted in a separate phase. This design allows direct comparison but the crossover finding at N=100 should be confirmed under a fully co-trained single-experiment design.
+

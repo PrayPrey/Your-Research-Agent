@@ -1,0 +1,149 @@
+
+\subsubsection{5.1 Primary Finding: Stratum Collapse}
+
+All 25,403 benchmark items (100\%) were assigned to the lexical stratum. Zero items were assigned to the semantic or indeterminate strata.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/phase_diagram.png}
+\caption{2D contamination geometry phase diagram: all items collapse to the lexical stratum}
+\label{fig:phase_diagram}
+\end{figure}
+
+\textit{Figure 1. 2D contamination geometry phase diagram. All 25,403 benchmark items (MMLU, HellaSwag, GSM8K) plotted in max-13-gram-count × max-SBERT-cosine space. All items collapse to the lexical stratum (blue) due to degenerate SBERT similarity distributions from random corpus streaming. No semantic or indeterminate stratum items appear.}
+
+The root cause is the use of random corpus streaming for SBERT cosine computation. At 50,000 randomly sampled documents, the probability that any sampled document is semantically similar to a specific benchmark item is near zero for non-contaminated items. The 75th-percentile threshold is therefore effectively zero and is vacuously satisfied by all items. The intended three-zone structure does not form.
+
+At dry-run scale (500 documents), the same code produced apparent 3-way stratification because the smaller sample has higher cosine distribution variance by chance. At 50K documents, the distribution concentrates to near zero. This scale sensitivity is a specific failure mode: dry-run validation of stratum formation is not sufficient to predict full-scale stratum formation when the geometry feature is computed via random sampling.
+
+\subsubsection{5.2 N-gram Recall by Benchmark and Corpus}
+
+\textbf{Table 1: N-gram Recall by Benchmark and Corpus}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lllll}
+\toprule
+Benchmark & The Pile & C4 & FineWeb & Mean \\
+\midrule
+MMLU & 1.000 & 1.000 & 1.000 & 1.000 \\
+HellaSwag & 0.000 & 1.000 & 1.000 & 0.667 \\
+GSM8K & 0.000 & 0.000 & 0.000 & 0.000 \\
+**Mean** & 0.333 & 0.667 & 0.667 & 0.556 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+MMLU achieves n-gram recall = 1.0 against all three corpora. All 14,042 MMLU test items contain at least one 13-gram appearing in each of The Pile, C4, and FineWeb at 50K-document sampling.
+
+GSM8K achieves n-gram recall = 0.0 against all three corpora. No GSM8K item contains a 13-gram match in any sampled corpus document. Math problem notation and arithmetic reasoning chains do not appear as verbatim 13-gram sequences in general web corpora at this sampling scale.
+
+HellaSwag recall is 0.0 against The Pile and 1.0 against C4 and FineWeb, indicating corpus-specific overlap patterns.
+
+The mean lexical recall of 0.556 is the gate metric value. It fails the target of ≥ 0.80. This failure reflects benchmark heterogeneity: averaging MMLU (recall = 1.0) and GSM8K (recall = 0.0) in the same criterion produces a figure that is not diagnostic of either benchmark type.
+
+\subsubsection{5.3 Detector Detection Counts}
+
+\textbf{Table 2: Detector Detection Counts (Items Flagged as Contaminated)}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lllllll}
+\toprule
+Benchmark & Corpus & N-gram & Embedding & Min-K\%++ & DC-PDD & ConStat \\
+\midrule
+MMLU & Pile & 14,042 & 0 & 0 & 14,042 & 0 \\
+MMLU & C4 & 14,042 & 0 & 0 & 14,042 & 0 \\
+MMLU & FineWeb & 14,042 & 0 & 0 & 14,042 & 0 \\
+HellaSwag & Pile & 0 & 0 & 0 & 10,042 & 0 \\
+HellaSwag & C4 & 3 & 0 & 0 & 10,042 & 0 \\
+HellaSwag & FineWeb & 1 & 0 & 0 & 10,042 & 0 \\
+GSM8K & Pile & 0 & 0 & 0 & 1,319 & 0 \\
+GSM8K & C4 & 0 & 0 & 0 & 1,319 & 0 \\
+GSM8K & FineWeb & 0 & 0 & 0 & 1,319 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+N-gram flags all MMLU items in all corpora (consistent with recall = 1.0). DC-PDD flags every item in every benchmark-corpus combination. This is a consequence of Bug B3 (Section 5.5): the DCPDDDetector implementation computes $-\text{ref\_log\_prob}$ rather than $\log P_{\text{target}} - \log P_{\text{ref}}$, producing all-positive outputs regardless of true contamination status. Embedding, Min-K\%++, and ConStat produce zero detections in all conditions, reflecting both stratum collapse and implementation bugs.
+
+\subsubsection{5.4 Gate Metric Summary}
+
+\textbf{Table 3: Gate Metric Results (h-e1 EXISTENCE Sub-Hypothesis)}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Metric & Target & Actual & Status \\
+\midrule
+N-gram Recall (Lexical stratum) & ≥ 0.80 & 0.556 & FAIL \\
+N-gram Recall (Semantic stratum) & ≤ 0.40 & 0.000 (vacuous — zero semantic items) & PASS (vacuous) \\
+Min-K\%++ F1 Variance across corpora & ≥ 0.15 & 0.000 & FAIL \\
+Indeterminacy Rate & [0.10, 0.50] & 0.000 & FAIL \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Overall gate: MUST_WORK → \textbf{FAIL}. Criteria satisfied: 1 of 4 (N-gram Semantic Recall, vacuously, due to empty semantic stratum). Routing result: ROUTED_TO_PHASE_0.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/gate_metrics.png}
+\caption{Gate metric values versus targets for h-e1}
+\label{fig:gate_metrics}
+\end{figure}
+
+\textit{Figure 2. Gate metric values (bars) versus targets (dashed lines) for h-e1. N-gram lexical recall (0.556) falls below the ≥0.80 target; Min-K\%++ F1 variance (0.000) falls below the ≥0.15 target; indeterminacy rate (0.000) falls outside the [0.10, 0.50] target range.}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/indeterminacy_pie.png}
+\caption{Stratum distribution pie chart}
+\label{fig:indeterminacy_pie}
+\end{figure}
+
+\textit{Figure 3. Stratum distribution of all 25,403 benchmark items. All items (100\%) are in the lexical stratum; zero items are in the semantic or indeterminate strata.}
+
+\subsubsection{5.5 Implementation Bugs Identified}
+
+\textbf{Table 4: Implementation Bugs Identified by Validator}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Bug & Component & Implemented Behavior & Correct Behavior \\
+\midrule
+B1 & `NgramIndex.max_overlap` & Counts total matching n-grams & Max consecutive run length \\
+B2 & `StratifiedEvaluator.f1_matrix` & Scalar broadcast & Per-item computation \\
+B3 & `DCPDDDetector` & $-\text{ref\_log\_prob}$ (single model) & $\log P_{\text{target}} - \log P_{\text{ref}}$ (two models) \\
+B4 & `ConStatDetector` & Custom perplexity heuristic & `llmsanitize.contamination.constat()` API \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All four bugs were flagged by the Validator as advisory (non-blocking) issues. The single Coder-Validator cycle (1 of 5) was insufficient to resolve them. Bug B3 is the most consequential: it causes DC-PDD to produce all-positive outputs and makes Min-K\%++ F1 variance unmeasurable (variance = 0.000 reflects the bug, not true detector behavior). Bug B4 means ConStat outputs are based on a non-standard heuristic rather than the published method.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/stratum_f1_heatmap.png}
+\caption{F1 heatmap by detector and stratum}
+\label{fig:stratum_f1_heatmap}
+\end{figure}
+
+\textit{Figure 4. F1 heatmap by detector family, stratum, and corpus. Only n-gram and DC-PDD produce non-zero outputs. The DC-PDD non-zero values arise from Bug B3. Embedding, Min-K\%++, and ConStat show zero F1 across all conditions.}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/minkpp_variance.png}
+\caption{Min-K\%++ F1 variance across corpora}
+\label{fig:minkpp_variance}
+\end{figure}
+
+\textit{Figure 5. Min-K\%++ F1 variance across The Pile, C4, and FineWeb for MMLU and HellaSwag. Variance = 0.000 for all combinations, attributable to Bug B3 rather than true detector behavior.}
+
+\subsubsection{5.6 Infrastructure Validation}
+
+The core pipeline infrastructure operated correctly. N-gram index construction: The Pile index contains 37,678,937 n-grams; C4 contains 17,182,929; FineWeb contains 25,260,267. SBERT encoding: 50,000 documents encoded per corpus in approximately 5 minutes on NVIDIA H100 NVL. FAISS IndexFlatIP: functioning correctly. Full 3-benchmark × 3-corpus × 5-detector evaluation loop: completed within 94 minutes. Total generated code: 1,643 lines across 19 files.
+

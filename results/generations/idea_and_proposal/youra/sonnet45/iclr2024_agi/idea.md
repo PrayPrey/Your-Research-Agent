@@ -1,0 +1,8 @@
+# Title
+Adaptive Dual-System Architecture for LLM Reasoning: Cognitive Load-Based Neuro-Symbolic Switching
+
+# Motivation
+Large language models struggle with symbol grounding and causal reasoning under high cognitive load—two foundational requirements for AGI. Pure neural approaches achieve only 40-60% accuracy on formal reasoning tasks when context windows saturate or reasoning chains deepen. Existing neuro-symbolic systems use static task routing, missing opportunities for dynamic adaptation. Recent bounded rationality theory reveals LLM performance collapse mirrors human System 2 disengagement under cognitive load, suggesting adaptive switching mechanisms could restore reasoning capacity.
+
+# Main Idea
+We propose HC-CLANS: a hybrid-confidence cognitive load-aware neuro-symbolic architecture that monitors real-time cognitive load indicators (context utilization >70%, uncertainty >0.3, reasoning depth >5 steps) to trigger adaptive switching from neural reasoning (System 1) to symbolic reasoning (System 2 using Prolog/Z3). The core mechanism operates through four causal steps: (1) cognitive load degrades neural performance, (2) monitoring triggers symbolic switching, (3) hybrid-confidence semantic parsing (LLM-generated logic + symbolic validation) ensures translation fidelity, and (4) computational rest during symbolic processing restores neural capacity. We predict >20% improvement in both symbol grounding accuracy and causal reasoning correctness compared to pure LLM baselines, validated through paired comparison experiments (n≥25 trials) on Winograd Schema and ARC benchmarks. This operationalizes dual-process theory into implementable AGI architecture.

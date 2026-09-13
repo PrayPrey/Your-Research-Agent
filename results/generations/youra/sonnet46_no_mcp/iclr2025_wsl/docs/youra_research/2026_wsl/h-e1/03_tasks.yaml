@@ -1,0 +1,556 @@
+version: "1.1"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-05-05T10:15:00Z"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: true
+    excluded_count: 3
+    excluded_ids: ["task-011", "task-016-subtask", "task-017-subtask"]
+    excluded_reason: "Budget rebalancing — lowest parent Epic complexity (A-6: 9, A-4: 11)"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASKS  (priority order: data-prep 100-95 → setup 94 → epics 93-50 → subtasks 49-2 → failsafe 1)
+# ═══════════════════════════════════════════════════════════════════════════════
+tasks:
+
+  # ── DATA PREPARATION (priority 100-95) ──────────────────────────────────────
+
+  - id: "task-001"
+    epic: "Data Preparation"
+    title: "Download Schurholt MNIST-CNN Model Zoo"
+    description: |
+      Download the Schurholt et al. (2022) MNIST-CNN model zoo (~4,100 checkpoints).
+
+      Method 1 (preferred): pip install model-zoo-dataset
+        from modelzoo.datasets import ModelZooDataset
+        zoo = ModelZooDataset("mnist_cnn", split="all", data_dir="./data/model_zoo/")
+
+      Method 2 (fallback): git clone https://github.com/ModelZoos/ModelZooDataset
+        Follow README setup instructions; place checkpoints in ./data/model_zoo/
+
+      Verify: ~4,000+ .pt files present in data_dir with state_dict and test_accuracy keys.
+      Expected accuracy range: 0.85–0.99.
+    feature_tag: "data-preparation"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Verify data_dir contains ≥ 3,000 .pt checkpoint files
+      - Verify at least one checkpoint has 'state_dict' and 'test_accuracy' keys
+      - Verify accuracy values are in [0, 1] range
+    reference_files:
+      architecture: "03_architecture.md#ModelZooLoader"
+      logic: "03_logic.md#A-2-Data-Loading"
+      config: "03_config.md#ExperimentConfig"
+
+  # ── ENVIRONMENT SETUP (priority 94) ─────────────────────────────────────────
+
+  - id: "task-002"
+    epic: "Environment Setup"
+    title: "Install Python Dependencies"
+    description: |
+      Create requirements.txt and install all dependencies for H-E1.
+
+      Required packages:
+        torch>=1.12
+        numpy>=1.21
+        scipy>=1.7
+        matplotlib>=3.5
+        pyyaml>=5.4
+        tqdm>=4.60
+        model-zoo-dataset  (latest)
+
+      Commands:
+        pip install torch numpy scipy matplotlib pyyaml tqdm
+        pip install model-zoo-dataset   # or: git clone ModelZooDataset
+
+      Also create directory structure:
+        mkdir -p docs/youra_research/20260505_wsl/h-e1/code
+        mkdir -p docs/youra_research/20260505_wsl/h-e1/results
+        mkdir -p docs/youra_research/20260505_wsl/h-e1/figures
+        mkdir -p data/model_zoo
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - import torch, numpy, scipy, matplotlib, yaml, tqdm without errors
+      - All required directories exist
+    reference_files:
+      architecture: "03_architecture.md#External-Dependencies"
+      logic: null
+      config: "03_config.md#ExperimentConfig"
+
+  # ── EPIC IMPLEMENTATION TASKS (priority 93-50) ───────────────────────────────
+
+  - id: "task-003"
+    epic: "A-1: Project Setup"
+    title: "Implement config.py and utils.py"
+    description: |
+      Implement ExperimentConfig dataclass (config.py) and utility functions (utils.py).
+
+      config.py: ExperimentConfig dataclass with __post_init__ Path coercion:
+        data_dir, results_dir, figures_dir, zoo_name="mnist_cnn", seed=42,
+        n_per_decile=50, n_deciles=10, acc_threshold=0.01,
+        cosine_dist_threshold=0.1, orbit_proportion_gate=0.05,
+        bn_verify_sample_size=5, n_pairs property (n_per_decile * n_deciles)
+
+      utils.py:
+        set_seed(seed: int) -> None          # torch + numpy + random seeds
+        setup_logging(log_level="INFO") -> logging.Logger
+        save_results_yaml(results: Dict, path: Path) -> None
+        ensure_dirs(cfg: ExperimentConfig) -> None  # creates results_dir, figures_dir
+
+      Also create requirements.txt listing all dependencies.
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 5
+    test_requirements: |
+      - ExperimentConfig() instantiates with correct defaults
+      - n_pairs property returns 500
+      - set_seed(42) runs without error
+      - ensure_dirs creates missing directories
+    reference_files:
+      architecture: "03_architecture.md#ExperimentConfig"
+      logic: "03_logic.md#A-4-Weight-Analysis"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "task-004"
+    epic: "A-2: Data Loading"
+    title: "Implement data_loader.py"
+    description: |
+      Implement ModelZooDataset loading with dual-path fallback.
+
+      load_zoo_checkpoints(cfg: ExperimentConfig) -> List[Dict[str, Any]]:
+        Try load_via_package(cfg) first; on ImportError/Exception fall back to load_via_files(cfg).
+
+      load_via_package(cfg) -> List[Dict]:
+        from modelzoo.datasets import ModelZooDataset
+        zoo = ModelZooDataset(cfg.zoo_name, split="all", data_dir=str(cfg.data_dir))
+        return [{"state_dict": sd, "test_accuracy": acc} for sd, metrics in zoo]
+
+      load_via_files(cfg) -> List[Dict]:
+        Use Path(cfg.data_dir).glob("**/*.pt") with tqdm progress bar.
+        torch.load(p, map_location="cpu") for each file.
+        Extract state_dict and test_accuracy from checkpoint dict.
+        Return list of {"state_dict": OrderedDict, "test_accuracy": float}.
+
+      Expected output: ~4,100 dicts with float test_accuracy in [0.85, 0.99].
+    feature_tag: "data-pipeline"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - load_zoo_checkpoints returns non-empty list
+      - Each item has 'state_dict' (OrderedDict) and 'test_accuracy' (float) keys
+      - test_accuracy values in [0, 1]
+      - Fallback path works when package unavailable
+    reference_files:
+      architecture: "03_architecture.md#ModelZooLoader"
+      logic: "03_logic.md#A-2-Data-Loading"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "task-005"
+    epic: "A-3: BN Verification"
+    title: "Implement bn_verify.py"
+    description: |
+      Implement BatchNorm-free verification functions.
+
+      verify_bn_free(state_dict: Dict[str, torch.Tensor]) -> bool:
+        bn_keys = [k for k in state_dict.keys()
+                   if any(s in k.lower() for s in ['bn', 'batch_norm', 'running_mean', 'running_var'])]
+        return len(bn_keys) == 0
+
+      verify_zoo_bn_free(checkpoints: list, sample_size: int = 5, seed: int = 42) -> bool:
+        random.seed(seed)
+        sample = random.sample(checkpoints, min(sample_size, len(checkpoints)))
+        return all(verify_bn_free(c['state_dict']) for c in sample)
+
+      Gate logic: ALL sampled checkpoints must return True.
+      Expected: True (Navon et al. 2023 confirms has_bn=False for MNIST-CNN zoo).
+    feature_tag: "evaluation"
+    priority: 80
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - verify_bn_free returns True for state_dict without BN keys
+      - verify_bn_free returns False for state_dict with 'running_mean' key
+      - verify_zoo_bn_free is deterministic with fixed seed
+    reference_files:
+      architecture: "03_architecture.md#BNVerifier"
+      logic: "03_logic.md#A-4-Weight-Analysis"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "task-006"
+    epic: "A-4: Weight Analysis Pipeline"
+    title: "Implement weight_analysis.py"
+    description: |
+      Implement core weight analysis functions.
+
+      Weight tensor shapes for Conv(32)-Conv(64)-FC(128)-FC(10) MNIST-CNN:
+        conv1.weight: [32, 1, 3, 3]   conv1.bias: [32]
+        conv2.weight: [64, 32, 3, 3]  conv2.bias: [64]
+        fc1.weight:   [128, ~2304]    fc1.bias: [128]    (exact size depends on input dims)
+        fc2.weight:   [10, 128]       fc2.bias: [10]
+        Total: ~500K–1.2M parameters
+
+      flatten_weights(state_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
+        return torch.cat([p.detach().float().flatten()
+                          for k, p in state_dict.items()
+                          if 'weight' in k or 'bias' in k]).cpu()
+
+      compute_cosine_distance(w1: torch.Tensor, w2: torch.Tensor) -> float:
+        return (1.0 - F.cosine_similarity(w1.unsqueeze(0), w2.unsqueeze(0))).item()
+
+      stratified_pair_sample(checkpoints, n_per_decile=50, acc_threshold=0.01, seed=42):
+        np.random.seed(seed)
+        accuracies = np.array([c['test_accuracy'] for c in checkpoints])
+        decile_bins = np.percentile(accuracies, np.arange(0, 110, 10))
+        pairs = []
+        for d in range(10):
+            lo, hi = decile_bins[d], decile_bins[d+1]
+            in_decile = [c for c in checkpoints if lo <= c['test_accuracy'] <= hi]
+            sampled = 0
+            indices = list(range(len(in_decile)))
+            np.random.shuffle(indices)
+            for i in indices:
+                for j in indices:
+                    if i >= j: continue
+                    if abs(in_decile[i]['test_accuracy'] - in_decile[j]['test_accuracy']) < acc_threshold:
+                        pairs.append((in_decile[i], in_decile[j], d))
+                        sampled += 1
+                        if sampled >= n_per_decile: break
+                if sampled >= n_per_decile: break
+        return pairs
+    feature_tag: "data-pipeline"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      - flatten_weights returns 1D float32 CPU tensor
+      - compute_cosine_distance returns value in [0, 2]
+      - compute_cosine_distance of identical vectors ≈ 0
+      - stratified_pair_sample returns ≤ 500 pairs
+      - Output is deterministic with fixed seed
+    reference_files:
+      architecture: "03_architecture.md#WeightAnalysis"
+      logic: "03_logic.md#A-4-Weight-Analysis"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "task-007"
+    epic: "A-5: Orbit Statistics & Gate"
+    title: "Implement orbit_statistics.py"
+    description: |
+      Implement orbit statistics computation and gate evaluation.
+
+      compute_orbit_statistics(pairs, cosine_dist_threshold=0.1) -> Tuple[List[Dict], float]:
+        distances = []
+        for m1, m2, decile in pairs:
+            w1 = flatten_weights(m1['state_dict'])
+            w2 = flatten_weights(m2['state_dict'])
+            dist = compute_cosine_distance(w1, w2)
+            distances.append({'decile': decile, 'cosine_dist': dist,
+                               'is_orbit_candidate': dist > cosine_dist_threshold})
+        proportion = float(np.mean([d['is_orbit_candidate'] for d in distances]))
+        return distances, proportion
+
+      per_decile_proportions(distances: List[Dict]) -> Dict[int, float]:
+        result = {}
+        for d in range(10):
+            decile_dists = [x for x in distances if x['decile'] == d]
+            if decile_dists:
+                result[d] = float(np.mean([x['is_orbit_candidate'] for x in decile_dists]))
+        return result
+
+      evaluate_gate(bn_free: bool, orbit_proportion: float, threshold=0.05) -> Dict:
+        passed = bn_free and (orbit_proportion > threshold)
+        return {'passed': passed, 'bn_free': bn_free,
+                'orbit_proportion': orbit_proportion, 'threshold': threshold,
+                'message': 'PASS' if passed else 'FAIL'}
+    feature_tag: "evaluation"
+    priority: 70
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - compute_orbit_statistics returns (list, float) tuple
+      - orbit_proportion in [0, 1]
+      - evaluate_gate returns dict with 'passed' bool key
+      - evaluate_gate PASS when bn_free=True and proportion=0.5 > 0.05
+      - evaluate_gate FAIL when bn_free=False or proportion=0.01 < 0.05
+    reference_files:
+      architecture: "03_architecture.md#OrbitStatistics"
+      logic: "03_logic.md#A-5-Orbit-Statistics-Gate"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "task-008"
+    epic: "A-6: Visualization"
+    title: "Implement visualization.py"
+    description: |
+      Implement 4 figure generators saving to cfg.figures_dir.
+
+      plot_gate_metrics(orbit_proportion, per_decile, threshold, save_path):
+        Bar chart: overall orbit_proportion vs threshold (horizontal line at 0.05).
+        Include per-decile bars. Title: "H-E1 Gate Metrics: Orbit Candidate Proportion".
+        Colors: green if proportion > threshold, red otherwise.
+
+      plot_cosine_dist_histogram(distances, save_path):
+        Histogram of cosine_dist values for all 500 pairs, colored by decile.
+        X-axis: cosine distance [0, 2]. Vertical line at threshold=0.1.
+
+      plot_acc_vs_distance(pairs, distances, save_path):
+        Scatter: |Δacc| (y-axis) vs cosine_dist (x-axis) for all pairs.
+        Color by decile. Vertical line at cosine_dist=0.1.
+
+      plot_per_decile_proportion(per_decile, threshold, save_path):
+        Bar chart: orbit proportion per accuracy decile (0-9).
+        Horizontal line at threshold=0.05.
+
+      generate_all_figures(distances, pairs, orbit_proportion, per_decile, cfg):
+        Call all 4 plot functions with cfg.figures_dir paths, DPI=150.
+
+      Use VisualizationConfig from config.py for figure sizes and DPI.
+    feature_tag: "evaluation"
+    priority: 65
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - generate_all_figures runs without error with mock data
+      - 4 PNG files created in figures_dir
+      - Files are non-empty (> 0 bytes)
+    reference_files:
+      architecture: "03_architecture.md#Visualization"
+      logic: "03_logic.md#A-5-Orbit-Statistics-Gate"
+      config: "03_config.md#VisualizationConfig"
+
+  - id: "task-009"
+    epic: "A-7: Orchestration & Results"
+    title: "Implement run_experiment.py"
+    description: |
+      Implement main experiment orchestration script.
+
+      main(cfg: ExperimentConfig) -> Dict[str, Any]:
+        1. set_seed(cfg.seed); setup_logging(); ensure_dirs(cfg)
+        2. checkpoints = load_zoo_checkpoints(cfg)          # ~4100 items
+        3. bn_free = verify_zoo_bn_free(checkpoints, cfg.bn_verify_sample_size, cfg.seed)
+        4. pairs = stratified_pair_sample(checkpoints, cfg.n_per_decile, cfg.acc_threshold, cfg.seed)
+        5. distances, orbit_proportion = compute_orbit_statistics(pairs, cfg.cosine_dist_threshold)
+        6. per_decile = per_decile_proportions(distances)
+        7. gate_result = evaluate_gate(bn_free, orbit_proportion, cfg.orbit_proportion_gate)
+        8. generate_all_figures(distances, pairs, orbit_proportion, per_decile, cfg)
+        9. results = {gate: gate_result, statistics: {mean_cosine_dist, std_cosine_dist,
+                      per_decile_proportions, n_pairs}, metadata: {hypothesis_id, date, seed, zoo_name}}
+        10. save_results_yaml(results, cfg.results_dir / "h_e1_results.yaml")
+        11. Print gate summary: BN-free status + orbit_proportion + PASS/FAIL
+        12. return results
+
+      if __name__ == "__main__": ExperimentConfig() → main(cfg)
+
+      Gate reporting output format (FR-8.1/8.2):
+        H-E1 Gate: PASS/FAIL
+          BN-free: True/False
+          Orbit proportion: 0.XXX (threshold: >0.05)
+    feature_tag: "experiment"
+    priority: 60
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - main() runs end-to-end with real or mock data
+      - h_e1_results.yaml created with required keys
+      - Gate result printed to stdout
+      - Returns dict with 'gate', 'statistics', 'metadata' keys
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md#A-5-Orbit-Statistics-Gate"
+      config: "03_config.md#ExperimentConfig"
+
+  # ── SUBTASKS — Logic Agent (priority 49-20) ──────────────────────────────────
+
+  - id: "task-010"
+    epic: "A-4: Weight Analysis Pipeline"
+    title: "L-4-1: flatten_weights edge cases and tensor shape validation"
+    description: |
+      Implement and test flatten_weights for edge cases:
+      - Handle state_dicts with non-standard key names (filter by 'weight'/'bias' substring)
+      - Handle mixed precision (convert to float32 explicitly)
+      - Validate output shape matches expected total parameter count
+      - Document expected tensor shapes for MNIST-CNN: conv1[32,1,3,3], conv2[64,32,3,3],
+        fc1[128,N], fc2[10,128] plus all bias vectors
+      - Add assertion: output.dtype == torch.float32, output.device == cpu
+    feature_tag: "data-pipeline"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - flatten_weights handles missing bias keys gracefully
+      - Output is always float32 CPU tensor
+      - Output shape consistent across calls with same state_dict
+    reference_files:
+      architecture: "03_architecture.md#WeightAnalysis"
+      logic: "03_logic.md#A-4-Weight-Analysis"
+      config: null
+
+  - id: "task-012"
+    epic: "A-2: Data Loading"
+    title: "L-2-1: load_via_package ModelZooDataset API integration"
+    description: |
+      Implement load_via_package with correct ModelZooDataset API:
+      - Handle different API versions (zoo[i] vs iter(zoo))
+      - Extract state_dict and metrics correctly from dataset items
+      - Convert metrics dict to float test_accuracy
+      - Add tqdm progress bar for loading indication
+      - Return consistent format: [{'state_dict': OrderedDict, 'test_accuracy': float}]
+      - Raise ImportError cleanly if modelzoo package not installed
+        (allows fallback to load_via_files in load_zoo_checkpoints)
+    feature_tag: "data-pipeline"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Returns list with correct dict structure
+      - Raises ImportError if modelzoo not available (not other exception types)
+      - test_accuracy values are Python floats (not tensors)
+    reference_files:
+      architecture: "03_architecture.md#ModelZooLoader"
+      logic: "03_logic.md#A-2-Data-Loading"
+      config: null
+
+  - id: "task-013"
+    epic: "A-2: Data Loading"
+    title: "L-2-2: load_via_files direct .pt checkpoint loading"
+    description: |
+      Implement load_via_files for direct .pt file loading:
+      - Glob patterns: cfg.data_dir/**/*.pt and cfg.data_dir/**/*.pth
+      - Handle checkpoint formats:
+          Format A: {'state_dict': ..., 'metrics': {'test_accuracy': float}}
+          Format B: {'state_dict': ..., 'test_accuracy': float}
+          Format C: state_dict directly (no wrapper dict)
+      - Use map_location="cpu" for all torch.load calls
+      - Skip corrupt files with warning (try/except per file)
+      - tqdm progress bar with total file count
+      - Raise FileNotFoundError if data_dir has no .pt/.pth files
+    feature_tag: "data-pipeline"
+    priority: 35
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Handles all 3 checkpoint formats
+      - Corrupt files skipped with warning, not crash
+      - Raises FileNotFoundError on empty directory
+    reference_files:
+      architecture: "03_architecture.md#ModelZooLoader"
+      logic: "03_logic.md#A-2-Data-Loading"
+      config: null
+
+  - id: "task-014"
+    epic: "A-5: Orbit Statistics & Gate"
+    title: "L-5-1: compute_orbit_statistics memory-efficient implementation"
+    description: |
+      Implement memory-efficient compute_orbit_statistics:
+      - Flatten weights on-the-fly per pair (do NOT pre-flatten all ~4100 models)
+      - Use tqdm progress bar for 500-pair loop
+      - Store only scalar cosine_dist per pair (not weight tensors)
+      - Memory budget: ~500 pairs × 2 × ~5MB = manageable but flatten on-demand
+      - Log progress every 100 pairs
+      - Return format: (List[{'decile':int,'cosine_dist':float,'is_orbit_candidate':bool}], float)
+    feature_tag: "evaluation"
+    priority: 30
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Returns correct orbit_proportion (fraction of is_orbit_candidate=True)
+      - orbit_proportion in [0.0, 1.0]
+      - Works with 10 mock pairs
+    reference_files:
+      architecture: "03_architecture.md#OrbitStatistics"
+      logic: "03_logic.md#A-5-Orbit-Statistics-Gate"
+      config: null
+
+  - id: "task-015-subtask"
+    epic: "A-5: Orbit Statistics & Gate"
+    title: "L-5-2: per_decile_proportions and gate reporting format"
+    description: |
+      Implement per_decile_proportions and finalize gate result format:
+      - per_decile_proportions: return {0: float, 1: float, ..., 9: float} for all 10 deciles
+        Handle missing deciles (no pairs sampled) → proportion = None or 0.0
+      - evaluate_gate: return dict matching h_e1_results.yaml gate schema:
+          {'passed': bool, 'bn_free': bool, 'orbit_proportion': float,
+           'threshold': float, 'message': 'PASS'/'FAIL'}
+      - Print gate summary to stdout matching FR-8.1/FR-8.2 format:
+          H-E1 Gate: PASS
+            BN-free: True
+            Orbit proportion: 0.412 (threshold: >0.05)
+    feature_tag: "evaluation"
+    priority: 25
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - per_decile_proportions returns dict with int keys 0-9
+      - evaluate_gate message is exactly 'PASS' or 'FAIL'
+      - Gate output printed to stdout
+    reference_files:
+      architecture: "03_architecture.md#OrbitStatistics"
+      logic: "03_logic.md#A-5-Orbit-Statistics-Gate"
+      config: "03_config.md#ResultsOutputSchema"
+
+  # ── SUBTASKS — Config Agent (priority 20-10) ─────────────────────────────────
+
+  # ── FAILSAFE (priority 1) ────────────────────────────────────────────────────
+
+  - id: "task-failsafe"
+    epic: "Pipeline Continuation"
+    title: "Failsafe: Gate Evaluation and Phase 3 → Phase 4 Handoff"
+    description: |
+      Pipeline continuation checkpoint — executed last in Phase 4.
+
+      Verify H-E1 MUST_WORK gate:
+        1. Run complete experiment: python h-e1/code/run_experiment.py
+        2. Read h-e1/results/h_e1_results.yaml
+        3. Check gate.passed == True
+        4. Check gate.bn_free == True
+        5. Check gate.orbit_proportion > 0.05
+        6. Verify all 4 figures exist in h-e1/figures/
+
+      Gate PASS: Update verification_state.yaml h-e1.gate.satisfied = true
+      Gate FAIL: Update verification_state.yaml h-e1.gate.satisfied = false
+                 Report failure details and stop pipeline for this hypothesis.
+
+      This task ensures Phase 4 fully validates the MUST_WORK gate before
+      signaling completion to the hypothesis loop orchestrator.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: |
+      - h_e1_results.yaml exists and is valid YAML
+      - gate.passed key present
+      - 4 figure files exist
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md#A-5-Orbit-Statistics-Gate"
+      config: "03_config.md#ResultsOutputSchema"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUDGET SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+budget_summary:
+  data_preparation: 1    # task-001: Download model zoo
+  environment_setup: 1   # task-002: Install dependencies
+  epic_tasks: 7          # task-003 through task-009 (A-1 through A-7)
+  subtasks: 5            # task-010, task-012, task-013, task-014, task-015 (L-4-1, L-2-1/2, L-5-1/2)
+  failsafe: 1            # task-failsafe
+  total: 15              # Within LIGHT budget ✓ (3 subtasks excluded via rebalancing)

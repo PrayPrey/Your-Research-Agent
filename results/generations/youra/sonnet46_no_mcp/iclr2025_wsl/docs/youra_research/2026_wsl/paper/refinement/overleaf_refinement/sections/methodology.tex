@@ -1,0 +1,48 @@
+
+\subsubsection{3.1 Problem Formulation}
+
+Let Z = {(wᵢ, aᵢ)}ᵢ₌₁ᴺ be a model zoo, where wᵢ is the weight tensor of model i and aᵢ ∈ [0,1] is its ground-truth test accuracy. A weight-space encoder f_θ: W → ℝᵈ maps weight tensors to embeddings, from which a prediction head g_ψ: ℝᵈ → ℝ predicts accuracy. Performance is measured using Spearman rank correlation ρ between predicted and ground-truth accuracy ranks on a held-out test set.
+
+\subsubsection{3.2 Encoder Architectures}
+
+Three encoders are compared, representing increasing levels of permutation symmetry exploitation.
+
+\textbf{Flat MLP (no symmetry).} All weight tensors are concatenated into a single vector w_flat ∈ ℝ²⁴⁶⁴ and passed through a fully-connected MLP with hidden dimensions [193] and embedding dimension 128. Width 193 is determined by capacity matching to approximately 500K parameters. This results in a single hidden layer of width 193 for a 2,464-dimensional input — a bottleneck whose implications are discussed in Section 6.2 (Limitation L2).
+
+\textbf{Deep Sets (permutation-invariant).} A shared per-element MLP φ processes each neuron's weight vector; representations are summed for a permutation-invariant embedding \citep{Zaheeretal2017}. Configuration: φ_hidden = 256, ρ_hidden = 256, embed_dim = 128.
+
+\textbf{NFN (permutation-equivariant).} The equivariant weight-space network of Navon et al. [2023] with n_layers = 3 equivariant layers and channel_dim = 112. By construction, permuting neurons in the encoded network produces a corresponding permutation in NFN's representations, and the final embedding is identical for all permutation-equivalent configurations.
+
+\textbf{Table 1.} Encoder configurations and parameter counts.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Encoder & Architecture & Parameters & Within ±5\% of 500K? \\
+\midrule
+Flat MLP & hidden_dims=[193], embed_dim=128 & 500,706 & Yes \\
+Deep Sets & phi_hidden=256, rho_hidden=256, embed_dim=128 & 471,936 & Yes \\
+NFN & channel_dim=112, n_layers=3, embed_dim=128 & 521,953 & Yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Note: The flat MLP evaluated in the primary benchmark (H-M3) is an untrained instance (random weights, 500,706 params). The trained flat MLP from H-M1 has 500,577 parameters (ρ = 0.1041); the 129-parameter difference reflects a minor instantiation difference. The trained checkpoint was not available at the time of H-M3 evaluation.
+
+\subsubsection{3.3 Capacity Matching}
+
+The target parameter range is [475K, 525K] (500K ± 5\%). Per-architecture width grid search was used to achieve this for each encoder type. All three encoders fall within this range (Table 1).
+
+\subsubsection{3.4 Permutation Sensitivity Score}
+
+The permutation sensitivity score directly measures the capacity-wasting mechanism:
+
+sensitivity_score = E[‖f(w) − f(σ(w))‖₂] / E[‖f(w) − f(w')‖₂]
+
+where the numerator is the mean L2 distance between embeddings of permutation-equivalent pairs (w, σ(w)), and the denominator is the mean L2 distance between random non-equivalent pairs (w, w'). A score near 0 indicates equivariant behavior; a score near 1 indicates inability to identify permutation equivalence. Scores are computed over 500 pairs stratified across 10 accuracy deciles (50 pairs per decile).
+
+\subsubsection{3.5 Training Protocol}
+
+All trained encoders use identical hyperparameters: Adam optimizer (β₁ = 0.9, β₂ = 0.999), learning rate 10⁻³ with cosine annealing to 10⁻⁶ over 150 epochs, batch size 32, weight decay 10⁻⁴, MSE loss, seed 42. Bootstrap CIs use 1,000 paired resamples on test-set predictions.
+

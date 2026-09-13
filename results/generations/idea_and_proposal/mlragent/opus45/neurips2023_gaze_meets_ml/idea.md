@@ -1,0 +1,9 @@
+﻿# Title: Gaze-Guided Curriculum Learning for Sample-Efficient Reinforcement Learning
+
+## Motivation
+Reinforcement learning agents often struggle with sample efficiency, requiring millions of interactions to learn tasks that humans master quickly. A key reason is that RL agents lack human-like attentional priors about which environmental features matter. Human eye gaze naturally reveals a curriculum of attention—from simple, salient features to complex, task-relevant patterns. By leveraging eye-tracking data from humans performing RL tasks, we can create an attention-guided curriculum that dramatically accelerates agent learning while improving interpretability of learned policies.
+
+## Main Idea
+We propose a framework that uses human gaze data to construct a dynamic curriculum for RL training. First, we collect eye-tracking data from humans performing target tasks and extract temporal attention patterns, identifying which visual regions humans prioritize at different skill levels. Second, we train a gaze prediction model that estimates human attention distributions for novel states. Third, we design a curriculum mechanism that: (1) masks state observations based on predicted gaze saliency, starting with high-attention regions only; (2) progressively expands the observable state space as agent performance improves; and (3) uses gaze-weighted reward shaping to encourage human-like exploration.
+
+Expected outcomes include 3-5x improvement in sample efficiency on visual RL benchmarks (Atari, DMControl) and more interpretable policies whose attention aligns with human patterns. This bridges human cognition with AI learning, enabling more natural human-AI coordination.

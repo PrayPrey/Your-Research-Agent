@@ -1,0 +1,127 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-02T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "H-D1: Source-Alignment Hypothesis for Code SFT"
+  hypothesis_id: "H-D1"
+  core_claim: |
+    Under controlled conditions (post-dedup, problem-count matched, token-budget equalized,
+    supervision-format normalized), SFT training source identity produces statistically significant
+    and directionally consistent differences in pass@1 on held-out HumanEval+ and MBPP+,
+    because training-benchmark distributional alignment (measured by code-embedding cosine
+    similarity) governs post-pretraining SFT specialization.
+  mechanism: |
+    Three-step causal chain:
+    1. Different code sources (HumanEval-train, MBPP-train, LeetCode) define structurally distinct
+       conditional distributions P_train(x,y) over problem-solution pairs.
+    2. SFT gradient updates directionally bias pretrained weights toward P_train, producing
+       stylistic and structural representational specialization.
+    3. The trained model's pass@1 on evaluation benchmark B is higher when P_train is
+       distributionally closer to P_test(B), because the fine-tuned weights align with the
+       test distribution.
+  predictions:
+    - P1: "Source identity has statistically significant main effect on pass@1 (mixed-effects model p < 0.05, ≥2.0 pp effect) for at least one source-benchmark pair at 1.3B"
+    - P2: "Cross-benchmark transfer asymmetry: HumanEval-only > MBPP-only on HumanEval+, MBPP-only > HumanEval-only on MBPP+ (inversion pattern), consistent across ≥2/3 seeds"
+    - P3: "Spearman rank correlation between code-embedding distance (train-to-test) and pass@1 rank is statistically significant via permutation test (p < 0.05) for at least one model size"
+
+variables_summary:
+  independent: "SFT training source condition (categorical: HumanEval-only, MBPP-only, LeetCode-only, Equal-mix) and model size (1.3B, 7B)"
+  dependent_primary: "pass@1 on HumanEval+ (164 problems, greedy decoding, EvalPlus)"
+  controlled: "Total training tokens, unique-problem count × repetition rate, supervision format (standardized prompt template), deduplication threshold (cosine sim > 0.95, all-MiniLM-L6-v2), random seed (3 per condition)"
+
+null_hypothesis:
+  h0_statement: |
+    All four source conditions (HumanEval-only, MBPP-only, LeetCode-only, Equal-mix) produce
+    pass@1 within ±1.5 percentage points of each other on both HumanEval+ and MBPP+ at both
+    1.3B and 7B model sizes, i.e., source identity is not practically significant for code SFT
+    at this scale and token budget.
+  statistical_test: "Linear mixed-effects model (pass@1 ~ source_condition + (1|problem) + covariates) with Holm-Bonferroni pairwise correction; problem-level paired bootstrap as supplementary"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First controlled source-identity ablation for code SFT producing a 4-source × 2-benchmark × 2-model-size transfer matrix, combined with a distributional alignment mechanistic claim (P3) validated via permutation test."
+  differentiation_summary: |
+    DoReMi/DomainPilot/Chameleon: domain mixture optimization for general LLMs or pretraining — not code-specific SFT source-identity isolation.
+    Lv et al. (2025): data selection/quality filtering within a single source — not source dataset identity ablation.
+    Chen et al. (2024): atomic vs synthetic source types — not HumanEval vs MBPP vs LeetCode identity comparison.
+    DeepSeek-Coder, WizardCoder, Magicoder: use mixed sources but never isolate single-source conditions for controlled measurement.
+    No prior work produces a cross-benchmark transfer matrix under single-source controlled conditions.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "deepseek-ai/deepseek-coder-1.3b-base"
+    - "deepseek-ai/deepseek-coder-7b-base-v1.5"
+  datasets:
+    - "openai_humaneval (training split: 164 problems)"
+    - "google-research-datasets/mbpp (training split: 374 problems)"
+    - "newfacade/LeetCodeDataset (subsampled to match unique-problem count)"
+    - "Equal-mix (equal proportion from the three above, token-budget matched)"
+  baselines:
+    - "DeepSeek-Coder-1.3B-Base no-SFT (zero-shot)"
+    - "DeepSeek-Coder-7B-Base no-SFT (zero-shot)"
+    - "Equal-mix condition (diversity baseline / negative control)"
+
+measurement_plan:
+  data_collection:
+    - source: "HumanEval train problems (openai_humaneval, HuggingFace) — 164 training-eligible problems"
+    - source: "MBPP train split (google-research-datasets/mbpp, HuggingFace) — 374 problems"
+    - source: "LeetCodeDataset (newfacade/LeetCodeDataset, GitHub) — subsampled N to match unique-problem count"
+  procedure:
+    - step: "Pre-experiment: measure per-source dedup yield (all-MiniLM-L6-v2, cosine sim > 0.95 vs HumanEval+ and MBPP+ test sets). Report retention rates per source."
+    - step: "Pre-experiment: compute code-embedding mean pairwise cosine similarity between each source and each test benchmark (CodeBERT and frozen DeepSeek embeddings). Establish P3 ground truth."
+    - step: "Normalize supervision format: standardized prompt template applied uniformly across all source conditions."
+    - step: "Construct token-budget-matched, problem-count-matched post-dedup training sets for all 4 conditions."
+    - step: "Run 4 conditions × 2 model sizes × 3 seeds = 24 SFT runs using TRL SFTTrainer + deepseek-ai/DeepSeek-Coder fine-tuning scripts."
+    - step: "Evaluate each checkpoint on HumanEval+ and MBPP+ via EvalPlus harness (greedy decoding, temperature=0)."
+    - step: "Fit linear mixed-effects models per benchmark; compute pairwise contrasts with Holm-Bonferroni correction; run permutation test for P3."
+  success_criteria:
+    - "P1: mixed-effects model source_condition fixed effect p < 0.05, minimum effect ≥2.0 pp for ≥1 pairwise contrast at 1.3B"
+    - "P2: directional inversion of HumanEval-only vs MBPP-only across benchmarks, consistent ≥2/3 seeds"
+    - "P3: Spearman ρ > 0 with permutation test p < 0.05 for ≥1 model size"
+
+validation:
+  internal_validity:
+    - "Post-dedup token-matched problem-count-matched training sets eliminate dataset size confound"
+    - "Standardized supervision format eliminates prompt scaffolding confound"
+    - "3 seeds per condition provides noise estimate for mixed-effects variance decomposition"
+    - "Equal-mix negative control tests diversity vs alignment disambiguation"
+    - "1.3B vs 7B scale comparison probes pretraining co-exposure confound"
+  external_validity:
+    - "DeepSeek-Coder-Base is a broadly used open code LLM — findings apply to similar decoder-only base models"
+    - "HumanEval and MBPP are standard, widely adopted code generation benchmarks — results are interpretable by the full community"
+    - "Token budgets (~48 compute-hours on 5× H100) are accessible to small research labs — practical relevance is high"
+    - "Null result (source identity not significant) is equally valuable for external validity — liberates practitioners from curation obsession"
+
+discussion_synthesis:
+  key_insights:
+    - "Source identity is a distributional variable, not just a label — must be operationalized as a post-dedup, token-matched, format-normalized intervention to be causally interpretable"
+    - "The equal-mix condition serves as a structural falsifier: dominance → diversity beats alignment; intermediate → specialization-plasticity tradeoff confirmed"
+    - "Statistical power is the critical constraint given HumanEval's small test set (164 problems) — mixed-effects model with problem-level random effects is necessary, not optional"
+    - "Pretraining co-exposure (GitHub → LeetCode) is the primary confound; 1.3B vs 7B comparison is its diagnostic"
+    - "The cross-benchmark inversion prediction (LeetCode > MBPP on HumanEval, MBPP > LeetCode on MBPP) is the single most compelling confirmation of the alignment mechanism"
+  breakthrough_moments:
+    - "Exchange 6 (Dr. Ally): First complete formulation of H-D1 integrating post-dedup matching, distributional distance prediction, and directional consistency requirement"
+    - "Exchange 8 (Prof. Rex): Pre-registration of directional rank orderings per source-benchmark pair — converted the hypothesis from descriptive to falsifiable"
+    - "Exchange 12 (Dr. Ally): Final strengthened hypothesis incorporating all confound mitigations and fully pre-specified P1/P2/P3 criteria"
+    - "Exchange 15 (Dr. Sage): Articulation of the 'geometry-aware specialization' framing — elevates from ablation to conceptual contribution"
+  resolved_tensions:
+    - "Token budget vs unique-problem count: resolved by matching both (Prof. Rex's dual-matching requirement)"
+    - "Supervision format confound: resolved by standardized prompt template across all sources (Prof. Pax's requirement)"
+    - "Statistical fragility of P3 (n=4): resolved by permutation test + dual-encoder robustness check (Prof. Vera's requirement)"
+    - "Scope explosion risk (AST morphology, scaling law, CPT): resolved by deferring to future work (Dr. Sage's boundary)"

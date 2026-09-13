@@ -1,0 +1,276 @@
+# Phase 2A Extended: DatasetGuard Hypothesis Summary
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Hypothesis ID:** H-ICLR2025-MLDPR-001
+**Status:** ✅ READY for Phase 2B Verification Planning
+
+---
+
+## Executive Summary
+
+**Core Innovation**: DatasetGuard is the first runtime validation framework that prevents out-of-context dataset misuse in ML pipelines by intercepting dataset loading operations, parsing machine-readable metadata (Croissant-RAI), and enforcing graduated severity-based responses.
+
+**Key Differentiator**: Transforms passive documentation frameworks (Data Cards, Datasheets) into active enforcement mechanisms by applying software engineering runtime verification principles to ML dataset governance.
+
+**Expected Impact**:
+- 60%+ reduction in critical dataset misuse incidents (deprecated datasets, severe domain shifts)
+- <10% false positive rate (acceptable user experience)
+- 70%+ user acceptance (helpful, not intrusive)
+- Repository administrators gain actionable misuse analytics for governance
+
+---
+
+## 1. Hypothesis Statement
+
+### Main Hypothesis
+
+A runtime dataset validation framework that intercepts dataset loading operations in ML pipelines can effectively prevent out-of-context dataset misuse by parsing machine-readable metadata (Croissant-RAI), extracting usage constraints through NLP-based domain matching (Sentence-BERT embeddings with cosine similarity >0.7) and statistical distribution validation (Kolmogorov-Smirnov test, p<0.05), and enforcing graduated severity-based responses (log warnings for minor domain shifts, confirm prompts for moderate distribution mismatches, exception blocking for deprecated datasets), thereby reducing critical misuse incidents by at least 60% compared to manual documentation reading baselines while maintaining <10% false positive rate.
+
+### Null Hypothesis (H0)
+
+Runtime interception of dataset loading operations with automated constraint validation provides no significant improvement over existing passive documentation frameworks in preventing out-of-context dataset misuse (misuse reduction <20%, false positive rate >30%, or user abandonment >40%).
+
+### Variables
+
+| Type | Variable | Measurement |
+|------|----------|-------------|
+| **IV** | Runtime Validation Enforcement | Binary: enabled/disabled |
+| **DV1** | Misuse Detection Rate | % of out-of-context usage detected |
+| **DV2** | False Positive Rate | % of legitimate cases incorrectly flagged |
+| **DV3** | User Acceptance | Likert scale 1-5 helpfulness rating |
+
+---
+
+## 2. Contributions
+
+### Theoretical
+
+**T1**: Formalization of "dataset usage contracts" analogous to software API contracts—first framework bridging software engineering contract theory and ML dataset governance
+
+**T2**: Cross-domain transfer of software runtime verification principles (AspectJ-inspired interception) to ML dataset loading context
+
+### Methodological
+
+**M1**: Runtime interception architecture for ML frameworks (lightweight Python wrapper design pattern)
+
+**M2**: Hybrid constraint extraction (Croissant-RAI + README fallback with NLP-based parsing)
+
+**M3**: Graduated severity-based enforcement policy (yellow/orange/red tiers balancing strictness with autonomy)
+
+**M4**: Statistical + NLP hybrid validation (Sentence-BERT domain matching + KS test distribution comparison)
+
+### Practical
+
+**P1**: Prevents critical dataset misuse before training (deprecated datasets, severe domain shifts, distribution mismatches)
+
+**P2**: Misuse analytics dashboard for repository administrators (governance insights)
+
+**P3**: Complements existing documentation frameworks (Data Cards, Croissant-RAI) with enforcement layer
+
+**P4**: Open-source community tool (pip-installable, MIT license)
+
+---
+
+## 3. Validation Plan
+
+### Sub-Hypothesis 1: Interception Mechanism
+
+**Claim**: Python wrapper can intercept HuggingFace `datasets.load_dataset` with <1 second overhead and 100% API compatibility
+
+**Validation**: Benchmark on 50 diverse datasets; measure latency and compatibility
+
+**Success Criteria**: Median latency <500ms, 95th percentile <1s, zero API breaks
+
+### Sub-Hypothesis 2: Accuracy
+
+**Claim**: Sentence-BERT achieves ≥80% accuracy for severe domain shifts; KS test detects ≥85% of distribution mismatches with <15% FP
+
+**Validation**: 100 manually labeled dataset-task pairs; ROC analysis for threshold optimization
+
+**Success Criteria**: F1 ≥0.80 for severe shifts, F1 ≥0.70 for moderate shifts, FP <15%
+
+### Sub-Hypothesis 3: User Impact
+
+**Claim**: DatasetGuard reduces critical misuse by ≥60% with ≥70% user acceptance
+
+**Validation**: Randomized controlled user study (n=60: 30 control, 30 treatment)
+
+**Success Criteria**: Incident reduction ≥60%, FP <10%, satisfaction ≥4.0/5.0
+
+---
+
+## 4. Key Assumptions
+
+**A1**: ≥30% of top 100 HuggingFace datasets have Croissant-RAI or structured READMEs (testable via survey)
+
+**A2**: Dataset metadata contains domain descriptions sufficient for Sentence-BERT encoding (testable via manual annotation)
+
+**A3**: User context inferable from model architecture or explicit parameters (testable via API prototype)
+
+**A4**: Distribution statistics accessible via metadata or sampling (testable via HuggingFace API)
+
+**A5**: Escape hatch (`skip_validation=True`) sufficient for legitimate novel use cases (testable via user study)
+
+**A6**: ML researchers respond to evidence-based warnings (testable via behavioral study)
+
+**A7**: <5 seconds latency overhead acceptable (testable via benchmark)
+
+---
+
+## 5. Scope & Boundaries
+
+### In Scope
+
+- HuggingFace Datasets library only (PyTorch/TensorFlow as future work)
+- Croissant-RAI + README metadata sources
+- Domain matching (Sentence-BERT), distribution testing (KS test), deprecation checks
+- Three-tier enforcement (log, warn+confirm, error)
+- Misuse analytics for administrators
+
+### Out of Scope
+
+- Native PyTorch/TensorFlow/JAX frameworks (extensibility designed but not implemented)
+- Deep content analysis (image/text embeddings)
+- Fairness/bias detection, license compliance (separate tools)
+- Hard blocking without escape hatch
+- Metadata creation (assumes metadata exists)
+
+---
+
+## 6. Related Work & Differentiation
+
+| Work | Focus | DatasetGuard Difference |
+|------|-------|------------------------|
+| Data Cards [Pushkarna 2022, 270 cites] | Passive documentation | Active runtime enforcement |
+| Croissant-RAI [Jain 2024] | Metadata format | Uses metadata for load-time validation |
+| DAIMS [Marandi 2025] | Dataset quality validation | Usage context validation |
+| AspectJ [Software Engineering] | Software runtime verification | Adapted to ML dataset domain |
+
+**Unique Position**: Intersection of machine-readable metadata, runtime enforcement, dataset governance, and ML lifecycle management—no existing work combines these elements.
+
+---
+
+## 7. Implementation Difficulty & Timeline
+
+**Difficulty**: MEDIUM
+
+**Development**: 2-3 months (1 engineer)
+- Croissant-RAI parsing: LOW (adapt Schema.org tools)
+- HuggingFace wrapper: LOW (Python decorator pattern)
+- Sentence-BERT integration: LOW (sentence-transformers library)
+- KS test implementation: MEDIUM (sampling strategies for large datasets)
+- Policy engine: LOW (rule-based logic)
+
+**Validation**: 1 month
+- Benchmark evaluation (100 labeled pairs)
+- User study (60 participants)
+- Field deployment (100+ early adopters)
+
+**Total**: 3-4 months
+
+---
+
+## 8. Success Criteria
+
+### Primary
+
+1. **Effectiveness**: 60%+ reduction in critical misuse incidents (vs documentation-only baseline)
+2. **Precision**: <10% false positive rate (user-annotated)
+3. **Acceptance**: 70%+ user satisfaction (Likert ≥4/5)
+
+### Secondary
+
+4. **Performance**: <5 seconds median latency overhead
+5. **Coverage**: ≥30% Croissant-RAI availability OR ≥70% README extraction accuracy
+6. **Admin Value**: ≥3 novel patterns discovered in misuse analytics
+
+### Falsification
+
+Hypothesis **FALSIFIED** if:
+- Misuse reduction <20%
+- False positive rate >30%
+- User acceptance <40%
+- Latency >10 seconds (median)
+
+---
+
+## 9. Open Questions (Phase 2B Resolution)
+
+**Critical** (must resolve):
+1. **OQ1**: Optimal severity thresholds (ROC analysis on benchmark dataset)
+2. **OQ2**: README fallback robustness (survey + extraction accuracy test)
+3. **OQ4**: KS test computational optimization (large-scale benchmarking)
+
+**Important** (affects UX):
+4. **OQ3**: Transfer learning false positive mitigation (user study scenarios)
+5. **OQ5**: Metadata evolution handling (caching + TTL strategy)
+
+**Future Work**:
+6. **OQ6**: Multi-dataset training pipelines (scope boundary for MVP)
+7. **OQ7**: Community governance of validation rules (open-source governance model)
+
+---
+
+## 10. Research Question Alignment
+
+**Main Question**: "What systematic approaches can address fundamental challenges in ML data practices across the dataset lifecycle?"
+
+**DatasetGuard Addresses**:
+- **Sub-Q2 (Documentation & Quality)**: Adds enforcement layer to existing documentation frameworks (Data Cards, Datasheets, Croissant-RAI)
+- **Sub-Q5 (Repository Governance)**: Provides administrators misuse analytics and automated policy enforcement tools
+
+**Workshop CFP Concern**:
+- "the (mis)use of datasets out-of-context" → **Directly prevented** via runtime validation before training begins
+
+---
+
+## 11. Next Steps
+
+### Immediate (Phase 2B):
+
+1. **Decompose** main hypothesis into detailed sub-hypotheses (SH1: interception, SH2: accuracy, SH3: impact)
+2. **Design** verification experiments for each sub-hypothesis (benchmark evaluation, user study protocols)
+3. **Specify** success criteria and statistical tests (power analysis, sample sizes)
+4. **Resolve** critical open questions (OQ1, OQ2, OQ4) via preliminary experiments
+5. **Create** verification roadmap with dependencies and timeline
+
+### Phase 2C (Experiment Design):
+
+6. **Survey** Croissant-RAI adoption in top 100 HuggingFace datasets
+7. **Prototype** Sentence-BERT domain matching; benchmark accuracy
+8. **Optimize** KS test sampling strategies for large datasets
+9. **Design** detailed user study protocol (scenarios, recruitment, measures)
+10. **Develop** repository admin interview guide
+
+---
+
+## Confidence Assessment
+
+**Overall Confidence**: 85% (HIGH)
+
+**Evidence Strength**: STRONG (70% Phase 1 utilization, machine-readable metadata exists, ML framework APIs documented)
+
+**Scientific Rigor**: STRONG (falsifiable predictions, quantified success criteria, baseline comparisons)
+
+**Implementation Feasibility**: MEDIUM-HIGH (scope reduced to HuggingFace, technical methods specified, resources available)
+
+**Novelty**: HIGH (first runtime validation framework for ML datasets, verified via Exa/Archon searches)
+
+**Expected Impact**: HIGH (directly addresses workshop CFP concern, prevents wasted effort, complements existing frameworks)
+
+**Multi-Criteria Score**: 82% (20.5/25 across 5 criteria)
+
+---
+
+**STATUS**: ✅ **READY FOR PHASE 2B VERIFICATION PLANNING**
+
+**Phase 2B Input**: Full hypothesis clarification document (`02a_extended_hypothesis_full.md`)
+
+**Expected Phase 2B Output**: Detailed verification roadmap with experiments, timelines, and success gates
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (YOLO MODE)*
+*Automated execution: 8 steps completed without user interaction*
+*2026-02-06*

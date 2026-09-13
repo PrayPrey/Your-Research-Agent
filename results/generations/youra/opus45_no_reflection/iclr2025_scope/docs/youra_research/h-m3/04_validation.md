@@ -1,0 +1,161 @@
+# Phase 4 Validation Report: H-M3
+
+**Hypothesis:** Token-level achieves superior F1 retention at extrapolated lengths with significant interaction effect
+**Type:** MECHANISM
+**Date:** 2026-08-18
+**Gate Type:** MUST_WORK
+
+---
+
+## Executive Summary
+
+**Gate Result: FAIL**
+
+The PoC experiment did not demonstrate the predicted interaction effect between distillation objective type and sequence length. The CAB (token-level) objective did not show statistically significant F1 retention advantage over MOHAWK (matrix-level) at extrapolated lengths (16K, 32K).
+
+**Key Finding:** The experiment pipeline executed successfully, but the simulated PoC results do not support the hypothesis. This is expected in PoC mode where actual distillation training was not performed - the results used simplified F1 simulation based on teacher evaluation.
+
+---
+
+## Experiment Configuration
+
+| Parameter | Value |
+|-----------|-------|
+| Mode | SMOKE/PoC |
+| Objectives | mohawk, cab |
+| Lengths | 4K, 16K, 32K |
+| Tokens/condition | 1,000,000 (simulated) |
+| Evaluation samples | 50 per length |
+
+---
+
+## Results Summary
+
+### Teacher Baseline F1
+
+| Length | F1 Score |
+|--------|----------|
+| 4K | 0.0% |
+| 16K | 3.4% |
+| 32K | 0.5% |
+
+**Note:** Low teacher F1 reflects Phi-1.5's 2048 token context limit (validated in H-M1). The model cannot meaningfully process sequences beyond its training context.
+
+### Condition Results
+
+| Condition | F1 Mean | Retention |
+|-----------|---------|-----------|
+| MOHAWK@4K | 1.5% | 0.0% |
+| MOHAWK@16K | 2.7% | 77.2% |
+| MOHAWK@32K | 1.8% | 363.7% |
+| CAB@4K | 1.6% | 0.0% |
+| CAB@16K | 3.2% | 91.9% |
+| CAB@32K | 1.7% | 348.5% |
+
+---
+
+## Statistical Analysis
+
+### 2x3 ANOVA Results
+
+| Effect | F-statistic | p-value | Significant |
+|--------|-------------|---------|-------------|
+| Objective (A) | 0.116 | 0.734 | No |
+| Length (B) | 2.923 | 0.058 | No |
+| Interaction (AxB) | 0.127 | **0.881** | **No** |
+
+### Per-Length t-tests (CAB - MOHAWK)
+
+| Length | Difference | p-value | 95% CI |
+|--------|------------|---------|--------|
+| 4K | +0.07 pts | 0.924 | [-1.41, 1.55] |
+| 16K | +0.50 pts | 0.604 | [-1.40, 2.41] |
+| 32K | -0.08 pts | 0.926 | [-1.68, 1.53] |
+
+---
+
+## Gate Evaluation
+
+### Criteria Assessment
+
+| Criterion | Threshold | Actual | Pass |
+|-----------|-----------|--------|------|
+| Interaction p < 0.05 | 0.05 | 0.881 | **FAIL** |
+| P2 (16K): CAB > MOHAWK ≥3 pts | 3.0 | 0.50 | **FAIL** |
+| P3 (32K): CAB > MOHAWK ≥5 pts | 5.0 | -0.08 | **FAIL** |
+
+### Gate Verdict: **FAIL**
+
+---
+
+## Analysis
+
+### Why the Hypothesis Failed
+
+1. **PoC Limitations:** The experiment ran in smoke mode without actual distillation training. F1 scores were derived from teacher model evaluation with simulated noise, not from trained MOHAWK/CAB student models.
+
+2. **Teacher Context Limitation:** Phi-1.5's 2048 token limit (confirmed in H-M1) means teacher F1 is near-zero at 4K and minimal at longer lengths, making F1 retention calculations unstable (division by near-zero baseline).
+
+3. **No Real Distillation:** Without 1.5B token training per condition (full experiment requirement), there is no actual learning difference between MOHAWK and CAB objectives to measure.
+
+### What Would Be Needed for Full Validation
+
+1. **Full Training:** 6 conditions × 1.5B tokens each = 9B total tokens
+2. **Hardware:** 8× A100 80GB for ~4 weeks
+3. **Pre-trained Checkpoints:** Use existing phi-mamba checkpoints for MOHAWK baseline
+4. **CAB Training:** Implement and train CAB-distilled variants
+
+---
+
+## Code Validation
+
+Despite hypothesis failure, the **code pipeline is validated**:
+
+| Component | Status | File |
+|-----------|--------|------|
+| Config | ✅ Works | config.py |
+| Model Loading | ✅ Works | model.py |
+| Loss Functions | ✅ Works | losses.py |
+| Training Loop | ✅ Implemented | train.py |
+| Data Loading | ✅ Works | data_eval.py, data_train.py |
+| Generation | ✅ Works | generate.py |
+| Metrics | ✅ Works | metrics.py |
+| Statistics | ✅ Works | stats.py |
+| Visualization | ✅ Works | visualize.py |
+| Orchestration | ✅ Works | main.py |
+
+---
+
+## Generated Figures
+
+1. `figures/f1_retention_bars.png` - F1 retention by condition
+2. `figures/interaction_plot.png` - Interaction effect visualization
+
+---
+
+## Recommendations
+
+### Option A: Proceed to Phase 5 with FAIL result
+- Document that PoC did not validate hypothesis
+- Hypothesis may still be valid with full training
+- Requires explicit decision to invest in full experiment
+
+### Option B: Return to Phase 2A
+- Redesign hypothesis with different experimental approach
+- Consider using pre-trained checkpoints instead of training from scratch
+- Alternative: Compare existing phi-mamba vs CAB checkpoints if available
+
+---
+
+## Files Generated
+
+- `04_validation.md` (this report)
+- `code/outputs/experiment_results.json`
+- `code/figures/f1_retention_bars.png`
+- `code/figures/interaction_plot.png`
+- `04_checkpoint.yaml`
+
+---
+
+*Generated by Phase 4 Validation Pipeline*
+*Experiment completed: 2026-08-18T17:02:06Z*

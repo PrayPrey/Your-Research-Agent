@@ -1,0 +1,10 @@
+# Title
+Multi-Dimensional Quality Control for Synthetic Instruction Data: A Statistical Process Control Approach to Improving LLM Instruction-Following
+
+# Motivation
+Current synthetic instruction data generation prioritizes volume over quality, with methods like Self-Instruct using simple heuristics (length, keywords) and EcomGPT generating 2.5M examples without systematic quality control. While human feedback methods (AlpacaFarm) achieve high performance, they cost $5,000+ for 20K examples. This creates a critical gap: researchers lack affordable, systematic quality assessment frameworks that improve model performance while reducing human annotation costs. Existing evaluation methods (G-Eval) assess single dimensions sequentially, missing opportunities for nuanced, multi-dimensional filtering strategies.
+
+# Main Idea
+We propose a **multi-dimensional quality assessment framework** that evaluates synthetic instruction-response pairs across five orthogonal dimensions—clarity, correctness, diversity, difficulty, and safety—using parallel heterogeneous evaluators (parse trees, LLM ensembles, embeddings, classifiers). Quality profiles enable adaptive filtering: strict thresholds (clarity>0.7, correctness>0.8) for training data, comprehensive requirements (all>0.7) for evaluation sets. Statistical Process Control with sliding windows detects generator quality drift 20K-30K examples before downstream performance degrades.
+
+**Hypothesis**: Multi-dimensional filtering will improve instruction-following accuracy by 15-25% versus volume-only baselines while reducing human annotation costs by 60-70% through automated triage. Controlled experiments will train LLaMA-2-7B on 500K filtered versus unfiltered examples, measuring performance on Super-NaturalInstructions. Expected impact: democratized quality control for resource-constrained researchers, achieving AlpacaFarm-level performance (<10% cost) through systematic automation.

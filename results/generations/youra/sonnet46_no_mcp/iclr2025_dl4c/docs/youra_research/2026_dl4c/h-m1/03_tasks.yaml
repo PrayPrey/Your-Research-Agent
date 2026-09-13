@@ -1,0 +1,523 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  base_hypothesis: h-e1
+  tier: FULL
+  total_budget: 30
+  complexity_score: 13
+  complexity_level: Moderate
+  created_at: "2026-05-02"
+  phase3_documents:
+    - h-m1/03_prd.md
+    - h-m1/03_architecture.md
+    - h-m1/03_logic.md
+    - h-m1/03_config.md
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 15
+  failsafe: 1
+  total: 27
+  budget_max: 30
+  within_budget: true
+
+tasks:
+  # ============================================================
+  # ENVIRONMENT SETUP (priority 94)
+  # ============================================================
+  - id: ENV-1
+    type: setup
+    title: "Environment setup and dependency verification"
+    description: >
+      Verify Python environment has all required packages for H-M1 analysis.
+      Install/verify: torch, transformers, trl==1.3.0, datasets, pandas, numpy,
+      scipy, matplotlib, pyyaml. Verify h-e1 codebase paths are accessible.
+    priority: 94
+    complexity: 3
+    reference_files:
+      - file: h-m1/03_prd.md
+        section: "## 7. Dependencies"
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "h-e1/code/ directory accessible"
+      - "h-e1/logs/ directory accessible (or will be created by training)"
+    notes: "No new installs expected — H-E1 environment already has all dependencies"
+
+  # ============================================================
+  # EPIC TASKS (priority 93-50)
+  # ============================================================
+  - id: A-1
+    type: setup
+    title: "Setup h-m1 project structure"
+    description: >
+      Create h-m1/code/analysis/ directory. Create h-m1/figures/ and h-m1/results/
+      output directories. Verify h-e1/logs/ path. Do NOT create code/__init__.py
+      (shadows Python built-in code module).
+    priority: 93
+    complexity: 5
+    reference_files:
+      - file: h-m1/03_architecture.md
+        section: "## File Organization"
+    acceptance_criteria:
+      - "h-m1/code/analysis/ directory exists"
+      - "h-m1/figures/ directory exists"
+      - "h-m1/results/ directory exists"
+      - "No code/__init__.py created"
+
+  - id: A-2
+    type: data-pipeline
+    title: "Implement LogLoader (loader.py)"
+    description: >
+      Implement h-m1/code/analysis/loader.py with functions:
+      load_reward_density_logs(), validate_full_training(), compute_early_phase_density(),
+      compute_late_phase_density(). Critical: CSV logs are per-step (5000 rows),
+      NOT per-checkpoint. Must aggregate into 500-step windows.
+    priority: 92
+    complexity: 10
+    reference_files:
+      - file: h-m1/03_architecture.md
+        section: "### LogLoader"
+      - file: h-m1/03_logic.md
+        section: "## A-2: LogLoader"
+    acceptance_criteria:
+      - "load_reward_density_logs() returns {condition: DataFrame} for all 4 conditions"
+      - "validate_full_training() raises ValueError with guidance if rows < min_rows"
+      - "compute_early_phase_density() returns np.ndarray shape (5,) for steps 0-2500"
+      - "Window aggregation uses groupby (step-1)//500"
+    subtasks:
+      - L-2-1
+      - L-2-2
+
+  - id: A-3
+    type: model
+    title: "Implement StatsTester (stats.py)"
+    description: >
+      Implement h-m1/code/analysis/stats.py with functions: run_wilcoxon_test(),
+      check_assumption_a1(), compute_phase_stats(). One-tailed Wilcoxon:
+      scipy.stats.wilcoxon(curriculum_vals, uniform_vals, alternative='greater').
+    priority: 91
+    complexity: 9
+    reference_files:
+      - file: h-m1/03_architecture.md
+        section: "### StatsTester"
+      - file: h-m1/03_logic.md
+        section: "## A-3: StatsTester"
+    acceptance_criteria:
+      - "run_wilcoxon_test() returns dict with statistic, p_value, passed, curriculum_mean, uniform_mean, delta"
+      - "wilcoxon called with alternative='greater' (one-tailed)"
+      - "check_assumption_a1() returns passed bool and delta"
+      - "compute_phase_stats() returns nested dict with early/late stats per condition"
+    subtasks:
+      - L-3-1
+      - L-3-2
+
+  - id: A-4
+    type: evaluation
+    title: "Implement Visualizer (visualize.py)"
+    description: >
+      Implement h-m1/code/analysis/visualize.py with 4 figure-generation functions:
+      plot_early_phase_bar(), plot_timeseries(), plot_wilcoxon_boxplot(),
+      plot_phase_comparison(). All figures saved to h-m1/figures/.
+    priority: 90
+    complexity: 11
+    reference_files:
+      - file: h-m1/03_architecture.md
+        section: "### Visualizer"
+      - file: h-m1/03_logic.md
+        section: "## A-4: Visualizer"
+      - file: h-m1/03_prd.md
+        section: "## 3. Functional Requirements"
+    acceptance_criteria:
+      - "plot_early_phase_bar() saves reward_density_early_phase_bar.png with std error bars"
+      - "plot_timeseries() saves reward_density_timeseries.png with all 4 conditions"
+      - "plot_wilcoxon_boxplot() saves reward_density_wilcoxon_boxplot.png with p-value annotation"
+      - "plot_phase_comparison() saves reward_density_phase_comparison.png"
+      - "All figures exist in h-m1/figures/"
+    subtasks:
+      - L-4-1
+      - L-4-2
+
+  - id: A-5
+    type: training
+    title: "Implement main analyzer (analyze_reward_density.py)"
+    description: >
+      Implement h-m1/code/analysis/analyze_reward_density.py as main orchestrator.
+      Pipeline: load → validate → extract early phase → run Wilcoxon → check A1 →
+      compute phase stats → generate 4 figures → save JSON results → print summary.
+      Exit code 0 if gate passed, 1 if failed.
+    priority: 89
+    complexity: 9
+    reference_files:
+      - file: h-m1/03_architecture.md
+        section: "### RewardDensityAnalyzer"
+      - file: h-m1/03_logic.md
+        section: "## A-9: Analysis and Gate Evaluation"
+      - file: h-m1/03_config.md
+        section: "## A-5: Main Analyzer Config"
+    acceptance_criteria:
+      - "run_analysis() returns dict with gate_passed bool"
+      - "save_results() writes wilcoxon_results.json to h-m1/results/"
+      - "print_summary() displays gate PASSED/FAILED with p_value, means, delta"
+      - "Exit code 0 on gate pass, 1 on gate fail"
+    subtasks:
+      - L-9-1
+      - L-9-2
+
+  - id: A-6
+    type: training
+    title: "Implement TrainingWrapper (run_training.py)"
+    description: >
+      Implement h-m1/code/run_training.py to check log sufficiency and trigger
+      H-E1 full training if needed. Checks if 4 condition CSVs have >= 5000 rows.
+      If not, runs h-e1/code/training/train.py per condition via subprocess with
+      CUDA_VISIBLE_DEVICES set. Runs conditions sequentially.
+    priority: 88
+    complexity: 10
+    reference_files:
+      - file: h-m1/03_architecture.md
+        section: "### TrainingWrapper"
+      - file: h-m1/03_logic.md
+        section: "## A-8: Full Training Execution"
+      - file: h-m1/03_config.md
+        section: "## A-6: TrainingWrapper Config"
+    acceptance_criteria:
+      - "check_logs_sufficient() returns (bool, {condition: row_count})"
+      - "run_full_training() uses subprocess.run with CUDA_VISIBLE_DEVICES in env"
+      - "run_all_conditions() runs all 4 conditions sequentially, aborts on non-zero return"
+      - "validate_training_outputs() checks all CSVs have >= 5000 rows post-training"
+    subtasks:
+      - L-8-1
+      - L-8-2
+      - L-8-3
+      - L-8-4
+      - C-6-1
+      - C-6-2
+
+  - id: A-7
+    type: evaluation
+    title: "Integration smoke test"
+    description: >
+      Write and run integration test using synthetic CSV data (10 rows per condition).
+      Verify analysis pipeline runs end-to-end: loader → stats → visualizer → results.
+      Use synthetic data with known Wilcoxon outcome to verify gate logic.
+    priority: 87
+    complexity: 8
+    reference_files:
+      - file: h-m1/03_architecture.md
+        section: "| A-7 |"
+    acceptance_criteria:
+      - "Smoke test runs without errors using synthetic 10-row CSVs"
+      - "Gate logic produces expected result for known synthetic values"
+      - "4 figures generated without matplotlib errors"
+      - "wilcoxon_results.json valid JSON with required schema fields"
+
+  - id: A-8
+    type: training
+    title: "Full training execution (5000 steps × 4 conditions)"
+    description: >
+      Run full 5000-step GRPO training for all 4 conditions via run_training.py.
+      First check if logs already have 5000 rows. If not, run sequentially:
+      curriculum, uniform, easy_only, hard_only. Each ~8-12 hours on A100.
+      Set CUDA_VISIBLE_DEVICES to single empty GPU before running.
+      Verify all 4 CSVs have 5000 rows after completion.
+    priority: 86
+    complexity: 14
+    reference_files:
+      - file: h-m1/03_prd.md
+        section: "### FR-1: Full Training Execution"
+      - file: h-m1/03_logic.md
+        section: "## A-8: Full Training Execution"
+    acceptance_criteria:
+      - "h-e1/logs/reward_density_curriculum.csv has 5000 rows"
+      - "h-e1/logs/reward_density_uniform.csv has 5000 rows"
+      - "h-e1/logs/reward_density_easy_only.csv has 5000 rows"
+      - "h-e1/logs/reward_density_hard_only.csv has 5000 rows"
+      - "All 4 conditions exit with return code 0"
+    notes: >
+      CRITICAL: Check if H-E1 already ran full training. If logs have 5000 rows,
+      skip training and proceed to A-9. Only run training if logs are insufficient.
+      Set CUDA_VISIBLE_DEVICES before running.
+
+  - id: A-9
+    type: evaluation
+    title: "Analysis and gate evaluation"
+    description: >
+      Run analyze_reward_density.py on full training logs. Verify gate:
+      p < 0.05 (one-tailed Wilcoxon) AND curriculum_mean > uniform_mean (steps 0-2500).
+      Check secondary A1 assumption: easy_only_mean >= curriculum_mean.
+      Record gate result in results/wilcoxon_results.json.
+    priority: 85
+    complexity: 12
+    reference_files:
+      - file: h-m1/03_prd.md
+        section: "## 6. Evaluation Metrics"
+      - file: h-m1/03_logic.md
+        section: "## A-9: Analysis and Gate Evaluation"
+    acceptance_criteria:
+      - "h-m1/results/wilcoxon_results.json exists and is valid JSON"
+      - "gate_passed field is present (true or false)"
+      - "wilcoxon.p_value < 0.05 for MUST_WORK gate pass"
+      - "wilcoxon.curriculum_mean > wilcoxon.uniform_mean for gate pass"
+      - "4 figures exist in h-m1/figures/"
+
+  - id: A-10
+    type: evaluation
+    title: "Figure validation and results documentation"
+    description: >
+      Verify all 4 required figures exist in h-m1/figures/. Validate
+      wilcoxon_results.json schema. Document gate result in 04_validation.md.
+    priority: 84
+    complexity: 7
+    reference_files:
+      - file: h-m1/03_prd.md
+        section: "## 9. Success Criteria"
+      - file: h-m1/03_architecture.md
+        section: "| A-10 |"
+    acceptance_criteria:
+      - "h-m1/figures/reward_density_early_phase_bar.png exists"
+      - "h-m1/figures/reward_density_timeseries.png exists"
+      - "h-m1/figures/reward_density_wilcoxon_boxplot.png exists"
+      - "h-m1/figures/reward_density_phase_comparison.png exists"
+      - "wilcoxon_results.json has all required schema fields"
+
+  # ============================================================
+  # LOGIC SUBTASKS (priority 49-10)
+  # ============================================================
+  - id: L-2-1
+    type: subtask
+    parent: A-2
+    title: "Per-step to per-checkpoint window aggregation logic"
+    description: >
+      Implement window aggregation in compute_early_phase_density():
+      df[df['step'] <= max_step].assign(window=(df['step']-1)//window_size).groupby('window')['reward_density'].mean()
+      Return as np.ndarray shape (5,).
+    priority: 49
+    complexity: 5
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "### Subtasks [2/2 used]"
+
+  - id: L-2-2
+    type: subtask
+    parent: A-2
+    title: "Validation and error handling for insufficient data"
+    description: >
+      Implement validate_full_training(): count rows per condition CSV.
+      Raise ValueError with message: "Condition {c} has {n} rows, expected >= {min_rows}. Run run_training.py first."
+      if any condition is insufficient.
+    priority: 48
+    complexity: 3
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "| L-2-2 |"
+
+  - id: L-3-1
+    type: subtask
+    parent: A-3
+    title: "Wilcoxon test wrapper (scipy API, one-tailed)"
+    description: >
+      Implement run_wilcoxon_test(): call scipy.stats.wilcoxon(x=curriculum_vals,
+      y=uniform_vals, alternative='greater'). Extract statistic and pvalue.
+      Set passed = pvalue < 0.05. Return full results dict.
+    priority: 47
+    complexity: 4
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "| L-3-1 |"
+
+  - id: L-3-2
+    type: subtask
+    parent: A-3
+    title: "Phase stats computation (early vs late windows)"
+    description: >
+      Implement compute_phase_stats(): call compute_early_phase_density() and
+      compute_late_phase_density() per condition. Return nested dict:
+      {condition: {early: {mean: float, std: float}, late: {mean: float, std: float}}}.
+    priority: 46
+    complexity: 4
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "| L-3-2 |"
+
+  - id: L-4-1
+    type: subtask
+    parent: A-4
+    title: "Bar chart with std error bars (matplotlib API)"
+    description: >
+      Implement plot_early_phase_bar(): ax.bar(conditions, means, yerr=stds, capsize=5).
+      Labels: x='Condition', y='Mean Reward Density (steps 0-2500)'.
+      Title: 'Early Phase Reward Density by Condition'. Save to figures_dir.
+    priority: 45
+    complexity: 4
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "| L-4-1 |"
+
+  - id: L-4-2
+    type: subtask
+    parent: A-4
+    title: "Wilcoxon boxplot with p-value annotation"
+    description: >
+      Implement plot_wilcoxon_boxplot(): ax.boxplot([curriculum_vals, uniform_vals],
+      labels=['curriculum', 'uniform']). Annotate p-value via ax.set_title or ax.text.
+      Format: f"Wilcoxon one-tailed p={p_value:.4f}".
+    priority: 44
+    complexity: 4
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "| L-4-2 |"
+
+  - id: L-8-1
+    type: subtask
+    parent: A-6
+    title: "Log sufficiency check logic"
+    description: >
+      Implement check_logs_sufficient(): count rows in each condition CSV.
+      Return (all_sufficient, {condition: row_count}).
+      Count method: open CSV, sum(1 for _ in f) - 1 (subtract header).
+    priority: 43
+    complexity: 3
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "| L-8-1 |"
+
+  - id: L-8-2
+    type: subtask
+    parent: A-6
+    title: "Subprocess training invocation"
+    description: >
+      Implement run_full_training(): env = os.environ.copy(); env['CUDA_VISIBLE_DEVICES'] = cuda_device.
+      cmd = [sys.executable, train_script, '--condition', condition].
+      result = subprocess.run(cmd, env=env, check=False). Return result.returncode.
+    priority: 42
+    complexity: 4
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "| L-8-2 |"
+
+  - id: L-8-3
+    type: subtask
+    parent: A-6
+    title: "Condition sequencing and error handling"
+    description: >
+      Implement run_all_conditions(): iterate CONDITIONS list, call run_full_training()
+      per condition. Abort (raise RuntimeError) on non-zero returncode. Print
+      per-condition status. Return {condition: returncode} dict.
+    priority: 41
+    complexity: 4
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "| L-8-3 |"
+
+  - id: L-8-4
+    type: subtask
+    parent: A-6
+    title: "Post-training log validation"
+    description: >
+      Implement validate_training_outputs(): re-read all 4 CSVs after training.
+      Assert each has >= expected_rows (5000) rows. Raise RuntimeError with
+      per-condition counts if any fail.
+    priority: 40
+    complexity: 3
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "| L-8-4 |"
+
+  - id: L-9-1
+    type: subtask
+    parent: A-5
+    title: "Gate evaluation logic"
+    description: >
+      Compute gate_passed = (wilcoxon['p_value'] < 0.05) AND
+      (wilcoxon['curriculum_mean'] > wilcoxon['uniform_mean']).
+      Set sys.exit(0) if gate_passed else sys.exit(1).
+    priority: 39
+    complexity: 3
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "### Gate Logic"
+
+  - id: L-9-2
+    type: subtask
+    parent: A-5
+    title: "Results JSON schema and serialization"
+    description: >
+      Build results dict per RESULTS_SCHEMA: gate_passed, wilcoxon (statistic,
+      p_value, passed, curriculum_mean, uniform_mean, delta), assumption_a1,
+      phase_stats, figure_paths, results_path. Write with json.dump(indent=2).
+    priority: 38
+    complexity: 3
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "### API Signatures (A-9)"
+
+  # ============================================================
+  # CONFIG SUBTASKS (priority 20-10)
+  # ============================================================
+  - id: C-6-1
+    type: subtask
+    parent: A-6
+    title: "Training invocation parameters (TRAINING_CONFIG dict)"
+    description: >
+      Define TRAINING_CONFIG dict in run_training.py: h_e1_train_script='h-e1/code/training/train.py',
+      log_dir='h-e1/logs', conditions=['curriculum','uniform','easy_only','hard_only'],
+      cuda_device='0', min_rows=10.
+    priority: 20
+    complexity: 2
+    reference_files:
+      - file: h-m1/03_config.md
+        section: "## A-6: TrainingWrapper Config"
+
+  - id: C-6-2
+    type: subtask
+    parent: A-6
+    title: "Error handling config (min_rows threshold)"
+    description: >
+      Configure min_rows=10 sufficiency threshold in TRAINING_CONFIG. Subprocess
+      return code checking: non-zero triggers sys.exit(1). Document expected
+      row counts (10 for smoke test, 5000 for full training).
+    priority: 19
+    complexity: 2
+    reference_files:
+      - file: h-m1/03_config.md
+        section: "| C-6-2 |"
+
+  - id: C-5-1
+    type: subtask
+    parent: A-5
+    title: "Analysis config dict (ANALYSIS_CONFIG)"
+    description: >
+      Define ANALYSIS_CONFIG dict in analyze_reward_density.py:
+      log_dir='h-e1/logs', figures_dir='h-m1/figures', results_dir='h-m1/results',
+      results_file='h-m1/results/wilcoxon_results.json',
+      significance_threshold=0.05, analysis_window_early=[0,2500],
+      analysis_window_late=[2501,5000], conditions list.
+    priority: 18
+    complexity: 2
+    reference_files:
+      - file: h-m1/03_config.md
+        section: "## A-5: Main Analyzer Config"
+
+  # ============================================================
+  # FAILSAFE (priority 1)
+  # ============================================================
+  - id: FAILSAFE-1
+    type: failsafe
+    title: "Pipeline continuation checkpoint"
+    description: >
+      Final checkpoint: verify gate result is recorded in wilcoxon_results.json.
+      If gate failed (p >= 0.05 or wrong direction), document failure context:
+      record curriculum_mean, uniform_mean, p_value, A1 check result.
+      Write findings to 04_validation.md for Phase 4.5 routing.
+    priority: 1
+    complexity: 1
+    reference_files:
+      - file: h-m1/03_prd.md
+        section: "## 9. Success Criteria"
+    acceptance_criteria:
+      - "wilcoxon_results.json exists regardless of gate pass/fail"
+      - "gate_passed field is boolean (not null)"
+      - "04_validation.md contains gate result summary"

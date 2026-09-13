@@ -1,0 +1,110 @@
+# Related Work
+
+Understanding why deduplication's benchmark effects are contamination-proportional rather
+than uniform requires drawing on three lines of prior research: (1) the documented effects
+of deduplication on language model performance, (2) benchmark contamination detection and
+measurement, and (3) the Pythia controlled training infrastructure.
+
+## Deduplication and Training Data Quality
+
+Data deduplication has been established as a beneficial preprocessing step for language
+model training. Lee et al.\ [2022] provided the first systematic study showing that
+deduplicating training data using MinHash and exact substring methods reduces memorization
+and improves average GPT-2-scale model performance across multiple benchmarks.
+This foundational result motivated widespread adoption of deduplication in subsequent
+corpus construction efforts including C4 [Raffel et al., 2020], RefinedWeb, Dolma
+[Soldaini et al., 2024], and DCLM.
+
+However, Lee et al.\ [2022] reported aggregate averages across benchmarks, and did not
+test whether the improvement was uniform across all benchmarks or concentrated on
+specific benchmarks with higher contamination. Muennighoff et al.\ [2023] analyzed
+the impact of data repetition on model performance, finding diminishing returns at
+high repetition rates, but focused on training dynamics rather than contamination-proportional
+benchmark effects. Our work is the first to test the contamination-correlation prediction
+directly: does the per-benchmark improvement from deduplication correlate with each
+benchmark's contamination level in the original corpus?
+
+Biderman et al.\ [2023] introduced the Pythia model suite with an explicit Pile vs.\
+dedup-Pile controlled comparison, reporting benchmark results that showed mixed directions
+across benchmarks. That paper did not perform contamination-accuracy correlation analysis
+and used step-matched comparisons that we show introduce a volume confound
+(our H-M4 result: $\Delta r = 0.093$ relative to token-count matching). Our work extends
+Biderman et al.\ [2023] by providing the mechanistic analysis that was absent from the
+original study and correcting the methodological comparison.
+
+## Benchmark Contamination Detection
+
+The problem of benchmark contamination has received increasing attention as LLMs have been
+shown to achieve high benchmark scores partly through training data memorization rather
+than genuine task understanding.
+
+Brown et al.\ [2020] first characterized contamination in GPT-3 training data using n-gram
+overlap analysis, acknowledging that benchmark test sets may appear in web-crawled
+training corpora. The GPT-4 Technical Report adopted a 13-gram overlap methodology
+for characterizing contamination in training data, establishing a standard that
+subsequent work has followed.
+
+Shi et al.\ [2023] introduced Min-$k$\% Probability (min-k\%), a likelihood-ratio-based
+method for detecting whether a given text was present in an LLM's pretraining data.
+By computing the minimum token probabilities over $k$\% of tokens in a sequence,
+min-k\% provides a membership inference signal for pretraining data detection. Shi et al.\
+validated this method on multiple benchmarks, showing it outperforms perplexity-based
+detection. Our H-M2 experiment applies min-k\% to the specific Pile/dedup-Pile distinction
+and finds an unexpected direction reversal at Pythia-1B scale, raising questions about
+min-k\%'s sensitivity for corpus variants that are partially overlapping rather than
+fully seen vs.\ unseen.
+
+Carlini et al.\ [2021] demonstrated that memorization in language models scales with model
+size: larger models memorize more training examples verbatim. This scaling relationship
+provides the theoretical basis for our observation that the min-k\% memorization signal
+may require models larger than 1B parameters to manifest in the predicted direction for the
+Pile/dedup-Pile distinction.
+
+Golchin and Surdeanu [2023] proposed data contamination quiz methods for detection in
+instruction-tuned models; this line of work focuses on detecting contamination post-hoc
+rather than characterizing its effect on benchmark performance as a function of contamination
+level, which is our primary focus.
+
+## The Pile, dedup-Pile, and Pythia
+
+The Pile [Gao et al., 2020] is an 825GB English text corpus constructed by EleutherAI
+from 22 diverse data sources. Its deduplication variant, dedup-Pile, applies exact
+substring deduplication to remove repeated content, reducing the corpus by approximately
+15\% in token count. Both corpora were used to train the Pythia model suite
+[Biderman et al., 2023] under otherwise identical conditions, creating a unique
+natural experiment for isolating deduplication's causal effects.
+
+The Pythia suite provides 154 intermediate checkpoints per model size (70M--12B
+parameters), enabling the token-count matching methodology that our study depends on.
+Without this checkpoint granularity, identifying Pile checkpoints at the same token count
+as the dedup-Pile final checkpoint would not be feasible.
+
+The OLMo suite [Groeneveld et al., 2024] and Dolma corpus [Soldaini et al., 2024] provide
+an alternative open-weights model family with documented curation choices. However, OLMo
+and Pythia use different architectures (OLMo vs.\ GPT-NeoX), preventing a clean causal
+interpretation of any cross-family comparison. We focus exclusively on the within-family
+Pythia controlled comparison and note cross-family extension as future work.
+
+## Scaling Laws and Token-Volume Effects
+
+Hoffmann et al.\ [2022] (Chinchilla) established that optimal model training requires
+matching training token count to model parameters via compute-optimal scaling laws.
+Their analysis implies that models trained on the same step count but different token
+volumes (due to corpus size differences) will have different effective training data
+amounts. This provides the theoretical grounding for our token-count matching
+methodology: Pile and dedup-Pile models trained to the same step count have seen
+different numbers of tokens (approximately 207B vs.\ $\sim$207B at the matched
+checkpoint vs.\ more at the final step for Pile), introducing a volume confound
+that step-matching fails to correct for.
+
+## Our Position
+
+Our work sits at the intersection of these three research streams. Unlike Lee et al.\
+[2022], which reports aggregate deduplication benefits, we decompose the benchmark-level
+effects and test a contamination-proportionality prediction. Unlike Shi et al.\ [2023]
+and Carlini et al.\ [2021], which focus on memorization detection, we use contamination
+estimates as a predictor variable to explain benchmark performance changes under a
+curation intervention. And unlike Biderman et al.\ [2023], which reports Pythia
+benchmark results without mechanistic analysis or volume-confound correction, we
+provide both the contamination-accuracy correlation and the token-count matching
+methodology that recovers the full contamination signal.

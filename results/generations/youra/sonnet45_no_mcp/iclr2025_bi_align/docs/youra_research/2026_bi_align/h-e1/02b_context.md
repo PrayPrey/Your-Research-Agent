@@ -1,0 +1,139 @@
+# Hypothesis Context: h-e1
+
+**Generated from:** Phase 2B Verification Plan
+**Date:** 2026-04-19
+**Main Hypothesis:** H-GeomAlign-v1 - Geometric Structure of Alignment Failures in RLHF
+**Phase 2B Source:** 02b_verification_plan.md
+
+---
+
+## Hypothesis Information
+
+### Statement
+Under the scope of HH-RLHF harmless-preference annotation, if we perform blinded human audit of rejected samples, then we will find ≥40% contain genuine safety policy violations (not marginal preferences), because annotators used explicit harmlessness criteria that distinguish violations from style differences.
+
+### Type
+EXISTENCE
+
+### Rationale
+The entire geometric manifold framing depends on rejected responses encoding genuine alignment failures. If base-rate <40%, label noise dominates and geometric structure cannot emerge. This is the foundational gate experiment.
+
+---
+
+## Verification Protocol
+
+### Conceptual Test
+1. Sample 500 rejected responses from HH-RLHF harmless subset using stratified random sampling
+2. Conduct blinded human audit with 3 independent annotators using explicit violation criteria
+3. Calculate inter-annotator agreement (Cohen's κ) and proportion of genuine violations
+4. Test H0: p < 0.40 vs H1: p ≥ 0.40 using binomial test (α=0.05)
+
+### Success Criteria
+- Primary: p ≥ 0.40 genuine violations (binomial test p-value < 0.05)
+- Secondary: Inter-annotator agreement κ ≥ 0.75
+
+### Variables
+- **Independent Variable:** Sample source (rejected vs chosen)
+- **Dependent Variable:** Proportion of genuine violations (0-1)
+- **Controlled Variables:** Blinded annotation protocol, inter-rater agreement (κ ≥ 0.75)
+
+---
+
+## Experimental Setup (from Phase 2A via Phase 2B)
+
+> **Note:** Dataset and model were selected in Phase 2A Dialogue based on hypothesis Variables.
+> Phase 2C experiment design MUST use this selection.
+
+### Selected Dataset
+- **Name:** HH-RLHF harmless subset
+- **Type:** standard (publicly available RLHF preference dataset)
+- **Source:** Anthropic
+- **Path:** https://huggingface.co/datasets/Anthropic/hh-rlhf
+- **Hypothesis Fit:** Contains 160K+ validated chosen/rejected pairs with explicit harmlessness annotations from human annotators using safety criteria
+
+### Selected Model
+- **Name:** Human annotation (no ML model for this EXISTENCE hypothesis)
+- **Type:** Human evaluation protocol
+- **Source:** Blinded annotation with explicit harmlessness criteria
+- **Hypothesis Fit:** Tests whether HH-RLHF rejected samples contain genuine safety violations vs marginal preferences
+
+---
+
+## Baseline & Comparison Targets
+
+> **Note:** This is an EXISTENCE hypothesis validating dataset properties, not comparing methods.
+
+### Baseline Methods
+No computational baseline - this is base-rate validation via human audit.
+
+### Baseline Performance
+Expected base-rate under H1: p ≥ 0.40 genuine violations
+Null hypothesis (H0): p < 0.40 (label noise dominates)
+
+### Gap Analysis
+This hypothesis establishes the foundational assumption for all downstream geometric analysis. Without sufficient base-rate of genuine violations, the entire manifold framing collapses.
+
+---
+
+## Dependencies and Gate Conditions
+
+### Prerequisites
+None (foundation hypothesis - first in verification chain)
+
+### Gate Information
+
+**Gate Type:** MUST_WORK
+- MUST_WORK: Failure stops entire workflow
+
+**Gate Condition:** Base-rate p ≥ 0.40 with binomial test p-value < 0.05
+
+**Consequence if Fails:** STOP - reassess entire hypothesis or pivot framing. If p < 0.40, PIVOT to narrower preference prediction framing or ABANDON geometric manifold claims.
+
+**Phase Assignment:** Phase 2C → 3 → 4 (first hypothesis in chain)
+
+**Estimated Duration:** 1-2 weeks
+
+---
+
+## Dependency Context
+
+### Relationship to Other Hypotheses
+H-E1 is the foundation for all mechanism hypotheses:
+- H-M1 (Annotation Consistency) depends on H-E1
+- H-M2 (Embedding Separability) depends on H-M1
+- H-M3 (Geometric Properties) depends on H-M2
+- H-M4 (Cross-Encoder Robustness) depends on H-M3
+
+Failure of H-E1 blocks the entire verification chain.
+
+---
+
+## Verification State Reference
+
+**State File:** verification_state.yaml
+**Current Status:** IN_PROGRESS (Phase 2C experiment design)
+**Workflow Status:** ACTIVE
+
+---
+
+## Phase 2C Usage Notes
+
+**This context file provides:**
+1. Complete hypothesis specification for experiment design
+2. Gate conditions for prerequisite validation
+3. Dependency information for controlled experiments
+4. Success criteria for evaluation design
+
+**Phase 2C will:**
+1. Load this file instead of full Phase 2B roadmap (91% smaller)
+2. Search for implementation patterns (Archon, Exa MCP) - if available
+3. Design concrete experiment specification (Level 1.5)
+4. Output: {hypothesis_folder}/02c_experiment_brief.md
+
+**Baseline Usage by Hypothesis Type:**
+- **H-E* (Existence)**: No baseline comparison - validates dataset property via human audit
+
+---
+
+*Generated by Phase 2C Workflow (JIT)*
+*Optimized for single-hypothesis experiment design*

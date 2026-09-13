@@ -1,0 +1,7 @@
+# Geometric Bounds for Multi-Domain In-Context Learning
+
+## Motivation
+Large language models exhibit remarkable in-context learning (ICL) capabilities, but deploying them across domains (e.g., medical→finance, text→vision) lacks theoretical guarantees. Existing ICL theory addresses single-task scenarios, leaving cross-domain transfer unpredictable and potentially unsafe for critical applications. This research addresses the fundamental gap in multi-domain ICL theory by establishing the first PAC-style error bounds for cross-domain transfer, enabling principled deployment with formal safety guarantees.
+
+## Main Idea
+We hypothesize that multi-domain ICL transfer error is upper bounded by geodesic distance on a task embedding manifold: **E_target ≤ E_source + L·d_geo(D_s, D_t) + O(√(κ/n))**. Building on recent findings that transformers implement preconditioned gradient descent, we model cross-domain transfer as parallel transport of gradient information along geodesics, where transport error scales with path length (geodesic distance) and manifold curvature. We develop the Geodesic Transfer Distance (GTD) algorithm with O(N² log N) complexity to compute domain distances via Fisher information metrics. Validation across five domain pairs (text→vision, medical→finance, RL tasks) will test whether geodesic distance predicts transfer error (ρ ≥ 0.5) and bounds remain non-vacuous. Success enables 30-50% sample efficiency gains and regulatory-compliant ICL deployment in safety-critical domains.

@@ -1,0 +1,302 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (Round 1 - FEASIBLE)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-FEN-v1
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Under conditions of multi-task learning requiring efficiency, interpretability, and continual adaptation, if we integrate spiking neural networks (SNNs), predictive coding (PC), active inference (AI), Hebbian plasticity, and neuro-symbolic reasoning (NSAI) through a unified Free Energy Functional (FEF = α·FE_pc + β·FE_snn + γ·FE_hebbian + δ·FE_ai + ε·FE_nsai), then the system will achieve:
+1. Computational efficiency >2x over standard ANNs (operations per inference)
+2. Continual learning without catastrophic forgetting (retention >90% on sequential tasks)
+3. Interpretable decision traces aligned with neural mechanisms
+
+**Because** FEF minimization coordinates heterogeneous bio-inspired mechanisms through a common variational optimization objective, enabling: (a) SNN sparse computation for efficiency, (b) Hebbian local plasticity for continual adaptation, (c) PC hierarchical prediction for self-supervision, (d) Active inference for adaptive decision-making, (e) NSAI symbolic reasoning for interpretability.
+
+**Alternative Hypothesis (H0):**
+There is no computational efficiency advantage, continual learning capability, or interpretability improvement from integrating SNNs, PC, active inference, Hebbian plasticity, and NSAI through unified FEF compared to using these mechanisms separately or using standard ANNs alone.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| FEF coordination strength | Independent | Weighted sum α·FE_pc + β·FE_snn + γ·FE_hebbian measured by convergence rate and component alignment score | α,β,γ,δ,ε ∈ [0,1], learned during training; alignment score ∈ [0,1] |
+| Computational efficiency | Dependent | Operations per inference (MACs/FLOPs) vs baseline ANN, spike rate from SNN component | >2x reduction in ops, spike rate <6.4% (from Yan et al. 2024 threshold) |
+| Continual learning capability | Dependent | Forgetting metric on sequential tasks: accuracy retention = (acc_after_new_task / acc_before_new_task) | Retention >90% (vs <60% for standard fine-tuning) |
+| Interpretability score | Dependent | Symbolic trace completeness from NSAI layer (% decisions with valid logic rules), alignment with known neural mechanisms | Trace completeness >80%, mechanism alignment verified by domain experts |
+| Task complexity | Controlled | Standard benchmarks (MNIST for simple, CIFAR-10 for moderate, ImageNet subset for complex) | Fixed datasets with standardized train/val/test splits |
+| Training data regime | Controlled | Samples per class in training set | Small-data: <100 samples/class, Standard: full dataset |
+| Architecture hyperparameters | Controlled | Layer sizes, SNN time steps, PC hierarchy depth, NSAI rule count | Fixed per experiment: 3-layer hierarchy, 10 SNN timesteps, max 50 NSAI rules |
+
+### 1.3 Causal Mechanism
+
+**Mechanism Chain (N=5 steps):**
+
+**Step 1: FEF Formulation Unifies Heterogeneous Objectives**
+- FEF = α·FE_pc + β·FE_snn + γ·FE_hebbian + δ·FE_ai + ε·FE_nsai creates shared optimization landscape
+- Each component's local objective (e.g., FE_snn = spike cost + prediction error) maps to FEF contribution
+- Weighted sum with learned coefficients (α,β,γ,δ,ε) balances component contributions
+→ **Result**: Components share common optimization target despite heterogeneous computations
+
+**Step 2: Shared FEF Optimization → Hierarchical Message Passing Coordinates Components**
+- Variational message passing between hierarchy levels propagates FEF gradients
+- Bottom-up: Error signals from lower levels
+- Top-down: Predictions from higher levels
+- Each component exposes FE interface for gradient exchange
+→ **Result**: Components coordinate through hierarchical communication protocol
+
+**Step 3: Coordinated SNN+PC+Hebbian Components → Computational Efficiency Gains**
+- SNN event-driven computation: Only active neurons fire (spike rate <6.4%), reducing operations
+- PC prediction reduces redundant computation: Only process unpredicted (surprising) information
+- Hebbian local plasticity: No global backprop required for adaptation
+→ **Result**: >2x reduction in operations per inference vs standard ANNs
+
+**Step 4: Hebbian Local Plasticity + FEF Global Objective → Continual Learning Without Forgetting**
+- Hebbian rules update synapses locally based on co-activation: Δw ∝ pre·post
+- Local updates don't require replaying old tasks (no catastrophic interference)
+- FEF global objective prevents drift: Overall system performance monitored
+→ **Result**: New task learning (accuracy >85%) while retaining old task performance (>90%)
+
+**Step 5: NSAI Symbolic Layer + FEF-Guided Reasoning → Interpretable Decision Traces**
+- NSAI layer extracts symbolic rules from distributed representations
+- FEF minimization guides rule selection: Rules that reduce FEF are preferred
+- Symbolic traces align with known neural mechanisms (e.g., "IF predictive_error > threshold THEN update_belief")
+→ **Result**: >80% decisions have valid interpretable logic traces
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | Ali et al. 2021 (65 cit) | Predictive coding emerges from energy minimization in RNNs - demonstrates FEP as unifying principle | Strong |
+| Step2 → Step3 | Variational inference theory (Bishop 2006) | Message passing in graphical models enables distributed coordination with provable convergence | Strong |
+| Step3 → Efficiency | Yan et al. 2024 + HIRE-SNN 2021 (106 cit) | SNNs achieve <6.4% spike rate for efficiency; PC reduces redundancy by predicting inputs | Medium-Strong |
+| Step4 → Continual | Limbacher et al. 2023 | Hebbian plasticity enables one-shot learning without forgetting in SNNs | Medium |
+| Step5 → Interpret | Wan et al. 2024 (Neuro-symbolic survey) | NSAI architectures provide interpretable logic rules aligned with symbolic reasoning | Medium |
+| SNN+Hebbian integration | Limbacher et al. 2023 | "Memory-Dependent Computation in SNNs via Hebbian Plasticity" - demonstrates compatible integration | Strong |
+| FEF formulation feasibility | Kingma & Welling 2014 (VAEs, 24k+ cit) | Variational free energy successfully optimized in deep neural networks (VAE ELBO) | Strong |
+
+**Key Tension:**
+- **Tension**: Ali et al. (2021) shows PC emerges from energy minimization in **continuous-valued RNNs**, but our hypothesis integrates PC with **discrete-valued SNNs** (binary spikes). The continuous/discrete representation mismatch may create optimization conflicts.
+- **Resolution**: This verification plan tests **hybrid representation strategy**: SNN layer operates on discrete spikes for efficiency, PC layer operates on continuous membrane potentials (pre-spike values). FEF formulation bridges both: FE_snn uses spike-based cost, FE_pc uses continuous prediction error. Phase 2B experiments will test if this hybrid approach maintains both efficiency and predictive capabilities.
+
+### 1.4 Key Assumptions
+
+1. **Free Energy Principle is transferable from neuroscience to artificial systems**
+   - Evidence: Variational autoencoders (VAEs) successfully minimize variational free energy (ELBO = -KL divergence + reconstruction), demonstrating FEP applicability to deep learning (Kingma & Welling 2014, 24k+ citations)
+   - Consequence if violated: FEF formulation becomes arbitrary objective without theoretical grounding; coordination benefits may not materialize
+
+2. **Hierarchical predictive coding provides suitable architectural scaffold for component integration**
+   - Evidence: Ali et al. (2021, 65 cit) shows PC emerges from energy efficiency in RNNs; biological visual cortex implements hierarchical PC successfully
+   - Consequence if violated: Message passing protocol fails; components operate independently without coordination
+
+3. **SNNs maintain efficiency advantages when integrated with other mechanisms**
+   - Evidence: HIRE-SNN (2021, 106 cit) shows SNNs achieve energy efficiency with robustness; Yan et al. (2024) establishes <6.4% spike rate threshold for efficiency
+   - Consequence if violated: Computational overhead negates SNN efficiency gains; hypothesis fails on primary performance metric
+
+4. **Modular components (PC, SNN, Hebbian, NSAI) can share common optimization objective without fundamental conflicts**
+   - Evidence: Multi-objective optimization (Pareto MTL, 2019) shows shared objectives improve coordination in neural networks
+   - Consequence if violated: Component objectives interfere (e.g., SNN sparsity vs NSAI dense representations); system becomes unstable or degrades to single-mechanism performance
+
+5. **Message passing overhead does not exceed coordination benefits**
+   - Evidence: Sparse variational message passing in graphical models achieves coordination with minimal overhead (threshold-based updates)
+   - Risk: High-frequency dense message passing could negate efficiency gains
+   - Consequence if violated: System is slower than standard ANNs despite SNN efficiency; hypothesis fails on practical feasibility
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- Multi-task learning scenarios requiring simultaneous efficiency, interpretability, and continual adaptation
+- Small-to-medium scale problems (MNIST, CIFAR-10, continual learning benchmarks) suitable for neuromorphic deployment
+- Domains where interpretability is valued: Medical diagnosis support, robotics decision-making, educational AI
+- Event-driven data or tasks where SNN temporal dynamics provide advantages
+
+**Where Hypothesis Does NOT Apply:**
+- Large-scale transformers on massive datasets (>100M parameters): Message passing overhead may become prohibitive
+- Tasks requiring only accuracy optimization without efficiency/interpretability constraints: Standard ANNs are simpler
+- Real-time systems with strict latency requirements <1ms: Hierarchical message passing adds latency
+- Domains where symbolic reasoning is irrelevant: NSAI component provides no advantage
+
+**Known Limitations:**
+- Integration complexity: 5 heterogeneous components increases implementation and debugging difficulty
+- Hyperparameter tuning: FEF weights (α,β,γ,δ,ε) and message passing thresholds require careful tuning
+- Scalability uncertainty: Coordination overhead may grow super-linearly with model size
+- Evaluation challenges: Multi-dimensional performance (efficiency + continual learning + interpretability) harder to benchmark than single metric
+
+### 1.6 Testable Predictions
+
+**P1 (Primary - Computational Efficiency)**:
+H-FEN Core (PC+SNN+Hebbian) will achieve **>2x computational efficiency** (measured as operations per inference: MACs/FLOPs) compared to standard ANN baseline on MNIST and CIFAR-10 tasks, while maintaining accuracy within 2% of baseline.
+
+*Measurement*:
+- Operations per inference: Count MACs (multiply-accumulates) and additions
+- SNN component spike rate: Must be <6.4% (Yan et al. 2024 efficiency threshold)
+- Statistical test: Paired t-test comparing H-FEN vs ANN on same random seeds, n ≥ 20 runs, p < 0.05
+- Success threshold: Efficiency ratio > 2.0x with p < 0.05
+
+*Basis*:
+Standard ANNs process all activations densely. H-FEN combines: (1) SNN sparse activations (<6.4% active), (2) PC prediction reducing redundant computation, (3) No global backprop due to Hebbian local updates. Combined effect should yield >2x efficiency.
+
+*Falsification*: If efficiency ratio ≤ 1.5x, hypothesis is **REJECTED** (insufficient efficiency gain to justify integration complexity).
+
+**P2 (Continual Learning Capability)**:
+H-FEN with Hebbian plasticity will achieve **>90% accuracy retention** on previously learned tasks after learning new tasks sequentially (5-task continual learning), compared to <60% for standard fine-tuning.
+
+*Measurement*:
+- Forgetting metric: Retention = (accuracy_on_task_i_after_training_task_j) / (accuracy_on_task_i_immediately_after_training_i)
+- Average across all old tasks after each new task
+- Statistical test: Compare H-FEN retention vs standard fine-tuning, n ≥ 15 runs, p < 0.05
+
+*Basis*:
+Hebbian local plasticity updates synapses based on co-activation without interfering with global parameters. Limbacher et al. (2023) demonstrates Hebbian SNNs achieve one-shot learning with minimal forgetting.
+
+*Falsification*: If retention ≤ 75%, hypothesis fails on continual learning claim.
+
+**P3 (Interpretability)**:
+H-FEN with NSAI layer will provide **valid symbolic decision traces for >80% of test samples**, where validity is measured by domain expert evaluation or alignment with ground-truth logic rules (where available).
+
+*Measurement*:
+- Symbolic trace completeness: % of decisions with extractable IF-THEN logic rules
+- Trace alignment: Human expert evaluation on sample of 100 decisions (1-5 scale: 1=no trace, 5=fully interpretable)
+- Quantitative metric: Average score >4.0 indicates >80% interpretability
+
+*Basis*:
+NSAI layer extracts symbolic rules from distributed representations. FEF-guided selection prefers rules that reduce free energy. Wan et al. (2024) survey shows neuro-symbolic architectures achieve interpretable reasoning.
+
+*Falsification*: If trace completeness <60% or expert score <3.0, interpretability claim fails.
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any of the following occur:
+
+1. **Primary Failure**: Computational efficiency ≤ 1.5x over baseline (>25% below target)
+   - Indicates FEF coordination overhead negates SNN efficiency gains
+
+2. **Mechanism Failure**: Core causal mechanism test fails (e.g., removing FEF coordination shows no performance degradation)
+   - Indicates FEF is not the actual causal factor; components work independently
+
+3. **Baseline Failure**: H-FEN performs worse than trivial baseline (random predictions or single-mechanism approach) on any dimension
+   - Indicates integration creates interference rather than synergy
+
+4. **Stability Failure**: Training fails to converge in >50% of runs (FEF optimization unstable)
+   - Indicates component objectives are fundamentally incompatible
+
+### 1.7 SOTA Baseline (Not Applicable - Absolute Performance Mode)
+
+This hypothesis targets **absolute performance validation** across three dimensions (efficiency, continual learning, interpretability) rather than SOTA comparison on a single benchmark. No specific SOTA methods identified for multi-dimensional comparison.
+
+Comparison baselines:
+- Standard ANN (dense feedforward network)
+- Single-mechanism approaches: SNN-only, PC-only, Hebbian-only
+- Non-unified multi-component: Separate SNN and PC networks (no FEF coordination)
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Primary metric (efficiency): Effect size estimated as Cohen's d = (2.0 - 1.0) / 0.3 = 3.33 (large effect)
+- Required sample size (t-test, power=0.8, α=0.05): n ≥ 5 runs minimum, **recommend n ≥ 20 runs** for robustness
+- Continual learning: n ≥ 15 runs (higher variance expected in sequential learning)
+- Interpretability: n = 100 expert-evaluated samples
+
+**Test Specification:**
+- **Efficiency**: Paired t-test (same random seeds for H-FEN vs ANN), one-tailed (H-FEN > ANN), α = 0.05
+- **Continual Learning**: Independent t-test (H-FEN retention vs standard fine-tuning retention), one-tailed, α = 0.05
+- **Interpretability**: One-sample t-test (expert scores vs threshold 4.0), one-tailed, α = 0.05
+
+**Report Format:**
+- Mean ± Standard Deviation (95% Confidence Interval)
+- Effect size: Cohen's d
+- p-value and statistical significance indicator
+- Example: "H-FEN efficiency: 2.3x ± 0.4x (95% CI: [2.1, 2.5]), d = 3.5, p < 0.001***"
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence - Foundation):**
+"Does FEF-coordinated integration of PC, SNN, and Hebbian components (H-FEN Core) achieve measurable improvements in computational efficiency (>2x operations reduction) and continual learning (>90% retention) compared to standard ANNs and single-mechanism baselines on MNIST and CIFAR-10 benchmarks?"
+
+- Maps to: Primary predictions (P1, P2)
+- Verification type: Empirical comparison (H-FEN Core vs baselines)
+- Critical: MUST PASS for Phase 2B to proceed - establishes that integrated system works
+- Expected outcome: Binary (PASS if both efficiency >2x AND retention >90%, FAIL otherwise)
+
+**SH2 (Mechanism - Core):**
+"Is the Free Energy Functional (FEF) the actual causal mechanism enabling component coordination, as demonstrated by: (1) FEF minimization correlating with performance improvements, (2) ablation of FEF coordination degrading performance, and (3) each causal link (Steps 1-5) being necessary for end-to-end function?"
+
+- Maps to: Causal mechanism (5-step chain from FEF formulation to multi-dimensional performance)
+- Verification type: Causal analysis through ablation studies and mechanistic interventions
+- Critical: Determines explanatory power - proves FEF is not just correlation
+- **Note**: Phase 2B will decompose this into N=5 sub-hypotheses:
+  - H-M1: FEF formulation creates shared optimization landscape (test: measure gradient alignment across components)
+  - H-M2: Shared optimization enables message passing coordination (test: ablate message passing, measure performance drop)
+  - H-M3: SNN+PC+Hebbian coordination yields efficiency (test: efficiency vs separate components)
+  - H-M4: Hebbian+FEF enables continual learning (test: disable Hebbian, measure forgetting)
+  - H-M5: NSAI+FEF produces interpretability (test: measure trace quality with/without FEF guidance)
+
+**SH3 (Comparison - Validation):**
+"Does H-FEN Full (5 mechanisms) demonstrate synergistic advantage over: (1) standard ANNs, (2) single-mechanism approaches (SNN-only, PC-only), (3) non-unified multi-component systems (separate SNN+PC without FEF coordination), achieving superior performance on at least 2 of 3 dimensions (efficiency, continual learning, interpretability)?"
+
+- Maps to: Secondary predictions (P2, P3) and comparative validation
+- Verification type: Comparative empirical study
+- Critical: Determines practical value - justifies integration complexity
+- Success criteria: Win on ≥2 dimensions with statistical significance (p<0.05)
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned (H-FEN-v1)
+- [x] Confidence level specified (0.85)
+- [x] Alternative hypothesis (H0) defined (no advantage from FEF integration)
+- [x] All variables have operationalization from evidence (6 variables: IV, 3 DV, 2 CV with measurement methods)
+- [x] Causal mechanism has evidence at each step (5 steps, evidence table with 7 sources)
+- [x] Causal chain length (N=5) determined and documented
+- [x] Key tension identified (continuous PC vs discrete SNN) with resolution proposed (hybrid representation)
+- [x] Key assumptions list consequences if violated (5 assumptions with evidence and risks)
+- [x] At least 2 testable predictions exist (P1 efficiency, P2 continual learning, P3 interpretability) with primary marked
+- [x] Falsification criteria are defined (4 conditions for rejection with quantitative thresholds)
+- [x] Baselines are identified for comparison (standard ANN, single-mechanism, non-unified multi-component)
+- [x] SH1, SH2, SH3 are clear starting points with verification types specified
+
+**All items verified ✓** - Ready for Phase 2B decomposition.
+
+### Open Questions
+
+1. **Resource Requirements**: What computational resources are needed for H-FEN Core implementation?
+   - Estimated training time for MNIST/CIFAR-10 on standard GPU (RTX 3090)?
+   - Neuromorphic hardware access (Intel Loihi) required for deployment or optional?
+   - PyTorch library compatibility (snntorch 0.7+, custom PC implementation)?
+
+2. **Data Availability**: Are existing benchmarks sufficient or do we need custom datasets?
+   - Continual learning: Use standard CL benchmarks (Split-MNIST, Split-CIFAR) or create custom?
+   - Interpretability evaluation: How to generate ground-truth symbolic traces for validation?
+   - Small-data regime: What sample sizes to test (<100, <50, <20 examples/class)?
+
+3. **Priority Verification Order**: Which sub-hypothesis should Phase 2B verify first?
+   - Option A: SH1 first (establish existence before mechanism) - **Recommended**
+   - Option B: SH2-M1 first (validate FEF formulation feasibility before building full system)
+   - Option C: Parallel verification (SH1 + SH2-M1 simultaneously) - higher risk but faster
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (YOLO Mode - Batch Execution)*
+*2026-02-06*

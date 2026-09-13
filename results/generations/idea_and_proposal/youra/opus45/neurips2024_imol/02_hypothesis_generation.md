@@ -1,0 +1,236 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-13
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-LPGARI-v1
+**Confidence Level:** 0.78
+
+**Main Hypothesis:**
+Under reward-free pre-training conditions in continuous-state MDPs, if learning-progress-gated adaptive reward integration (LP-GARI) dynamically weights RND (prediction-based) and DIAYN (competence-based) intrinsic rewards using learning progress signals, then the agent will achieve superior combined state coverage and skill diversity compared to single-paradigm methods, because the gating mechanism adaptively allocates exploration resources based on current learning needs.
+
+**Alternative Hypothesis (H0):**
+There is no significant difference in combined state coverage and skill diversity between LP-GARI's adaptive weighting approach and fixed-weight combinations of RND and DIAYN intrinsic rewards, or single-paradigm methods alone.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Gating weights α(t) | Independent | 2-layer MLP (64 hidden) output, α ∈ [0,1], updated every episode | α ∈ [0, 1], expected to vary dynamically |
+| Learning progress signals | Independent | World model prediction improvement (ΔMSE), skill discriminator accuracy change (Δacc), state coverage rate (new states/total) | ΔMSE: [-1, 1] normalized; Δacc: [-0.5, 0.5]; coverage rate: [0, 0.1] per episode |
+| State coverage | Dependent | Percentage of discretized state space visited via k-means clustering (k=1000) | Expected: 60-85% for LP-GARI vs 40-70% for baselines |
+| Skill diversity | Dependent | Mutual information I(s;z) estimated via discriminator, measured as skill discriminability score | Expected: 0.7-0.9 discriminability for LP-GARI |
+| Fine-tuning efficiency | Dependent | Sample efficiency ratio: steps to reach 90% task reward vs baseline | Expected: 1.5-3x improvement over single-paradigm |
+| RND reward normalization | Controlled | Running mean/variance normalization with window=1000 steps | Fixed normalization window |
+| DIAYN reward normalization | Controlled | Running mean/variance normalization with window=1000 steps | Fixed normalization window |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+Learning Progress Signals → Gating MLP → Adaptive Weight α → Combined Reward → Improved Exploration/Skill Balance
+```
+
+**Step 1: Learning Progress Signals → Gating MLP Input**
+- The gating MLP receives concatenated learning progress features (world model improvement ΔMSE, skill discriminator accuracy change Δacc, state coverage rate) as input at each episode
+- Evidence: Bio-inspired from prefrontal cortex reward integration mechanisms
+
+**Step 2: Gating MLP → Adaptive Weight α ∈ [0,1]**
+- The 2-layer MLP (64 hidden units) outputs a scalar weight α that determines the balance between RND and DIAYN rewards
+- Evidence: DuRND (Ma et al., 2025) demonstrates dual random network reward shaping is effective
+
+**Step 3: Adaptive Weight α → Combined Intrinsic Reward → Outcome**
+- Combined reward r_total = α * r_RND + (1-α) * r_DIAYN drives policy optimization
+- Evidence: RND (Burda 2018) achieves state-of-art exploration; DIAYN (Eysenbach 2018) achieves diverse skill discovery; combining should leverage both
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | BAMDP Shaping (Lidayan 2025) | Potential-based shaping immune to reward hacking | Strong |
+| Step2 → Step3 | DuRND (Ma et al., 2025) | Dual random networks balance exploration/exploitation | Strong |
+| Step3 → Outcome | CIM (Zheng 2024) | Constrained integration outperforms 15 IM methods | Strong |
+
+**Key Tension:**
+- Tension: CIM (Zheng 2024) uses constrained optimization for integration, while LP-GARI uses learned gating. CIM shows superior results but only for RFPT tasks with fixed constraints.
+- Resolution: LP-GARI's learned gating is more flexible and can adapt to different environment characteristics, which will be tested empirically by comparing against CIM baseline.
+
+### 1.4 Key Assumptions
+
+| # | Assumption | Supporting Evidence | Consequence if Violated |
+|---|------------|--------------------|-----------------------|
+| A1 | RND and DIAYN rewards can be normalized to compatible scales without losing signal quality | RND paper describes running normalization as standard practice | If violated: One reward type dominates, losing integration benefit; mitigate by testing multiple normalization windows |
+| A2 | Learning progress signals are informative proxies for optimal gating decisions | Neuroscience: prefrontal cortex uses prediction error for reward gating | If violated: Gating becomes random, no adaptive benefit; mitigate by analyzing gating weight evolution |
+| A3 | Optimal weighting varies dynamically over the learning trajectory | DuRND shows exploration-exploitation balance changes over training | If violated: Fixed weights would perform equally well; mitigate by comparing against fixed-α baselines |
+| A4 | A 2-layer MLP is sufficient to learn the adaptive gating function | Standard practice for small-scale regression in RL | If violated: Underfitting/overfitting; mitigate by ablating network depth |
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- Continuous-state MDPs (e.g., MuJoCo robotics environments)
+- Reward-free pre-training (RFPT) settings
+- Single-agent settings with proprioceptive observations
+
+**Where Hypothesis Does NOT Apply:**
+- Discrete-state MDPs (requires adaptation of state coverage metrics)
+- Multi-agent RL settings (not tested)
+- Settings with dense extrinsic rewards (intrinsic motivation less relevant)
+- Image-based observations (requires additional representation learning)
+
+**Known Limitations:**
+- Self-supervised gating objective may be suboptimal compared to oracle access to downstream tasks
+- Fixed gating architecture limits flexibility
+- Computational overhead of maintaining both RND and DIAYN modules
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Combined Exploration-Skill Metric):**
+LP-GARI will achieve a combined score (weighted average of normalized state coverage + skill diversity) that exceeds:
+- RND-only baseline by ≥15%
+- DIAYN-only baseline by ≥15%
+- Fixed-weight combination (α=0.5) by ≥8%
+- CIM baseline by ≥5%
+
+*Measurement*:
+- State coverage via k-means discretization (k=1000)
+- Skill diversity via discriminator accuracy
+- Combined score = 0.5 * normalized_coverage + 0.5 * normalized_diversity
+- Statistical test: Paired t-test, n ≥ 20 runs, p < 0.05
+
+*Basis*:
+Domain standard for intrinsic motivation methods requires demonstration of improvement over both single-paradigm approaches and naive combinations.
+
+*Success Criteria for Phase 2B*:
+- Primary: Combined score > best baseline + 5% (p < 0.05)
+- Falsification: Combined score ≤ fixed-weight baseline triggers rejection
+
+**Secondary Predictions:**
+
+**P2 (Adaptive Gating Behavior):**
+The learned gating weights α(t) will show systematic variation correlated with learning progress:
+- High α (favor RND) when world model improvement is high (early learning, novel states)
+- Low α (favor DIAYN) when state coverage saturates (late learning, skill refinement)
+- Correlation coefficient r > 0.3 between α and learning progress signals
+
+**P3 (Fine-tuning Efficiency):**
+LP-GARI pre-trained agents will achieve 90% task performance with:
+- ≥1.5x fewer samples than RND pre-trained agents
+- ≥1.5x fewer samples than DIAYN pre-trained agents
+- On at least 3/5 downstream tasks tested
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any of the following occur:
+
+1. **Primary Failure**: Combined exploration-skill score ≤ fixed-weight baseline (α=0.5)
+   - Indicates adaptive gating provides no benefit over naive combination
+
+2. **Mechanism Failure**: Gating weights α(t) show no correlation with learning progress signals (|r| < 0.1)
+   - Indicates gating network is not learning meaningful adaptive behavior
+
+3. **Comparative Failure**: LP-GARI underperforms CIM on all metrics
+   - Indicates constrained optimization is fundamentally superior to learned gating
+
+### 1.7 SOTA Baseline (Optional - If SOTA Comparison Mode)
+
+*Not applicable - Absolute performance validation mode selected*
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size (Cohen's d): 0.6-0.8 (medium to large, based on CIM results)
+- Required runs: n ≥ 20 per condition
+- Statistical power: 0.8
+
+**Test Specification:**
+- Method: Paired t-test (same random seeds across methods)
+- Significance level: α = 0.05 (two-tailed)
+- Multiple comparison correction: Bonferroni for 4 baseline comparisons
+
+**Report Format:**
+- Mean ± Standard Deviation
+- 95% Confidence Interval
+- Cohen's d effect size
+- p-value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does LP-GARI's adaptive weighting mechanism produce better combined exploration-skill performance than single-paradigm methods under reward-free pre-training conditions?"
+- Maps to: Primary prediction P1
+- Verification type: Empirical comparison
+- Critical: MUST PASS for hypothesis to be supported
+
+**SH2 (Mechanism):**
+"Is the learned gating mechanism the actual cause of improved performance, operating through the proposed 3-step causal chain?"
+- Maps to: Causal mechanism (3 sub-hypotheses)
+  - H-M1: Learning progress signals are informative inputs (Step 1)
+  - H-M2: Gating MLP learns meaningful α weights (Step 2)
+  - H-M3: Combined reward improves policy (Step 3)
+- Verification type: Causal analysis via ablations
+- Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does LP-GARI outperform fixed-weight combinations and CIM on downstream task fine-tuning efficiency?"
+- Maps to: Secondary prediction P3
+- Verification type: Comparative empirical
+- Critical: Determines practical value
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-LPGARI-v1
+- [x] Confidence level specified: 0.78
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (3 steps, evidence_for_links table)
+- [x] Causal chain length (N=3) determined and stored
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (3 defined, with primary marked)
+- [x] Falsification criteria are defined (3 criteria)
+- [x] Baselines are identified for comparison (RND, DIAYN, fixed-weight, CIM)
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:**
+   - Compute: Standard single GPU (RTX 3090 or equivalent) sufficient?
+   - Time: Estimated wall-clock time for full experiment suite?
+
+2. **Data Availability:**
+   - MuJoCo environments available via standard Gymnasium
+   - Downstream tasks: Which 5 tasks to use for fine-tuning evaluation?
+
+3. **Implementation Priority:**
+   - Should SH1 (existence) be verified before SH2 (mechanism)?
+   - Recommendation: SH1 → SH2 → SH3 (sequential dependency)
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-13*

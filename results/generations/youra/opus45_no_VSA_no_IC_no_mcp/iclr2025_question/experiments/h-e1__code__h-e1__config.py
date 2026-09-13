@@ -1,0 +1,15 @@
+MODEL_ID = "meta-llama/Llama-2-7b-hf"
+EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
+DATASET_ID = "truthfulqa/truthful_qa"
+DATASET_CONFIG = "generation"
+DATASET_SPLIT = "validation"
+CACHE_DIR = "data/h-e1_cache"
+N_SAMPLES = 5
+TEMPERATURE = 1.0
+MAX_NEW_TOKENS = 128
+SEED = 42
+N_BOOTSTRAP = 1000
+OUTPUT_DIR = "results/h-e1"
+BERTSCORE_MODEL = "microsoft/deberta-xlarge-mnli"
+BERTSCORE_RESCALE = True
+LABEL_MIN_BEST_SCORE = 0.5

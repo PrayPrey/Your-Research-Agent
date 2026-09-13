@@ -1,0 +1,236 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-HSMFBO-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under the condition that low-fidelity and high-fidelity safety constraints are correlated (modeled via LMC kernel), if cross-fidelity transfer error τ is computed and used to inflate safety margins by β = 1 + τ/σ_LF when evaluating at low-fidelity, then optimization achieves significant cost reduction (≥40% compared to single-fidelity SafeOpt) while maintaining provable safety (zero constraint violations), because the margin inflation conservatively compensates for fidelity-dependent prediction uncertainty ensuring high-fidelity safety bounds are preserved.
+
+**Alternative Hypothesis (H0):**
+Cross-fidelity safety transfer via margin inflation does NOT provide cost reduction while maintaining safety; either (a) safety violations occur despite margin inflation, or (b) over-conservative margins eliminate cost savings, or (c) LMC kernel cannot adequately model cross-fidelity constraint correlations.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Cross-fidelity transfer error (τ) | Independent | τ ≤ \|\|A_HF - A_LF\|\| computed from LMC mixing coefficients | 0.1 - 2.0 (normalized) |
+| Safety margin inflation factor (β) | Independent | β = 1 + τ/σ_LF, where σ_LF is low-fidelity GP predictive std | 1.2 - 3.0 |
+| Fidelity cost ratio | Independent | Ratio of high-fidelity to low-fidelity evaluation cost | 10x - 100x |
+| Cumulative constraint violations | Dependent | Count of iterations where true constraint g(x) < 0 | 0 (target) |
+| Total optimization cost | Dependent | Sum of evaluation costs weighted by fidelity | 40-70% reduction vs SafeOpt |
+| Simple regret | Dependent | f(x*) - f(x_best) at convergence | Comparable to SafeOpt |
+| LMC kernel hyperparameters | Controlled | Fixed or MLE-estimated mixing coefficients | Auto-tuned via marginal likelihood |
+| GP model specification | Controlled | RBF kernel with ARD, standard GP likelihood | Fixed architecture |
+
+### 1.3 Causal Mechanism
+
+**4-Step Causal Chain:**
+
+```
+Step 1: LMC kernel learning
+    ↓
+Step 2: Transfer error bound computation
+    ↓
+Step 3: Margin-inflated acquisition
+    ↓
+Step 4: Cost-efficient safe optimization
+    ↓
+[Outcome: Zero violations + Cost reduction]
+```
+
+**Step 1 → Step 2:** LMC kernel learns cross-fidelity correlations between g_LF(x) and g_HF(x), enabling computation of transfer error bound τ ≤ ||A_HF - A_LF||.
+
+**Step 2 → Step 3:** Transfer error τ determines margin inflation factor β = 1 + τ/σ_LF. Acquisition function (MF-UCB) is weighted by inflated safety probability P(g_HF(x) ≥ 0 | g_LF observations, β).
+
+**Step 3 → Step 4:** Margin-inflated low-fidelity evaluations remain safe at high-fidelity with high probability. Cheap LF evaluations substitute expensive HF evaluations while preserving safety.
+
+**Step 4 → Outcome:** Safe low-fidelity exploration enables cost-efficient optimization with zero constraint violations.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | Bonilla et al. (2008) Multi-task GP | LMC mixing coefficients define cross-task similarity | Strong |
+| Step2 → Step3 | Berkenkamp et al. (2016) SafeOpt | Conservative margin scaling maintains probabilistic guarantees | Strong |
+| Step3 → Step4 | Sui et al. (2015) StageOpt | Safety margin propagation preserves guarantees | Strong |
+| Step4 → Outcome | Forrester (2007) MF-BO | Multi-fidelity achieves 50-70% cost reduction | Strong |
+
+**Key Tension:**
+- **Tension:** SafeOpt requires high-confidence predictions for safety, but MF-BO uses cheap low-fidelity approximations that may have significant prediction error
+- **Resolution:** HS-MFBO explicitly models this tension via transfer error τ and compensates with proportional margin inflation β, transforming the conflict into a tunable trade-off
+
+### 1.4 Key Assumptions
+
+1. **Cross-fidelity correlation:** Low-fidelity and high-fidelity safety constraints are positively correlated (not independent)
+   - *Evidence:* Common in drug discovery where computational toxicity screens correlate with experimental assays
+   - *If violated:* Transfer error τ becomes unbounded; method degrades to single-fidelity SafeOpt
+
+2. **LMC well-specification:** LMC kernel adequately models cross-fidelity constraint correlations
+   - *Evidence:* LMC is standard for multi-task GP regression (Alvarez et al. 2012)
+   - *If violated:* Transfer error bound may be loose, leading to over-conservative margins or safety violations
+
+3. **Initial safe set known:** At least one high-fidelity safe point is known a priori
+   - *Evidence:* Standard SafeOpt assumption; often satisfied in practice via domain knowledge
+   - *If violated:* Cannot bootstrap safe exploration; need alternative initialization
+
+4. **GP model accuracy:** GP models accurately capture constraint function at each fidelity
+   - *Evidence:* Calibration step validates LF predictions on held-out HF data
+   - *If violated:* Calibration procedure detects misspecification and adjusts β adaptively
+
+### 1.5 Scope & Boundaries
+
+**Applies to:**
+- Optimization problems with multiple evaluation fidelities (computational vs experimental)
+- Problems with safety constraints that must not be violated during optimization
+- Applications where fidelity cost ratio ≥ 10x (significant cost savings potential)
+- Domains: drug discovery, materials design, robotics, chemical engineering
+
+**Does NOT apply to:**
+- Problems with uncorrelated safety constraints across fidelities
+- Black-box fidelities with no structural relationship
+- Settings where all fidelities have similar cost (no MF benefit)
+- Problems without safety constraints (use standard MF-BO)
+
+**Known limitations:**
+- LMC may not capture highly nonlinear fidelity relationships (consider DGP-MF alternative)
+- Initial safe set requirement limits cold-start scenarios
+- Calibration requires some held-out high-fidelity data (overhead)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Safety + Cost Efficiency):**
+HS-MFBO will achieve ZERO cumulative constraint violations AND ≥40% cost reduction compared to single-fidelity SafeOpt
+
+*Measurement:*
+- Violations = 0 across all iterations
+- Cost reduction = (Cost_SafeOpt - Cost_HSMFBO) / Cost_SafeOpt ≥ 0.4
+- Statistical test: One-sided t-test, n ≥ 20 runs, p < 0.05
+
+*Basis:*
+- SafeOpt achieves zero violations but evaluates only at high-fidelity
+- MF-BO achieves 50-70% cost reduction but without safety
+- HS-MFBO combines both via margin inflation
+
+*Success Criteria for Phase 2B:*
+- Primary: Violations = 0 AND Cost reduction ≥ 40%
+- Falsification: Violations > 0 OR Cost reduction < 20%
+
+**Secondary Predictions:**
+
+**P2 (Margin Calibration):**
+Adaptive calibration using held-out HF data will improve cost efficiency by 10-20% compared to fixed β
+
+*Measurement:* Compare calibrated vs fixed-margin variants
+
+**P3 (Fidelity Ratio Scaling):**
+Cost savings scale with fidelity cost ratio: higher ratio → greater savings
+
+*Measurement:* Vary cost ratio from 10x to 100x; measure correlation with savings
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any occur:
+
+1. **Safety Failure:** Cumulative violations > 0 in any experimental condition
+   - Indicates margin inflation is insufficient
+
+2. **Cost Failure:** Cost reduction < 20% compared to SafeOpt
+   - Indicates overhead exceeds MF savings
+
+3. **Mechanism Failure:** Transfer error τ does not correlate with actual LF→HF prediction discrepancy
+   - Indicates LMC modeling assumption is invalid
+
+### 1.7 SOTA Baseline (Optional - If SOTA Comparison Mode)
+
+*Not applicable - HS-MFBO is a novel method, not a SOTA improvement*
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size (Cohen's d): Large (d ≥ 0.8) expected for cost reduction
+- Required runs: n ≥ 20 per condition
+- Statistical power: 0.8
+
+**Test Specification:**
+- Method: Paired t-test (same random seeds across methods)
+- Significance level: α = 0.05 (one-tailed for cost reduction)
+- Report format: Mean difference, 95% CI, Cohen's d, p-value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does cross-fidelity safety transfer via margin inflation maintain zero violations while reducing cost?"
+- Maps to: Primary prediction P1
+- Verification type: Empirical
+- Critical: MUST PASS for hypothesis to hold
+
+**SH2 (Mechanism):**
+"Is the proposed 4-step causal mechanism the actual cause of safe cost reduction?"
+- Maps to: Causal mechanism (4 sub-hypotheses H-M1 through H-M4)
+  - H-M1: LMC kernel learns cross-fidelity correlations
+  - H-M2: Transfer error τ is computable and tight
+  - H-M3: Margin inflation β preserves HF safety
+  - H-M4: Safe LF exploration enables cost reduction
+- Verification type: Causal analysis / ablation
+- Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does HS-MFBO outperform SafeOpt (safety) and MF-BO (naive safety) baselines?"
+- Maps to: Secondary predictions P2, P3
+- Verification type: Comparative empirical
+- Critical: Determines practical value
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned (H-HSMFBO-v1)
+- [x] Confidence level specified (0.82)
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (4 steps, evidence table)
+- [x] Causal chain length (N=4) determined and stored
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (with primary marked)
+- [x] Falsification criteria are defined
+- [x] Baselines are identified for comparison
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Data availability:** Are ChEMBL/ToxCast datasets suitable for demonstrating cross-fidelity safety constraints? What preprocessing is needed?
+
+2. **Computational resources:** What are the GP fitting costs for LMC kernel at scale (>1000 points)? May need scalable GP approximations.
+
+3. **Calibration sample size:** How many held-out HF points are needed for reliable calibration? Trade-off with total HF budget.
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

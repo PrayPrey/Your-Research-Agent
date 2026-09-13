@@ -1,0 +1,54 @@
+
+The methodology separates two sources of potential oracle advantage: oracle semantic strength (measured by Experiment A) and input exploration advantage (measured by Experiment B).
+
+\subsubsection{3.1 Overview}
+
+Two experiments address distinct questions:
+
+\begin{enumerate}
+\item \textbf{Experiment A (Oracle Isolation):} Do contract oracles detect more failures than differential oracles on the same inputs? Evaluated by holding the input set fixed (CVT inputs) and comparing oracle outcomes.
+\item \textbf{Experiment B (Adaptive PBT):} Does adaptive input search find additional violations beyond the fixed CVT set? Evaluated by running icontract-hypothesis adaptive PBT and computing the contribution beyond static CVT inputs.
+\end{enumerate}
+
+Two additional experiments address mechanism and scope questions:
+
+\begin{enumerate}
+\item \textbf{Experiment C (Contract Richness):} Does oracle-isolation gap scale with contract complexity?
+\item \textbf{Experiment D (Cross-Model):} Do model rankings on contract satisfaction differ from rankings on pass@1*?
+\end{enumerate}
+
+\subsubsection{3.2 Dataset: ContractEval}
+
+ContractEval [Lim2025ContractEval] provides 364 tasks drawn from HumanEval+ (117 tasks) and MBPP+ (247 tasks) with Python inline \texttt{assert} pre/post-conditions. Each task includes contract-violating test inputs (CVTs, approximately 5 per task) specifically designed to trigger contract violations on incorrect programs. Zero tasks were quarantined by soundness pre-check.
+
+\subsubsection{3.3 LLM Corpus}
+
+Five model families were evaluated: GPT-4o-mini and Claude-3-Haiku (closed-source); DeepSeek-Coder-V2-Lite-Instruct (16B), CodeLlama-13B-Instruct, and CodeLlama-34B-Instruct (open-source). Code samples (n = 10 per model per task) were drawn from the EvalPlus generation corpus and filtered to test-passing programs.
+
+Experiment A (oracle isolation) completed fully for 3 of 5 model families (Claude-3-Haiku, CodeLlama-13B, CodeLlama-34B; 10,432 triples). Note: CodeLlama-34B completed 317 of 364 tasks in Experiment A. Experiment B (adaptive PBT) completed for all 5 families (17,226 triples; 94.6\% compatibility rate across 18,200 attempted triples).
+
+\subsubsection{3.4 Experiment A: Oracle Isolation via CVT Inputs}
+
+ContractEval's inline \texttt{assert} contracts are precondition checks that fire only on invalid inputs. EvalPlus's 764 static inputs are valid by construction --- producing zero contract violations when run against reference implementations. CVT inputs are used as the controlled comparison set for oracle isolation.
+
+\begin{itemize}
+\item \textbf{Oracle A (differential):} \texttt{p(x) \$\textbackslash neq\$ gt\textbackslash \_plain(x)} --- did the LLM program's output differ from the plain (contract-free) canonical?
+\item \textbf{Oracle B (contract):} \texttt{canonical\textbackslash \_with\textbackslash \_contract(x)} raises \texttt{AssertionError} --- did the reference contract assert fire?
+\item \textbf{Contract-unique (CU):} Oracle A = PASS \textit{and} Oracle B = FAIL --- programs returning output equal to ground truth while violating the reference contract on CVT inputs.
+\item \textbf{Oracle-isolation gap} = mean(Oracle B rate) $-$ mean(Oracle A rate) across all evaluation triples.
+\end{itemize}
+
+Implementation: 8-process multiprocessing pool; 5 s per-input execution timeout; 10 s per-program timeout; JSONL streaming for fault tolerance.
+
+\subsubsection{3.5 Experiment B: Adaptive PBT Contribution}
+
+icontract-hypothesis with 5,000 examples per triple and a 30 s SIGALRM per-triple timeout explores the contract-relevant input space beyond CVT coverage. Adaptive contribution per triple = PBT failure rate $-$ static CVT failure rate. The 94.6\% compatibility rate (17,226 of 18,200 attempted triples) reflects 906 errors from timeout and decorator-wrapping incompatibilities; 10 tasks were excluded due to zero valid Experiment B triples, yielding 354 tasks with Experiment B data.
+
+\subsubsection{3.6 Contract Richness Analysis (Experiment C)}
+
+AST-based richness scoring assigns each task to one of four tiers based on contract clause syntax: Tier 1 (Simple --- basic comparisons), Tier 2 (Structural --- \texttt{BoolOp} chaining), Tier 3 (Relational --- \texttt{any()}/\texttt{all()} quantification), Tier 4 (Compound --- combinations). Contract clauses are isolated using the \texttt{\textbackslash\# \$\_CONTRACT\_\$} marker to exclude procedural helper code. Spearman $\rho$ correlation between richness tier and oracle-isolation gap is computed with exact permutation test and 10,000-sample bootstrap CI.
+
+\subsubsection{3.7 Cross-Model Analysis (Experiment D)}
+
+Kendall $\tau$ between contract-satisfaction ranking and pass@1\textit{ ranking is computed across n = 5 models. Mixed-effects linear model (MixedLM, powell convergence) computes partial $\Delta R^2$ for model identity after controlling for pass@1} and log(model size). Exact permutation test uses \texttt{scipy.stats.permutation\textbackslash \_test} with \texttt{permutation\textbackslash \_type='pairings'}. At n = 5, the minimum achievable two-sided p-value is approximately 0.017 (only at |$\tau |$ = 1.0); for $\tau$ = 0.40, p $\approx$ 0.48 is the structurally correct result.
+

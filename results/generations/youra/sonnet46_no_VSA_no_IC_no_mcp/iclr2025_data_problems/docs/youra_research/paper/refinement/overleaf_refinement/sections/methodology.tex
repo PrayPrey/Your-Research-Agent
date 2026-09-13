@@ -1,0 +1,55 @@
+
+\subsubsection{3.1 Experimental Platform}
+
+The Pythia model suite is used as the experimental platform. Two model families are compared: Pile-trained and dedup-Pile-trained models, both using GPT-NeoX architecture, Adam optimizer (beta1=0.9, beta2=0.95), context length 2048, and identical batch size schedules. Four model sizes are evaluated: 160M, 410M, 1B, and 6.9B parameters.
+
+Benchmarks evaluated using lm-evaluation-harness \citep{EleutherAI2023Harness} with greedy decoding and float16 precision:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Benchmark & Evaluation Type & Few-shot Setting & 13-gram Contamination Estimate (Pile) \\
+\midrule
+MMLU & General knowledge (multiple choice) & 5-shot & 5.5\% \\
+HellaSwag & Commonsense completion & 0-shot & 20.0\% \\
+ARC-Challenge & Science QA (multiple choice) & 25-shot & 8.5\% \\
+WinoGrande & Coreference/commonsense & 5-shot & 2.5\% \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Contamination estimates are derived from Lee et al. (2022) and the GPT-4 Technical Report. These are literature-derived proxies; freshly computed estimates from the H-M1 pipeline are pending (see Section 6, Limitation L2).
+
+\subsubsection{3.2 Token-Count Matching}
+
+Pile and dedup-Pile models differ in corpus size by approximately 15\%. At the same training step, the two model families have processed different total token counts. Step-matching --- comparing both models at the same step --- introduces a volume confound in which Pile models have processed more tokens, giving them a non-contamination-related performance advantage.
+
+Token-count matching is implemented as follows: the dedup-Pile final checkpoint is at step 143,000, corresponding to approximately 207 billion tokens. The Pile checkpoint whose cumulative token count most closely matches 207 billion tokens is identified as Pile step 99,000, with a token volume mismatch of less than 0.30\%. This checkpoint pair (Pile step 99,000, dedup-Pile step 143,000) is used for all primary analyses (H-E1, H-M3).
+
+Note: H-M4's internal robustness check uses a separate checkpoint pair (Pile step 128,000 at approximately 218 billion tokens) as a simulated step-matched baseline. The primary experimental analyses consistently use Pile step 99,000.
+
+Token-count matching superiority over step-matching is validated empirically (see Section 5.3).
+
+\subsubsection{3.3 Contamination-Accuracy Correlation Framework}
+
+The primary analysis computes Pearson r and Spearman rho between:
+\begin{itemize}
+\item x: per-benchmark 13-gram contamination estimate (c\_b)
+\item y: per-benchmark accuracy differential (Delta\_b = acc\_dedup\_b - acc\_Pile\_b)
+\end{itemize}
+
+This is computed over n = 16 observations formed by flattening 4 benchmarks x 4 model sizes. Each (benchmark, model-size) pair is treated as one observation. This inflates effective sample size relative to the 4 unique benchmark degrees of freedom. The benchmark-level correlation (collapsing across model sizes, n = 4) yields r = 0.776 but is not independently significant (p = 0.224), as expected from n = 4 degrees of freedom. Both the flattened (n = 16) and benchmark-level (n = 4) analyses are reported. Statistical significance for the correlation analysis is assessed at alpha = 0.05. Bootstrap confidence intervals use B = 1000 resamples.
+
+For the existence test (H-E1), paired t-tests across 4 model sizes (n = 4 pairs) are used with Bonferroni correction: alpha\_corrected = 0.05 / 4 = 0.0125.
+
+\subsubsection{3.4 N-gram Overlap Pipeline (H-M1)}
+
+A streaming pipeline compares 13-gram overlap distributions between documents removed by deduplication and retained documents. The pipeline uses SHA-256 hashing for document classification via hash difference between Pile and dedup-Pile, stratified reservoir sampling (n = 10,000 per group for full experiment), lm-evaluation-harness 13-gram extraction via the TaskManager API, parallel overlap computation using 13-gram character-level matching, and Mann-Whitney U-tests with Bonferroni correction. The proof-of-concept dry-run used n = 200 per group with synthetic documents. Full corpus results are pending.
+
+\subsubsection{3.5 Min-k\% Memorization Analysis (H-M2)}
+
+Min-k\% scores \citep{Shi2023Detecting} are computed for benchmark test items under Pile-trained and dedup-Pile-trained Pythia-1B models. The algorithm computes token log-probabilities and identifies the minimum-probability k\% of tokens per sequence, following Shi et al. (2023) exactly. Primary k = 20; ablations over k in {10, 20, 40}. Models loaded at Pile step 98,000 and dedup-Pile step 143,000 (approximately matched token counts for the H-M2 PoC). The hypothesis predicts Pile models should show higher min-k\% scores, reflecting greater near-memorization of benchmark-adjacent content.
+

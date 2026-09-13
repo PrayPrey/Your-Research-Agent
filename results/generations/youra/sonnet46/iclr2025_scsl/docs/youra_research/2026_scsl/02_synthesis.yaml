@@ -1,0 +1,121 @@
+# 02_synthesis.yaml - Phase 2A Synthesis (v10.0.0 Free-Parse)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-03-16T20:56:00Z"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1-gradient-norm-proxy"
+
+hypothesis_draft:
+  title: "Gradient-Norm-Informed Last-Layer Retraining (GNR-LLR) for Label-Free Spurious Correlation Robustification"
+  hypothesis_id: "H-GNR-LLR-v1"
+  core_claim: |
+    Per-sample normalized gradient norms (g_tilde_i = ||∇_W ℓ_i|| / ||h(x_i)||) computed during early ERM training
+    (epochs 1–5) reliably identify minority-group samples (those resisting the spurious feature shortcut) with
+    minority/majority ratio ≥ 3x, and using top-k% high-norm samples as pseudo-minority + bottom-k% as pseudo-majority
+    for DFR-style last-layer retraining achieves WGA ≥ 88% on Waterbirds without group label supervision.
+  mechanism: |
+    During early ERM training on spuriously correlated data, majority-group samples are fitted by the spurious shortcut
+    solution (e.g., background → bird class), producing low loss and low gradient norms. Minority-group samples lack
+    the spurious cue and cannot be fit by this shortcut — they produce persistently elevated gradient norms (resistance
+    to M_sc under NHT norm-hierarchy dynamics). Normalized gradient norm (g_tilde_i) isolates prediction error from
+    feature scale effects. Selecting top-k% high-norm samples as pseudo-minority and bottom-k% as pseudo-majority
+    produces a pseudo-group-balanced subset. Freezing the ERM feature extractor (which already encodes core features,
+    per DFR) and retraining only the classification head on this pseudo-balanced subset corrects the spurious classifier
+    weighting, achieving high WGA.
+  predictions:
+    - P1: "WGA ≥ 88% on Waterbirds test set (5794 samples) at T_id=5, k=25%, last-layer retraining, λ=1e-4, 5 seeds"
+    - P2: "AUC(normalized g_tilde → minority group membership) > AUC(misclassification → minority group) at T_id=5"
+    - P3: "Normalized norm ratio ≥ 3x at T_id=5; ≥ 1.2x at T_id=10 (post-shortcut-norm-peak)"
+
+variables_summary:
+  independent: "Proxy signal type (gradient_norm_normalized vs. misclassification vs. loss_magnitude); T_id ∈ {3,5,10}; k ∈ {10%,20%,30%}; retraining mode (full vs. last-layer-only); λ ∈ {0, 1e-4, 5e-4}"
+  dependent_primary: "Worst-Group Accuracy (WGA) on Waterbirds test set; success threshold ≥ 88% (vs JTT 86.7%)"
+  controlled: "ResNet-50 (ImageNet pretrained), Waterbirds dataset (confirmed cached), lr=0.001, momentum=0.9, batch_size=128, 5 seeds"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in worst-group accuracy (WGA) between GNR-LLR (gradient norm proxy)
+    and JTT (misclassification proxy) on Waterbirds or CelebA when using the same identification epoch T_id,
+    backbone (ResNet-50), and two-stage training protocol.
+  statistical_test: "Paired t-test (one-sided) across 5 seeds per condition; Bonferroni correction for multiple comparisons (4 conditions)"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First method to use normalized per-sample gradient norm for pseudo-group-balanced subset construction in DFR-style last-layer retraining without group labels"
+  differentiation_summary: |
+    vs. JTT: continuous signal vs. binary; captures borderline minority samples; principled T_id selection via temporal norm dynamics; NHT-grounded mechanism
+    vs. DFR: eliminates group-annotated validation set requirement; same two-stage structure but label-free
+    vs. LfF: single-network vs. two-network; half the compute; gradient norm vs. relative loss
+    vs. LFR: normalized gradient norm vs. raw loss magnitude; additionally captures feature activation differences
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "ResNet-50 (ImageNet pretrained) — primary"
+  datasets:
+    - "Waterbirds (Sagawa et al. 2019) — primary, confirmed cached"
+    - "CelebA (Liu et al. 2015) — secondary, standard benchmark"
+  baselines:
+    - "ERM+SGD (no group supervision, ~72-76% WGA Waterbirds)"
+    - "JTT (Liu et al. 2021, +21pp WGA, misclassification proxy)"
+    - "DFR (Kirichenko et al. 2023, 92.9% WGA, group labels required)"
+    - "LfF (Nam et al. 2020, 84.24% CelebA accuracy)"
+
+measurement_plan:
+  data_collection:
+    - source: "Per-sample gradient norms at epochs {1, 3, 5, 10, 20} using backward hooks in existing gradient_analysis.py"
+    - source: "Per-sample feature magnitudes ||h(x_i)|| at same epochs using forward hooks"
+    - source: "Per-sample misclassification binary indicator at T_id (for AUC comparison)"
+    - source: "Post-hoc group membership labels from Waterbirds metadata.csv (for evaluation only)"
+    - source: "Layer-wise weight norms at all epochs (for shortcut norm peak identification)"
+  procedure:
+    - step: "Stage 1: Train ResNet-50 ERM for 20 epochs on Waterbirds, logging per-sample gradient norms and feature magnitudes at epochs {1,3,5,10,20}"
+    - step: "Compute normalized gradient norms g_tilde_i = ||∇_W ℓ_i|| / ||h(x_i)|| at T_id = 5"
+    - step: "Select top-k% by g_tilde as pseudo-minority, bottom-k% as pseudo-majority (k = 25% primary)"
+    - step: "Compute contingency table (y, g) for selected subset using post-hoc group labels"
+    - step: "Freeze ERM feature extractor; retrain last linear layer for 100 epochs on pseudo-balanced subset"
+    - step: "Evaluate WGA on Waterbirds test set (n=5794) using existing evaluate.py"
+    - step: "Repeat for 5 seeds; statistical test vs. JTT baseline"
+  success_criteria:
+    - "WGA ≥ 88% on Waterbirds (5+ seeds), p < 0.05 vs. JTT"
+    - "AUC(g_tilde → minority) > AUC(misclassification → minority), DeLong test p < 0.05"
+    - "Normalized norm ratio ≥ 3x at T_id=5; ≥ 1.2x post-shortcut-norm-peak"
+    - "Average accuracy drop ≤ 5pp vs. ERM baseline"
+
+validation:
+  internal_validity:
+    - "Sweep T_id ∈ {1,3,5,10} to identify optimal identification epoch and verify temporal profile"
+    - "Sweep k ∈ {10%, 20%, 30%} to verify subset size robustness"
+    - "Sweep λ ∈ {0, 1e-4, 5e-4} to verify weight-decay robustness per NHT prediction"
+    - "Correlation analysis: Spearman(g_tilde, misclassification) — if < 0.9, signals are genuinely independent"
+  external_validity:
+    - "CelebA secondary replication: confirm gradient norm ratio and WGA ≥ 82%"
+    - "Compare to published JTT (86.7%), DFR (92.9%), LfF (84.24%) baselines on same benchmarks"
+
+discussion_synthesis:
+  key_insights:
+    - "Gradient norm is a continuous, richer signal than JTT's binary misclassification: captures borderline minority samples (correctly classified but high norm)"
+    - "NHT framework (Khanh & Hoa, 2026) provides first principled mechanistic explanation for why minority samples have elevated gradient norms during early ERM training"
+    - "DFR's success principle (ERM features sufficient, head correction needed) can be replicated label-free via gradient-norm pseudo-balanced subset — closes the DFR annotation gap"
+    - "Feature-norm normalization (g_tilde) is mechanistically important: isolates prediction error from feature scale effects"
+    - "T_id selection can be made principled from temporal norm dynamics (select at epoch where minority/majority disparity peaks) — new contribution vs. JTT's heuristic T selection"
+  breakthrough_moments:
+    - "Dr. Sage's pivot from 'better-than-JTT' to 'label-free DFR' framing — this is the high-impact narrative"
+    - "Prof. Pax's decomposition ||∇_W ℓ_i|| ∝ ||h(x_i)|| × ||p_i - y_i|| → motivated the feature-norm normalization requirement"
+    - "Prof. Rex's NHT temporal challenge → clarified that high-norm minority samples are RESISTING the shortcut, not DRIVING it, per NHT mechanism"
+    - "Dr. Ally's synthesis at Exchange 15: per-epoch data (E1: 6.10 → E4: 14.73) already shows INCREASING trend, inconsistent with pure shortcut-inflation"
+  resolved_tensions:
+    - "Is gradient norm just a noisy JTT surrogate? → Resolved: continuous signal captures borderline samples; AUC test will quantify independence"
+    - "Does temporal alignment test falsify the hypothesis? → Resolved: increasing epoch 1–4 trend supports resistance, not inflation; temporal test is mechanistic validation"
+    - "Is DFR-level performance achievable? → Resolved: if contingency table shows ≤10% deviation from balance, last-layer retraining achieves DFR-level correction"

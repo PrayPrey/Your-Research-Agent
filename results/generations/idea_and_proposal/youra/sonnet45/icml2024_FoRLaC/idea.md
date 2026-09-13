@@ -1,0 +1,8 @@
+# Title
+Hierarchical Lyapunov Verification for Scalable Neural Control: Achieving Provable Stability in High-Dimensional Systems via Graph Decomposition
+
+# Motivation
+Neural network controllers show promise for complex control tasks but lack formal stability guarantees needed for safety-critical applications like power grids and autonomous systems. Existing Lyapunov verification methods only scale to ~12 states, while real-world systems require 100+ states. This creates a critical gap: we cannot deploy neural controllers in high-stakes industrial applications without provable stability, yet verification complexity grows exponentially with system dimension, making it computationally intractable.
+
+# Main Idea
+We hypothesize that hierarchical decomposition reduces Lyapunov verification complexity from exponential O(n^k) to linear O(m·d^k) for high-dimensional systems. The causal mechanism operates through four steps: (1) METIS graph partitioning decomposes the system Jacobian into weakly-coupled subsystems, (2) each small subsystem (d≤10 states) enables tractable MIP-based Lyapunov verification, (3) local certificates compose into global guarantees via small-gain theorem when spectral radius ρ(Γ)<1, and (4) parallel verification achieves 100× speedup for 100-state systems. We will test this on power grids, traffic networks, and multi-robot systems, predicting <1-hour verification time versus >10 hours for monolithic approaches. Falsification occurs if verification exceeds 3 hours or small-gain conditions fail for >50% of realistic systems, indicating insufficient structural sparsity.

@@ -1,0 +1,246 @@
+# Phase 2A Extended: Hypothesis Clarification Summary
+
+**Date:** 2026-02-06
+**Hypothesis ID:** H-neurips2024-evaleval-001
+**Researcher:** Pray
+**Status:** ✅ Ready for Phase 2B Verification Planning
+
+---
+
+## Executive Summary
+
+**Main Hypothesis**: A hierarchical extensible schema framework for generative AI societal impact documentation, adapting clinical trial registry architecture (WHO ICTRP) through three-tier structure (Universal Core + Modality Extensions + Context Annotations) with controlled vocabularies and multi-stakeholder governance, will enable machine-readable cross-system comparison at >80% success rate compared to <30% baseline for narrative documentation approaches.
+
+**Confidence Level**: 0.85/1.0 (High)
+
+**Gap Addressed**: Gap 2 - Standardized Documentation Schemas Enabling Cross-System Societal Impact Comparison (from Phase 1 research)
+
+**Key Innovation**: First application of clinical trial registry standardization principles to GenAI societal impact documentation, enabling machine-readable cross-system comparison through hierarchical schemas with controlled vocabularies and multi-stakeholder governance.
+
+---
+
+## Core Statement
+
+### Hypothesis (H1)
+
+Hierarchical schema frameworks with controlled vocabularies (Solaiman's 7 dimensions: bias, cultural values, disparate performance, privacy, costs) + multi-stakeholder governance (NIST working group) will achieve:
+- **>80% cross-system comparison success rate** (semantic similarity >0.7 + field alignment)
+- **Inter-rater reliability κ >0.60** (substantial agreement on impact categorization)
+- **>70% EU AI Act pilot adoption** within Year 1
+- **>50% industry participation** via tiered disclosure model
+
+### Null Hypothesis (H0)
+
+Hierarchical schema provides no significant improvement (<10 percentage points) in cross-system comparison success rate over current narrative documentation approaches (NIST AI RMF, Microsoft RAI Standard v2).
+
+---
+
+## Testable Predictions
+
+**Primary Prediction (P1)**:
+GenAI systems documented with hierarchical schema will achieve **>80% cross-system comparison success** vs. <30% narrative baseline (Cohen's h = 1.13, large effect).
+
+**Measurement**: Automated comparison (NLP semantic similarity >0.7 + structured field alignment) on 100 schema systems × 100 narrative systems = ~4,950 pairwise comparisons per group.
+
+**Statistical Test**: Two-proportion z-test (α=0.05, β=0.20, n=100 per group).
+
+**Secondary Predictions**:
+- **P2**: Inter-rater reliability κ_schema >0.60 vs. κ_narrative <0.40 (>60% ambiguity reduction)
+- **P3**: EU AI Act pilot adoption >70% of high-risk GenAI systems (Year 1)
+- **P4**: Controlled vocabulary adherence >85% (schema) vs. <40% (narrative)
+- **P5**: Industry participation >50% via tiered disclosure vs. 20% historical baseline
+
+**Falsification Criteria**:
+- F1: Cross-system comparison <50% (less than 20pp improvement)
+- F2: EU pilot adoption <30% despite mandate
+- F3: Inter-rater reliability κ <0.40 (vocabulary fails)
+- F4: Versioning >5 versions/system in Year 1 (proliferation)
+- F5: NIST working group dissolution <12 months
+- F6: Industry participation <25% (tiered disclosure fails)
+
+---
+
+## Causal Mechanism
+
+```
+Hierarchical Schema Adoption
+    ↓
+[1] Mandatory Structured Fields (Universal Core: 10 fields)
+    → Enforces completeness + enables programmatic parsing
+    ↓
+[2] Controlled Vocabularies (Solaiman taxonomy with quarterly updates)
+    → Reduces semantic ambiguity + enables automated matching
+    ↓
+[3] Hierarchical Extensibility (Core + Modality Extensions)
+    → Balances standardization vs. flexibility across text/image/audio/video
+    ↓
+[4] Threshold Versioning (10%/20% triggers + context change)
+    → Tracks system evolution while preventing proliferation
+    ↓
+[5] Multi-Stakeholder Governance (NIST working group)
+    → Maintains vocabulary relevance + builds ecosystem buy-in
+    ↓
+OUTCOME: Cross-System Comparison Success >80%
+```
+
+**Key Evidence for Causal Links**:
+- WHO ICTRP: 500K+ clinical trials with >95% field completion enable systematic reviews (Cochrane)
+- SNOMED CT: Controlled medical terminology reduces coding ambiguity by 67% vs. free-text (50+ year track record)
+- NIST AI RMF precedent: 240+ organizations demonstrate multi-stakeholder AI standardization feasibility
+- EU AI Act Article 9: Regulatory mandate provides adoption vehicle (40-60% commercial GenAI coverage)
+
+**Key Tension Addressed**: Standardization-flexibility trade-off in cross-modal evaluation - Universal Core ensures comparability, Modality Extensions accommodate heterogeneity.
+
+---
+
+## Sub-Hypothesis Decomposition (Phase 2B Preview)
+
+**SH1 (Existence)**: Schema achieves >90% field completion rate among EU pilot systems, demonstrating practical feasibility.
+
+**SH2 (Mechanism)**: Controlled vocabularies achieve inter-rater reliability κ >0.60 vs. κ <0.40 for narratives, confirming ambiguity reduction.
+
+**SH3 (Comparison)**: Hierarchical schema achieves >80% cross-system comparison success vs. <30% narrative baseline with Cohen's h >1.0.
+
+**Dependency**: SH1 → SH2 → SH3 (must establish schema completion before testing vocabulary effect, then combined comparison outcome)
+
+---
+
+## Key Variables
+
+| Variable | Type | Definition | Measurement | Expected Range |
+|----------|------|------------|-------------|----------------|
+| **Schema Adoption Rate** | Independent | Proportion using hierarchical schema | Count via EU registry | >70% Year 1 |
+| **Field Completion Rate** | Independent | Universal Core fields completed | (Completed/10) × 100% | >90% |
+| **Vocabulary Coverage** | Independent | Standardized term usage | NLP text analysis | >85% |
+| **Comparison Success Rate** | Dependent | Cross-system comparison ability | Binary: similarity >0.7 + alignment | >80% (schema) vs. <30% (narrative) |
+| **Meta-Analysis Feasibility** | Dependent | Data aggregation capability | 5-point scale | ≥4/5 |
+| **Signal-to-Noise Ratio** | Dependent | Evaluation interpretation clarity | Inter-rater reliability (kappa) | κ >0.60 (schema) vs. <0.40 (narrative) |
+| **Modality Type** | Moderator | Text/Image/Audio/Video/Multi-modal | Categorical | All represented |
+| **Deployment Context** | Moderator | Domain × Scale × User Population | Categorical | Stratified sampling |
+| **Evaluation Dimension** | Control | Solaiman's 7 categories | Categorical | All 7 required |
+
+---
+
+## Key Assumptions
+
+1. **NIST Working Group Formation Achievable**: Precedent from NIST AI RMF (240+ orgs, 12 months) demonstrates feasibility
+2. **EU AI Act Compliance Creates Adoption Density**: Article 9 mandate covers 40-60% commercial GenAI in EU
+3. **Quarterly Vocabulary Updates Maintainable**: SNOMED CT precedent (50+ years, 350K+ concepts)
+4. **Stakeholder Consensus on Solaiman Dimensions**: 149 citations indicate community uptake
+5. **Tiered Disclosure Addresses Proprietary Concerns**: Public/Regulatory/Private model enables participation
+6. **10%/20% Versioning Thresholds Balance Granularity**: Adapted from software semantic versioning
+7. **Semantic Similarity >0.7 Operationalizes Comparison**: Validated against expert rater ground truth
+
+---
+
+## Scope & Boundaries
+
+**Included**:
+- Societal impact dimensions: Bias, cultural values, disparate performance, privacy, costs (Solaiman 2023)
+- GenAI modalities: Text, image, audio, video generation
+- Use cases: Regulatory compliance, academic research, industry benchmarking, public transparency
+- Stakeholders: Developers, regulators, researchers, civil society
+
+**Excluded**:
+- Technical performance metrics (accuracy, latency - separate from societal impact)
+- Non-generative AI (classification, recommendation systems)
+- Real-time evaluation (schema for retrospective documentation)
+- Evaluation methodology standardization (documents results, doesn't prescribe methods)
+- Research-phase systems (focus on deployed high-risk systems per EU AI Act)
+- Classified/defense AI (regulatory exemptions)
+
+---
+
+## Contributions
+
+**Theoretical**:
+1. Cross-domain transfer framework: Clinical trial registry principles → AI evaluation documentation
+2. Hierarchical extensibility theory: Solving standardization-flexibility trade-off in cross-modal evaluation
+3. Threshold-based versioning model: Tracking continuously evolving AI systems
+
+**Methodological**:
+1. Controlled vocabulary development protocol: Adapting SNOMED CT to contested AI ethics concepts
+2. Cross-system comparison validation: Operationalizing "comparison success" via semantic similarity + field alignment
+3. Phased regulatory adoption framework: EU mandate → NIST voluntary → international harmonization
+4. Tiered disclosure design: Balancing transparency vs. proprietary concerns
+
+**Practical**:
+1. EU AI Act Article 9 compliance toolkit (XML/JSON schema, REST API, validation tools)
+2. Cross-system meta-analysis enablement (analogous to Cochrane systematic reviews)
+3. NIST working group operational manual (governance blueprint)
+4. Modality-specific extension library (text/image/audio/video field definitions)
+5. Industry adoption incentive structures (journal requirements, funding mandates)
+
+---
+
+## Related Work Differentiation
+
+| Work | Year | Relationship | Key Difference |
+|------|------|--------------|----------------|
+| **Solaiman et al.** | 2023 | Foundation (7 dimensions) | Hypothesis operationalizes in machine-readable schema |
+| **Eriksson et al.** | 2025 | Problem ID (110 studies) | Hypothesis solves identified documentation failures |
+| **Yang et al. CRAI-MCF** | 2025 | Architectural parallel | Single modality (LLM), no governance protocol |
+| **WHO ICTRP** | 2004+ | Cross-domain source | Different domain (clinical trials vs. AI) |
+| **NIST AI RMF** | 2023 | Governance model | High-level principles, no detailed schema |
+| **EU AI Act** | 2024 | Regulatory context | Creates mandate, hypothesis provides implementation |
+
+**Novel Contribution**: First application of clinical trial registry standardization principles to GenAI societal impact documentation, enabling cross-modal (text/image/audio/video) comparison through hierarchical architecture.
+
+---
+
+## Implementation Pathway
+
+**Year 0 (Months 1-6)**: Schema development, NIST working group formation, EU pilot recruitment
+**Year 1 (Months 7-18)**: EU AI Act mandatory pilot deployment, data collection
+**Year 2 (Months 19-30)**: Statistical analysis, peer review, validation
+**Year 3+ (Months 31+)**: NIST voluntary expansion, international harmonization
+
+**Phased Adoption**:
+1. **EU AI Act Pilot** (Year 1): Mandatory for high-risk systems → 70% adoption target
+2. **NIST Expansion** (Year 2-3): Voluntary via journal requirements + funding mandates
+3. **International** (Year 3+): Harmonize with UK Magenta Book, global deployments
+
+---
+
+## Open Questions for Phase 2B
+
+**High Priority (Must Resolve)**:
+1. Governance formation feasibility - Can NIST working group achieve 50+ orgs and sustain operations?
+2. Semantic similarity threshold validation - Is 0.7 cutoff optimal, or test 0.6/0.8?
+3. Versioning threshold calibration - Are 10%/20% triggers appropriate for GenAI evolution?
+4. Cross-modal comparison validity - Does schema enable comparison across modalities or only within?
+
+**Medium Priority**:
+5. Adoption persistence over time - Will Year 1 participants maintain documentation?
+6. Proprietary disclosure economics - What aggregation level satisfies transparency vs. competitive concerns?
+7. International harmonization pathway - How to align EU, US, UK, China standards?
+
+---
+
+## Phase 2B Readiness Score: 9/10
+
+**✅ Ready**: Complete variable operationalization, testable predictions with falsification criteria, precedent-grounded assumptions, clear scope boundaries, powered statistical design, phased implementation pathway
+
+**⚠️ Uncertainties**: Governance formation feasibility (testable Year 0), threshold calibration (Year 1 tuning), cross-domain transfer validation (WHO ICTRP → GenAI)
+
+**Recommendation**: **PROCEED to Phase 2B** - Hypothesis sufficiently specified for verification planning, experiment design, and sub-hypothesis decomposition.
+
+---
+
+## Next Steps
+
+1. **Phase 2B Verification Planning**: Decompose into detailed sub-hypotheses (SH1-SH3) with individual verification protocols
+2. **Governance Feasibility Study**: Interview NIST AI RMF participants, assess organizational commitment
+3. **Threshold Calibration Analysis**: Review GenAI system evolution patterns to inform 10%/20% triggers
+4. **Ground Truth Establishment**: Create expert-rated comparison pairs for semantic similarity validation
+5. **EU Pilot Design**: Finalize schema specification, recruit pilot participants, design compliance toolkit
+
+---
+
+**Full Documentation**: See `02a_extended_hypothesis_full.md` for complete specification (variables table, evidence analysis, statistical design, contribution details, related work mapping)
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (YOLO Mode - Batch Execution)*
+*Automated execution - No user interaction*
+*Date: 2026-02-06*

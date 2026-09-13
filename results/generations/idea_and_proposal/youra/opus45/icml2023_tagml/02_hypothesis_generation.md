@@ -1,0 +1,245 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (LocalEquiLipCert - Round 1)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-LocalEquiLipCert-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under conditions of SO(3)/SE(3)/E(n)-equivariant neural networks with moderate depth (3-8 layers), if the network architecture enforces group equivariance constraints through Clebsch-Gordan decomposition, then the resulting weight matrices will have constrained spectral norms that yield tighter local Lipschitz bounds than generic networks, because equivariance constraints reduce the effective degrees of freedom in weight space by forcing block-diagonal structure in the representation basis.
+
+**Alternative Hypothesis (H0):**
+Group equivariance constraints do not provide systematically tighter Lipschitz bounds compared to generic (unconstrained) neural networks of equivalent capacity; any observed tightening is due to reduced model capacity rather than algebraic structure.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Group structure G | Independent | Symmetry group (SO(3), SE(3), or E(n)) implemented via e3nn library with specific irreducible representations (L=0,1,2,...) | SO(3), SE(3), E(3) |
+| Local Lipschitz bound | Dependent | Computed via spectral norm of weight matrices in local neighborhoods using power iteration method (ε-neighborhood) | 1.0 - 100.0 (ratio to generic) |
+| Certified robustness radius | Dependent | Epsilon-ball radius within which predictions are guaranteed unchanged, measured in L2 input space norm | 0.01 - 1.0 (input units) |
+| Generalization gap | Dependent | Difference between training and test error, connected via Lipschitz-Rademacher bounds | 0.01 - 0.20 |
+| Network architecture | Controlled | Fixed to equivariant architectures (EGNN, NequIP, Equiformer) with 3-8 layers | 3-8 layers |
+| Dataset | Controlled | Standard benchmarks: QM9 for molecular properties, ModelNet40 for 3D classification | QM9, ModelNet40, OC20 |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+Group Equivariance Constraint
+         ↓ (Schur's Lemma)
+Block-Diagonal Weight Structure
+         ↓ (Spectral decomposition)
+Constrained Spectral Norms
+         ↓ (Local Lipschitz theory)
+Tighter Robustness Certificates
+```
+
+**Step 1: Group Equivariance → Block-Diagonal Structure**
+- Mechanism: Group representation theory requires weight matrices to intertwine group actions. By Schur's lemma, this forces block-diagonal structure in the irreducible representation basis.
+- Evidence: Kondor 2025 shows CG coefficients define constraint structure; Bronstein 2021 establishes equivariance as weight sharing pattern.
+- Falsification: If equivariance is approximate (soft constraint), block structure degrades proportionally to equivariance error.
+
+**Step 2: Block-Diagonal Structure → Constrained Spectral Norms**
+- Mechanism: Spectral norm of block-diagonal matrix equals maximum of individual block spectral norms. Equivariance constraints reduce each block's parameter space.
+- Evidence: Xu & Sivaranjani 2024 show compositional decomposition reduces complexity; e3nn exploits CG sparsity.
+- Falsification: If spectral norm computation ignores block structure, returns to O(d³) and bounds may be loose.
+
+**Step 3: Constrained Spectral Norms → Tighter Lipschitz Certificates**
+- Mechanism: End-to-end Lipschitz bound is product of layer spectral norms. Local neighborhoods + activation-aware pruning further tighten bounds.
+- Evidence: Huang et al. 2021 (NeurIPS) demonstrates local Lipschitz bounds provide tighter certificates than global bounds.
+- Falsification: If depth exceeds 8-10 layers, spectral norm products may still yield vacuous bounds despite per-layer tightening.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Kondor 2025, Bronstein 2021 | CG decomposition defines block structure | Strong |
+| Step 2 → Step 3 | Xu & Sivaranjani 2024 | Compositional estimation exploits structure | Strong |
+| Step 3 → Outcome | Huang et al. 2021 NeurIPS | Local bounds tighter than global | Strong |
+
+**Key Tension:**
+- Tension: Kondor 2025 shows exact equivariance provides clean algebraic structure, but practical implementations (e3nn) use numerical approximations that may break guarantees.
+- Resolution: This verification plan introduces an explicit equivariance error term (ε_approx) to bound the degradation: L_total ≤ L_equivariant + ε_approx. Phase 2B will test whether practical approximation errors remain small enough for useful certificates.
+
+### 1.4 Key Assumptions
+
+1. **Equivariant weight sharing reduces effective DoF**
+   - Evidence: Bronstein 2021 shows equivariance as structured weight sharing
+   - Consequence if violated: Lipschitz bounds no tighter than generic networks; main hypothesis fails
+
+2. **Block-diagonal structure enables efficient spectral computation**
+   - Evidence: Xu & Sivaranjani 2024 compositional approach; CG sparsity in e3nn
+   - Consequence if violated: Computational complexity prohibitive (O(d³) per layer); practical utility lost
+
+3. **Local Lipschitz bounds are non-vacuous for moderate-depth networks**
+   - Evidence: Huang et al. 2021 shows local bounds tighter; moderate depth (3-8) avoids product explosion
+   - Consequence if violated: Certificates too loose for practical use; must further restrict depth or architecture
+
+4. **Spectral norm products provide valid Lipschitz upper bounds**
+   - Evidence: Standard Lipschitz composition theory; verified in certified robustness literature
+   - Consequence if violated: Fundamental mathematical framework invalid; hypothesis not testable
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- SO(3), SE(3), and E(n)-equivariant neural networks
+- Moderate depth: 3-8 layers (covers NequIP, MACE, Equiformer, EGNN architectures)
+- Continuous groups with smooth representations
+- Applications: molecular property prediction, materials science, 3D vision
+
+**Where Hypothesis Does NOT Apply:**
+- Very deep networks (>10 layers) - spectral norm products may be vacuous
+- Discrete groups without smooth structure (e.g., permutation groups)
+- Non-equivariant networks or networks with only approximate symmetry (without error term)
+- Real-time inference scenarios requiring sub-millisecond certification
+
+**Known Limitations:**
+- Local bounds require computation per input (not a single global certificate)
+- Equivariance error term adds complexity for approximate implementations
+- Theoretical framework; practical utility depends on tightness vs generic bounds
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Lipschitz Bound Tightness)**:
+For G-equivariant networks, the derived local Lipschitz bound will be at least 2x tighter than generic spectral norm bounds for networks of equivalent parameter count.
+
+*Measurement*:
+- Compute local Lipschitz bound via equivariance-aware spectral analysis
+- Compare to generic bound (product of unconstrained layer spectral norms)
+- Tightness ratio = Generic_bound / Equivariant_bound
+- Success: Ratio ≥ 2.0 with p < 0.05
+
+*Basis*:
+Equivariance constraints reduce effective parameter space by factor proportional to group dimension. For SO(3) with L_max=2, reduction is ~3-5x in parameters, expecting ~2x+ in bound tightness.
+
+*Success Criteria for Phase 2B*:
+- Primary: Tightness ratio ≥ 2.0 (p < 0.05) across test architectures
+- Falsification: Ratio < 1.2 triggers hypothesis rejection (no meaningful improvement)
+
+**Secondary Predictions:**
+
+**P2 (Non-Vacuous Certificates)**:
+Local Lipschitz bounds computed in ε-neighborhoods (ε = 0.1 in normalized input space) will yield certified robustness radii ≥ 0.01 for at least 80% of test points on QM9/ModelNet40.
+
+*Measurement*: Certified radius = margin / local_Lipschitz; success if radius ≥ 0.01 for 80%+ samples
+
+**P3 (Graceful Degradation with Approximate Equivariance)**:
+When equivariance error ε_approx is introduced, Lipschitz bound degradation will be linear: L_total ≤ L_exact + c·ε_approx where c is a small constant (c < 10).
+
+*Measurement*: Inject controlled equivariance violations; measure bound increase vs violation magnitude
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any occur:
+
+1. **Primary Failure**: Lipschitz bound tightness ratio < 1.2
+   (No meaningful improvement from equivariance structure)
+
+2. **Mechanism Failure**: Block-diagonal structure does not reduce spectral norm computation
+   (Step 2 of causal chain fails)
+
+3. **Practical Failure**: Certified radii vacuous (< 0.001) for >50% of test points
+   (Theoretical bounds not useful in practice)
+
+### 1.7 SOTA Baseline (Optional)
+
+*Not applicable - Theoretical framework contribution, not performance comparison.*
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size (expected tightness ratio): 2.0x (large effect, Cohen's d > 0.8)
+- Required experimental runs: n ≥ 15 per architecture
+- Statistical power: 0.8
+
+**Test Specification:**
+- Method: One-sample t-test against threshold (ratio = 1.0)
+- Significance level: α = 0.05 (one-tailed)
+- Multiple comparison correction: Bonferroni for 3 architectures
+- Report format: Mean ratio, 95% CI, effect size, p-value
+
+**Experimental Design:**
+- 3 architectures: EGNN (4 layers), NequIP (6 layers), Equiformer (8 layers)
+- 2 datasets: QM9 (molecular), ModelNet40 (3D vision)
+- 15 random initializations per configuration
+- Compare: Equivariant-derived bound vs generic spectral norm bound
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Do equivariant neural networks exhibit systematically tighter local Lipschitz bounds than generic networks of equivalent capacity?"
+- Maps to: Primary prediction (P1)
+- Verification type: Empirical measurement
+- Critical: MUST PASS for Phase 2B to proceed
+
+**SH2 (Mechanism):**
+"Is the block-diagonal weight structure from Clebsch-Gordan decomposition the actual cause of tighter Lipschitz bounds?"
+
+Phase 2B will decompose into N=3 sub-hypotheses:
+- **H-M1:** Group equivariance → Block-diagonal structure (algebraic verification)
+- **H-M2:** Block-diagonal structure → Constrained spectral norms (computational verification)
+- **H-M3:** Constrained spectral norms → Tighter certificates (bound comparison)
+
+Verification type: Causal analysis with ablation
+Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does the LocalEquiLipCert framework provide practical advantages over external Lipschitz enforcement methods (e.g., spectral normalization, LipSDP)?"
+- Maps to: Secondary predictions (P2, P3)
+- Verification type: Comparative empirical
+- Critical: Determines practical value
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-LocalEquiLipCert-v1
+- [x] Confidence level specified: 0.82
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (N=3 steps, evidence_for_links table)
+- [x] Causal chain length (N=3) determined and stored
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (3 predictions with primary marked)
+- [x] Falsification criteria are defined
+- [x] Baselines are identified for comparison
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:** What is the computational cost of local Lipschitz bound computation per input? Need to verify tractability for batch certification.
+
+2. **Implementation Feasibility:** Can the CG-aware spectral norm computation be integrated into existing e3nn infrastructure, or does it require custom CUDA kernels?
+
+3. **Priority Verification Order:** Should we verify SH1 (existence) empirically first, or SH2-H-M1 (algebraic structure) theoretically? Recommend: SH2-H-M1 first (establishes mathematical foundation).
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-12*

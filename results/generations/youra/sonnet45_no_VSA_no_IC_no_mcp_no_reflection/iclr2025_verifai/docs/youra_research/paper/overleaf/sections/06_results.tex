@@ -1,0 +1,151 @@
+\section{Results}
+
+Our validation attempt produced one artifact---HumanEval + Pydantic type extensions---while all hypothesis testing was blocked by infrastructure failures. This section presents the results in three parts: dataset extension success, LLM generation failure, and pipeline architectural validation.
+
+\subsection{Dataset Extension: Artifact Contribution}
+
+The dataset extension pipeline successfully generated 100 Pydantic-annotated prompts from HumanEval problems 0-99, each with function signatures, Pydantic BaseModel schemas, @validator decorators for preconditions, and original test suites.
+
+\textbf{Quantitative Results:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lllll}
+\toprule
+\textbf{Component} & \textbf{Input} & \textbf{Expected Output} & \textbf{Actual Output} & \textbf{Status} \\
+\midrule
+DatasetExtender & HumanEval (100) & 100 Pydantic prompts & 100 JSON files & \checkmark PASS \\
+\bottomrule
+\end{tabular}
+\caption{Dataset Extension Results}
+\end{table}
+
+Manual inspection of 10 randomly-sampled prompts confirmed type annotations match original signatures, validators encode docstring preconditions, and test cases remain unchanged from HumanEval baseline.
+
+\textbf{Artifact Availability:} Dataset available in \texttt{src/data/humaneval\_pydantic/}, compatible with standard HumanEval evaluation harness. This artifact demonstrates that typed benchmarks can be mechanically generated from existing code generation datasets, addressing a gap in formal verification research.
+
+\subsection{LLM Generation: Infrastructure Failure}
+
+All LLM code generation attempts failed with HTTP 401 authentication errors, blocking hypothesis validation.
+
+\textbf{Quantitative Results:}
+\begin{itemize}
+\item Total generation attempts: 48 (experiment stopped early after consistent failures)
+\item Successful generations: 0 (0\% success rate)
+\item Error type: HTTP 401 ``API key is invalid'' (100\% of failures)
+\item Retry attempts per request: 3 (exponential backoff: 1s, 2s, 4s)
+\item Total retries exhausted: 48 × 3 = 144 failed API calls
+\end{itemize}
+
+\textbf{Error Message (Representative):}
+\begin{verbatim}
+Error code: 401 - {'type': 'error', 'error': {'type':
+'authentication_error', 'message': 'API key is invalid.'}}
+\end{verbatim}
+
+\subsubsection{Root Cause Analysis}
+
+Three competing explanations were evaluated:
+
+\begin{enumerate}
+\item \textbf{Invalid API key:} Error message explicitly states ``API key is invalid''; consistent across all 48 attempts. \textbf{Plausibility: HIGH.}
+
+\item \textbf{API rate limiting:} Would produce HTTP 429 errors, not 401. Anthropic API status showed no outages during experiment window. \textbf{Plausibility: LOW.}
+
+\item \textbf{Network/firewall blocking:} Would produce connection timeouts or DNS errors, not authenticated 401 responses. \textbf{Plausibility: LOW.}
+\end{enumerate}
+
+\textbf{Most Likely Interpretation:} Invalid API key (explanation 1). Retry with confirmed-valid key would distinguish between infrastructure failure and hypothesis refutation.
+
+\subsubsection{Implications}
+
+The h-e1 gate criterion---extraction\_success\_rate $\geq$90\%---could not be tested. The hypothesis remains \textbf{theoretically plausible but empirically unvalidated}. All downstream hypotheses (h-m1, h-m2, h-m3) were blocked by this prerequisite failure.
+
+\subsection{Pipeline Architectural Validation}
+
+Despite generation failure, the constraint extraction pipeline was validated on error files (programs containing only error comments instead of valid Python code).
+
+\textbf{Component-Level Results:}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lllll}
+\toprule
+\textbf{Component} & \textbf{Input} & \textbf{Expected} & \textbf{Actual} & \textbf{Status} \\
+\midrule
+DatasetExtender & HumanEval (100) & 100 prompts & 100 JSON files & \checkmark PASS \\
+LLMGenerator & 100 prompts & 100 programs & 48 error files & \texttimes FAIL (infra) \\
+PyreExtractor & 48 error files & 0 constraints & 0 constraints & \checkmark PASS (neg) \\
+Z3Validator & 0 constraints & 0 quality & 0 quality & \checkmark PASS (neg) \\
+MetricsEngine & 0 constraints & rate=0\%, FAIL & rate=0.0\%, FAIL & \checkmark PASS \\
+\bottomrule
+\end{tabular}
+\caption{Pipeline Component Validation}
+\end{table}
+
+\textbf{Architectural Soundness:} Pipeline validated on negative cases only (error files processed without crashing; positive case untested). This validates:
+
+\begin{itemize}
+\item \textbf{PyreExtractor:} AST parser correctly handles unparseable Python (error comments), returns 0 constraints as expected.
+\item \textbf{Z3Validator:} Constraint quality checker correctly identifies 0 quality constraints from empty input.
+\item \textbf{MetricsEngine:} Gate evaluation logic correctly computes 0\% extraction rate and triggers FAIL condition.
+\end{itemize}
+
+\subsubsection{Implications}
+
+The pipeline is \textbf{architecturally sound and ready for retry} (on negative cases only; positive validation requires actual LLM code). Fixing the API key requires no code changes---only environment configuration. If retry succeeds (extraction\_rate $\geq$90\%), the pipeline will proceed to h-m1 without modification.
+
+\subsection{Visualization Results}
+
+Four figures were generated by the MetricsEngine, though three contain placeholder/zero data due to generation failure:
+
+\textbf{Figure \ref{fig:gate}:} Gate threshold (90.0\%) vs actual extraction rate (0.0\%). Shows clear gate failure.
+
+\textbf{Figure \ref{fig:failure}:} Categorization of extraction failures. 100\% API authentication errors (48/48 attempts). \textbf{This is the only figure with meaningful data.}
+
+\textbf{Figure \ref{fig:complexity}:} Planned analysis of extraction success by program complexity (LOC bins). All bins show 0\% due to no successful generations. Contains placeholder data.
+
+\subsection{Hypothesis Validation Summary}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lllllp{4cm}}
+\toprule
+\textbf{Hyp} & \textbf{Gate} & \textbf{Threshold} & \textbf{Actual} & \textbf{Status} & \textbf{Reason} \\
+\midrule
+h-e1 & MUST & rate $\geq$90\% & 0.0\% & \texttimes FAIL & Infrastructure block \\
+h-m1 & MUST & All extract & N/A & NOT\_STARTED & Prereq h-e1 failed \\
+h-m2 & SHOULD & cone <30\%, detect=100\% & N/A & NOT\_STARTED & Prereq failed \\
+h-m3 & MUST & median $\geq$2x & N/A & NOT\_STARTED & Prereq failed \\
+\bottomrule
+\end{tabular}
+\caption{Hypothesis Validation Summary}
+\end{table}
+
+\textbf{Predictions:}
+\begin{itemize}
+\item P1 (2-5x speedup): \textbf{UNTESTED} (h-m3 not reached)
+\item P2 (speedup scales with size): \textbf{UNTESTED} (h-m3 not reached)
+\item P3 (soundness maintained): \textbf{UNTESTED} (h-m2 not reached)
+\end{itemize}
+
+\textbf{Assumptions:}
+\begin{itemize}
+\item A1 (LLM code has extractable constraints): \textbf{UNVERIFIED} (h-e1 blocked)
+\item A2 (repair locality): \textbf{UNVERIFIED} (h-m2 not reached)
+\item A3 (dependency analysis soundness): \textbf{UNVERIFIED} (h-m2 not reached)
+\item A4 (extraction overhead small): \textbf{UNVERIFIED} (h-m1 not reached)
+\item A5 (no dynamic features): \textbf{PARTIALLY VERIFIED} (prompt constraints applied, not tested)
+\end{itemize}
+
+\subsection{Summary}
+
+\textbf{Artifact:} HumanEval + Pydantic dataset extension (100 typed prompts).
+
+\textbf{Unverified:} All hypothesis claims (incremental SMT speedup, constraint extraction feasibility, dependency analysis soundness).
+
+\textbf{Failure Mode:} Infrastructure (invalid API key), not scientific refutation.
+
+\textbf{Next Step:} Retry h-e1 with valid Anthropic API key. If extraction\_rate $\geq$90\%, proceed to h-m1-m3 validation.

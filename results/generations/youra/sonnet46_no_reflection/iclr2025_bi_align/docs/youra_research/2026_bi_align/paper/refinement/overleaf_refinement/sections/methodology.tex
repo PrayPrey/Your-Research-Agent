@@ -1,0 +1,59 @@
+
+\subsubsection{3.1 The AIFS Construct}
+
+The AI-Idiomatic Formatting Signal (AIFS) is defined as a composite count of four binary stylistic feature indicators extracted from response text via regular expression patterns. The four feature classes are:
+
+\begin{enumerate}
+\item \textbf{Structured bullet lists}: Presence of markdown bullet or numbered list structure (e.g., "1. ...\n2. ...", "- ...\n- ...").
+\item \textbf{Safety prefaces}: Opening disclaimer or content-framing phrases (e.g., "I should note that...", "It's important to consider...", "Please be aware..."). A lexicon of 14 such phrases was compiled through inspection of 500 randomly sampled RLHF-trained model outputs.
+\item \textbf{Chain-of-thought scaffolding markers}: Explicit reasoning-step indicators (e.g., "First, ...", "Step 1:", "Let me think through...").
+\item \textbf{Hedging language}: Epistemic qualifiers that soften assertions (e.g., "may", "might", "could", "it's possible that", "generally speaking").
+\end{enumerate}
+
+The composite AIFS score for a response is the unweighted sum of the four binary indicators, yielding integer values in the range 0–4. An unweighted sum is used to avoid optimizing feature weights to the specific corpus, which would reduce generalizability. Regex-based operationalization is used rather than embedding-based approaches to avoid confounding syntactic surface form with semantic content.
+
+\subsubsection{3.2 Dataset Construction}
+
+The Anthropic HH-RLHF dataset \citep{Baietal2022} contains pairwise human preference annotations over assistant responses. Two subsets are used:
+
+\begin{itemize}
+\item \textbf{Helpful-base}: 43,835 total rows; 20,108 retained after quality filtering (non-empty chosen and rejected responses; minimum token length of 10 for both responses).
+\item \textbf{Helpful-online}: 22,007 total rows; 20,063 retained after the same filtering criteria.
+\end{itemize}
+
+The combined working corpus contains \textbf{80,342 preference pairs}. The binary split label (0 = base, 1 = online) is used as the annotator-exposure proxy variable, under the working assumption that online-split annotators had greater prior AI exposure. The validity of this assumption is treated as a hypothesis under test rather than a maintained assumption (see Section 3.5).
+
+Prompt texts are encoded using the all-MiniLM-L6-v2 sentence transformer [Reimers \& Gurevych, 2019] and clustered by agglomerative clustering with a cosine similarity threshold of 0.85. This yields \textbf{27,034 semantic clusters} with a median size of 2.8 pairs and a mean size of 3.0. The threshold of 0.85 was selected by grid search over {0.80, 0.85, 0.90} to maximize intra-cluster semantic coherence while maintaining sufficient cluster size for fixed-effect estimation.
+
+\subsubsection{3.3 Regression Design}
+
+The core regression model is a \textbf{conditional logistic regression} [McFadden, 1974] with semantic cluster fixed effects. The model is appropriate for binary preference data because the logit link matches the choice structure, and conditioning on cluster fixed effects removes cluster-level heterogeneity from the likelihood, so estimated coefficients reflect within-cluster feature contrasts.
+
+For each preference pair $i$ in cluster $c$, let $y_i = 1$ if the chosen response is preferred. Let $\Delta X_i = X_i^{\text{chosen}} - X_i^{\text{rejected}}$ denote the within-pair contrast. The model is:
+
+$$P(y_i = 1 \mid \Delta X_i, c_i) = \sigma\!\left(\beta_1 \cdot \Delta\text{AIFS}_i + \beta_2 \cdot \Delta\text{length}_i + \beta_4 \cdot (\Delta\text{AIFS}_i \times \text{split}_i) + \alpha_{c_i}\right)$$
+
+where $\sigma(\cdot)$ is the logistic function, $\alpha_{c_i}$ is the cluster fixed effect, and $\text{split}_i \in \{0, 1\}$ is the binary online-split indicator.
+
+The length contrast $\Delta\text{length}_i$ controls for the documented preference for longer responses in RLHF datasets [Rafailov et al., 2023; Zheng et al., 2023]. The focal parameter is $\beta_4$, the coefficient on the AIFS × split interaction. Under the adaptation hypothesis, $\beta_4 > 0$: online annotators should prefer AIFS features more strongly than base annotators.
+
+A perplexity covariate was planned as an additional control but was applied as a preprocessing quality filter during data loading rather than included as a model covariate, because response-level perplexity under a fixed reference model was not extracted at inference time. Sensitivity analysis across four model specifications (varying covariates and cluster granularity) confirmed that the β₁ and β₄ estimates are stable.
+
+\subsubsection{3.4 Optimization}
+
+Conditional logistic regression with 80,342 observations and 27,034 cluster fixed effects poses a numerical challenge. Standard quasi-Newton (BFGS) optimization diverges on this problem because the large number of small cluster fixed effects (median cluster size 2.8 pairs) produces a near-singular aggregated Hessian matrix that BFGS cannot reliably invert. This is a structural property of the fixed-effects parameterization with many sparse groups.
+
+This issue was resolved by using \textbf{Newton-Raphson optimization} with exact second-derivative computation and step-size regularization. The Newton optimizer converged in 14 iterations, reaching a final gradient norm of 3.2 × 10⁻⁸. Total experiment runtime was 2037.7 seconds (approximately 34 minutes), including data loading, feature extraction, clustering, and model estimation on a single GPU.
+
+\subsubsection{3.5 Identification Assumptions}
+
+Interpreting $\beta_4$ as an annotator adaptation effect requires two assumptions: (1) the split label is a valid proxy for annotator AI-exposure history; and (2) no differential confounders between splits correlate with AIFS and preference independently of exposure. Both assumptions are treated as testable.
+
+Examination of the HH-RLHF dataset documentation shows that the online/base split records which model generated the responses presented to annotators, not which annotators participated in each condition. The split is a \textbf{data provenance label}, not an annotator randomization or stratification label. No annotator-level metadata is available in the public dataset release that would permit verification of whether annotator pools differ across splits. This observation is the basis for the primary interpretive finding in Section 5.
+
+Cluster fixed effects address topical confounding. Residual confounders correlated with response length are absorbed by $\beta_2$.
+
+\subsubsection{3.6 Gate Thresholds}
+
+Pre-registered gate thresholds for the interaction coefficient were: $\beta_4 > 0$ (directional), OR ≥ 1.10 (practical effect magnitude), p < 0.01 (statistical significance), and 95\% CI lower bound > 1.0 (exclusion of null). These four criteria constituted MUST_WORK gates: failure on any one criterion would constitute non-confirmation of the hypothesis.
+

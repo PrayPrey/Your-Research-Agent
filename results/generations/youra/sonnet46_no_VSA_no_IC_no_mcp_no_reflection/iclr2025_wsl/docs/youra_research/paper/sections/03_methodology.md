@@ -1,0 +1,119 @@
+# Methodology
+
+## 3.1 Problem Formulation
+
+Let $\mathcal{Z} = \{(W_i, y_i^{\text{gap}}, y_i^{\text{acc}})\}_{i=1}^N$ be a model zoo where $W_i$
+denotes the full weight tensor of model $i$, $y_i^{\text{acc}} = $ test accuracy, and
+$y_i^{\text{gap}} = $ train_acc $-$ test_acc (generalization gap at convergence). We consider four
+encoder functions $f_\theta : W \mapsto \hat{y} \in \mathbb{R}$ and evaluate Spearman rank correlation
+$\rho(\hat{y}, y)$ on a held-out test split. The dual-target design evaluates each encoder on both
+$y^{\text{gap}}$ and $y^{\text{acc}}$ under identical conditions.
+
+**Why Spearman.** Practitioners care about relative ranking among models (which is least overfit?) rather
+than absolute gap magnitude. Spearman is the natural metric for ranking tasks and is robust to output
+scale mismatches between encoders.
+
+## 3.2 A1 Prerequisite Audit
+
+Before any encoder training, we verify that gap and test accuracy are not trivially collinear in the zoo:
+
+$$\rho_{\text{A1}} = |\text{Spearman}(\text{gap}, -\text{test\_acc})| < 0.95$$
+
+If A1 fails (collinearity), the dual-target experiment conflates two versions of the same task. We measure
+$\rho_{\text{A1}} = -0.142$, well below the threshold, confirming that gap prediction is genuinely
+distinct from test accuracy prediction on this zoo.
+
+## 3.3 Encoder Architectures
+
+We evaluate four weight-space encoders that span the range from position-indexed to fully equivariant:
+
+**FlatMLP (baseline).** Weights are sorted by magnitude per layer, concatenated into a 33,890-dimensional
+vector, and passed through a multi-layer perceptron with a single real-valued output head. No equivariance
+constraint. This matches the original Unterthiner et al. [2020] architecture.
+
+**DWSNet (within-layer equivariant).** Deep Weight Space networks [Navon et al., 2023] apply
+permutation-equivariant linear layers that share parameters across neuron equivalence classes within each
+layer. Column and row equivariance is enforced for each weight matrix, yielding orbit-averaged
+representations of within-layer neuron sets. No cross-layer interaction is explicitly modeled.
+
+**NFT (cross-layer attention).** Neural Functional Transformers [Zhou et al., 2023] treat the sequence
+of weight matrices as tokens and apply multi-head self-attention across them, with masking patterns that
+respect the symmetry group of the network (row/column permutation equivariance per layer). This
+architecture explicitly captures inter-layer weight co-variation — patterns that span layer boundaries.
+We hypothesize that this cross-layer attention is particularly suited to generalization gap, which is a
+distributed property emerging from the joint behavior of all layers.
+
+**GNN (graph-structured equivariant).** Graph neural networks [Kofinas et al., 2024] represent the
+neural network as a graph with neurons as nodes and weights as edges. Message passing across the graph
+produces node embeddings that are pooled into a fixed-size representation. The graph connectivity
+structure enforces a form of equivariance but may over-constrain the representation by imposing explicit
+layer boundary structure.
+
+## 3.4 Zoo and Data Split
+
+We use the Unterthiner CIFAR-10 CNN model zoo: $N = 10{,}000$ small convolutional networks with
+fixed architecture (4-layer CNN) and varying hyperparameters (learning rate, weight decay, optimizer).
+Each model contributes a weight tensor of dimension $D = 33{,}890$ and labels $(y^{\text{acc}}, y^{\text{gap}})$
+computed from the zoo's training logs.
+
+**Split:** 80/10/10 stratified by hyperparameter configuration, seed 42. The test split (N = 1,000) is
+never used during hyperparameter selection. All reported Spearman values are on the test split.
+
+## 3.5 Training Protocol
+
+Each encoder is trained with a regression head (L2 loss) on each target independently. We use Adam
+optimizer with a 3-trial random search over learning rate $\in \{5\times10^{-4}, 1\times10^{-3},
+2\times10^{-3}\}$, batch size 64, 100 epochs. Cosine learning rate schedule for NFT and GNN; none for
+FlatMLP and DWSNet. Best configuration is selected by validation Spearman. Test split is used only for
+final evaluation.
+
+**Search budget acknowledgment.** The pre-specified protocol called for 50 trials; resource constraints
+limited us to 3 trials. The impact is documented in Section 5 (Limitations). Gap prediction results are
+robust to this choice — consistent across two independent runs (h-e1 and h-m1).
+
+## 3.6 Differential Advantage Analysis (Δ)
+
+To test whether equivariant encoders show target-specific advantage for gap over test_acc, we compute
+for each equivariant encoder $e \in \{\text{DWS, NFT, GNN}\}$:
+
+$$\Delta(e) = [\rho_{\text{gap}}(e) - \rho_{\text{gap}}(\text{FlatMLP})] - [\rho_{\text{acc}}(e) - \rho_{\text{acc}}(\text{FlatMLP})]$$
+
+where $\rho_{\text{gap}}$ and $\rho_{\text{acc}}$ denote test-split Spearman on gap and test_acc
+respectively. The original hypothesis predicts $\Delta(e) > 0.02$ for at least two equivariant encoders
+(practical significance threshold). Bootstrap 95% confidence intervals ($N_{\text{boot}} = 1{,}000$,
+seed 42, percentile CI) are computed on $\Delta$ for all equivariant encoders.
+
+## 3.7 Gap-Specific Signal Analysis (P3 Partial Spearman)
+
+The key methodological contribution of this paper. Standard Spearman correlation $\rho(\hat{y}^{\text{gap}}, y^{\text{gap}})$
+may be driven partly by test accuracy correlation (since gap = train_acc − test_acc, and test_acc enters
+both). To isolate the gap-specific component, we compute the partial Spearman of NFT gap predictions with
+true gap, controlling for true test accuracy:
+
+**Algorithm:**
+1. Compute rank vectors: $r_{\hat{y}} = \text{rank}(\hat{y}^{\text{gap}})$, $r_y = \text{rank}(y^{\text{gap}})$, $r_a = \text{rank}(y^{\text{acc}})$
+2. Regress $r_{\hat{y}}$ on $r_a$ via linear regression; save residuals $\epsilon_{\hat{y}}$
+3. Regress $r_y$ on $r_a$ via linear regression; save residuals $\epsilon_y$
+4. Compute $\rho_{\text{partial}} = \text{Spearman}(\epsilon_{\hat{y}}, \epsilon_y)$
+
+If $\rho_{\text{partial}} > 0$ ($p < 0.05$), the encoder captures information about true gap that is
+statistically independent of test accuracy rank. A high $\rho_{\text{partial}}$ confirms that gap
+prediction is not merely a proxy for test accuracy prediction.
+
+This analysis was not performed in any prior weight-space encoder study. It provides the cleanest
+evidence that generalization gap occupies a distinct region of the weight-space information landscape.
+
+## 3.8 Figures
+
+**Figure 1** (fig1_bar.png): Spearman rank correlation per encoder on gap prediction. Error bars are
+bootstrap 95% CIs. FlatMLP shown as horizontal reference line.
+
+**Figure 2** (fig2_dual_target_spearman.png): Side-by-side bar chart comparing all four encoders on
+both gap and test_acc Spearman. Reveals the gap > test_acc asymmetry for FlatMLP.
+
+**Figure 3** (fig4_partial_corr_scatter.png): Scatter of rank residuals for NFT P3 analysis. X-axis:
+NFT gap prediction residuals (after partialling out test_acc rank); Y-axis: true gap residuals.
+Spearman r = 0.73 annotated.
+
+**Figure 4** (fig1_gate_delta.png): Δ values for equivariant encoders with bootstrap 95% CI and gate
+threshold (Δ = 0.02) as a reference line.

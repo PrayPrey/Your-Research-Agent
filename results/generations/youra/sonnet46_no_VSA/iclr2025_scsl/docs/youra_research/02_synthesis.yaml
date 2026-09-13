@@ -1,0 +1,128 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-04T03:35:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap_1"
+
+hypothesis_draft:
+  title: "Per-Sample Hessian Trace Trajectory as Annotation-Free DFR Proxy"
+  hypothesis_id: "H-E3"
+  core_claim: |
+    Under ERM training on Waterbirds (ResNet-50, SGD, 50 epochs), per-sample last-fc Hessian
+    trace (K=50 Hutchinson) exhibits a transient asymmetry: the trace ratio R(t) =
+    mean_minority_trace(t) / mean_majority_trace(t) rises from ≈1.0 at epoch 0, peaks at t*
+    (typically t*∈{1,5,10}), and AUROC at t* ≥ 0.85 for minority membership prediction
+    with epoch-0 AUROC < 0.70 (ERM emergence, not pretrained artifact).
+  mechanism: |
+    ERM spurious feature exploitation (Phase I, LaBonte 2026) causes majority samples to gain
+    confidence rapidly (p→1, low p(1-p)), while minority samples remain near the decision boundary
+    (p≈0.5, high p(1-p)). Combined with minority feature diversity advantage (LaBonte 2024
+    spectral imbalance: λ₁^min > λ₁^maj), the per-sample trace Tr(H_i^fc) ∝ ‖x_i‖² p_i(1-p_i)
+    is systematically elevated for minority samples. This trace asymmetry peaks at t* when
+    majority saturation is highest (Phase I) and declines as ERM drives minority to confident
+    misclassification (Phase II onset).
+  predictions:
+    - P1: "AUROC(t*) ≥ 0.85, AUROC(epoch-0) < 0.70, Spearman ρ ≥ 0.8 in ≥4/5 seeds"
+    - P2: "ΔAUROC ≥ 0.10 over loss-only within confidence bins (width 0.02), KS p < 0.01 in ≥4/5 seeds"
+    - P3: "Trace-guided DFR WGA ≥ 85% AND > loss-guided DFR + 5% absolute in ≥4/5 seeds"
+
+variables_summary:
+  independent: "Training checkpoint t ∈ {0,1,5,10,20,50}; K=50 Hutchinson probes (fixed)"
+  dependent_primary: "AUROC for minority membership prediction at t*; trace ratio R(t); WGA via DFR"
+  controlled: "ResNet-50 (IMAGENET1K_V1), Waterbirds v1.0, SGD, last-fc layer only, 5 seeds"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in per-sample last-fc Hessian trace between minority
+    and majority samples that is not fully explained by per-sample loss value and gradient norm.
+    Specifically: (i) AUROC(t*) < 0.80, OR (ii) ΔAUROC within confidence bins < 0.05, OR
+    (iii) epoch-0 AUROC ≥ 0.70 (pretrained artifact dominates ERM signal).
+  statistical_test: "AUROC comparison, Spearman ρ, two-sided KS test within confidence bins (α=0.01)"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First per-sample Hessian trace trajectory measurement across ERM training checkpoints for minority/majority discrimination; first annotation-free DFR proxy using second-order curvature (vs all existing proxies using first-order loss/gradient signals)"
+  differentiation_summary: |
+    Existing annotation-free DFR proxies (JTT, AFR, SELF, EVaLS) all use first-order signals
+    (loss value, misclassification indicator, gradient norm). This work introduces the first
+    second-order (curvature/Hessian trace) annotation-free proxy, grounded in the Phase I/II
+    learning dynamics of LaBonte 2026 and the spectral imbalance mechanism of LaBonte 2024.
+    Citation network gap confirmed: no paper measures per-sample Hessian trace trajectory
+    across training epochs for spurious correlation detection.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models: ["ResNet-50 (ImageNet pretrained, IMAGENET1K_V1)"]
+  datasets: ["Waterbirds v1.0 (/home/PrayPrey/data/waterbirds_v1.0/)"]
+  baselines:
+    - "Loss-guided DFR (top-k% by training loss)"
+    - "Gradient-norm-guided DFR (top-k% by ‖g_i‖ at t*)"
+    - "JTT (misclassification proxy)"
+    - "ERM baseline (no DFR)"
+    - "Oracle DFR (balanced validation; upper bound)"
+
+measurement_plan:
+  data_collection:
+    - source: "ERM training checkpoints at t∈{0,1,5,10,20,50} (torch.save(model.state_dict()))"
+    - source: "Per-sample Hessian trace via K=50 Hutchinson (vmap+vjp on last-fc; h-e2-k pipeline)"
+    - source: "Per-sample loss, gradient norm, predicted confidence at each checkpoint"
+    - source: "Group labels (group = 2*y + place) for AUROC evaluation (NOT for proxy selection)"
+  procedure:
+    - step: "1. Pilot (1 seed, 5 epochs): verify epoch-0 AUROC < 0.70 and minority confidence trajectory"
+    - step: "2. If pilot passes: full training (5 seeds, 50 epochs, checkpoints at t∈{0,1,5,10,20,50})"
+    - step: "3. At each checkpoint: compute per-sample trace (K=50), loss, gradient norm, confidence"
+    - step: "4. Compute AUROC, R(t), Spearman ρ across checkpoints"
+    - step: "5. Confidence-bin independence test: KS test within bins of width 0.02, ΔAUROC"
+    - step: "6. Background-swap specificity: randomize backgrounds using Waterbirds place labels, recompute trace"
+    - step: "7. DFR: tune k%, select top-k% by trace at t*, run izmailovpavel L1 logistic regression"
+    - step: "8. Compare DFR WGA: trace vs loss vs grad-norm vs JTT vs oracle"
+  success_criteria:
+    - "AUROC(t*) ≥ 0.85 in ≥4/5 seeds (P1 primary gate)"
+    - "Epoch-0 AUROC < 0.70 in ≥4/5 seeds (ERM emergence gate)"
+    - "Spearman ρ ≥ 0.8 across rising segment in ≥4/5 seeds (trajectory gate)"
+    - "ΔAUROC ≥ 0.10 within confidence bins in ≥4/5 seeds (independence gate)"
+    - "≥75% trace gap collapse under background-swap in ≥4/5 seeds (specificity gate)"
+    - "DFR WGA ≥ 85% in ≥4/5 seeds (application gate)"
+    - "Hutchinson CV ≤ 10% at K=50 (stability gate)"
+
+validation:
+  internal_validity:
+    - "Epoch-0 control: rules out pretrained artifact (decisive gate, run first)"
+    - "Permutation control: freeze randomly initialized head, verify trace AUROC < 0.60"
+    - "Label-shuffle control: train with shuffled labels 1 epoch, verify R(t) does not monotonically rise"
+    - "Confidence-bin KS test: rules out trace = reparameterized confidence"
+    - "Hutchinson stability: CV ≤ 10% across probe resampling at K=50"
+    - "5 independent seeds with separate training runs"
+  external_validity:
+    - "Limited to Waterbirds 95% spuriosity; generalization to other datasets deferred to Phase 5"
+    - "Limited to ResNet-50; generalization to other architectures deferred"
+    - "Background-swap uses existing Waterbirds metadata (place labels) — no new dataset needed"
+
+discussion_synthesis:
+  key_insights:
+    - "The scalar magnitude family (gradient norm + Hessian trace) consistently produces discriminative signals; directional (cosine) and temporal-variance signals fail"
+    - "Per-sample fc Hessian trace is algebraically tied to ‖x_i‖² × p_i(1-p_i): two distinct mechanisms (feature diversity via LaBonte 2024 + differential confidence via Phase I/II) both predict higher trace for minority"
+    - "The trace ratio peak at t* is both the mechanism prediction AND the annotation-free t* selection criterion — no group labels needed to identify optimal DFR checkpoint"
+    - "Epoch-0 control is the decisive first gate: h-e2's pretrained artifact failure (AUROC=0.987 at epoch 0) makes this mandatory"
+    - "Minority samples must remain near decision boundary (not confidently wrong) for mechanism to hold — pilot at 1 seed before full 5-seed training"
+  breakthrough_moments:
+    - "Exchange 5: Dr. Sage identified that LaBonte 2024 spectral imbalance predicts per-sample trace asymmetry via feature diversity (‖x_i‖² channel), distinguishing from 'high loss = high trace' confound"
+    - "Exchange 9: Prof. Pax reframed algebraic decomposition Tr ∝ ‖x_i‖² p_i(1-p_i) as explanation of signal channel (not falsifier)"
+    - "Exchange 15: Dr. Nova recognized that trace ratio PEAK (not monotonic rise) is the mechanism prediction — minority samples must be near boundary (not confidently wrong), making peak the natural t* selector"
+    - "Exchange 13: Prof. Rex added 50-epoch requirement to capture Phase I→II inflection — critical to observe full trajectory"
+  resolved_tensions:
+    - "w_sp analogue debate resolved: phenomenological claim (shortcut → margin polarization → trace asymmetry) is defensible without proving ResNet = XOR; three empirical tests (emergence, independence, specificity) replace theory isomorphism requirement"
+    - "Trace vs loss confound resolved: ΔAUROC within confidence bins (width 0.02) is the pre-registered independence gate; LaBonte 2024 spectral imbalance provides theoretical mechanism for residual signal"
+    - "Training window debate resolved: 50 epochs with checkpoints at {0,1,5,10,20,50} to capture full rise-peak-decline trajectory; pilot at 1 seed first to verify signal exists"

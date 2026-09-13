@@ -1,0 +1,155 @@
+# Dataset Specification for h-m1
+# NL Hint Ablation Experiment
+
+name: miniF2F-v2c NL Ablation
+hypothesis_id: h-m1
+generated: 2026-08-20T04:17:00Z
+
+# Primary Dataset
+dataset:
+  name: miniF2F-v2c
+  type: standard  # Real, established benchmark (NOT synthetic)
+  source: HuggingFace
+  repository: roozbeh-yz/miniF2F_v2
+  config: v2c
+  split: test
+  size: 244
+  format: Lean 4 theorem declarations
+  version:
+    lean: 4.17.0
+    mathlib: implicit (bundled with dataset)
+
+  characteristics:
+    problem_sources:
+      AMC: 30%  # American Mathematics Competition
+      AIME: 40%  # American Invitational Mathematics Exam
+      IMO: 30%  # International Mathematical Olympiad
+    difficulty: olympiad-level
+    verification_status: fully_verified
+    provability: all_provable
+    nl_hints: docstrings_and_comments
+
+# Experimental Conditions
+conditions:
+  baseline:
+    name: NL-Intact
+    description: Original miniF2F-v2c with docstrings and comments preserved
+    preprocessing: none
+    expected_success_rate: 0.65
+
+  ablated:
+    name: NL-Removed
+    description: Lean files with docstrings and comments stripped
+    preprocessing:
+      - strip_docstrings: "/--! ... -/"
+      - strip_inline_comments: "-- ..."
+      - preserve: theorem structure, type signatures
+    expected_success_rate: 0.35
+
+# Sample Size Justification
+statistical_power:
+  target_effect_size: 0.30  # 30 percentage point delta
+  alpha: 0.05
+  power: 0.80
+  minimum_required_n: 42  # per condition
+  actual_n: 244  # full test set
+  margin_factor: 5.8  # 244/42
+
+# Data Preparation
+preprocessing_pipeline:
+  step_1:
+    action: download_dataset
+    command: |
+      from datasets import load_dataset
+      ds = load_dataset("roozbeh-yz/miniF2F_v2", "v2c")
+      test_problems = ds["test"]
+    output: 244 problem records
+
+  step_2:
+    action: nl_ablation
+    script: |
+      import re
+      def strip_nl_hints(lean_code: str) -> str:
+          lean_code = re.sub(r'/--!.*?-/', '', lean_code, flags=re.DOTALL)
+          lean_code = re.sub(r'--[^\n]*', '', lean_code)
+          return lean_code.strip()
+    output: ablated_problems list
+
+  step_3:
+    action: pilot_validation
+    sample_size: 20
+    validation_criteria:
+      - type_check_failures: "≤3"
+      - measurable_effect: "Δ ≥ 5%"
+    go_no_go: IF >3 failures OR Δ < 5%, escalate fallback
+
+  step_4:
+    action: generate_lean_files
+    outputs:
+      - MiniF2F_v2c_Test.lean  # baseline
+      - MiniF2F_v2c_Test_NoNL.lean  # ablated
+    verification: lake build for both files
+
+# Evaluation Configuration
+evaluation:
+  prover: LeanCopilot
+  model: ReProver (default)
+  tactic: search_proof
+  sampling_budget: 32  # @32 sampling
+  timeout: 300  # seconds per problem
+  parallelization: 8  # workers
+
+  metrics:
+    primary:
+      - success_rate_baseline
+      - success_rate_ablated
+      - delta: success_rate_baseline - success_rate_ablated
+    secondary:
+      - avg_tactics_per_proof
+      - timeout_rate
+      - error_type_distribution
+
+# Expected Outputs
+deliverables:
+  data_artifacts:
+    - MiniF2F_v2c_Test.lean
+    - MiniF2F_v2c_Test_NoNL.lean
+    - ablation_pilot_results.json
+
+  results:
+    - baseline_results.jsonl  # 244 rows
+    - ablated_results.jsonl  # 244 rows
+    - comparison_stats.json
+
+  analysis:
+    - 04_validation.md  # statistical tests, gate decision
+    - visualizations:
+        - success_rate_comparison.png
+        - per_problem_scatter.png
+        - delta_bootstrap_distribution.png
+
+# Validation Criteria
+validation:
+  technical:
+    - pilot_type_check_failures: "≤3"
+    - pilot_measurable_effect: "Δ ≥ 5%"
+    - full_dataset_compilation: "0 errors"
+    - complete_evaluation: "all 244 problems"
+
+  scientific:
+    - primary_criterion: "25% ≤ Δ ≤ 35%"
+    - falsification_threshold: "Δ < 10%"
+    - statistical_significance: "p < 0.05"
+    - confidence_interval: "95% CI excludes 0"
+
+  gate_decision:
+    PASS: "Δ ≥ 25% AND p < 0.05"
+    FAIL: "Δ < 10% OR p ≥ 0.05"
+    INCONCLUSIVE: "10% ≤ Δ < 25%"
+
+# References
+references:
+  dataset_paper: https://arxiv.org/abs/2511.03108
+  dataset_repo: https://huggingface.co/datasets/roozbeh-yz/miniF2F_v2
+  leancopilot_paper: https://arxiv.org/abs/2404.12534
+  leancopilot_repo: https://github.com/lean-dojo/LeanCopilot

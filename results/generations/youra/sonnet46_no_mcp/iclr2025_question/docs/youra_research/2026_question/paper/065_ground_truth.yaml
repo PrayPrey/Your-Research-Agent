@@ -1,0 +1,223 @@
+# Phase 6.5 Ground Truth — Adversarial Review Verification
+# Generated: 2026-05-11 | Phase 6 Step 07 | Anonymous Pipeline
+# Source: Phase 4 validation reports (h-e1, h-m1, h-m2) + Phase 6 paper
+# Purpose: Authoritative values for Phase 6.5 to verify paper claims
+
+paper_metadata:
+  title: "NLI Clustering Failure and Polarity Inversion: Why Standard UQ Methods Miss Hallucinations on HaluEval-QA"
+  format: ICML2025
+  word_count_approx: 5800
+  sections: 8  # abstract + 7 numbered
+  figures: 8
+  tables: 6
+  citations: 11
+  llm: LLaMA-2-7B-chat
+  benchmark: HaluEval-QA
+  sample_size: 2000
+  stratification: "1000 hallucinated : 1000 factual, seed=42"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PRIMARY METRICS — must match exactly in paper
+# ─────────────────────────────────────────────────────────────────────────────
+
+auroc_results:
+  semantic_entropy:
+    auroc: 0.5000
+    ci_lower: 0.5000
+    ci_upper: 0.5000
+    std: 4.14e-25       # effectively zero — degenerate constant signal
+    bootstrap_n: 1000
+    verdict: DEGENERATE_CONSTANT
+  token_entropy:
+    auroc: 0.4829
+    ci_lower: 0.458
+    ci_upper: 0.509
+    verdict: NON_INFORMATIVE_SPANS_RANDOM
+  selfcheckgpt_bertscore:
+    auroc: 0.3562
+    ci_lower: 0.332
+    ci_upper: 0.380
+    verdict: BELOW_RANDOM_POLARITY_INVERSION
+
+pairwise_comparisons:
+  # Bonferroni-corrected alpha = 0.05 / 3 = 0.0167
+  se_vs_scg:
+    delta_auroc: 0.1438
+    significant: true
+    direction: SE > SCG
+  te_vs_scg:
+    delta_auroc: 0.1268
+    significant: true
+    direction: TE > SCG
+  se_vs_te:
+    delta_auroc: 0.0171
+    significant: false   # CI overlap; marginal difference
+    direction: SE > TE (not significant)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MECHANISM METRICS — H-M2 NLI aggregation failure
+# ─────────────────────────────────────────────────────────────────────────────
+
+nli_aggregation:
+  aggregation_rate: 0.272
+  ci_lower: 0.253
+  ci_upper: 0.292
+  gate_threshold: 0.50       # H-M2 gate: aggregation_rate >= 0.50 required
+  gate_result: FAIL          # 0.272 << 0.50
+  pct_max_cluster_count: 72.8  # % of examples with cluster_count = 5 (maximum)
+  max_cluster_count: 5         # n_samples = 5 stochastic responses
+  nli_model: deberta-large-mnli
+  nli_training_domain: MNLI (news, fiction, telephone)
+  response_length_range_tokens: "5–15"  # HaluEval-QA typical response length
+
+cluster_count_distribution:  # H-M2 result table
+  count_1: 0.044   # fraction of examples
+  count_2: 0.058
+  count_3: 0.072
+  count_4: 0.098
+  count_5: 0.728   # 72.8% — degenerate maximum
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HYPOTHESIS OUTCOMES
+# ─────────────────────────────────────────────────────────────────────────────
+
+hypothesis_outcomes:
+  H_E1:
+    name: "Cross-signal AUROC comparison on HaluEval-QA"
+    prediction_P1: "SE > TE > SCG, all AUROC >= 0.60"
+    outcome: REFUTED
+    evidence: "SE=0.5000, TE=0.4829, SCG=0.3562; all below 0.60; SE not informative"
+  H_M1:
+    name: "SE degeneracy diagnosis — Pearson r between n_clusters and entropy"
+    gate: "Pearson r < 0.9 confirms degeneracy"
+    outcome: CONFIRMED_DEGENERATE
+    evidence: "SE std=4.14e-25; r undefined (constant signal); n_clusters variance ~0"
+  H_M2:
+    name: "NLI aggregation rate measurement"
+    gate: "aggregation_rate >= 0.50 required for non-degenerate SE"
+    outcome: GATE_FAIL
+    evidence: "aggregation_rate=0.272, 72.8% max clusters; gate 0.272 < 0.50"
+  H_M3:
+    name: "Cross-model ranking (Mistral-7B-Instruct)"
+    outcome: INCONCLUSIVE
+    evidence: "Not executed — pipeline halted after H-M2 PIVOT result"
+
+prediction_summary:
+  P1: REFUTED   # SE > TE > SCG with AUROC >= 0.60
+  P2: PARTIALLY_SUPPORTED   # ordering SE > SCG and TE > SCG holds; magnitudes all sub-random
+  P3: INCONCLUSIVE   # cross-model stability (H-M3 not run)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# METHODOLOGY GROUND TRUTH — for claim verification
+# ─────────────────────────────────────────────────────────────────────────────
+
+methodology:
+  dataset:
+    name: HaluEval-QA
+    hf_path: pminervini/HaluEval
+    split: qa
+    total_examples: 2000
+    positive_label: hallucinated
+    negative_label: factual
+    label_source: ChatGPT-generated
+    sampling_seed: 42
+  model:
+    name: LLaMA-2-7B-chat
+    precision: float16
+    hardware: H100 NVL
+    greedy_decoding: true   # for token entropy
+    stochastic_n: 5         # for semantic entropy and SelfCheckGPT
+    stochastic_temperature: 1.0
+  uq_methods:
+    semantic_entropy:
+      nli_model: cross-encoder/nli-deberta-large-mnli
+      n_samples: 5
+      aggregation: max_cluster_count_normalized
+    token_entropy:
+      aggregation: mean_per_token
+      uses_greedy: true
+    selfcheckgpt_bertscore:
+      variant: BERTScore
+      n_samples: 5
+      consistency: mean_BERTScore_vs_samples
+  evaluation:
+    metric: AUROC
+    bootstrap_n: 1000
+    bootstrap_seed: 42
+    bonferroni_k: 3
+    alpha_corrected: 0.0167
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTRIBUTIONS — verifiable claims
+# ─────────────────────────────────────────────────────────────────────────────
+
+contributions:
+  C1:
+    claim: "First empirical quantification of NLI clustering failure on short factual QA"
+    metric: "aggregation_rate = 0.272 (95% CI [0.253, 0.292])"
+    novelty: "aggregation_rate not reported in Kuhn et al. 2023 on TriviaQA/NQ"
+  C2:
+    claim: "SelfCheckGPT polarity inversion on ChatGPT-generated hallucination labels"
+    metric: "AUROC = 0.3562 (CI [0.332, 0.380]) — entirely below 0.5"
+    novelty: "Benchmark-dependent correlation direction; not refuting Manakul 2023"
+  C3:
+    claim: "Controlled cross-signal comparison framework with mechanism verification"
+    design: "Same 2000-example sample, same LLM, bootstrap CI, sub-hypothesis cascade"
+    novelty: "Converts null results into mechanistic diagnoses"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FIGURE REGISTRY SUMMARY — for figure claim verification
+# ─────────────────────────────────────────────────────────────────────────────
+
+figures:
+  fig_1: {caption: "AUROC comparison bar chart", section: results, source: "phase4/h-e1/auroc_bar_chart.png"}
+  fig_2: {caption: "Bootstrap CI distributions", section: results, source: "phase4/h-e1/bootstrap_ci.png"}
+  fig_3: {caption: "UQ pipeline architecture", section: methodology, source: "paper/figures/pipeline_diagram.png"}
+  fig_4: {caption: "Hypothesis dependency graph", section: experiments, source: "paper/figures/hypothesis_dag.png"}
+  fig_5: {caption: "NLI aggregation_rate on HaluEval-QA", section: results, source: "phase4/h-m2/aggregation_rate.png"}
+  fig_6: {caption: "Cluster count distribution (H-M2)", section: results, source: "phase4/h-m2/cluster_count_dist_hm2.png"}
+  fig_7: {caption: "SE degeneracy diagnosis (H-M1)", section: results, source: "phase4/h-m1/cluster_count_dist_hm1.png"}
+  fig_8: {caption: "SelfCheckGPT score distribution by label", section: results, source: "phase4/h-e1/scg_distribution.png"}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CITATION VERIFICATION STATUS
+# ─────────────────────────────────────────────────────────────────────────────
+
+citations:
+  verification_status: UNVERIFIED
+  reason: "Semantic Scholar MCP unavailable in TEST environment"
+  source: "arXiv IDs confirmed from Phase 1 targeted_research.md"
+  entries:
+    - key: Kuhn2023Semantic
+      arxiv: "2302.09664"
+      confirmed_phase1: true
+    - key: Manakul2023SelfCheckGPT
+      arxiv: "2303.08896"
+      confirmed_phase1: true
+    - key: LiHaluEval2023
+      arxiv: "2305.11747"
+      confirmed_phase1: true
+    - key: Kadavath2022Language
+      arxiv: "2207.05221"
+      confirmed_phase1: true
+    - key: Xiong2023Can
+      arxiv: "2306.13063"
+      confirmed_phase1: true
+    - key: Guo2017Calibration
+      arxiv: "1706.04599"
+      confirmed_phase1: true
+    - key: Angelopoulos2023Conformal
+      arxiv: "2107.07511"
+      confirmed_phase1: true
+    - key: Quach2023Conformal
+      arxiv: "2306.10193"
+      confirmed_phase1: true
+    - key: Xiao2022Uncertainty
+      arxiv: "2210.04714"
+      confirmed_phase1: true
+    - key: Geifman2017Selective
+      venue: NeurIPS2017
+      confirmed_phase1: true
+    - key: Rajpurkar2018SQuAD
+      arxiv: "1806.03822"
+      confirmed_phase1: true

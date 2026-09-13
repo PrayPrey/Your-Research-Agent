@@ -1,0 +1,94 @@
+\section{Methodology}
+\label{sec:method}
+
+Every component below operationalizes the same insight: read uncertainty before output calibration. The lens readout turns every depth into a measurement surface; the three signals capture two facets of unresolved candidate competition; the degeneracy screen makes a biased instrument usable without trained correction; per-model selection treats calibration depth as a property of the checkpoint; and the validity anchor keeps every comparison inside one protocol, because our own forensics (Section~\ref{sec:anchor}) show that weak-signal AUROC magnitudes do not survive protocol changes.
+
+\subsection{Depth-resolved logit-lens readout}
+\label{sec:readout}
+
+We study three 32-layer pre-LN decoder-only checkpoints --- LLaMA-2-7B, Mistral-7B-v0.1, and LLaMA-3-8B-Instruct --- on TriviaQA (rc.nocontext, first 1,000 validation questions) and TruthfulQA (generation, all 817 questions). Layers are indexed L1--L32, with L32 the final layer. Each question is prompted as \texttt{Q: \{question\}\textbackslash nA:} and answered by greedy decoding (up to 32 new tokens). Correctness labels use normalized-alias exact match (TriviaQA) and reference-answer matching (TruthfulQA); prompts, decoding, and label rules are inherited verbatim from the immediately preceding sweep in this research line --- the protocol-identical run whose finalized cache Section~\ref{sec:anchor} reuses --- so the label protocol is a controlled variable, not a degree of freedom. That preceding sweep is distinct from the older, protocol-different motivating record of Section~\ref{sec:intro}; Section~\ref{sec:forensics} dissects the difference between the two protocols, and we never conflate the two runs.
+
+For each example we run the single greedy generation, then one teacher-forced re-forward over the prompt and generated answer with hidden states exposed. At every layer $l$, the logit lens decodes the hidden state $h_l$ through the model's own output path:
+
+\begin{equation}
+p_l = \mathrm{softmax}\big(W_U \cdot \mathrm{norm}(h_l)\big),
+\end{equation}
+
+i.e., the \texttt{lm\_head} composed with the final RMSNorm --- the standard raw-lens operationalization \citep{nostalgebraist2020Interpreting,Belrose2023Eliciting}. Weights run in fp16; all statistics are computed in float32 with a $\log(p + 10^{-12})$ guard. We deliberately use the raw lens with no tuned translators: trained components would forfeit the training-free claim, and the LLaMA/Mistral lineage is the documented best-behaved raw-lens case \citep{Belrose2023Eliciting}. A pre-specified tuned-lens fallback, for the case where the screen below rejects most layers, was never needed. The re-forward is a measured cost, not an in-principle one: the same hidden states could be captured during generation itself, but that engineering path is not what we measured, and every cost statement in this paper prices the two-pass protocol.
+
+\subsection{Three uncertainty signals}
+\label{sec:signals}
+
+From each $p_l$ we compute three statistics, averaged over the answer tokens: Shannon entropy $H(p_l)$, max-token probability $\max_v p_l(v)$, and adjacent-layer KL divergence $\mathrm{KL}(p_l \,\|\, p_{l-1})$, which is undefined at L1 and excluded there. The choice is not a grab-bag: entropy and max-probability measure the \emph{width} of the candidate set at depth $l$, while adjacent-layer KL measures \emph{revision} --- how much the model is still rewriting its belief between consecutive layers. If hallucination is unresolved candidate competition, it should manifest both as persistent width and as persistent revision deep into the stack; the two facets can disagree, and adjacent-layer KL is the one signal with no detection-time precedent (Section~\ref{sec:related}). Figure~\ref{fig:entropy-heatmap} shows the intuition on LLaMA-2-7B: entropy trajectories of correctly and incorrectly answered examples separate across depth before converging toward the output layer.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/entropy_heatmap_llama2.png}
+\caption{Per-layer logit-lens entropy (examples $\times$ layers) for correct vs. incorrect answers, LLaMA-2-7B. The groups separate at intermediate depth.}
+\label{fig:entropy-heatmap}
+\end{figure*}
+
+\subsection{Degeneracy screen}
+\label{sec:screen}
+
+The raw lens is a biased instrument: some layers decode to near-uniform distributions or to distributions unrelated to the model's eventual output, and their statistics could masquerade as signal. Before any scoring, we therefore screen layers per model $\times$ dataset cell on that cell's selection split, dropping layer $l$ if its mean entropy lies within 1\% of $\ln|V|$ (near-uniform: the lens is reading noise) or if its top-1 agreement with the final layer is below 5\% (so unlike the model's actual output that the reading is unlikely to be meaningful). A cell is considered lens-viable if at least 5 layers survive. The screen retained 15--20 layers per cell: 20 on LLaMA-2-7B (both datasets), 15 and 16 on Mistral-7B-v0.1, and 15 and 16 on LLaMA-3-8B-Instruct (TriviaQA and TruthfulQA respectively; Figure~\ref{fig:degeneracy-screen}); the tuned-lens pivot it guards was never triggered. All subsequent claims are about \emph{screened intermediate layers} only.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/degeneracy_screen.png}
+\caption{Degeneracy screen results --- retained vs. dropped layers. The screen is applied per model $\times$ dataset cell on the selection split and retains 15--20 layers per cell (LLaMA-2 20/20, Mistral 15/16, LLaMA-3 15/16 on TriviaQA/TruthfulQA).}
+\label{fig:degeneracy-screen}
+\end{figure*}
+
+\subsection{Per-model selection with a locked test split}
+\label{sec:selection}
+
+Each dataset is split 50/50 into a selection split and a test split, stratified by label, seed 42 (500/500 on TriviaQA; 408/409 on TruthfulQA). The test split is locked at split time and never read by any analysis in this paper; every number we report is a selection-split quantity, and we flag it as such throughout. On the selection split we compute, for every screened (layer, signal) pair, the corrected AUROC $\max(a, 1-a)$ with the direction recorded, and select the per-cell tuple $(\hat{l}, \hat{s}, \hat{d})$ by argmax over screened \emph{intermediate} layers (L32 excluded from candidacy).
+
+Each element of this design answers a documented failure. Selection is per model \emph{and} per dataset because the probe literature shows the informative layer shifts across both \citep{Azaria2023Internal}, and our own sweep confirms it: the winning signal differs across datasets for every model, and the winning layer for two of the three, so a fixed depth or fixed signal would be the wrong abstraction. Direction is selected rather than assumed because the motivating failure was precisely a direction inversion --- the motivating record's final-layer entropy flipped sign on LLaMA-2/TriviaQA --- so the method removes inversion as a failure mode instead of hoping monotonicity holds across checkpoints. Finally, the supervision boundary is explicit: ``training-free'' refers to scoring --- no probe, no fitted parameters. Selection is a label-efficient argmax over a discrete grid, performed once per cell on the selection split only.
+
+\subsection{Protocol-internal validity anchor (A2-v2)}
+\label{sec:anchor}
+
+The anchor design is itself a corrected failure, and the correction is a contribution. The first version of this experiment gated on reproducing the motivating record's final-layer AUROCs within $\pm$0.03. The halt gate fired 47 seconds into the first cell (observed deviation +0.0742), and a provenance audit showed why: the reference numbers came from a protocol differing in six documented ways, from sample selection to numeric precision. The anchor was unsatisfiable by construction --- the same cell that recorded 0.5186 under the old protocol measures 0.5928 under this one. The redesign moves every validity check inside the current protocol:
+
+\begin{itemize}
+\item \textbf{(a) Identity-verified cache reuse.} Before reusing the one finalized donor cache (the zero-GPU LLaMA-2/TriviaQA cell), the first 10 examples are regenerated fresh and must agree with the cached labels 10/10; any drift falls back to fresh generation. Reuse is an optimization, never an assumption.
+\item \textbf{(b) Within-sweep final-layer baseline.} The baseline for the depth claim is the final-layer (L32) entropy AUROC computed per cell from the \emph{same} sweep, same pass, same labels (\texttt{depth\_beats\_final}). After the forensics above, this is the only comparison we consider valid.
+\item \textbf{(c) Descriptive-only cross-run reports.} Direction consistency against the motivating record is logged per cell and never gated: direction was the only quantity our forensics found to transfer across protocols, and magnitudes are not comparable by construction.
+\end{itemize}
+
+Halts occur only on protocol-internal contract violations (unfinalized split, single-class labels --- conditions under which AUROC is undefined). Under this anchor the full sweep completed with zero spurious halts; Figure~\ref{fig:anchor-v2} shows the per-cell report.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/anchor_v2_report.png}
+\caption{A2-v2 anchor report --- per-cell within-sweep final-layer AUROC with descriptive direction-consistency markers.}
+\label{fig:anchor-v2}
+\end{figure*}
+
+\begin{algorithm}[tb]
+\caption{Depth-resolved sweep and per-cell selection}
+\label{alg:sweep}
+\begin{algorithmic}[1]
+\STATE {\bfseries Input:} model $M$ (layers L1..L32), dataset $D$, seed 42
+\STATE Split $D$ into stratified 50/50 selection/test; lock test split (never read)
+\FOR{each example $x$ in $D$}
+\STATE $a \leftarrow \mathrm{greedy\_generate}(M, \mathrm{prompt}(x))$ \COMMENT{greedy, $\leq$ 32 tokens}
+\STATE $h_1..h_{32} \leftarrow \mathrm{teacher\_forced\_forward}(M, \mathrm{prompt}(x) \mathbin{\|} a)$
+\FOR{$l = 1$ {\bfseries to} $32$}
+\STATE $p_l \leftarrow \mathrm{softmax}(\mathrm{lm\_head}(\mathrm{norm}(h_l)))$ \COMMENT{logit-lens readout}
+\ENDFOR
+\STATE cache mean over answer tokens of $H(p_l)$, $\max_v p_l(v)$, $\mathrm{KL}(p_l \,\|\, p_{l-1})$ \COMMENT{KL: NaN at L1, excluded}
+\ENDFOR
+\STATE $L^* \leftarrow$ degeneracy screen on selection split \COMMENT{Section~\ref{sec:screen}; health: $|L^*| \geq 5$}
+\FOR{$(l, s) \in L^* \times \{\text{entropy}, \text{maxprob}, \text{adj\_kl}\}$}
+\STATE $A[l, s] \leftarrow$ corrected AUROC on selection split \COMMENT{direction recorded}
+\ENDFOR
+\STATE $(\hat{l}, \hat{s}, \hat{d}) \leftarrow \arg\max A$ over intermediate $l$ (L32 excluded)
+\STATE $b \leftarrow A[\mathrm{L32}, \text{entropy}]$ \COMMENT{within-sweep final-layer baseline}
+\STATE report existence gate $A[\hat{l}, \hat{s}] \geq 0.55$ and depth-beats-final $A[\hat{l}, \hat{s}] > b$
+\end{algorithmic}
+\end{algorithm}
+
+The full sweep spans 3 models $\times$ 2 datasets $\times$ 32 layers $\times$ 3 signals --- 5,451 scored generations, streamed to per-example caches that make every stage resumable and auditable, and that leave the locked test splits ready for the frozen-tuple evaluation this staged design defers. The next section states the experimental questions this pipeline was built to answer.

@@ -1,0 +1,60 @@
+
+\subsubsection{3.1 Dataset Selection}
+
+\textbf{WildChat-1M} (Zhao et al., 2024; \texttt{allenai/WildChat-1M}) provides approximately 1 million ChatGPT conversation logs with timestamps, hashed IP addresses (\texttt{hashed\textbackslash \_ip} field), topic tags, toxicity flags, and full conversation text. The IP-hash pseudonymization allows approximate user-level longitudinal tracking without individual identification. Analysis is restricted to non-toxic English conversations with timestamps in the range January 2023--December 2024. The effective analysis window after cohort-size filtering is April 2023--April 2024, as described in Section 4. Data loading uses HuggingFace \texttt{datasets} streaming mode for memory efficiency. In experiment round h-e1, 837,989 total WildChat rows were loaded.
+
+\textbf{LMSYS Chatbot Arena} \citep{Zheng2023Judging} was the intended source for Proxy 2 (vote entropy). The primary dataset (\texttt{lmsys/chatbot\textbackslash \_arena\textbackslash \_conversations}) requires approved research access and was inaccessible. The publicly available fallback dataset (\texttt{lmsys/lmsys-arena-human-preference-55k}, 55,000 records) contains no \texttt{tstamp} field, making temporal binning impossible. Proxy 2 could not be computed from any publicly available data.
+
+\subsubsection{3.2 Returning-User Cohort Construction}
+
+A user (IP-hash) is included in the analysis cohort if they appear in \textbf{$\geq 3$ distinct calendar months} within the analysis window. This filter ensures sufficient within-user longitudinal data for trend detection but systematically selects for high-engagement users --- a central limitation discussed in Section 6.
+
+The pipeline:
+
+\begin{enumerate}
+\item Stream WildChat-1M; extract per-user per-month records.
+\item Retain IP-hashes with $\geq 3$ distinct months.
+\item Compute per-turn proxy values for retained users.
+\item Aggregate to monthly cohort means.
+\item Retain only bins containing $\geq 50$ distinct cohort members; 13 bins satisfy this criterion (April 2023--April 2024).
+\end{enumerate}
+
+\subsubsection{3.3 Behavioral Proxy Computation}
+
+\textbf{Proxy 1: Prompt Token Count.} The first user turn per conversation is tokenized using \texttt{tiktoken cl100k\textbackslash \_base} (the tokenizer for GPT-3.5-turbo and GPT-4, the model family underlying WildChat). Monthly mean prompt token count is computed across the returning-user cohort. The BAA disengagement prediction is $\tau$ < 0 (declining prompt length).
+
+\textbf{Proxy 2: Preference Vote Shannon Entropy.} H = $-\Sigma p_i log_2 p_i$ over the win/lose/tie distribution of LMSYS votes per monthly bin. \textbf{Not computed} --- the LMSYS primary dataset is access-gated, and the fallback dataset contains no timestamps. The proxy computation logic was verified on synthetic data in smoke tests but could not be applied to real data.
+
+\textbf{Proxy 3: Correction/Negation Frequency.} Explicit verbal corrections are detected using the regular expression pattern \texttt{r'\textbackslash textbackslash b(no[,.]|actually[,.]|that\textbackslash 's wrong|please redo|i meant|wrong[,.])\textbackslash textbackslash b'} applied per turn; the monthly mean fraction of turns matching constitutes the proxy. The empirical base rate is approximately 0.05\% of turns.
+
+\subsubsection{3.4 Statistical Testing}
+
+For each proxy, the autocorrelation function is computed at lag-1 on the monthly series. When ACF lag-1 > 0.1, the \textbf{Hamed-Rao modification} of the Mann-Kendall test is applied, which adjusts the variance for autocorrelated series. When ACF lag-1 $\leq$ 0.1, the standard Mann-Kendall test is used (via \texttt{scipy.stats.kendalltau}). Bootstrap 95\% confidence intervals for $\tau$ are computed with B = 1000 resamples, random seed = 42.
+
+\textbf{Gate criterion:} The pre-specified gate requires $\geq 2$ of 3 proxies to show |$\tau | \geq$ 0.2 with p < 0.05. Direction is analyzed post-hoc.
+
+\subsubsection{3.5 Implementation}
+
+Seven Python modules constitute the analysis pipeline:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+Module & Function \\
+\midrule
+`data\_loader.py` & WildChat-1M streaming, LMSYS fallback loading \\
+`cohort\_builder.py` & Returning-user filter ($\geq 3$ bins), monthly aggregation \\
+`proxy\_computer.py` & Tiktoken tokenization, entropy computation, regex correction detection \\
+`stats\_tester.py` & ACF computation, Hamed-Rao Mann-Kendall, bootstrap CI \\
+`visualizer.py` & Figure generation \\
+`main.py` & CLI orchestration \\
+`smoke\_test.py` & Synthetic data validation (all tests pass) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+All random operations use seed = 42. The pipeline was executed in two independent rounds: h-e1 (initial implementation) and h-e1-v2 (refined implementation; authoritative results).
+

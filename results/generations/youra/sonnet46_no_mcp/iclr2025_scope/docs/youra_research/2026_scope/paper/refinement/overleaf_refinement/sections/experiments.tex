@@ -1,0 +1,39 @@
+
+\subsubsection{4.1 Research Questions}
+
+\textbf{RQ1 (H-E1 — Existence):} Does applying H2O eviction masks during LoRA training produce adapter weight matrices that differ statistically from sequential-baseline adapters?
+
+\textbf{RQ2 (H-M1 — Mechanism):} Does eviction-aware training restructure attention patterns, and which transformer layers are most affected?
+
+\textbf{RQ3 (H-M2 — Dose-Response):} Does any accuracy advantage increase monotonically as the KV budget tightens? (Planned; not evaluable at proxy scope — see Section 5.3.)
+
+\textbf{RQ4 (H-M3 — Accuracy):} Does eviction-aware training yield ≥2\% per-category LongBench accuracy improvement at r=50\%? (Not started — model access unavailable.)
+
+\subsubsection{4.2 Models and Data}
+
+\textbf{Proxy model:} GPT-2 (117M parameters, 12 transformer layers, 1024-token context window). Used for RQ1 and RQ2; GPT-2 differs architecturally from target models in using a fused \texttt{c_attn} Conv1D layer (Q+K+V combined) rather than separate \texttt{q_proj}/\texttt{k_proj}/\texttt{v_proj} projections. The H2O mask injection mechanism is architecture-agnostic; the degree to which proxy-scale results generalize to 7B models is unverified.
+
+\textbf{Target models (not evaluated):} LLaMA-2-7B and Mistral-7B-v0.1. Both require gated HuggingFace access unavailable during this study.
+
+\textbf{Training data:} LongAlpaca-12k (Yukang/LongAlpaca-12k, HuggingFace Hub), 200 samples used in proxy experiments.
+
+\textbf{Evaluation data (H-M1):} 5 synthetic multi-sentence samples. GPT-2's 1024-token context precludes real LongBench evaluation; these short synthetic samples were used for attention pattern comparison only. Results from n=5 samples should not be extrapolated to LongBench-scale conclusions.
+
+\subsubsection{4.3 Baselines}
+
+\textbf{Sequential baseline:} Standard LoRA fine-tuning without eviction masks during training; H2O eviction applied at inference at the same ρ. Same architecture, training data, and hyperparameters — training-time eviction masking is the only difference.
+
+A random-token-removal ablation (same budget ratio, random mask rather than H2O policy-driven selection) was not evaluated. This ablation would assess whether the observed weight divergence is specific to H2O's policy-driven heavy-hitter selection or is a general consequence of any token removal during training.
+
+\subsubsection{4.4 Evaluation Metrics}
+
+\textbf{H-E1:} Per-layer cosine similarity between LoRA adapter weight matrices (eviction-aware vs. sequential). Gate: at least one layer with similarity < 0.95.
+
+\textbf{H-M1:} Per-layer attention entropy and heavy-hitter concentration (top-20\% token attention ratio), evaluated with H2O masks active during attention extraction (\texttt{set_h2o_training_mode(model, True)}). Gate: OR condition — a layer is counted significant if attention entropy p-value or HH concentration p-value < 0.05 (paired t-test). Gate threshold: ≥50\% of layers (≥6/12).
+
+\textbf{H-M2:} Spearman ρ between KV budget ratio and mean per-category accuracy gap across ρ ∈ {0.25, 0.50, 0.75}. Gate threshold: ρ_s < −0.8.
+
+\subsubsection{4.5 Implementation Details}
+
+All experiments use HuggingFace \texttt{transformers} (≥4.36) and \texttt{peft}. \texttt{attn_implementation='eager'} is required when using H2O wrappers (see Section 6.3). H-E1: batch size 4, learning rate 2e-4, 30 training steps. H-M1: \texttt{config.output_attentions=True} with \texttt{attn_implementation='eager'} (required for attention weight extraction in transformers 5.x; \texttt{output_attentions=True} as a forward kwarg alone is ignored in SDPA mode). All experiments ran on a single GPU.
+

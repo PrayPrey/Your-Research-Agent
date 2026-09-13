@@ -1,0 +1,404 @@
+# Phase 2A Extended: Hypothesis Clarification - Summary
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** Round 1 - Precision-Aware Co-Optimization
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## Executive Summary
+
+**Hypothesis ID:** H-GAP2-ROUND1
+**Confidence Level:** 0.85 (HIGH)
+
+This document presents the scientifically clarified hypothesis for **Precision-Aware Co-Optimization for Data-Efficient High-Precision Sim-to-Real Transfer**, narrowed from the Phase 2A validated candidate. The hypothesis proposes that joint optimization of simulation physics parameters and imitation learning policies through gradient-based sensitivity analysis, combined with online residual correction, enables sub-millimeter manipulation accuracy from minimal human supervision (5-10 demonstrations + 10 interventions).
+
+**Key Innovation:** First integration of manufacturing precision control principles (sensitivity-based parameter identification + real-time iterative compensation) with differentiable robot learning.
+
+**Core Contribution:** Addresses Gap 2 completely - achieving both data efficiency AND high precision simultaneously in unstructured household environments.
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Main Hypothesis:**
+
+If simulation physics parameters (friction coefficients μ, contact stiffness k, damping c) are jointly optimized with imitation learning policy θ using gradient-based sensitivity analysis to identify precision-critical parameters, and a lightweight online residual correction network r_φ(o,a) (<100K parameters, <1ms inference) is deployed during real-world execution, THEN sub-millimeter manipulation accuracy (position RMSE <0.5mm) can be achieved in unstructured household tasks from minimal human supervision (5-10 teleoperated demonstrations for policy training + 10 sparse interventions for precision refinement).
+
+**Alternative Hypothesis (H0):**
+
+Traditional sim-to-real approaches (fixed simulation parameters OR physics optimization without precision-aware sensitivity analysis OR offline policy learning without online correction) require significantly more demonstrations (>50 demos) OR achieve lower precision (position RMSE >2mm) OR work only in constrained environments, making them impractical for data-efficient high-precision household manipulation.
+
+### 1.2 Variables
+
+| Variable Type | Variable Name | Operationalization | Range/Values |
+|---------------|---------------|-------------------|--------------|
+| **Independent** | Precision-critical parameters Θ_critical | Simulation physics parameters selected via ∂L_precision/∂θ_sim ranking (top-k=5-10) | Friction μ ∈ [0.1, 1.0], Contact stiffness k ∈ [10³, 10⁶] N/m, Damping c ∈ [10, 10³] Ns/m |
+| **Independent** | Policy parameters θ | Neural network weights trained via behavioral cloning | Standard policy network architecture (transformer or MLP) |
+| **Independent** | Demonstration count n_demo | Number of teleoperated human demonstrations | n = 5, 7, 10 (low regime) |
+| **Independent** | Intervention count n_intervention | Number of sparse real-world feedback corrections | n = 10 (IntervenGen baseline) |
+| **Dependent** | Position error | End-effector position RMSE measured via motion capture | mm (target: <0.5mm for sub-millimeter precision) |
+| **Dependent** | Force error | Contact force RMSE measured via force-torque sensor | N (target: task-specific, e.g., <0.5N for assembly) |
+| **Dependent** | Task success rate | Binary success/failure per trial across task suite | % (target: >85%) |
+| **Dependent** | Sim-to-real gap | Performance delta between simulation and real deployment | % reduction compared to fixed-parameter baseline |
+| **Controlled** | Task types | Precision household manipulation categories | Needle threading, PCB component placement, controlled pouring (<0.5mm tolerance) |
+| **Controlled** | Robot platform | Hardware specification | Standard 6-DOF arm + parallel gripper + force-torque sensor (e.g., Franka Emika Panda, UR5) |
+| **Controlled** | Simulation environment | Differentiable physics engine | Isaac Gym or MuJoCo-XLA (validated in Kovalev et al. 2025) |
+
+### 1.3 Causal Mechanism
+
+**Proposed Causal Chain:**
+
+1. **Sensitivity Analysis → Parameter Identification**
+   Gradient computation ∂L_precision/∂θ_sim identifies which simulation parameters most affect sub-millimeter accuracy. Manufacturing precision control theory (Geng et al. 2021) establishes that sensitivity-based calibration focuses effort on critical factors.
+
+2. **Co-Optimization → Improved Simulation Fidelity**
+   Joint optimization min_{θ, Θ_critical} L_imitation(D_sim) + λ·L_precision(D_real_sparse) aligns simulation physics with real-world dynamics specifically for precision tasks, reducing sim-to-real gap more than fixed parameters.
+
+3. **Reduced Sim-to-Real Gap → Fewer Demonstrations Needed**
+   Better simulation fidelity means policies trained in simulation transfer more effectively to reality, reducing demonstration requirements (Sobanbabu et al. 2025: 42-63% improvement over domain randomization).
+
+4. **Online Residual Correction → Sub-Millimeter Accuracy in Unstructured Environments**
+   Lightweight residual network r_φ compensates for remaining simulation imperfections during real-world execution, handling variations in unstructured household settings (RIC principle from Zhou et al. 2023 - online compensation outperforms offline iterative learning).
+
+**Evidence for Causal Links:**
+
+- **Link 1 (Sensitivity → Identification):** Kovalev et al. (2025) validates gradient-based parameter optimization in differentiable simulation reduces rotational error 75%, proving ∂L/∂θ_sim identifies critical parameters for learned systems.
+
+- **Link 2 (Co-Optimization → Fidelity):** EmbodieDreamer (Wang et al. 2025) demonstrates PhysAligner improves task success 29.17% through joint physics-policy alignment; Yang et al. (2024) shows single real-world interaction sufficient for parameter identification.
+
+- **Link 3 (Fidelity → Fewer Demos):** Sobanbabu et al. (2025) proves parameter identification outperforms domain randomization by 42-63%, directly linking physics optimization to data efficiency.
+
+- **Link 4 (Online Correction → Precision):** Zhou et al. (2023) establishes RIC online compensation achieves higher precision than offline methods in manufacturing control; TRANSIC (Jiang et al. 2024) demonstrates online correction improves sim-to-real transfer (though without physics optimization).
+
+**Key Tension:**
+
+Manufacturing RIC method assumes model-based prediction with analytical models, but neural residual network is model-free correction. Latency concern: can neural network inference (<1ms required) maintain real-time control stability at sub-millimeter precision? Mitigation: lightweight architecture (<100K params), GPU acceleration (NVIDIA Jetson), fallback to trajectory-level correction if needed.
+
+### 1.4 Key Assumptions
+
+1. **Differentiable Simulation Validity**: Isaac Gym or MuJoCo-XLA differentiable simulators provide sufficiently accurate gradients ∂L/∂θ_sim for rigid-body contact-rich manipulation.
+   *Support:* Kovalev et al. (2025), Yang et al. (2024) validate differentiable sim-based parameter optimization.
+
+2. **Sensitivity Analysis Transferability**: Gradient-based sensitivity analysis from manufacturing translates to learned robot policies without spurious correlations.
+   *Support:* Kovalev et al. (2025) demonstrates this works for learned locomotion (75% improvement).
+
+3. **Data Efficiency Scaling**: 5-10 demonstrations sufficient when simulation is well-calibrated via co-optimization.
+   *Support:* EquiBot (Yang et al. 2024) achieves learning from 5min demos; Yang et al. (2024) DPSI shows single-interaction parameter ID works.
+
+4. **Real-time Inference Feasibility**: Lightweight residual network (<100K params) achieves <1ms inference on GPU without destabilizing control.
+   *Support:* Standard practice in robot control with GPU acceleration (NVIDIA Jetson platform); contingency: trajectory-level correction if action-level latency problematic.
+
+5. **Force-Torque Sensor Availability**: Standard robotics hardware provides force feedback for precision tasks.
+   *Support:* ATI force-torque sensors standard equipment in manipulation research.
+
+6. **Household Task Structure**: Target precision tasks (threading, assembly, pouring) have learnable structure from 5-10 demonstrations.
+   *Risk:* Extremely chaotic tasks may require more demos; mitigated by task selection within scope.
+
+### 1.5 Scope & Boundaries
+
+**Applies To:**
+- High-precision household manipulation tasks requiring sub-millimeter accuracy
+- Rigid-body manipulation with contact-rich interactions
+- Standard industrial/research robot arms (6-7 DOF) with force-torque sensors
+- Tasks with force feedback (assembly, threading, controlled pouring)
+- Unstructured but not adversarial environments (typical home settings)
+
+**Does NOT Apply To:**
+- Soft-body/deformable object manipulation (cloth, rope) - different physics not well-captured by rigid-body differentiable sim
+- Tasks without force feedback (vision-only manipulation)
+- Extremely high-speed manipulation (>1m/s) where latency becomes critical bottleneck
+- Safety-critical medical applications without human oversight (requires additional certification)
+- Environments with adversarial perturbations or extreme outliers
+
+**Known Limitations:**
+1. Residual network requires task-specific interventions (10 per task type) - not fully zero-shot generalization
+2. Lightweight architecture (<100K params) may limit correction capacity for very large sim-to-real gaps (>50% performance delta)
+3. Precision measurement hardware required for evaluation (OptiTrack motion capture, kHz force-torque sensors)
+4. Method validated on specific task categories - generalization to entirely novel precision task families requires further study
+5. Initial implementation restricted to rigid-body physics (elastoplastic materials future work per Yang et al. 2024 DPSI)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Sim-to-Real Gap Reduction):** If simulation parameters are co-optimized with policy using sensitivity-based precision-critical parameter selection (top-k=5-10 via ∂L_precision/∂θ_sim), THEN sim-to-real transfer gap will reduce by ≥40% compared to fixed-parameter baseline, as measured by task success rate delta between simulation and real-world deployment.
+
+*Baseline:* Sobanbabu et al. (2025) reports 42-63% improvement from parameter identification over domain randomization; we conservatively target ≥40% for precision tasks.
+
+**Secondary Predictions:**
+
+**P2 (Sub-Millimeter Accuracy):** If lightweight online residual network (<100K params, <1ms inference) is deployed during real-world execution, THEN position RMSE <0.5mm will be achieved for high-precision tasks (needle threading, PCB component placement) in unstructured household environments, measured via OptiTrack motion capture system.
+
+**P3 (Data Efficiency):** If 5-10 teleoperated demonstrations train policy in co-optimized simulation + 10 sparse interventions (IntervenGen approach) refine residual network, THEN task success rate ≥85% will be achieved for precision task suite, comparable to methods requiring 50+ demonstrations without physics optimization.
+
+**P4 (Parameter Selection Efficiency):** If gradient-based sensitivity analysis identifies top-k=5-10 precision-critical parameters, THEN co-optimization convergence will be 2-3× faster (measured in training iterations) compared to optimizing all physics parameters (baseline: ~100 parameters in typical simulator), due to reduced search space.
+
+**Falsification Criteria:**
+
+The hypothesis is FALSIFIED if any of the following occur after full implementation:
+
+1. Sim-to-real gap reduction <20% (significantly below Sobanbabu et al. baseline)
+2. Position RMSE remains >2mm consistently across tasks (no meaningful precision improvement)
+3. Requires >30 demonstrations to achieve 85% success rate (data efficiency claim violated)
+4. Online residual network inference latency >5ms causing control instability (real-time feasibility violated)
+5. Method works only in constrained environments, fails in typical household clutter (scope claim violated)
+
+**Partial Falsification:** If lightweight architecture achieves precision but requires >1ms latency, hypothesis core remains valid but deployment switches to trajectory-level correction fallback (acceptable architectural modification).
+
+### 1.7 SOTA Baseline Comparison
+
+**SOTA Benchmark Summary:**
+
+| Method | Data Efficiency | Precision | Environment | Key Limitation |
+|--------|----------------|-----------|-------------|----------------|
+| **EquiBot (Yang et al. 2024)** | 5min demos ✓ | General (cm-scale) | Novel scenes | Not precision-focused |
+| **Surgical Sim-to-Real (Scheikl et al. 2023)** | Domain adaptation | 50% success ✓ | Constrained surgical | Requires structured workspace |
+| **EmbodieDreamer PhysAligner (Wang et al. 2025)** | Standard IL data | 29.17% improvement | General manipulation | Not precision-optimized |
+| **TRANSIC (Jiang et al. 2024)** | Human feedback | General | Sim-to-real | No physics optimization |
+| **Kovalev et al. (2025) Diff-Sim-ID** | Trajectory data only | 75% error reduction | Locomotion | Not tested on sub-mm manipulation |
+
+**Our Hypothesis Differentiators:**
+
+1. **vs EquiBot:** Adds precision-critical parameter optimization for sub-mm tasks (not just generalization)
+2. **vs Surgical Sim-to-Real:** Extends to unstructured environments via online residual correction
+3. **vs EmbodieDreamer:** Focuses physics optimization on precision-critical parameters + adds online correction stage
+4. **vs TRANSIC:** Combines online correction WITH physics optimization (both stages)
+5. **vs Kovalev et al.:** Applies differentiable sim-based parameter ID specifically to high-precision manipulation with sub-mm metrics
+
+**Target Performance:**
+- Data: 5-10 demos + 10 interventions (matches EquiBot, adds interventions from IntervenGen)
+- Precision: <0.5mm RMSE (exceeds surgical baseline's 50% success with stricter metrics)
+- Environment: Unstructured household (broader than surgical, more precise than general manipulation)
+
+### 1.8 Statistical Verification Design
+
+**Experimental Design:**
+
+- **Type:** Randomized controlled trial with ablation studies
+- **Sample Size:** 3 task types × 20 trials per task × 4 conditions = 240 trials
+- **Task Types:** (1) Needle threading, (2) PCB component placement (0402 resistors), (3) Controlled pouring (±0.3mm tolerance)
+- **Conditions:**
+  1. **Full Method:** Sensitivity-based co-optimization + online residual correction
+  2. **Ablation 1:** Fixed physics parameters + online correction (tests co-optimization contribution)
+  3. **Ablation 2:** Co-optimized parameters without online correction (tests residual network contribution)
+  4. **Baseline:** Fixed parameters, no online correction (standard IL approach)
+
+**Metrics & Statistical Tests:**
+
+| Metric | Measurement | Statistical Test | Significance Level |
+|--------|-------------|------------------|-------------------|
+| Position RMSE | OptiTrack motion capture (sub-mm accuracy) | Paired t-test (Full vs Baseline) | α = 0.05, power = 0.8 |
+| Force RMSE | ATI F/T sensor at 1kHz | Paired t-test | α = 0.05 |
+| Task success rate | Binary success/failure per trial | Chi-square test | α = 0.05 |
+| Sim-to-real gap | Performance delta (sim vs real) | One-way ANOVA across 4 conditions | α = 0.05 |
+| Convergence speed | Training iterations to 85% success | Welch's t-test (sensitive to unequal variance) | α = 0.05 |
+
+**Power Analysis:**
+
+- Effect size (Cohen's d): Expecting d ≥ 0.8 (large effect) based on Sobanbabu et al. (42-63% improvement)
+- Minimum detectable difference: 1.5mm in position RMSE, 20% in success rate
+- Required sample size: n=20 trials per condition per task achieves power=0.8 with α=0.05 for large effects
+
+**Confound Controls:**
+
+- Randomized task order to prevent learning effects
+- Fixed robot hardware across all trials
+- Same human demonstrator for consistency (measured via inter-demonstrator reliability study)
+- Environmental controls: temperature, lighting, object placement variability measured and reported
+
+---
+
+## 2. Contribution Summary
+
+### Theoretical Contributions
+
+**T1. Precision-Critical Parameter Identification Framework**
+
+First formalization of the problem: Given a precision task distribution and differentiable simulator, identify the minimal subset Θ_critical ⊆ Θ_sim of physics parameters whose optimization maximizes sim-to-real transfer quality for sub-millimeter manipulation. Provides theoretical connection between manufacturing sensitivity analysis (Geng et al. 2021) and ML-based robot learning via differentiable simulation gradients.
+
+**T2. Cross-Domain Theoretical Bridge**
+
+Novel framework connecting manufacturing precision control theory (sensitivity analysis for calibration + online iterative compensation) to robot learning through differentiable simulation. Establishes formal mapping:
+- Manufacturing: Sensitivity analysis → ML: Gradient-based parameter ranking ∂L_precision/∂θ_sim
+- Manufacturing: RIC online compensation → ML: Residual neural network r_φ(o,a)
+
+**T3. Fidelity-Efficiency Trade-off Analysis**
+
+Theoretical characterization of the trade-off between simulation fidelity improvement (reduces demonstrations needed) and online residual correction capacity (handles unmodeled gaps). Provides guidance on when to invest in physics optimization vs. when online correction suffices.
+
+### Methodological Contributions
+
+**M1. Gradient-Based Sensitivity Analysis for Sim Parameters**
+
+Algorithm for computing ∂L_precision/∂θ_sim through differentiable simulator and ranking parameters by magnitude to select top-k precision-critical parameters. Reduces search space from ~100 parameters to 5-10, enabling efficient optimization. Validated by Kovalev et al. (2025) differentiable sim-ID achieving 75% error reduction.
+
+**M2. Precision-Aware Co-Optimization Framework**
+
+Joint training objective:
+```
+min_{θ_policy, Θ_critical} L_imitation(D_sim) + λ·L_precision(D_real_sparse)
+```
+where L_precision measures position error (mm), force error (N), contact timing accuracy using sparse real-world feedback (10 interventions following IntervenGen). Backpropagation through differentiable simulator updates both policy and physics parameters simultaneously.
+
+**M3. Two-Stage Deployment Architecture**
+
+- **Stage 1 (Offline):** Policy π_θ trained in co-optimized simulation with precision-critical parameters Θ_critical
+- **Stage 2 (Online):** Lightweight residual network r_φ(<100K params) provides real-time action corrections: a_final = π_θ(o) + r_φ(o, π_θ(o)), trained via continual online adaptation during deployment (RIC principle)
+
+**M4. Intervention-Based Precision Calibration Protocol**
+
+Extension of IntervenGen sparse intervention approach (39× robustness with 10 interventions) specifically for precision tasks: active selection of intervention points where position error >0.5mm or force error exceeds task threshold, maximizing Fisher Information for parameter identification (Sobanbabu et al. 2025 SPI-Active framework).
+
+**M5. Sub-Millimeter Manipulation Benchmark Suite**
+
+Evaluation methodology combining:
+- Precision-specific metrics: Position RMSE (mm), Force RMSE (N), Contact timing accuracy (ms)
+- Hardware: OptiTrack motion capture (sub-mm ground truth), ATI force-torque sensor (1kHz)
+- Task suite: Needle threading, PCB assembly (0402 components), controlled pouring (<0.5mm tolerance)
+- Standard baseline: SimplerEnv + precision extensions
+
+### Practical Contributions
+
+**P1. Data-Efficient High-Precision Household Manipulation**
+
+Enables robots to learn delicate household tasks (needle threading, small electronics assembly, precise pouring) from 5-10 human demonstrations + 10 sparse interventions, achieving sub-millimeter accuracy in unstructured home environments. Addresses real-world need for robots capable of precision tasks without extensive programming or large demonstration datasets.
+
+**P2. Sim-to-Real Transfer for Precision Tasks**
+
+Reduces sim-to-real gap for high-precision manipulation by ≥40% compared to fixed-parameter approaches, making simulation-based training viable for sub-millimeter tasks previously requiring direct real-world learning or constrained environments (surgical robotics).
+
+**P3. Open-Source Implementation & Deployment Guide**
+
+Planned release combining:
+- Isaac Gym or MuJoCo-XLA differentiable simulator integration
+- Sensitivity analysis + co-optimization training pipeline
+- Lightweight residual network architectures (<100K params, <1ms inference)
+- Evaluation suite with precision metrics
+- Deployment guide for standard robot hardware (Franka Panda, UR5 + force-torque sensors)
+
+**P4. Hardware-Efficient Deployment**
+
+Method deployable on standard robotics platforms without specialized equipment beyond force-torque sensors (~$5K). GPU acceleration via NVIDIA Jetson (~$500) enables real-time inference. Total system cost <$25K competitive with existing precision robotics solutions requiring extensive manual tuning.
+
+---
+
+## 3. Key Related Work
+
+### Foundational Work
+
+**Differentiable Simulation & Physics Optimization**
+
+1. **EmbodieDreamer (Wang et al. 2025)** - PhysAligner: 29.17% improvement via joint physics-policy alignment
+   *Relation:* Core inspiration for co-optimization; our work extends to precision-focused parameter selection + online correction
+
+2. **Kovalev et al. (2025)** - Differentiable sim-based system ID: 75% rotational error reduction
+   *Relation:* Validates gradient-based parameter optimization for learned systems; we apply to sub-mm manipulation
+
+3. **Yang et al. (2024) DPSI** - Single-interaction physics parameter inference for elastoplastic manipulation
+   *Relation:* Demonstrates data efficiency of differentiable sim-ID; supports our sparse intervention approach
+
+4. **Sobanbabu et al. (2025) SPI-Active** - 42-63% improvement over domain randomization via parameter ID
+   *Relation:* Establishes parameter optimization superiority over randomization; we add precision-specific sensitivity analysis
+
+**Data-Efficient Imitation Learning**
+
+5. **EquiBot (Yang et al. 2024)** - 5-minute demonstrations with SIM(3)-equivariant diffusion
+   *Relation:* Baseline for data efficiency (5-10 demos); we add precision optimization for sub-mm tasks
+
+6. **IntervenGen (Hoque et al. 2024)** - 39× robustness improvement with 10 human interventions
+   *Relation:* Methodology for sparse intervention-based refinement; adapted for precision calibration
+
+**Sim-to-Real Transfer**
+
+7. **Surgical Manipulation Sim-to-Real (Scheikl et al. 2023)** - 50% success rate in surgical deformable object manipulation
+   *Relation:* Establishes high-precision sim-to-real feasibility in constrained environments; we extend to unstructured household settings
+
+8. **TRANSIC (Jiang et al. 2024)** - Online correction from human feedback for sim-to-real
+   *Relation:* Similar online correction component but lacks physics optimization; we combine both
+
+### Cross-Domain Inspiration
+
+**Manufacturing Precision Control**
+
+9. **Geng et al. (2021)** - Sensitivity analysis for ultra-precision machine tool error compensation
+   *Relation:* Source of sensitivity-based parameter identification principle; we translate to gradient-based ML framework
+
+10. **Zhou et al. (2023)** - Real-time Iterative Compensation (RIC) for precision motion control
+    *Relation:* Online compensation mechanism adapted to neural residual network for robot learning
+
+**Human Motor Learning**
+
+11. **BeyondMimic (Liao et al. 2025)** - Compact motion formulations + latent diffusion for agile humanoid control
+    *Relation:* Principle of compact formulation (identify critical parameters) + versatile deployment (online adaptation)
+
+### Comparative Baselines
+
+**Domain Randomization Approaches**
+
+12. **Sobanbabu et al. (2025) Baseline** - Standard domain randomization underperforms parameter ID by 42-63%
+    *Relation:* Demonstrates targeted physics optimization (our approach) outperforms heuristic randomization
+
+**General VLA Models**
+
+13. **OpenVLA (7B params, 970k episodes)** - State-of-the-art generalist manipulation
+    *Relation:* Comparison point for data scale (we target high precision with minimal data rather than generalist breadth)
+
+### Differentiation from Recent Work
+
+**DiffTORI (Wan et al. 2024)** - Differentiable trajectory optimization for imitation learning
+*Difference:* Focuses on trajectory optimization without sim-to-real transfer or precision metrics
+
+**AdaptSim (IROM Lab)** - Task-driven simulation adaptation
+*Difference:* Adaptive simulation but not data-efficient; we add sensitivity-based parameter selection
+
+**SimplerEnv Benchmark** - Sim-to-real evaluation for tabletop manipulation
+*Difference:* General manipulation (cm-scale); we add sub-mm precision evaluation suite
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):** Does gradient-based sensitivity analysis identify precision-critical simulation parameters that, when optimized, reduce sim-to-real gap?
+
+*Verification:* Compare ∂L_precision/∂θ_sim ranking against ground-truth sensitivity (synthetic study) + ablation study (sensitivity-selected vs. random parameter optimization). Success metric: ≥40% sim-to-real gap reduction.
+
+**SH2 (Mechanism):** Does joint co-optimization of identified parameters with policy improve data efficiency compared to sequential optimization or fixed parameters?
+
+*Verification:* Measure demonstration count required to achieve 85% success rate across: (a) co-optimized, (b) physics-optimized then policy-trained, (c) fixed physics. Success metric: Co-optimized requires ≤10 demos while fixed requires ≥30 demos.
+
+**SH3 (Comparison):** Does online residual correction enable sub-millimeter accuracy in unstructured environments where offline-only methods fail?
+
+*Verification:* Deploy policies in household clutter with/without residual network. Measure position RMSE and success rate. Success metric: Residual network achieves <0.5mm RMSE vs. >2mm without, in unstructured test scenarios.
+
+### Readiness Checklist
+
+- [x] **Variables Operationalized:** Independent (Θ_critical, θ, n_demo, n_intervention), Dependent (position/force RMSE, success rate, sim-to-real gap), Controlled (tasks, hardware, simulator)
+- [x] **Testable Predictions Defined:** 4 primary/secondary predictions with quantitative thresholds (P1: ≥40% gap reduction, P2: <0.5mm RMSE, P3: ≥85% success, P4: 2-3× convergence speedup)
+- [x] **Falsification Criteria Clear:** 5 concrete conditions that would falsify hypothesis (e.g., gap reduction <20%, RMSE >2mm, requires >30 demos)
+- [x] **Baselines Identified:** EquiBot, Surgical sim-to-real, EmbodieDreamer, TRANSIC, Kovalev et al., Domain randomization
+- [x] **Statistical Design Specified:** RCT with ablations, n=240 trials, paired t-tests/ANOVA, power analysis complete
+- [x] **Evaluation Metrics Quantified:** Position RMSE (mm), Force RMSE (N), Success rate (%), Sim-to-real gap (%), Convergence (iterations)
+- [x] **Scope Boundaries Explicit:** Rigid-body manipulation, household precision tasks, excludes soft-body/medical/adversarial
+- [x] **Assumptions Documented:** 6 key assumptions with supporting evidence and risk mitigation
+- [x] **Hardware Requirements Listed:** Standard 6-DOF arm + force-torque sensor + OptiTrack + NVIDIA Jetson (<$25K total)
+- [x] **Sub-Hypotheses Drafted:** SH1 (sensitivity analysis), SH2 (co-optimization), SH3 (online correction)
+
+### Open Questions for Phase 2B
+
+1. **Sensitivity Analysis Validation:** What is optimal top-k parameter count (5 vs. 10 vs. adaptive selection)?
+2. **Co-Optimization Dynamics:** Should policy and physics parameters update simultaneously (joint gradient) or alternating (policy→physics→policy)?
+3. **Intervention Strategy:** Active learning for 10 interventions (maximize Fisher Information per SPI-Active) or uniform sampling across task space?
+4. **Residual Network Architecture:** MLP vs. Transformer encoder for state processing? Layer count vs. latency trade-off?
+5. **Generalization Scope:** Can sensitivity analysis transfer across task categories (threading→assembly→pouring) or requires task-specific calibration?
+6. **Failure Mode Characterization:** Under what conditions does lightweight residual network (<100K params) have insufficient correction capacity?
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (YOLO Mode - Batch Execution)*
+*2026-02-06*

@@ -1,0 +1,4 @@
+Project purpose: a YouRA research pipeline workspace containing the 2026-03-18 scope study, paper assets, and hypothesis-specific experiment code/results under docs/youra_research/20260318_scope.
+Tech stack: Python, PyTorch, Hugging Face transformers/datasets, SciPy, Matplotlib, Seaborn, YAML/Markdown orchestration files.
+Structure: top-level workflow/config files plus docs/youra_research/20260318_scope with hypothesis folders h-m1, h-m2, h-e1, a paper folder, summaries, and research notes.
+Entry points observed: hypothesis code under docs/youra_research/20260318_scope/*/code/src/main.py, figure generation under docs/youra_research/20260318_scope/paper/generate_figures.py, and various pipeline hooks under .claude/hooks/.

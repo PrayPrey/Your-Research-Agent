@@ -1,0 +1,234 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-13
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-CUV-v1
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Under GDPR Article 17 deletion request conditions, if a machine unlearning method produces a model that cannot be distinguished from a never-trained model by any polynomial-time adversary using a multi-attack ensemble (MIA + model inversion + attribute inference), then the unlearning is certifiably complete because statistical indistinguishability from random guessing implies practical forgetting of user data.
+
+**Alternative Hypothesis (H0):**
+Multi-attack ensemble verification cannot reliably distinguish between complete and incomplete unlearning; attack success rates do not correlate with actual information retention in the model, making statistical indistinguishability an invalid proxy for GDPR-compliant data deletion.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Multi-attack ensemble success rate (original) | Independent | Combined accuracy of MIA, model inversion, and attribute inference attacks on original model for forget set | 70-95% (before unlearning) |
+| Post-unlearning attack success rate | Dependent | Combined accuracy of same attacks on unlearned model for forget set, measured as deviation from random baseline (50%) | Target: ≤50% + ε (where ε ≈ 5%) |
+| Certification threshold (ε) | Controlled | Attack accuracy threshold calibrated via ACMIA methodology | ε ∈ [0.02, 0.10] |
+| Significance level (α) | Controlled | Statistical significance threshold for hypothesis testing | α = 0.05 (default) |
+| Model architecture | Confounding | Type and complexity of ML model being unlearned (MLP, CNN, ResNet, LSTM, Transformer) | Categorical; affects baseline attack success |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=4 steps):**
+
+```
+Step 1: Unlearning Method Applied
+    ↓ (parameter modification)
+Step 2: Model Parameters Modified to Remove Data Influence
+    ↓ (reduced information leakage)
+Step 3: Attack Success Rates Reduced (MIA, Model Inversion, Attribute Inference)
+    ↓ (statistical testing)
+Step 4: Attack Success ≤ Random Threshold Achieved
+    ↓ (certification)
+Outcome: Certifiably Complete Unlearning (GDPR Compliance)
+```
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Yang et al. (2024) ETID | Efficient data erasure through targeted parameter modification | Strong |
+| Step 2 → Step 3 | Athena (2022) | MIA accuracy drops from 85%+ to near 50% post-unlearning | Strong |
+| Step 3 → Step 4 | SMIA (2026) | Statistical tests with confidence intervals formalize threshold-based certification | Strong |
+| Step 4 → Outcome | Garg et al. (2020) EUROCRYPT | Cryptographic deletion framework provides legal-theoretical grounding | Medium |
+
+**Key Tension:**
+- **Tension:** Athena (2022) achieves verification via backdoor insertion, but SMIA (2026) argues MIA-based auditing "inevitably incurs statistical errors" and proposes training-free statistical tests instead.
+- **Resolution:** CUV synthesizes both approaches: uses multi-attack ensemble (like Athena's comprehensive coverage) with statistical confidence intervals (like SMIA's quantified reliability) without requiring backdoor insertion.
+
+### 1.4 Key Assumptions
+
+1. **Multi-attack ensemble comprehensiveness:**
+   - Assumption: MIA + model inversion + attribute inference together provide more comprehensive coverage of information retention channels than any single attack
+   - Evidence: Xue et al. (2025) taxonomy identifies distinct leakage channels that different attacks target
+   - **Consequence if violated:** Single attack gaps may allow residual information to evade detection, producing false certification
+
+2. **Statistical indistinguishability implies practical forgetting:**
+   - Assumption: When attack success rate ≤ 50% + ε, the model has forgotten the data sufficiently for regulatory compliance
+   - Evidence: Garg et al. (2020) established computational indistinguishability as formal deletion criterion
+   - **Consequence if violated:** Legal standards may require deterministic guarantees, rejecting probabilistic certificates
+
+3. **ACMIA calibration enables architecture-independence:**
+   - Assumption: Automatic calibration via temperature tuning produces reliable thresholds across different model architectures
+   - Evidence: ACMIA (Zare Zade et al. 2025) demonstrated improved MIA reliability across architectures
+   - **Consequence if violated:** Separate threshold calibration needed per architecture, reducing practical utility
+
+4. **Black-box verification sufficiency:**
+   - Assumption: Third-party auditors can perform meaningful verification with only query access to the model
+   - Evidence: Athena (2022) demonstrated black-box verification; SMIA (2026) requires only output distributions
+   - **Consequence if violated:** Verification would require model access, limiting third-party audit capability
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- Classification models with discrete prediction outputs (MLPs, CNNs, ResNets, LSTMs, Transformers)
+- GDPR Article 17 deletion requests with identifiable forget sets
+- MLaaS providers requiring third-party audit capability
+- Batch deletion requests (n ≥ 30 for statistical power)
+
+**Where It Does NOT Apply:**
+- Generative models (LLMs, diffusion models) - require different attack types (memorization extraction)
+- Single-sample deletion requests without batch aggregation (insufficient statistical power)
+- Models where legal standards require deterministic, not probabilistic, guarantees
+- Parametric verification approaches (requires model access)
+
+**Known Limitations:**
+- Probabilistic guarantees only; not cryptographically provable deletion
+- Statistical power depends on forget set size; single samples require aggregation protocols
+- Legal acceptance of statistical certificates uncertain in untested jurisdictions
+- Calibration requires representative hold-out data from similar distribution
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Certification Accuracy vs GDPR Compliance):**
+When CUV certifies unlearning as complete (multi-attack ensemble accuracy ≤ 55%), the model will pass independent verification tests with ≥ 95% confidence.
+
+*Measurement*:
+- Multi-attack ensemble accuracy ≤ 55% (50% + 5% ε) with p < 0.05
+- Statistical test: One-sample t-test against 50% baseline, n ≥ 30 samples per attack type
+- Aggregate certification: Worst-case (most conservative) or weighted voting across attacks
+
+*Success Criteria for Phase 2B*:
+- Primary: All three attacks (MIA, model inversion, attribute inference) ≤ 55% accuracy (p < 0.05)
+- Falsification: Any attack > 60% accuracy triggers rejection (statistically distinguishable from random)
+
+**Secondary Predictions:**
+
+**P2 (Multi-Attack Superiority):**
+Multi-attack ensemble verification will detect incomplete unlearning cases that single-attack (MIA-only) verification misses in ≥ 15% of tested scenarios.
+
+**P3 (Architecture Independence):**
+With ACMIA calibration, certification thresholds will remain stable (variance < 3%) across 5+ different model architectures (MLP, CNN, ResNet, LSTM, Transformer).
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any occur:
+
+1. **Primary Failure**: Any attack in the ensemble achieves > 60% accuracy on "certified" unlearned models (statistically worse than random guessing, p < 0.05)
+
+2. **Mechanism Failure**: Multi-attack ensemble provides no detection advantage over single MIA (P2 fails with 0% additional detection)
+
+3. **Architecture Failure**: Calibrated thresholds vary > 10% across architectures despite ACMIA calibration (P3 fails)
+
+4. **Legal Rejection**: Probabilistic certificates explicitly rejected by regulatory guidance as insufficient for GDPR Article 17 compliance
+
+### 1.7 SOTA Baseline (Optional)
+
+**Not applicable** - This hypothesis proposes a novel verification framework rather than improving performance on an established benchmark.
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Minimum samples per attack type: n ≥ 30 (for Central Limit Theorem)
+- Total samples for multi-attack ensemble: n ≥ 90 (30 per attack × 3 attacks)
+- For single-sample deletion: Batch aggregation protocol with synthetic neighbors
+
+**Test Specification:**
+- Method: One-sample t-test against 50% baseline (per attack)
+- Aggregate: Bonferroni correction for multiple comparisons (α/3 = 0.0167)
+- Significance level: α = 0.05 (one-tailed)
+- Effect size (Cohen's d): Target d ≥ 0.5 (medium effect for detection)
+
+**Report Format:**
+- Per-attack: Attack accuracy ± Std Dev, 95% CI, p-value
+- Aggregate: Certification decision (PASS/FAIL), overall confidence level
+- Certificate: Timestamp, model hash, attack suite version, confidence score
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does statistical indistinguishability (attack accuracy ≤ 50% + ε) between unlearned and never-trained models exist and can it be reliably detected?"
+- Maps to: Primary prediction P1
+- Verification type: Empirical testing on synthetic unlearning scenarios
+- Critical: MUST PASS for CUV to be viable
+
+**SH2 (Mechanism):**
+"Is the 4-step causal mechanism (unlearning → parameter modification → reduced attack success → threshold achievement → certification) the actual pathway to certified unlearning?"
+
+Phase 2B will decompose into 4 sub-hypotheses:
+- **H-M1:** Unlearning methods effectively modify parameters to remove data influence
+- **H-M2:** Modified parameters result in reduced attack success rates
+- **H-M3:** Statistical tests reliably detect threshold achievement
+- **H-M4:** Statistical indistinguishability satisfies legal certification requirements
+
+**SH3 (Comparison):**
+"Does CUV's multi-attack ensemble verification outperform single-attack (Athena-style) verification in detecting incomplete unlearning?"
+- Maps to: Secondary prediction P2
+- Verification type: Comparative empirical study
+- Critical: Determines CUV's practical value over existing approaches
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-CUV-v1
+- [x] Confidence level specified: 0.85
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (N=4 steps, evidence table)
+- [x] Causal chain length (N=4) determined and stored
+- [x] Key tension identified (Athena vs SMIA) and resolution proposed
+- [x] Key assumptions list consequences if violated (4 assumptions)
+- [x] At least 2 testable predictions exist (P1 primary, P2/P3 secondary)
+- [x] Falsification criteria are defined (4 criteria)
+- [x] Baselines are identified for comparison (Athena, SMIA)
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:**
+   - How much compute is needed for multi-attack ensemble (3× single attack)?
+   - What calibration dataset size is required for ACMIA?
+   - Estimated time per certification audit?
+
+2. **Data Availability:**
+   - Are standard unlearning benchmark datasets available (CIFAR, ImageNet)?
+   - Can we create synthetic incomplete unlearning scenarios for testing?
+   - Access to MLaaS APIs for black-box verification testing?
+
+3. **Technical Feasibility:**
+   - How to handle model inversion attack implementation complexity?
+   - Attribute inference requires sensitive attribute labels - are these available?
+   - How to aggregate multi-attack results (voting vs worst-case)?
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-13*

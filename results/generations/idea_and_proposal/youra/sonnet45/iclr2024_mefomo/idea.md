@@ -1,0 +1,9 @@
+# Predicting Capability Emergence in Foundation Models via Signal-to-Noise Ratio Trajectory Analysis
+
+## Motivation
+Foundation models exhibit sudden "emergent" capabilities (e.g., in-context learning, reasoning) at unpredictable training stages, making resource planning and safety alignment challenging. Current scaling laws only describe post-hoc trends without forecasting specific capability thresholds. Recent work shows emergent capabilities correlate with signal-to-noise ratio (SNR) thresholds in task-relevant representational subspaces, but lacks predictive frameworks. We address this gap by developing a pre-emergence forecasting method that treats capability emergence as phase transitions with characteristic SNR signatures, enabling proactive training optimization and safety interventions.
+
+## Main Idea
+We hypothesize that monitoring SNR trajectories in task-relevant subspaces during training enables forecasting capability emergence 10-20% of training in advance with >70% accuracy. The causal mechanism: as training progresses, SNR in task subspaces increases until crossing critical thresholds that trigger phase-transition-like capability emergence, exhibiting predictable pre-critical scaling patterns (power-law growth). 
+
+We will track SNR across 15 training runs (3 architectures, 5 runs each) for capabilities like in-context learning and reasoning. At 70% training completion, we predict emergence timing using SNR trajectory analysis, then validate against actual emergence at 70-100% training. Success requires outperforming scaling law baselines by >15 percentage points. This enables cost-effective training decisions, targeted fine-tuning interventions to accelerate emergence, and early warning systems for safety-critical capabilities.

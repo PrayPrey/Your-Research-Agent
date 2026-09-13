@@ -1,0 +1,389 @@
+# Phase 2A Extended: Hypothesis Clarification - Summary
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (Round 1 - FEASIBLE)
+**Hypothesis ID:** H-ICML2024-TF2M-ALG-FAIRNESS-RLHF
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## Executive Summary
+
+**Research Gap:** Zero papers connect in-context learning (ICL) algorithm selection theory with RLHF fairness frameworks (Gap 2 from Phase 1).
+
+**Core Hypothesis:** RLHF alignment mechanisms that ignore in-context algorithm selection preferences lead to systematic algorithmic unfairness across demographic groups, even when output-level fairness metrics (demographic parity, equalized odds) are satisfied.
+
+**Key Insight:** Transformers implement different algorithms (ridge, Lasso, least squares) during ICL based on prompts. If demographic groups have distinct algorithmic preferences (conservative vs decisive problem-solving), standard RLHF optimizing for output-only creates hidden algorithmic discrimination—a fairness dimension missed by existing output-level metrics.
+
+**Novel Contribution:** First framework treating algorithm selection as independent fairness dimension in RLHF alignment. Extends MaxMin-RLHF with algorithmic fairness term using social choice axioms (non-dictatorship, proportional veto).
+
+**Confidence:** 0.82 (HIGH - contingent on Phase 1 validation studies confirming algorithmic preference diversity and detection feasibility)
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-ICML2024-TF2M-ALG-FAIRNESS-RLHF
+**Confidence Level:** 0.82
+
+**Main Hypothesis (If-Then-Because):**
+
+**If** RLHF alignment mechanisms ignore in-context algorithm selection preferences,
+**Then** systematic algorithmic unfairness will exist across demographic groups even when output-level fairness metrics (demographic parity, equalized odds) are satisfied,
+**Because** different demographic groups have distinct algorithmic preferences (conservative/regularized vs decisive/sparse approaches) that are penalized differently by output-only RLHF optimization, creating a hidden fairness dimension.
+
+**Alternative Hypothesis (H₀):**
+
+Output-level fairness metrics (demographic parity, equalized odds) are sufficient for RLHF fairness. Algorithmic process fairness is redundant with output fairness and does not constitute an independent fairness dimension.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization |
+|----------|------|-------------------|
+| **RLHF training regime** | Independent | Binary: (1) Standard output-level MaxMin-RLHF, (2) Algorithm-aware RLHF with R_total = R_output + λ·R_algorithmic_fairness |
+| **Demographic group** | Independent | Protected attributes: age, gender, ethnicity, education level (standard ML fairness categories) |
+| **Algorithmic fairness** | Dependent | (1) Algorithm usage parity: KL divergence between group distributions of ICL algorithm selection; (2) Proportional veto satisfaction: % of minority algorithm preferences respected |
+| **Output fairness** | Dependent | (1) Demographic parity: difference in positive prediction rates across groups; (2) Equalized odds: TPR/FPR parity |
+| **Model architecture** | Controlled | Same base transformer (GPT-2 or LLaMA scale) across conditions |
+| **Dataset/prompts** | Controlled | Same ICL task distribution requiring algorithm selection (regression, classification) |
+| **Detection accuracy** | Confounding | Probing classifier accuracy for ICL algorithm detection—must exceed 75% for valid algorithmic fairness measurement |
+
+### 1.3 Causal Mechanism
+
+**Fundamental Process (First Principles Decomposition):**
+
+1. **ICL Algorithm Selection:** Transformers implement multiple algorithms in-context (least squares, ridge, Lasso, GLMs) based on prompt structure [Bai et al. 2023]
+2. **Demographic Preference Variation:** Different demographic groups exhibit distinct problem-solving styles: conservative/hedging (ridge) vs decisive/committed (Lasso)
+3. **Prompt-Algorithm Coupling:** Group-specific prompting patterns trigger different ICL algorithms (Group A → ridge, Group B → Lasso)
+4. **Output-Only RLHF Optimization:** Standard RLHF gradient ∇R = E[∇r(output)] averages rewards across all (prompt, algorithm, group) tuples without algorithmic awareness
+5. **Hidden Selection Pressure:** If RLHF penalizes outputs from certain algorithms (e.g., Lasso's sparsity), it systematically penalizes groups whose prompts trigger that algorithm
+6. **Algorithmic Unfairness Emerges:** Group B's preferred reasoning (Lasso) is penalized while output metrics show parity—unfairness hidden at process level
+
+**Causal Chain:**
+```
+Group Algorithmic Preference → Prompt Design → ICL Algorithm Selection → Output Characteristics → RLHF Reward → Model Update → Algorithm Selection Bias → Algorithmic Unfairness (hidden under output fairness)
+```
+
+**Evidence for Causal Links:**
+
+- **Link 1-2 (Preference-Prompt):** Social choice theory shows diverse decision-making preferences exist [Kondratev & Ianovski 2024]; risk-taking vs conservative framing maps to algorithmic styles
+- **Link 2-3 (Prompt-Algorithm):** Bai et al. (2023) prove transformers select algorithms based on prompt context (265 citations, influential)
+- **Link 3-4 (Algorithm-Output):** Ridge produces dense/hedged predictions; Lasso produces sparse/decisive predictions (standard statistical theory)
+- **Link 4-5 (RLHF gradient):** MaxMin-RLHF optimizes E_group[min reward] over outputs only [Chakraborty et al. 2024]
+- **Link 5-6 (Hidden unfairness):** Output metrics (demographic parity, equalized odds) measure result distributions, not process fairness—measurement gap
+
+**Key Tension:**
+
+**Measurement-Fairness Gap:** Output fairness metrics measure result distributions but miss the algorithmic process dimension. RLHF's gradient-based optimization acts on this incomplete measurement, creating systematic bias against minority algorithmic preferences even when output statistics appear fair.
+
+### 1.4 Key Assumptions
+
+**Critical Assumptions (Must Validate):**
+
+1. **Algorithmic Preference Diversity Exists:** Different demographic groups have measurably different algorithmic preferences (conservative vs decisive)
+   *Status:* TESTABLE in Phase 1A validation study (p < 0.05 target)
+   *Risk:* HIGH - if false, framework unnecessary
+
+2. **Algorithm Detection Feasible:** Probing classifiers can detect ICL algorithm with >75% accuracy
+   *Status:* TESTABLE in Phase 1B PoC (GPT-2 scale)
+   *Risk:* MEDIUM - technical feasibility unknown
+
+3. **Theory Generalizes:** Bai et al.'s ICL theory (proved for specific transformer architectures) generalizes to production LLMs
+   *Status:* PLAUSIBLE but needs empirical validation
+   *Risk:* MEDIUM - scaling gap possible
+
+**Supporting Assumptions:**
+
+4. Algorithmic preferences are sufficiently stable across task contexts (not wildly context-dependent)
+5. Algorithm selection process matters to fairness beyond output quality
+6. Demographic group definitions are meaningful and ethically appropriate (standard ML fairness assumption)
+
+### 1.5 Scope & Boundaries
+
+**Applies To:**
+- LLMs with in-context learning capabilities (GPT-family, LLaMA, etc.)
+- RLHF-aligned models with human feedback training
+- Tasks where multiple valid algorithms exist (regression, classification, decision-making under uncertainty)
+- Domains where algorithmic process matters (healthcare, finance, legal—explainability-critical)
+
+**Does NOT Apply To:**
+- Models without ICL capabilities (pre-transformer architectures)
+- Tasks with single optimal algorithm (no algorithm selection occurs)
+- Scenarios where only outputs matter, not reasoning process (pure prediction tasks)
+- Chain-of-thought reasoning (different mechanism than ICL algorithm selection)
+
+**Known Limitations:**
+- High computational overhead (algorithm detection + multi-group preference modeling)
+- Requires demographic labels (standard ML fairness challenge - potential for harm if misused)
+- Algorithm detection may fail for highly non-linear transformers (Bai et al. focused on linear cases)
+- Preference elicitation challenge: humans may not introspect algorithmic preferences explicitly
+
+### 1.6 Testable Predictions
+
+**Primary Prediction (Hypothesis Core):**
+
+**P1 (Hidden Unfairness Exists):** If we train standard MaxMin-RLHF (output-level only) on ICL tasks and measure algorithmic fairness metrics, THEN we will observe violations of proportional veto (minority groups' preferred algorithms penalized) with statistical significance (p < 0.05) EVEN WHEN output fairness metrics (demographic parity, equalized odds) show no violations (difference < 0.05).
+
+*Operationalization:* Train MaxMin-RLHF baseline → Detect ICL algorithms via probing → Measure KL divergence of algorithm usage across groups → Statistical test for disparity
+
+**Secondary Predictions:**
+
+**P2 (Algorithmic Preference Diversity):** If we survey diverse demographic groups on decision-making styles using accessible framing (risk-taking vs conservative), THEN we will observe statistically significant differences (p < 0.05) in preferences that map to ICL algorithms (Lasso = decisive, ridge = conservative).
+
+*Operationalization:* Human study with N=500+, map survey responses to algorithm preferences, ANOVA for group differences
+
+**P3 (Algorithm-Aware RLHF Improves):** If we train algorithm-aware RLHF (R_total = R_output + λ·R_algorithm), THEN algorithmic fairness metrics will improve by ≥30% vs baseline WITHOUT sacrificing output fairness (regression < 5%).
+
+*Operationalization:* A/B test, measure both algorithmic fairness (KL divergence, veto satisfaction) and output fairness (DP, EO)
+
+**P4 (Detection Feasibility):** If we train probing classifiers on transformer internal representations during ICL tasks (GPT-2 scale), THEN we can detect which algorithm is implemented with >75% accuracy.
+
+*Operationalization:* Train linear probe on activations, measure classification accuracy for {ridge, Lasso, least squares, GLM}
+
+**Falsification Criteria:**
+
+**The hypothesis is FALSIFIED if ANY of:**
+1. P2 fails: No algorithmic preference diversity across demographic groups (p > 0.05) → Framework unnecessary
+2. P4 fails: Algorithm detection accuracy < 60% → Cannot measure algorithmic fairness reliably
+3. P1 fails: Output-level RLHF shows NO algorithmic unfairness (p > 0.05) → H₀ (output fairness sufficient) confirmed
+4. P3 fails: Algorithm-aware RLHF causes >10% output fairness regression → Trade-off unacceptable
+
+### 1.7 SOTA Baseline
+
+**Primary Baseline:** MaxMin-RLHF (Chakraborty et al. 2024, 67 citations)
+- **Approach:** Optimizes worst-case reward across demographic groups: max_θ min_g E[r_g(output)]
+- **Fairness Scope:** Output-level only (demographic parity in reward distributions)
+- **Gap:** Does NOT consider algorithmic process fairness
+
+**Expected Improvement Over SOTA:**
+- **New Fairness Dimension:** Adds algorithmic fairness (usage parity, proportional veto) as independent metric
+- **Target:** ≥30% reduction in algorithmic unfairness violations while maintaining output fairness (< 5% regression)
+- **Trade-off:** Increased computational cost (algorithm detection overhead) vs fairness completeness
+
+**Alternative Baselines:**
+- Standard RLHF (PPO): No multi-group fairness consideration
+- Reward fairness as resource allocation (Sheng et al. 2025): Treats outputs as resources, not algorithms
+
+### 1.8 Statistical Verification Design
+
+**Study Design:** Mixed methods with phased validation
+
+**Phase 1A: Algorithmic Preference Diversity Study**
+- **Design:** Between-subjects survey (N=500+) with accessible decision-making scenarios
+- **Groups:** 4+ demographic groups (balanced representation)
+- **Measure:** Map responses to algorithm preferences (ridge = conservative, Lasso = decisive)
+- **Statistical Test:** One-way ANOVA for group differences, post-hoc Tukey HSD
+- **Success:** p < 0.05 for at least one group comparison
+- **Power Analysis:** 80% power to detect medium effect size (Cohen's f = 0.25) at α=0.05
+
+**Phase 1B: Algorithm Detection PoC**
+- **Design:** Train GPT-2 (124M params) on ICL tasks, probe internal representations
+- **Tasks:** Linear regression with varying regularization (triggers ridge vs Lasso)
+- **Probe:** Linear classifier on layer 8-12 activations
+- **Measure:** Classification accuracy {ridge, Lasso, least squares, GLM}
+- **Success:** Accuracy > 75% (chance = 25%)
+
+**Phase 3: A/B Testing (if Phase 1 succeeds)**
+- **Design:** Randomized controlled trial, within-subjects
+- **Conditions:** (A) Standard MaxMin-RLHF, (B) Algorithm-aware RLHF
+- **Measures:**
+  - Primary: Algorithmic fairness (KL divergence of algorithm usage, veto satisfaction rate)
+  - Secondary: Output fairness (demographic parity, equalized odds)
+  - Tertiary: User satisfaction across groups
+- **Statistical Tests:**
+  - Paired t-test for algorithmic fairness improvement
+  - Equivalence test for output fairness (TOST, margin = 5%)
+- **Sample Size:** N=1000+ ICL tasks across 4 demographic groups (power = 0.90, α=0.05)
+
+**Confound Controls:**
+- Randomize task order to control for learning effects
+- Stratify by task difficulty (ICL context length, noise level)
+- Blind human raters to condition (for user satisfaction surveys)
+- Control for model architecture (same base transformer)
+
+---
+
+## 2. Contribution Summary
+
+### Theoretical Contribution
+
+**Novel Framework:** First work bridging in-context learning algorithm selection theory with RLHF multi-group fairness. Introduces **algorithmic fairness** as a new dimension distinct from output fairness.
+
+**Key Theoretical Claim:** Output fairness metrics (demographic parity, equalized odds) are INCOMPLETE for RLHF alignment. Fairness must decompose into:
+- **Output Fairness:** Result distribution parity across groups
+- **Algorithmic Fairness:** Process parity—equal respect for diverse algorithmic preferences
+
+**Foundation:** Extends MaxMin-RLHF (Chakraborty et al. 2024) from output-level to meta-level, incorporating ICL algorithm selection theory (Bai et al. 2023) and social choice fairness axioms (Ramseyer & Goel 2023, Kondratev & Ianovski 2024).
+
+**Impact:** Challenges output-only fairness paradigm in RLHF; establishes algorithmic process as independent fairness consideration.
+
+### Methodological Contribution
+
+**Novel Techniques:**
+
+1. **Algorithm-Aware Reward Modeling:**
+   R_total = R_output(y|x, g) + λ·R_algorithmic_fairness(alg|x, g)
+   First RLHF framework decomposing reward into output and algorithmic fairness components
+
+2. **ICL Algorithm Detection via Mechanistic Interpretability:**
+   Probing classifiers on transformer internals to detect {ridge, Lasso, least squares, GLM} during ICL—operationalizes "algorithm selection" for fairness measurement
+
+3. **Multi-Group Algorithmic Preference Elicitation:**
+   Combines explicit surveys (accessible framing) + implicit analysis (prompt patterns triggering algorithms)—addresses preference elicitation challenge
+
+4. **Social Choice Axioms for RLHF:**
+   - **Non-Dictatorship:** No single group's algorithmic preference dominates
+   - **Proportional Veto:** x% of group can veto algorithms systematically disfavoring their reasoning style
+   - **Pareto Efficiency:** Don't penalize algorithms acceptable to all groups
+
+**Comparison Baseline:** MaxMin-RLHF (output-only fairness)—new methods add algorithmic fairness layer without replacing existing output fairness optimization.
+
+### Practical Contribution
+
+**Problem Solved:** Prevents hidden algorithmic discrimination in aligned LLMs—ensures RLHF respects diverse reasoning styles, not just diverse output preferences.
+
+**Application Domains:**
+- **Healthcare AI:** Different cultural groups may prefer conservative (ridge) vs aggressive (Lasso) treatment recommendations—algorithm fairness ensures respect
+- **Financial AI:** Risk-averse vs risk-seeking algorithmic preferences across demographic groups
+- **Educational AI:** Diverse learning styles map to algorithmic preferences (hedging vs decisive feedback)
+
+**Evaluation Metrics:**
+- **Algorithmic Fairness:**
+  - Algorithm usage parity: KL divergence < 0.1 (low disparity)
+  - Proportional veto satisfaction: >90% of minority preferences respected
+- **Output Fairness (maintain):** Demographic parity difference < 0.05, Equalized odds gap < 0.05
+- **User Satisfaction:** Survey across groups, target: no group < 70% satisfaction
+
+**Deployment Strategy:** Phased rollout—start with algorithm-aware monitoring (passive), then active fairness intervention if disparities confirmed.
+
+---
+
+## 3. Key Related Work
+
+### Direct Foundations
+
+1. **Bai et al. (2023):** "Transformers as Statisticians: Provable In-Context Learning with In-Context Algorithm Selection"
+   - **Contribution:** Proves transformers implement ridge, Lasso, least squares, GLMs in-context with algorithm selection
+   - **How We Build On:** Extend ICL theory from prediction to fairness—if transformers select algorithms, RLHF must ensure fairness of that selection
+   - **Citation Count:** 268 (highly influential in ICL theory)
+
+2. **Chakraborty et al. (2024):** "MaxMin-RLHF: Towards Equitable Alignment of Large Language Models with Diverse Human Preferences"
+   - **Contribution:** MaxMin formulation for equitable RLHF across preference groups (output-level)
+   - **How We Extend:** Add algorithmic fairness term—upgrade from max_θ min_g E[r_output] to max_θ min_g {E[r_output] + λ·E[r_algorithm]}
+   - **Citation Count:** 67 (recent RLHF fairness framework)
+
+3. **Sheng et al. (2025):** "Towards Reward Fairness in RLHF: From a Resource Allocation Perspective"
+   - **Contribution:** Models RLHF as resource allocation with utility-fairness trade-offs
+   - **How We Adapt:** Treat "algorithm choices" as resources to be fairly allocated across groups (parallel innovation)
+   - **Citation Count:** 5 (recent, resource allocation framing)
+
+### Cross-Domain Inspiration
+
+4. **Ramseyer & Goel (2023):** "Fair Ordering via Social Choice Theory"
+   - **Contribution:** Axiomatic fairness design—define properties first, design mechanisms second
+   - **Transfer:** Apply axiomatic approach to RLHF—define "algorithmic fairness" axioms (non-dictatorship, proportional veto), then design reward model
+   - **Domain:** Social choice → RLHF fairness
+
+5. **Kondratev & Ianovski (2024):** "Veto Core Consistent Preference Aggregation"
+   - **Contribution:** Proportional veto principle—x% voters block x% outcomes (vs majority tyranny)
+   - **Transfer:** Minority groups can veto algorithms systematically disfavoring their preferred reasoning
+   - **Domain:** Voting theory → Algorithm-aware RLHF
+
+6. **Salehi-Abari & Larson (2020):** "Group recommendation with noisy subjective preferences"
+   - **Contribution:** Preference aggregation when individuals provide noisy estimates (not ground truth)
+   - **Transfer:** RLHF feedback is noisy estimate of algorithmic preferences—model noise explicitly
+   - **Domain:** Recommender systems → RLHF preference modeling
+
+### Differentiating Gap
+
+**What Existing Work Misses:**
+- ICL research (Bai et al.): Proves algorithm selection exists but doesn't consider fairness implications
+- RLHF fairness (Chakraborty, Sheng): Considers output/reward fairness but ignores algorithmic process
+- Social choice fairness: Provides axioms but hasn't been applied to LLM alignment
+
+**Our Bridge:** First work connecting these three communities—ICL theory + RLHF fairness + social choice axioms—to establish algorithmic process fairness as independent dimension.
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+The main hypothesis decomposes into 3 sub-hypotheses for Phase 2B verification:
+
+**SH1 (Existence of Algorithmic Preference Diversity):**
+Different demographic groups exhibit statistically significant differences in algorithmic preferences (conservative/ridge vs decisive/Lasso) when measured via accessible decision-making scenarios.
+
+- **Verification:** Phase 1A human study (N=500+), ANOVA p < 0.05
+- **Risk:** HIGH—if fails, framework unnecessary
+- **Timeline:** 3-4 months (IRB, survey design, data collection, analysis)
+
+**SH2 (Mechanism: Output-Only RLHF Creates Algorithmic Unfairness):**
+Standard MaxMin-RLHF (output-level only) exhibits algorithmic unfairness violations (proportional veto failures, algorithm usage disparity) even when output fairness metrics are satisfied.
+
+- **Verification:** Train baseline RLHF → Detect algorithms → Measure fairness gap
+- **Risk:** MEDIUM—requires algorithm detection to work (dependency on SH3)
+- **Timeline:** 6-8 months (model training, probing, evaluation)
+
+**SH3 (Comparison: Algorithm-Aware RLHF Improves Fairness):**
+Algorithm-aware RLHF (with R_algorithmic_fairness term) reduces algorithmic unfairness by ≥30% vs baseline while maintaining output fairness (< 5% regression).
+
+- **Verification:** A/B test (standard vs algorithm-aware RLHF)
+- **Risk:** LOW—if SH1 and SH2 confirmed, improvement expected
+- **Timeline:** 8-10 months (framework implementation, training, evaluation)
+
+**Dependencies:** SH1 must succeed for SH2/SH3 to proceed (Phase 1A validation is gate). SH2 and SH3 can run in parallel after SH1 success.
+
+### Readiness Checklist
+
+**Phase 2B Prerequisites:**
+
+✅ **Hypothesis Clarity:** Main hypothesis formulated in If-Then-Because format with clear causal mechanism
+✅ **Variables Defined:** All IV, DV, controlled, confounding variables operationalized
+✅ **Testable Predictions:** 4 falsifiable predictions with statistical thresholds (p < 0.05, accuracy > 75%)
+✅ **Baseline Identified:** MaxMin-RLHF (Chakraborty et al. 2024) as SOTA comparison
+✅ **Evidence Foundation:** 9 papers (ICL theory, RLHF fairness, social choice) with clear utilization
+✅ **Assumptions Explicit:** 6 assumptions identified, 2 critical ones flagged for Phase 1 validation
+✅ **Scope Bounded:** Clear applicability (LLMs with ICL + RLHF) and limitations (no single-algorithm tasks)
+✅ **Statistical Design:** Power analysis complete (N=500 for Phase 1A, N=1000 for Phase 3)
+✅ **Failure Criteria:** 4 falsification conditions defined (preferences don't exist, detection fails, no unfairness, unacceptable trade-off)
+✅ **Phased Validation:** Phase 1A/1B validation studies de-risk critical assumptions before full implementation
+
+**Confidence for Phase 2B:** HIGH (0.82)—hypothesis is well-structured, testable, and has clear validation path.
+
+### Open Questions for Phase 2B
+
+1. **Hyperparameter Selection:** What λ value balances output fairness vs algorithmic fairness in R_total = R_output + λ·R_algorithm?
+   *Resolution:* Grid search in Phase 2B with Pareto frontier analysis
+
+2. **Group Definition Ethics:** How to define demographic groups without reinforcing stereotypes or causing harm?
+   *Resolution:* Phase 2B should include ethics review, use self-reported categories, allow opt-out
+
+3. **Context Stability:** Do algorithmic preferences generalize across task domains (e.g., medical → financial), or are they context-specific?
+   *Resolution:* Phase 1A should test across 2-3 task domains; Phase 2B cross-domain validation
+
+4. **Scaling to Production LLMs:** Bai et al.'s theory proved on specific architectures—does it hold for GPT-4 / LLaMA-3 scale?
+   *Resolution:* Phase 1B should test on GPT-2 (124M), then Phase 2B validation on larger models (1B+)
+
+5. **Computational Overhead:** What is the latency cost of real-time algorithm detection during RLHF training?
+   *Resolution:* Phase 2B should benchmark detection speed, explore approximations (e.g., cached probes)
+
+6. **Interaction Effects:** Could algorithmic fairness interventions create NEW unfairness dimensions?
+   *Resolution:* Phase 3 evaluation should monitor multiple fairness metrics holistically, not just target metrics
+
+7. **Long-term Dynamics:** Does algorithm-aware RLHF remain fair after deployment, or do fairness properties degrade?
+   *Resolution:* Phase 4 (not in hypothesis scope) should include longitudinal monitoring
+
+---
+
+**STATUS:** Phase 2A Extended complete. Hypothesis ready for Phase 2B verification planning.
+
+**NEXT STEP:** Execute `/phase2b-planning` to decompose main hypothesis into detailed sub-hypotheses with verification experiments and success criteria.
+
+---
+
+*Generated using YouRA Phase 2A Extended Workflow (Auto-YOLO Mode)*
+*2026-02-06*

@@ -1,0 +1,358 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  created_at: '2026-05-20T01:15:00'
+  source_documents:
+    prd: h-e1/03_prd.md
+    architecture: h-e1/03_architecture.md
+    logic: h-e1/03_logic.md
+    config: h-e1/03_config.md
+
+budget_summary:
+  data_preparation: 2
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks: 5
+  failsafe: 1
+  total: 15
+
+tasks:
+
+  # ─── DATA PREPARATION (priority 100-95) ──────────────────────────────────
+
+  - id: D-1
+    type: data-preparation
+    title: Download and Prepare Waterbirds Dataset
+    priority: 100
+    status: todo
+    description: >
+      Download Waterbirds dataset (waterbird_complete95_forest2water2) and set up
+      local directory structure. Verify metadata.csv with group labels (4 groups).
+    instructions: |
+      Option A (WILDS): pip install wilds; python -c "from wilds import get_dataset; get_dataset('waterbirds', root_dir='./data', download=True)"
+      Option B (Direct): wget https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz -P ./data/ && tar -xzf ./data/waterbird_complete95_forest2water2.tar.gz -C ./data/waterbirds/
+      Verify: ./data/waterbirds/metadata.csv exists with columns [img_id, y, place, split, group_idx]
+      Expected: 4795 train samples, 4 groups (0=landbird-land, 1=landbird-water, 2=waterbird-land, 3=waterbird-water)
+    success_criteria:
+      - ./data/waterbirds/ directory exists with images
+      - metadata.csv present with group_idx column
+      - 4795 training samples accessible
+    reference_files:
+      - path: h-e1/03_prd.md
+        section: "## 4. Data Specification / Dataset 1: Waterbirds"
+    estimated_tokens: 500
+
+  - id: D-2
+    type: data-preparation
+    title: Download and Prepare CelebA Dataset
+    priority: 99
+    status: todo
+    description: >
+      Download CelebA dataset and set up local directory. Obtain celeba_metadata.csv
+      from DFR repo (PolinaKirichenko/deep_feature_reweighting) and rename to metadata.csv.
+    instructions: |
+      Option A (torchvision): python -c "import torchvision; torchvision.datasets.CelebA(root='./data', split='train', download=True)"
+      Option B (HuggingFace): Use datasets library or manual Kaggle download
+      Metadata: Download celeba_metadata.csv from https://github.com/PolinaKirichenko/deep_feature_reweighting → rename to ./data/celeba/metadata.csv
+      Verify: ./data/celeba/ with images/ subdir and metadata.csv (columns: img_id, y, split, group_idx)
+      Expected: ~162770 train samples, 4 groups (0=non-blond-female, 1=blond-female, 2=non-blond-male, 3=blond-male)
+    success_criteria:
+      - ./data/celeba/ directory exists with img_align_celeba/ subdirectory
+      - metadata.csv present with group_idx column
+      - ~162770 training samples accessible
+    reference_files:
+      - path: h-e1/03_prd.md
+        section: "## 4. Data Specification / Dataset 2: CelebA"
+    estimated_tokens: 500
+
+  # ─── ENVIRONMENT SETUP (priority 94) ─────────────────────────────────────
+
+  - id: E-1
+    type: setup
+    title: Environment Setup and Dependency Installation
+    priority: 94
+    status: todo
+    description: >
+      Create conda/venv environment and install all required Python packages.
+      Verify GPU availability and set CUDA_VISIBLE_DEVICES.
+    instructions: |
+      pip install torch>=2.0.0 torchvision>=0.15.0 numpy>=1.24.0 scikit-learn>=1.2.0 \
+        matplotlib>=3.7.0 seaborn>=0.12.0 pyyaml>=6.0 tqdm>=4.65.0 Pillow>=9.5.0 wilds>=2.0.0
+      Verify GPU: python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"
+      Check CUDA_VISIBLE_DEVICES is set to an empty GPU (run nvidia-smi first)
+      Create output dirs: mkdir -p checkpoints/h-e1/{waterbirds,celeba} embeddings/h-e1 results/h-e1 h-e1/figures
+    success_criteria:
+      - All packages importable without errors
+      - torch.cuda.is_available() == True
+      - Output directories created
+    reference_files:
+      - path: h-e1/03_prd.md
+        section: "## 7. Dependencies"
+    estimated_tokens: 300
+
+  # ─── EPIC TASKS (priority 93-50) ─────────────────────────────────────────
+
+  - id: A-1
+    type: data-pipeline
+    title: Data Pipeline — WaterBirdsDataset and CelebADataset
+    priority: 93
+    status: todo
+    complexity: 10
+    description: >
+      Implement GroupDataset base class, WaterBirdsDataset and CelebADataset subclasses
+      with group labels, transforms, and dataloader utilities.
+    instructions: |
+      Implement data/datasets.py:
+      - GroupDataset base class: __init__, __len__, __getitem__ returning (image, y, g)
+      - WaterBirdsDataset: reads metadata.csv, 4 group labels, train/val/test splits
+      - CelebADataset: reads metadata.csv, 4 group labels (hair x gender), train/val/test splits
+      - get_transforms(augment, dataset_name): RandomResizedCrop(224)+RandomHorizontalFlip for train; Resize(256)+CenterCrop(224) for val/test
+      - Normalize: mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225]
+      - get_dataloader(dataset, batch_size, shuffle, num_workers=4)
+      CRITICAL: __getitem__ MUST return (image: Tensor, y: int, g: int) triple
+    success_criteria:
+      - WaterBirdsDataset('train')[0] returns (Tensor[3,224,224], int, int)
+      - 4795 train samples for Waterbirds, ~162770 for CelebA
+      - Group labels in {0,1,2,3} for both datasets
+    reference_files:
+      - path: h-e1/03_architecture.md
+        section: "### GroupDataset"
+      - path: h-e1/03_config.md
+        section: "## A-1: Data Pipeline"
+    estimated_tokens: 2000
+
+  - id: A-2
+    type: model-training
+    title: Model + ERM Training with Epoch-5 Checkpoint
+    priority: 88
+    status: todo
+    complexity: 12
+    description: >
+      Implement ERMModel (ResNet-50 wrapper with feature extractor) and ERM training
+      loop that saves checkpoint at epoch 5 and stops early.
+    instructions: |
+      Implement models/resnet.py:
+      - ERMModel(num_classes=2, pretrained=True): backbone=resnet50, self.features=Sequential(*list(backbone.children())[:-1]), self.classifier=Linear(2048, num_classes)
+      - forward(x): feat=self.features(x).squeeze(-1).squeeze(-1); return self.classifier(feat)
+      - get_feature_extractor(): returns self.features (output: (B,2048,1,1))
+      Implement train.py:
+      - train_epoch(model, optimizer, dataloader, criterion, device) -> {"loss": float, "acc": float}
+      - train(config_path, dataset_name, output_dir, stop_after_epoch=5) -> checkpoint_path
+      - SGD(lr=1e-3, momentum=0.9, wd=1e-3 Waterbirds / 1e-4 CelebA)
+      - Save checkpoint at epoch 5: torch.save({"epoch":e, "model":state_dict, "optimizer":opt_state}, path)
+      - Early stop after stop_after_epoch epochs
+    success_criteria:
+      - ERMModel().get_feature_extractor()(rand_input).shape == (B,2048,1,1)
+      - Checkpoint saved at epoch 5 (~200MB for ResNet-50)
+      - Training loss decreases over 5 epochs
+    reference_files:
+      - path: h-e1/03_logic.md
+        section: "## A-2: Model + ERM Training"
+      - path: h-e1/03_config.md
+        section: "### YAML Configs"
+    estimated_tokens: 3000
+
+  - id: A-3
+    type: data-pipeline
+    title: Embedding Extraction from Epoch-5 Checkpoint
+    priority: 80
+    status: todo
+    complexity: 9
+    description: >
+      Load epoch-5 checkpoint, extract penultimate-layer (2048-dim) embeddings for
+      all training samples, and save to .npy files for downstream clustering.
+    instructions: |
+      Implement extract.py:
+      - extract_embeddings(model, dataloader, device) -> (embeddings (N,2048), labels (N,), group_ids (N,))
+      - CRITICAL: assert embeddings.shape[1] == 2048 before returning
+      - Use model.get_feature_extractor(); call feat.squeeze(-1).squeeze(-1) to get (B,2048)
+      - run_extraction(ckpt_path, dataset_name, data_dir, output_dir, batch_size=256):
+        loads checkpoint, extracts, saves embeddings.npy + labels.npy + group_ids.npy
+      Print: "Embeddings extracted: shape (N, 2048)"
+    success_criteria:
+      - embeddings.shape == (4795, 2048) for Waterbirds train split
+      - embeddings.shape == (~162770, 2048) for CelebA train split
+      - assert embeddings.shape[1] == 2048 passes without error
+      - .npy files saved and loadable
+    reference_files:
+      - path: h-e1/03_logic.md
+        section: "## A-3: Embedding Extraction"
+      - path: h-e1/03_architecture.md
+        section: "### Embedding Extractor"
+    estimated_tokens: 1500
+
+  - id: A-4
+    type: evaluation
+    title: K-Means Clustering Probe with AMI and Purity Metrics
+    priority: 75
+    status: todo
+    complexity: 11
+    description: >
+      Implement k-means (k=2) clustering on embeddings, compute AMI and worst-cluster
+      purity vs ground-truth group labels, and verify mechanism activation.
+    instructions: |
+      Implement cluster.py:
+      - run_kmeans_probe(embeddings, group_ids, k=2, n_init=10, seed=42) -> (ami, worst_purity, cluster_assignments)
+        KMeans(n_clusters=k, n_init=n_init, random_state=seed).fit_predict(embeddings)
+        ami = adjusted_mutual_info_score(group_ids, cluster_assignments)
+        worst_purity = min(np.bincount(group_ids[cluster_assignments==c]).max() / (cluster_assignments==c).sum() for c in range(k))
+      - compute_random_baseline(group_ids, k=2, seed=0) -> (ami_random, purity_random)
+      - verify_mechanism_activated(embeddings, cluster_assignments, group_ids, k=2) -> (bool, dict)
+        checks: shape==2048, both clusters>10 samples, ami_actual>ami_random+0.1
+      - probe(embeddings_path, group_ids_path, k=2) -> dict (integration point for evaluate.py)
+    success_criteria:
+      - AMI >= 0.5 on Waterbirds (MUST_WORK gate)
+      - AMI >= 0.5 on CelebA (MUST_WORK gate)
+      - worst_cluster_purity >= 0.75 on both datasets (MUST_WORK gate)
+      - verify_mechanism_activated returns (True, all_indicators_true)
+    reference_files:
+      - path: h-e1/03_logic.md
+        section: "## A-4: K-Means Clustering Probe"
+      - path: h-e1/02c_experiment_brief.md
+        section: "### Mechanism Verification Protocol"
+    estimated_tokens: 2000
+
+  - id: A-5
+    type: evaluation
+    title: Visualization — t-SNE, Bar Charts, AMI-vs-Epoch
+    priority: 65
+    status: todo
+    complexity: 10
+    description: >
+      Generate all required figures: gate metrics bar chart, t-SNE plots colored by
+      class/group/cluster, AMI-vs-epoch curve, cluster composition chart.
+    instructions: |
+      Implement visualize.py:
+      - plot_gate_metrics(results, output_path): bar chart of AMI + worst_purity per dataset, threshold lines at 0.5/0.75
+      - plot_tsne(embeddings, labels, color_by, title, output_path): sklearn TSNE(n_components=2, random_state=42), color_by in {"class","group","cluster"}
+      - plot_cluster_composition(group_ids, cluster_assignments, dataset_name, output_path): stacked bar chart
+      - plot_ami_vs_epoch(epoch_ami_dict, dataset_name, output_path): epochs 1,3,5,7,10 on x-axis
+      - generate_all_figures(results, embeddings_dir, figures_dir): calls all above
+      Save all figures to h-e1/figures/ as PNG, DPI=150
+      Colors: 4 distinct group colors ["#1f77b4","#ff7f0e","#2ca02c","#d62728"]
+    success_criteria:
+      - h-e1/figures/metrics_bar.png exists
+      - h-e1/figures/tsne_{class,group,cluster}.png exist for both datasets
+      - All figures readable (non-empty PNG files)
+    reference_files:
+      - path: h-e1/03_config.md
+        section: "## A-5: Visualization"
+      - path: h-e1/03_prd.md
+        section: "### FR-8: Visualization Generation"
+    estimated_tokens: 2000
+
+  - id: A-6
+    type: evaluation
+    title: Gate Evaluation and Results Reporting
+    priority: 55
+    status: todo
+    complexity: 9
+    description: >
+      Implement gate check (AMI>=0.5 AND purity>=0.75 on both datasets), generate
+      results YAML/JSON, print summary table, and orchestrate end-to-end run script.
+    instructions: |
+      Implement evaluate.py:
+      - check_gate(results, ami_threshold=0.5, purity_threshold=0.75) -> (gate_pass: bool, per_dataset: dict)
+        gate_pass = True iff BOTH waterbirds AND celeba pass BOTH thresholds
+      - format_results_table(results) -> str: ASCII table with dataset|AMI|purity|AMI_pass|purity_pass
+      - save_results(results, gate_pass, output_dir): writes overall_results.yaml + overall_results.json
+      Implement run_experiment.sh: sequential invocation of train.py→extract.py→cluster.py→evaluate.py for both datasets
+      Print gate decision clearly: "GATE: PASS" or "GATE: FAIL — H-M1, H-M2, H-M3, H-M4, H-C1 BLOCKED"
+    success_criteria:
+      - results/h-e1/overall_results.yaml written with gate decision
+      - Gate decision printed to stdout
+      - run_experiment.sh executable end-to-end
+    reference_files:
+      - path: h-e1/03_config.md
+        section: "## A-6: Gate Evaluation"
+      - path: h-e1/03_architecture.md
+        section: "### Gate Evaluator"
+    estimated_tokens: 1500
+
+  # ─── SUBTASKS (priority 49-2) ────────────────────────────────────────────
+
+  - id: L-2-1
+    type: subtask
+    title: ERMModel class with get_feature_extractor
+    priority: 49
+    status: todo
+    parent_epic: A-2
+    description: Implement ERMModel.__init__, forward, get_feature_extractor in models/resnet.py
+    reference_files:
+      - path: h-e1/03_logic.md
+        section: "### API Signatures (models/resnet.py)"
+    estimated_tokens: 800
+
+  - id: L-2-2
+    type: subtask
+    title: Training loop with epoch-5 early stop and checkpoint
+    priority: 45
+    status: todo
+    parent_epic: A-2
+    description: Implement train_epoch, train(), save/load_checkpoint in train.py
+    reference_files:
+      - path: h-e1/03_logic.md
+        section: "### Pseudo-code (train)"
+    estimated_tokens: 800
+
+  - id: L-3-1
+    type: subtask
+    title: extract_embeddings with shape assertion
+    priority: 40
+    status: todo
+    parent_epic: A-3
+    description: Implement extract_embeddings() and run_extraction() in extract.py
+    reference_files:
+      - path: h-e1/03_logic.md
+        section: "## A-3: Embedding Extraction"
+    estimated_tokens: 600
+
+  - id: L-4-1
+    type: subtask
+    title: run_kmeans_probe, worst_cluster_purity, compute_random_baseline
+    priority: 35
+    status: todo
+    parent_epic: A-4
+    description: Core AMI and purity computation in cluster.py
+    reference_files:
+      - path: h-e1/03_logic.md
+        section: "## A-4: K-Means Clustering Probe"
+    estimated_tokens: 800
+
+  - id: L-4-2
+    type: subtask
+    title: verify_mechanism_activated and probe integration point
+    priority: 30
+    status: todo
+    parent_epic: A-4
+    description: Mechanism verification checks and evaluate.py integration entry point in cluster.py
+    reference_files:
+      - path: h-e1/03_logic.md
+        section: "### Subtasks [2/2 used]"
+    estimated_tokens: 600
+
+  # ─── FAILSAFE (priority 1) ───────────────────────────────────────────────
+
+  - id: F-1
+    type: failsafe
+    title: Pipeline Continuation Checkpoint
+    priority: 1
+    status: todo
+    description: >
+      Verify all outputs exist and gate decision is recorded. Update verification_state.yaml
+      validation.status and report gate result for pipeline orchestrator.
+    instructions: |
+      Check existence: checkpoints/h-e1/{waterbirds,celeba}/epoch_005.pt
+      Check existence: embeddings/h-e1/{waterbirds,celeba}_epoch5.npy
+      Check existence: results/h-e1/overall_results.yaml
+      Read gate decision from overall_results.yaml → gate.overall_pass
+      If gate PASS: pipeline may proceed to H-M1
+      If gate FAIL: record failure, block H-M1 through H-C1
+    reference_files:
+      - path: h-e1/03_prd.md
+        section: "## 6. Success Criteria"
+    estimated_tokens: 200

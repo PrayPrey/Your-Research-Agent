@@ -1,0 +1,95 @@
+\section{Results}
+\label{sec:results}
+
+\subsection{M0 Baseline Results (RQ1)}
+
+\begin{table}[h]
+\centering
+\caption{M0 (Full KV) per-task F1 on LongBench 4-task QA.}
+\label{tab:m0}
+\begin{tabular}{ll}
+\toprule
+Task & M0 F1\% (raw) \\
+\midrule
+NarrativeQA & 9\% (0.09) \\
+HotpotQA & 9\% (0.09) \\
+2WikiMQA & 11\% (0.11) \\
+MuSiQue & 6\% (0.06) \\
+\midrule
+\textbf{Macro-average} & \textbf{8.75\% (0.0875)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+M0 produces coherent, non-degenerate English-language text on all 4 tasks. The macro-average of 8.75\% is consistent with LLaMA-2-7B-chat at 4K context truncation---most relevant context for these multi-hop tasks exceeds the 4K window, so below-state-of-the-art F1 is expected and does not indicate a pipeline error. F1 computation matches the LongBench standard (SQuAD-style normalization).
+
+\subsection{KV Shape Verification (RQ2)}
+
+The shape log confirms that M1 eviction reduces KV dimensions correctly across all 32 transformer layers:
+
+\begin{verbatim}
+Layer  0: [1, 32, 4096, 128] -> [1, 32, 2048, 128]  OK
+Layer  1: [1, 32, 4096, 128] -> [1, 32, 2048, 128]  OK
+  ...
+Layer 31: [1, 32, 4096, 128] -> [1, 32, 2048, 128]  OK
+32/32 layers confirmed at 2048/4096 positions per head.
+\end{verbatim}
+
+\subsection{M1 Generation Quality (RQ3)}
+
+\begin{table}[h]
+\centering
+\caption{M1 (Prefill-Observation) vs.\ M0 F1.}
+\label{tab:m1_vs_m0}
+\begin{tabular}{llll}
+\toprule
+Task & M0 F1\% (raw) & M1 F1\% (raw) & Status \\
+\midrule
+NarrativeQA & 9\% (0.09) & 0\% (0.00) & Degenerate \\
+HotpotQA    & 9\% (0.09) & 0\% (0.00) & Degenerate \\
+2WikiMQA    & 11\% (0.11) & 0\% (0.00) & Degenerate \\
+MuSiQue     & --- & --- & Not executed \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Despite passing shape verification, M1 produces F1=0\% on all 3 completed tasks. F1=0\% requires zero token overlap with the reference answer---indicating complete generation failure, not suboptimal performance.
+
+\subsection{Root Cause Analysis}
+
+\begin{table}[h]
+\centering
+\caption{Diagnostic chain for M1 failure.}
+\label{tab:diagnosis}
+\begin{tabular}{llll}
+\toprule
+Pipeline Step & Expected & Observed & Status \\
+\midrule
+M0 end-to-end & Coherent generation, F1>0\% & F1=8.75\%, coherent & PASS \\
+Score fn (M1) & Valid importance scores & Non-trivial tensor & PASS \\
+KV shape eviction & 2048/4096 per head/layer & Confirmed, 32 layers & PASS \\
+DynamicCache recon. & Valid cache state & Incorrect internal state & FAIL \\
+M1 generation & F1>0\% & F1=0\% (degenerate) & FAIL \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The causal attribution is clear: all steps before cache reconstruction pass; all steps after it fail. M0's working condition differs from M1's broken condition by exactly one step---the cache reconstruction.
+
+\subsection{Summary}
+
+\begin{table}[h]
+\centering
+\caption{Research question findings summary.}
+\label{tab:rq_summary}
+\begin{tabular}{ll}
+\toprule
+RQ & Finding \\
+\midrule
+RQ1: M0 correct? & YES --- macro-F1=8.75\%, coherent generation \\
+RQ2: Shape eviction correct? & YES --- 2048/4096 per head, 32/32 layers \\
+RQ3: M1 non-degenerate? & NO --- F1=0\%, DynamicCache failure \\
+H-E1 gate evaluable? & NO --- M2 not executed; M1 degenerate \\
+\bottomrule
+\end{tabular}
+\end{table}

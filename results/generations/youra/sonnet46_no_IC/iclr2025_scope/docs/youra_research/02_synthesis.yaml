@@ -1,0 +1,133 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-05T00:00:00"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Effective Rank as Zero-Shot LoRA Rank Predictor: erank(W₀) Correlation with PARA Oracle Ranks"
+  hypothesis_id: "H-erank-v1"
+  core_claim: |
+    The effective rank erank(W₀) = exp(H(σ/‖σ‖₁)) of pre-trained transformer weight matrices,
+    computed before any fine-tuning from pretrained weights in fp32, is a statistically significant
+    positive predictor of optimal per-layer LoRA rank as determined by a per-layer marginal PARA
+    oracle sweep (r ∈ {4,8,16,32,64}). Pearson r ≥ 0.65 holds in ≥2 of 3 model families
+    {BERT-base-uncased, DeBERTa-v3-base, ViT-base-patch16-224}.
+  mechanism: |
+    Pre-training shapes each weight matrix's singular value distribution. Layers performing complex,
+    distributed transformations develop spread-out singular spectra (high erank) — their mass is
+    distributed across many orthogonal directions. During LoRA fine-tuning, these high-erank layers
+    require higher-rank updates because task-relevant signal must be captured in directions that are
+    not dominated by any single pre-training singular component. Low-erank layers (concentrated spectra)
+    can be adapted with low-rank updates because the task-relevant subspace aligns with a small number
+    of dominant pre-training directions. The PARA oracle, independently optimizing rank per layer,
+    naturally discovers this structure — producing high oracle ranks for high-erank layers.
+  predictions:
+    - P1: "Pearson r(erank, oracle_rank) ≥ 0.65 in ≥2/3 families (one-tailed, α=0.05) — primary existence test"
+    - P2: "erank-proportional rank assignment within 1% of oracle accuracy, outperforms uniform r=8"
+    - P3: "‖ΔW_opt‖_F/‖W₀‖_F correlates with erank at Spearman ρ ≥ 0.5 (mechanism check)"
+    - P4: "Levene p < 0.05 on oracle ranks by erank tercile or layer-type in ≥2/3 families"
+    - P5: "Spearman ρ(erank, PR) ≥ 0.8 — participation ratio as alternative metric"
+
+variables_summary:
+  independent: "erank(W₀) per weight matrix (continuous, range [1, min(d_in,d_out)], fp32 SVD)"
+  dependent_primary: "PARA oracle rank per layer (ordinal: {4,8,16,32,64}); Pearson r per model family"
+  controlled: "Baseline rank r=8 for non-target layers; training hyperparameters fixed per family; fp32 precision for SVD"
+
+null_hypothesis:
+  h0_statement: |
+    erank(W₀) does not positively predict PARA oracle rank. Formally: Pearson r ≤ 0 for ≥2/3
+    model families, or 0 < r < 0.65 for all 3 families.
+  statistical_test: "One-tailed Pearson r test (H₁: r > 0, α = 0.05). Bootstrap 95% CI (n=1000 resamples)."
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: |
+    First zero-data, task-agnostic, purely structural LoRA rank predictor. Requires only pretrained
+    weights — no training, no calibration samples, no gradient computation. Reduces rank hyperparameter
+    search from 5×n_layers training runs to a single SVD computation (~30 seconds).
+  differentiation_summary: |
+    AdaLoRA (primary competitor): requires full training run for rank discovery.
+    IFCLoRA (closest parallel): requires calibration set from target task — not task-agnostic.
+    LAARA: requires gradient computation in training warmup phase.
+    PiSSA/LoRA-XS: use W₀ SVD for initialization only — rank is still fixed, not predicted.
+    erank: purely structural, zero-cost, zero-data, applicable at model load time before any task data.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "bert-base-uncased (HuggingFace, 110M params)"
+    - "microsoft/deberta-v3-base (HuggingFace, 86M params)"
+    - "google/vit-base-patch16-224 (HuggingFace, 86M params)"
+  datasets:
+    - "GLUE MNLI (392k train, NLP classification)"
+    - "GLUE SST-2 (67k train, NLP classification — task-agnosticity test)"
+    - "CIFAR-10 (50k train, vision classification)"
+  baselines:
+    - "Uniform LoRA r=8 (Hu et al. 2021)"
+    - "AdaLoRA (Zhang et al. 2023)"
+    - "PARA oracle upper bound (marginal sweep)"
+
+measurement_plan:
+  data_collection:
+    - source: "erank(W₀) for all weight matrices in BERT-base (~72 matrices), DeBERTa-v3-base (~80 matrices), ViT-base (~72 matrices). fp32 SVD via torch.linalg.svdvals."
+    - source: "PARA oracle ranks: 5 × n_matrices training runs per (model, task) pair. AdamW optimizer, fixed LR per family (2e-5 NLP, 1e-4 ViT), ≥3 epochs MNLI/SST-2, ≥5 epochs CIFAR-10."
+    - source: "Relative adaptation magnitude ‖ΔW_opt‖_F/‖W₀‖_F per layer at oracle rank."
+    - source: "PR(W₀) = (Σσᵢ)²/Σσᵢ² for all matrices (same SVD computation as erank, no overhead)."
+  procedure:
+    - step: "1. Download and cache pretrained weights in fp32: BERT-base (~440MB), DeBERTa-v3-base (~180MB), ViT-base (~330MB)"
+    - step: "2. Compute erank(W₀) and PR(W₀) for all weight matrices. Validate: erank(random) ≈ min(d_in,d_out), erank(rank-1) = 1."
+    - step: "3. Run PARA oracle for BERT-base on MNLI: 5 ranks × ~72 matrices = 360 training runs. Parallelize by rank value (5 matrices/GPU on 5×H100)."
+    - step: "4. Repeat oracle for DeBERTa-v3-base (MNLI + SST-2) and ViT-base (CIFAR-10)."
+    - step: "5. Compute Pearson r, Spearman ρ, Levene test, bootstrap CIs for all predictions."
+    - step: "6. Train erank-proportional rank assignment configuration. Compare to uniform r=8 and oracle upper bound."
+  success_criteria:
+    - "P1: Pearson r ≥ 0.65 (one-tailed p < 0.05) for ≥2/3 families"
+    - "P2: erank-strategy accuracy within 1% of oracle AND above uniform r=8"
+    - "P3: ‖ΔW_opt‖_F/‖W₀‖_F Spearman ρ ≥ 0.5 for ≥2/3 families"
+    - "P4: Levene p < 0.05 in ≥2/3 families (tercile or type grouping)"
+    - "P5: erank-PR Spearman ρ ≥ 0.8 for all 3 families"
+
+validation:
+  internal_validity:
+    - "Fix random seed for all oracle training runs (reproducibility)"
+    - "Run each oracle training with 2 seeds; use mean accuracy for argmax (oracle stability check)"
+    - "Validate fp32 erank values against reference implementation (khanghy1000 gist)"
+    - "Baseline r=8 identical across all oracle runs (controls for baseline rank effect)"
+    - "Pre-register direction (positive) before experiments begin (prevents post-hoc direction flip)"
+  external_validity:
+    - "Three architecturally distinct model families (BERT/DeBERTa/ViT) — cross-architecture"
+    - "Two NLP tasks (MNLI + SST-2) — cross-task generalization within NLP"
+    - "One vision task (CIFAR-10) — cross-modality generalization"
+    - "Standard HuggingFace pretrained weights — replicable with public models"
+
+discussion_synthesis:
+  key_insights:
+    - "The h-e1 failure (spectral entropy CV > 0.1) was a metric ceiling problem, not a mechanism failure. erank has wider dynamic range — the hypothesis redesign is principled, not arbitrary."
+    - "The marginal PARA oracle is scientifically valid: it measures each layer's independent rank contribution, consistent with AdaLoRA's per-triplet importance scoring."
+    - "The positive correlation direction is theoretically derived: high-erank → spread singular spectrum → more non-dominated directions → higher rank needed to capture task signal."
+    - "IFCLoRA 2026 validates the structural-predictor premise: pre-training structure predicts optimal rank before fine-tuning. erank makes this fully task-agnostic (no calibration data)."
+    - "LAARA 2026 proves uniform rank is suboptimal (Theorem 1) — the field needs better rank allocation. erank is the zero-cost solution if P1 holds."
+  breakthrough_moments:
+    - "Exchange 4 (Prof. Pax): Marginal oracle clarification — resolves the 'joint vs marginal optimal' concern by establishing scientific coherence between marginal measurement and per-layer erank."
+    - "Exchange 7 (Dr. Nova): Positive direction derivation — transforms Prof. Rex's directional concern into a theoretical contribution and enables one-tailed preregistration."
+    - "Exchange 11 (Dr. Ally): Complete H-erank-v1 synthesis with P1-P5 predictions — the moment the hypothesis became fully specified and testable."
+    - "Exchange 13 (Dr. Nova): erank-truncation criterion as oracle-free alternative — opens a secondary analysis that could bypass the 15-day oracle sweep."
+  resolved_tensions:
+    - "Direction (positive vs negative): Resolved theoretically (high-erank → non-dominated directions → higher rank needed) + preregistered one-tailed test"
+    - "Oracle validity (marginal vs joint): Resolved by establishing marginal oracle as scientifically coherent with AdaLoRA's per-layer importance"
+    - "Task-agnosticity claim: Resolved by adding SST-2 as second NLP task — ρ≥0.7 agreement between MNLI and SST-2 oracle ranks validates the claim"
+    - "ViT baseline specification: Resolved — r=8 for all non-target layers across all model families"
+    - "Prior empirical support gap: Acknowledged — h-e1 ViT depth variation and BERT Levene results serve as proto-evidence; full validation is Phase 4 target"

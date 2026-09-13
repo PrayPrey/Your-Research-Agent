@@ -1,0 +1,163 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Building on the insight that policy change budget (KL divergence) should be
+spent on structurally meaningful code transformations, we define structural
+efficiency as a ratio and describe the four-component framework that operationalizes it.
+
+\subsection{Problem Setup}
+
+Let $\pi_\theta$ denote a code generation model fine-tuned from a base model
+$\pi_\text{ref}$ using a post-training algorithm $A$ (e.g., GRPO or DPO).
+Given a prompt $x$ and a generated completion $y$, define:
+
+\begin{itemize}
+  \item \textbf{KL divergence:} $D_\text{KL}(\pi_\theta \| \pi_\text{ref}) = \mathbb{E}_{x,y \sim \pi_\theta}[\log \pi_\theta(y|x) - \log \pi_\text{ref}(y|x)]$, measuring total policy divergence from the base model at checkpoint step $t$.
+  \item \textbf{Semantic AST edit distance:} $d_\text{sem}(y, y')$, measuring minimum-cost tree edit operations restricted to control-flow and data-flow AST nodes between two code completions.
+\end{itemize}
+
+\textbf{Definition (Structural Efficiency):}
+
+\begin{equation}
+\text{SE}(\pi_\theta, \pi_\text{ref}) = \frac{\mathbb{E}[d_\text{sem}(y_\theta, y_\text{ref})]}{D_\text{KL}(\pi_\theta \| \pi_\text{ref})}
+\label{eq:structural_efficiency}
+\end{equation}
+
+where $y_\theta \sim \pi_\theta(\cdot|x)$ and $y_\text{ref} \sim \pi_\text{ref}(\cdot|x)$
+are completions from the fine-tuned and reference models respectively.
+
+A high structural efficiency indicates that the method concentrates its policy
+change budget on semantically meaningful code transformations. A low structural
+efficiency indicates that the KL budget is consumed by surface-level changes
+(variable naming, whitespace, comment style) that do not affect program behavior.
+
+\subsection{FA-AST Node Classification}
+
+\textbf{Rationale:} To restrict edit distance to semantically relevant nodes, we use
+the FA-AST taxonomy \cite{Wang2020Detecting}, which classifies Python AST nodes into:
+
+\begin{itemize}
+  \item \textbf{CONTROL\_FLOW nodes:} \texttt{\{If, For, While, Try, With\}} --- nodes governing execution branching and looping
+  \item \textbf{DATA\_FLOW nodes:} \texttt{\{Assign, Call, Return, FunctionDef\}} --- nodes governing data transformation and function structure
+  \item \textbf{SURFACE nodes:} all other node types (constants, names, operators, formatting)
+\end{itemize}
+
+The Semantic Edit Proportion (SEP) measures what fraction of total edits targets
+semantic (CF+DF) nodes:
+
+\begin{equation}
+\text{SEP} = \frac{d_\text{CF}(y_\theta, y_\text{ref}) + d_\text{DF}(y_\theta, y_\text{ref})}{d_\text{total}(y_\theta, y_\text{ref})}
+\label{eq:sep}
+\end{equation}
+
+where $d_\text{CF}$, $d_\text{DF}$, $d_\text{total}$ are edit distances restricted
+to control-flow nodes, data-flow nodes, and all nodes respectively.
+
+Figure~\ref{fig:ast_node_heatmap} illustrates the FA-AST node classification
+across checkpoint pairs, showing node-type frequencies for GRPO and DPO.
+
+\subsection{ZSS Tree Edit Distance}
+
+\textbf{Rationale:} AST-level edit distance captures structural program changes that
+token-level metrics miss. Two code completions that differ only in variable names
+are structurally identical at the AST level; two completions with different loop
+structures are structurally distinct regardless of surface similarity.
+
+We use the ZSS algorithm \cite{Zhang1989Simple}, which computes minimum-cost
+tree edit distance in $O(n^2 m^2)$ time for trees of sizes $n$ and $m$. Edit
+operations are node insertion, deletion, and relabeling, each with unit cost.
+We restrict the edit distance computation to the semantic node types
+defined in Section~\ref{sec:methodology}: an insertion or deletion of a control-flow or data-flow
+node counts; an insertion of a \texttt{Name} node (surface) does not.
+
+\textbf{Why not token-level metrics:} BLEU/CodeBLEU operate on token sequences and
+are sensitive to variable renaming and formatting. Line-level diffs miss
+structural equivalences (e.g., a refactored loop). Graph edit distance for
+program dependence graphs is NP-hard. ZSS on ASTs provides a tractable,
+semantically grounded distance \cite{Ding2024Revisiting}.
+
+\subsection{KL-Matched Checkpoint Comparison}
+
+\textbf{Rationale:} GRPO and DPO diverge from the base model at different rates per
+training step. Step-aligned comparison confounds training speed with structural quality.
+We instead compare checkpoints at matched KL divergence levels.
+
+\textbf{KL matching procedure:}
+\begin{enumerate}
+  \item During training, log KL divergence at each checkpoint step $t$: $\kappa_t = D_\text{KL}(\pi_t \| \pi_\text{ref})$
+  \item For each GRPO checkpoint $\pi_t^\text{GRPO}$ with $\kappa_t^\text{GRPO}$, find a DPO checkpoint $\pi_{t'}^\text{DPO}$ such that $|\kappa_{t'}^\text{DPO} - \kappa_t^\text{GRPO}| \leq \varepsilon$
+  \item Form matched pairs $(\pi_t^\text{GRPO}, \pi_{t'}^\text{DPO})$ for statistical comparison
+\end{enumerate}
+
+We use tolerance $\varepsilon = 0.05$ ($\pm 5\%$), though
+our preliminary run used $\varepsilon = 0.15$ due to limited checkpoint availability.
+
+\textbf{Checkpoint diversity requirement:} KL matching requires sufficient checkpoint
+density. We impose a pre-flight check: $|\{t : \text{checkpoint}_t \text{ is unique}\}| \geq N_\text{min}$
+(we recommend $N_\text{min} = 10$) before proceeding to analysis. This check
+prevents the checkpoint aliasing confound described in Section~\ref{sec:aliasing}.
+
+\subsection{Statistical Testing}
+
+For a collection of $K$ matched pairs $\{(\pi_k^\text{GRPO}, \pi_k^\text{DPO})\}_{k=1}^K$,
+we compare SEP distributions using:
+
+\textbf{Mann-Whitney U test} (primary): Tests whether $P(\text{SEP}^\text{GRPO} > \text{SEP}^\text{DPO}) > 0.5$
+without assuming normality. Requires $K \geq 10$ unique pairs for adequate power.
+
+\textbf{Bootstrap confidence interval} (secondary): 10,000 bootstrap resamples of
+the mean SEP differential $\Delta = \text{mean}(\text{SEP}^\text{GRPO}) - \text{mean}(\text{SEP}^\text{DPO})$,
+yielding a 95\% CI that does not rely on the matched-pairs assumption.
+
+\textbf{Significance threshold:} $\alpha = 0.05$ for the Mann-Whitney test.
+
+\subsection{Implementation}
+
+The framework is implemented as a Python pipeline with five modules:
+
+\begin{table}[h]
+\centering
+\caption{Framework module summary}
+\label{tab:modules}
+\begin{tabular}{ll}
+\toprule
+\textbf{Module} & \textbf{Function} \\
+\midrule
+\texttt{ast\_decomposition.py} & FA-AST node classification; SEP computation \\
+\texttt{ast\_metric.py} & ZSS semantic edit distance (CF+DF nodes only) \\
+\texttt{kl\_metric.py} & KL log computation; checkpoint matching \\
+\texttt{sep\_analysis.py} & SEP analysis across matched checkpoint pairs \\
+\texttt{statistical\_tests.py} & Mann-Whitney U, Spearman correlation, bootstrap CI \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Training infrastructure:} We use TRL v1.3.0 \cite{vonWerra2020TRL}
+GRPOTrainer and DPOTrainer on DeepSeek-Coder-7B-instruct-v1.5
+\cite{Guo2024DeepSeek} with the following configuration:
+
+\begin{table}[h]
+\centering
+\caption{Training hyperparameters}
+\label{tab:hyperparams}
+\begin{tabular}{lll}
+\toprule
+\textbf{Parameter} & \textbf{GRPO} & \textbf{DPO} \\
+\midrule
+Learning rate & 1e-6 & 5e-7 \\
+Batch size & 4 & 2 \\
+Gradient accumulation & 4 & 8 \\
+KL penalty $\beta$ & 0.04 & 0.1 \\
+Training steps & 1000 & 1000 \\
+Checkpoint save interval & Every 100 steps & Every 100 steps \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Execution rewards use the \texttt{evalplus} harness \cite{Liu2023EvalPlus}:
+binary (+1/0) and error-type rewards (categorized by exception class:
+SyntaxError, RuntimeError, AssertionError, etc.).
+
+\textbf{Evaluation dataset:} HumanEval+ (164 problems) and MBPP+ (378 problems)
+from evalplus \cite{Liu2023EvalPlus}, covering standard function-level Python
+code generation.

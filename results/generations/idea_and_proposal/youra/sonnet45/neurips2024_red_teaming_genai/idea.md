@@ -1,0 +1,7 @@
+# ImmuneLM: Immune-Inspired Two-Tier Defense Against Multi-Turn LLM Jailbreaks
+
+## Motivation
+Current LLM defenses detect harmful prompts independently per turn, failing against sophisticated multi-turn jailbreak attacks that gradually manipulate conversations from benign to harmful content. Recent benchmarks show 82% attack success on GPT-4 using multi-turn state machines and 71% higher vulnerability after 5 turns. This stateless defense gap leaves production chatbots critically exposed, necessitating memory-based guardrails that track conversational evolution over time.
+
+## Main Idea
+We propose ImmuneLM, a biologically-inspired two-tier architecture combining fast single-turn concept activation screening (Tier 1: innate immunity analog) with LSTM-based conversational memory tracking harmful semantic drift across turns (Tier 2: adaptive immunity analog). The LSTM learns attack state transition patterns from automated red teaming datasets (RACE, PyRIT) to detect gradual benign→harmful evolution before jailbreak completion. We hypothesize ≥20% attack success rate reduction on multi-turn benchmarks versus single-turn baselines (JBShield), while maintaining ≤5% false positives and ≤500ms latency. The core innovation: modeling jailbreaks as temporal trajectories in semantic space rather than static prompt features, enabling proactive intervention. Validation includes Phase 0 concept-attack correlation testing, human adversarial evaluation, and hybrid feature robustness against Tier 1 errors.

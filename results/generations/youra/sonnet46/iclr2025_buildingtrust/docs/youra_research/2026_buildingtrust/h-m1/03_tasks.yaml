@@ -1,0 +1,463 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-03-15T02:05:00Z"
+  base_hypothesis: h-e1
+  description: "Base calibration verification — Pythia pretrained models ECE measurement"
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 8
+  subtasks: 12
+  failsafe: 1
+  total: 22
+  budget_remaining: 8
+  within_budget: true
+
+tasks:
+  # ── Environment Setup (priority 94) ──────────────────────────────────────────
+
+  - id: ENV-1
+    type: setup
+    title: "Environment Setup: h-m1 code structure and dependencies"
+    description: |
+      Create h-m1/code/ directory structure and verify all required packages are available.
+      Install any missing packages. Verify sys.path injection to h-e1/code/ works correctly.
+    priority: 94
+    status: todo
+    complexity: null
+    reference_files:
+      - file: "h-m1/03_prd.md"
+        section: "## 8. Dependencies"
+      - file: "h-m1/03_architecture.md"
+        section: "## File Structure"
+    acceptance_criteria:
+      - "h-m1/code/ directory exists"
+      - "h-m1/figures/ directory exists"
+      - "import sys; sys.path.insert(0, '../../h-e1/code/'); from calibration_analysis import compute_ece works"
+      - "All packages in §8.1 importable: numpy, scipy, matplotlib, seaborn, pyyaml"
+    packages:
+      - "numpy>=1.24"
+      - "scipy>=1.10"
+      - "matplotlib>=3.7"
+      - "seaborn>=0.12"
+      - "pyyaml>=6.0"
+
+  # ── Epic Tasks (priority 93-50) ───────────────────────────────────────────────
+
+  - id: M1-1
+    type: implementation
+    title: "Setup & Config: h-m1/code/config.py"
+    description: |
+      Create h-m1/code/ structure and implement config.py with all paths, thresholds,
+      and constants. Verify h-e1/code/ import path works from h-m1/code/.
+    priority: 93
+    status: todo
+    complexity: 5
+    complexity_breakdown: "1+1+1+2"
+    reference_files:
+      - file: "h-m1/03_architecture.md"
+        section: "### Config (`h-m1/code/config.py`)"
+      - file: "h-m1/03_config.md"
+        section: "## M1-5: Figure Generation"
+    acceptance_criteria:
+      - "config.py exists with H_E1_VALIDATION_PATH, GATE_THRESHOLD=0.15, BASE_SIZES, N_BINS=15"
+      - "sys.path injection to h-e1/code/ succeeds"
+      - "h-m1/figures/ directory created"
+
+  - id: M1-2
+    type: implementation
+    title: "H-E1 Data Extraction (Path A): extract_h_e1_data.py"
+    description: |
+      Implement extract_h_e1_data.py with three functions:
+      load_h_e1_ece_base() (regex parse 04_validation.md),
+      load_h_e1_logprobs_for_base() (logprob reload via load_lmeval_samples),
+      extract_or_recompute_ece_base() (Path A → Path A-extended dispatch).
+    priority: 90
+    status: todo
+    complexity: 10
+    complexity_breakdown: "3+2+3+2"
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-2: H-E1 Data Extraction"
+      - file: "h-m1/03_architecture.md"
+        section: "### DataExtractor (`h-m1/code/extract_h_e1_data.py`)"
+    acceptance_criteria:
+      - "load_h_e1_ece_base() returns dict with 3 float ECE values from h-e1/04_validation.md"
+      - "extract_or_recompute_ece_base() falls back to logprob reload if regex fails"
+      - "All 3 base sizes (1.4b, 2.8b, 6.9b) returned in output dict"
+
+  - id: M1-3
+    type: implementation
+    title: "Path B Fallback (lm-eval re-run): run_path_b()"
+    description: |
+      Implement run_path_b() and run_lmeval_for_model() in run_experiment.py.
+      Sequential subprocess lm_eval CLI execution for 3 Pythia base models,
+      with output path management and ECE computation from log-probability JSONL.
+    priority: 85
+    status: todo
+    complexity: 12
+    complexity_breakdown: "3+2+4+3"
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-3: Path B lm-eval Fallback"
+      - file: "h-m1/03_prd.md"
+        section: "### FR-2: Fallback lm-eval Execution (Path B)"
+    acceptance_criteria:
+      - "run_lmeval_for_model() executes lm_eval subprocess with correct args"
+      - "run_path_b() produces ECE dict for all 3 sizes after lm-eval completion"
+      - "GPU device arg passed correctly (CUDA_VISIBLE_DEVICES aware)"
+      - "Timeout set to 7200 seconds per model"
+
+  - id: M1-4
+    type: implementation
+    title: "Gate Evaluation: gate_and_report.py"
+    description: |
+      Implement gate_and_report.py with: verify_mechanism_activation(), evaluate_must_work_gate(),
+      check_ece_ordering(). MUST_WORK gate: ECE_base < 0.15 for ALL 3 sizes.
+    priority: 80
+    status: todo
+    complexity: 9
+    complexity_breakdown: "2+2+3+2"
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-4: Gate Evaluation"
+      - file: "h-m1/03_prd.md"
+        section: "### FR-4: MUST_WORK Gate Evaluation"
+    acceptance_criteria:
+      - "evaluate_must_work_gate() returns PASS iff all 3 ECE_base < 0.15"
+      - "verify_mechanism_activation() validates all values are floats in [0,1]"
+      - "check_ece_ordering() returns per-size bool (ECE_base < ECE_SFT)"
+
+  - id: M1-5
+    type: implementation
+    title: "Figure Generation: plot_results.py (5 figures)"
+    description: |
+      Implement plot_results.py with all 5 figure functions:
+      Figure 1 (mandatory): ECE gate bar chart with dashed threshold line at 0.15.
+      Figures 2-5: base vs aligned ECE, calibration reliability diagrams,
+      ECE by MMLU subject, Brier decomposition.
+    priority: 75
+    status: todo
+    complexity: 13
+    complexity_breakdown: "3+2+4+4"
+    reference_files:
+      - file: "h-m1/03_architecture.md"
+        section: "### FigurePlotter (`h-m1/code/plot_results.py`)"
+      - file: "h-m1/03_config.md"
+        section: "## M1-5: Figure Generation"
+    acceptance_criteria:
+      - "figure_01_ece_gate.png saved to h-m1/figures/ (MANDATORY)"
+      - "Dashed line at ECE=0.15 in gate figure"
+      - "Green/red color coding for pass/fail bars"
+      - "figure_02 through figure_05 generated (strongly recommended)"
+
+  - id: M1-6
+    type: implementation
+    title: "Validation Report: generate_validation_report()"
+    description: |
+      Implement generate_validation_report() in gate_and_report.py.
+      Write h-m1/04_validation.md with all required sections:
+      metadata, gate result, ECE table, ordering, figure paths, key findings.
+    priority: 70
+    status: todo
+    complexity: 9
+    complexity_breakdown: "2+2+3+2"
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-4: Gate Evaluation"
+      - file: "h-m1/03_config.md"
+        section: "## M1-6: Validation Report"
+      - file: "h-m1/03_prd.md"
+        section: "### FR-7: Validation Report Generation"
+    acceptance_criteria:
+      - "04_validation.md written to h-m1/ with gate_result PASS or FAIL"
+      - "ECE_base values for all 3 sizes in report"
+      - "At least 3 key findings listed"
+      - "Figure paths referenced in report"
+      - "execution_path field present (Path A / Path A-extended / Path B)"
+
+  - id: M1-7
+    type: implementation
+    title: "Orchestrator: run_experiment.py main()"
+    description: |
+      Implement run_experiment.py main() and run_path_a() with full pipeline:
+      Path A → (fallback Path B) → gate eval → figure gen → report → verification_state.yaml write.
+      Implement write_gate_to_verification_state() for YAML update.
+    priority: 65
+    status: todo
+    complexity: 11
+    complexity_breakdown: "2+3+3+3"
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-7: Orchestrator"
+      - file: "h-m1/03_architecture.md"
+        section: "### Orchestrator (`h-m1/code/run_experiment.py`)"
+    acceptance_criteria:
+      - "main() runs end-to-end without error on Path A (h-e1/04_validation.md readable)"
+      - "Automatically falls back to Path B on FileNotFoundError"
+      - "write_gate_to_verification_state() updates h-m1.gate.satisfied in verification_state.yaml"
+      - "Gate result logged to stdout"
+
+  - id: M1-8
+    type: testing
+    title: "Integration Test: end-to-end smoke test"
+    description: |
+      Write and execute end-to-end smoke test using mock h-e1/04_validation.md.
+      Validate all outputs: 04_validation.md report, figures, gate JSON.
+    priority: 55
+    status: todo
+    complexity: 8
+    complexity_breakdown: "2+1+3+2"
+    reference_files:
+      - file: "h-m1/03_prd.md"
+        section: "### FR-8: Mechanism Activation Verification"
+      - file: "h-m1/03_architecture.md"
+        section: "## Epic Tasks"
+    acceptance_criteria:
+      - "Smoke test passes with mock ECE_base values [0.08, 0.09, 0.10]"
+      - "gate_result = PASS for above mock values"
+      - "All output files generated without error"
+      - "Smoke test also tests FAIL path (ECE_base = 0.20)"
+
+  # ── Subtasks from Logic Agent (priority 49-20) ────────────────────────────────
+
+  - id: L-M1-2-1
+    type: subtask
+    parent: M1-2
+    title: "regex_parse: load_h_e1_ece_base() with multi-pattern regex"
+    description: |
+      Implement load_h_e1_ece_base() using multi-pattern regex to extract ECE_base
+      values from h-e1/04_validation.md. Must handle multiple markdown formats.
+    priority: 48
+    status: todo
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-2: H-E1 Data Extraction"
+    acceptance_criteria:
+      - "Regex handles both 'ece_base_1.4b: 0.08' and table format"
+      - "Raises KeyError with clear message if any size missing"
+      - "Validates parsed values are in [0, 1]"
+
+  - id: L-M1-2-2
+    type: subtask
+    parent: M1-2
+    title: "logprob_fallback: load_h_e1_logprobs_for_base() + extract_or_recompute dispatch"
+    description: |
+      Implement load_h_e1_logprobs_for_base() wrapping load_lmeval_samples(),
+      and extract_or_recompute_ece_base() dispatch logic (Path A → Path A-extended).
+    priority: 47
+    status: todo
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-2: H-E1 Data Extraction"
+    acceptance_criteria:
+      - "load_h_e1_logprobs_for_base() returns (N,4) logprobs and (N,) y_true"
+      - "extract_or_recompute_ece_base() returns (dict, path_label) tuple"
+      - "Falls back to logprob path when regex fails"
+
+  - id: L-M1-3-1
+    type: subtask
+    parent: M1-3
+    title: "lmeval_subprocess: run_lmeval_for_model() with subprocess, timeout, retry"
+    description: |
+      Implement run_lmeval_for_model() using subprocess.run with 7200s timeout.
+      Handle CalledProcessError with 1 retry.
+    priority: 46
+    status: todo
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-3: Path B lm-eval Fallback"
+    acceptance_criteria:
+      - "subprocess.run with check=True and timeout=7200"
+      - "1 retry on CalledProcessError"
+      - "Returns Path to output directory"
+
+  - id: L-M1-3-2
+    type: subtask
+    parent: M1-3
+    title: "path_b_pipeline: run_path_b() sequential loop with ECE computation"
+    description: |
+      Implement run_path_b() with sequential loop over 3 base model sizes.
+      After each lm-eval run, load JSONL samples and compute ECE.
+    priority: 45
+    status: todo
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-3: Path B lm-eval Fallback"
+    acceptance_criteria:
+      - "Processes 3 sizes sequentially (not parallel — GPU memory)"
+      - "Raises RuntimeError if any model fails after retry"
+      - "Returns dict with 3 ECE_base floats"
+
+  - id: L-M1-4-1
+    type: subtask
+    parent: M1-4
+    title: "gate_and_verify: verify_mechanism_activation() + evaluate_must_work_gate()"
+    description: |
+      Implement verify_mechanism_activation() (validate ECE dict completeness)
+      and evaluate_must_work_gate() (PASS if all ECE_base < 0.15).
+    priority: 44
+    status: todo
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-4: Gate Evaluation"
+    acceptance_criteria:
+      - "verify_mechanism_activation() checks: 3 sizes present, all floats, all in [0,1]"
+      - "evaluate_must_work_gate() returns ('PASS', []) when all ECE < 0.15"
+      - "evaluate_must_work_gate() returns ('FAIL', [failed_ids]) when any ECE >= 0.15"
+
+  - id: L-M1-4-2
+    type: subtask
+    parent: M1-4
+    title: "ordering_and_report: check_ece_ordering() + generate_validation_report()"
+    description: |
+      Implement check_ece_ordering() (ECE_base < ECE_SFT per size) and
+      generate_validation_report() writing 04_validation.md.
+    priority: 43
+    status: todo
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-4: Gate Evaluation"
+      - file: "h-m1/03_config.md"
+        section: "## M1-6: Validation Report"
+    acceptance_criteria:
+      - "check_ece_ordering() returns {size: bool|None} for 3 sizes"
+      - "generate_validation_report() writes markdown with all REPORT_REQUIRED_FIELDS"
+      - "Report includes key_findings list with >= 3 items"
+
+  - id: L-M1-7-1
+    type: subtask
+    parent: M1-7
+    title: "path_dispatch: run_path_a() + write_gate_to_verification_state()"
+    description: |
+      Implement run_path_a() calling extract_or_recompute_ece_base(),
+      and write_gate_to_verification_state() using pyyaml read-modify-write.
+    priority: 42
+    status: todo
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-7: Orchestrator"
+    acceptance_criteria:
+      - "run_path_a() raises RuntimeError if both path_a_direct and path_a_extended fail"
+      - "write_gate_to_verification_state() preserves all other h-m1 YAML fields"
+      - "Sets h-m1.gate.satisfied = true/false in verification_state.yaml"
+
+  - id: L-M1-7-2
+    type: subtask
+    parent: M1-7
+    title: "main_pipeline: full orchestration with error handling and logging"
+    description: |
+      Implement main() with complete 8-step pipeline: data → validate → gate →
+      ordering → logprobs → figures → report → yaml write. Full error handling.
+    priority: 41
+    status: todo
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## M1-7: Orchestrator"
+    acceptance_criteria:
+      - "main() completes end-to-end without error on Path A"
+      - "Fallback to Path B on RuntimeError from run_path_a()"
+      - "All 7 pipeline steps logged with INFO level"
+
+  # ── Subtasks from Config Agent (priority 35-20) ───────────────────────────────
+
+  - id: C-5-1
+    type: subtask
+    parent: M1-5
+    title: "Figure 1 (Gate Bar): plot_ece_gate_bar() — mandatory ECE bar chart"
+    description: |
+      Implement plot_ece_gate_bar(): bar chart of ECE_base for 1.4B/2.8B/6.9B,
+      dashed line at ECE=0.15, green bars if < 0.15, red if >= 0.15.
+      Save to h-m1/figures/figure_01_ece_gate.png.
+    priority: 35
+    status: todo
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## M1-5: Figure Generation"
+      - file: "h-m1/03_architecture.md"
+        section: "### FigurePlotter"
+    acceptance_criteria:
+      - "figure_01_ece_gate.png saved at dpi=150"
+      - "Dashed black line at y=0.15"
+      - "Bars colored green (<0.15) or red (>=0.15)"
+      - "X-axis labels: Pythia-1.4B, Pythia-2.8B, Pythia-6.9B"
+
+  - id: C-5-2
+    type: subtask
+    parent: M1-5
+    title: "Figures 2-5 (Extended): base vs aligned, calibration curves, subject ECE, Brier"
+    description: |
+      Implement 4 additional figure functions: plot_base_vs_aligned_ece(),
+      plot_calibration_reliability_diagrams(), plot_ece_by_subject(),
+      plot_brier_decomposition_base(). Save as figure_02 through figure_05.
+    priority: 34
+    status: todo
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## M1-5: Figure Generation"
+      - file: "h-m1/03_prd.md"
+        section: "### FR-6: Figure Generation"
+    acceptance_criteria:
+      - "figure_02_base_vs_aligned_ece.png: 3 sizes × 4 conditions grouped bar"
+      - "figure_03_calibration_curves.png: 3-panel reliability diagrams"
+      - "figure_04_ece_by_subject.png: box plot per 57 MMLU subjects"
+      - "figure_05_brier_decomposition.png: stacked reliability/resolution/uncertainty"
+
+  - id: C-6-1
+    type: subtask
+    parent: M1-6
+    title: "Report Structure: generate_validation_report() full template"
+    description: |
+      Implement generate_validation_report() writing h-m1/04_validation.md with
+      all REPORT_REQUIRED_FIELDS: metadata, gate_result, ece_table, ordering,
+      figure_paths, key_findings (>=3), execution_path.
+    priority: 33
+    status: todo
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## M1-6: Validation Report"
+    acceptance_criteria:
+      - "04_validation.md written with all required sections"
+      - "ECE table: 3 rows (1.4B/2.8B/6.9B), columns: ECE_base, gate_check"
+      - "Figure paths listed for all generated figures"
+      - "key_findings list has >= 3 entries"
+
+  - id: C-6-2
+    type: subtask
+    parent: M1-6
+    title: "verification_state.yaml Gate Write: update_verification_state()"
+    description: |
+      Implement write_gate_to_verification_state() using pyyaml read-modify-write.
+      Update h-m1.gate.satisfied (true/false) and h-m1.validation.key_metrics
+      with ECE_base values. Preserve all other hypothesis entries.
+    priority: 32
+    status: todo
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## M1-6: Validation Report"
+    acceptance_criteria:
+      - "h-m1.gate.satisfied set to true if gate PASS, false if FAIL"
+      - "h-m1.validation.key_metrics contains ece_base_1.4b, ece_base_2.8b, ece_base_6.9b"
+      - "All other hypotheses (h-e1, h-m2, etc.) preserved exactly"
+      - "YAML remains valid after write"
+
+  # ── Failsafe (priority 1) ─────────────────────────────────────────────────────
+
+  - id: FAILSAFE-1
+    type: failsafe
+    title: "Pipeline Continuation Checkpoint"
+    description: |
+      Final checkpoint: verify 04_validation.md exists with gate_result field,
+      verify verification_state.yaml updated, ensure Phase 4 can proceed.
+    priority: 1
+    status: todo
+    acceptance_criteria:
+      - "h-m1/04_validation.md exists and contains gate_result"
+      - "verification_state.yaml h-m1.gate.satisfied is not null"
+      - "At least figure_01_ece_gate.png exists in h-m1/figures/"

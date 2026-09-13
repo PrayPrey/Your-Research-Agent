@@ -1,0 +1,62 @@
+\section{Methodology}
+
+\subsection{Overview}
+
+Our methodology operationalizes a three-step causal mechanism linking hallucination type to optimal aggregation function. Rather than treating aggregation as a hyperparameter to tune empirically, we derive a testable prediction from the mechanism's structure and design four nested experiments that verify the mechanism at increasing levels of specificity.
+
+\subsection{Mechanism Hypothesis}
+
+\textbf{Step 1: Hallucination type determines token probability distribution shape.}
+
+We define two hallucination types:
+
+\begin{itemize}
+\item \emph{Recall-failure hallucination} (TriviaQA, NQ): The model fails to retrieve a specific fact, concentrating uncertainty at the incorrect fact-token. The per-token log-probability sequence is \emph{peaked}: high variance, sharp minimum at the fact-token.
+\item \emph{Imitative-falsehood hallucination} (TruthfulQA): The model generates a confidently wrong pattern learned from training. The sequence is \emph{flat}: low variance, uniformly high probability throughout.
+\end{itemize}
+
+We measure peakedness as:
+\[
+\text{peakedness}(\mathbf{x}) = \text{kurtosis}(\mathbf{x}) + \frac{\max(\mathbf{x})}{\text{mean}(\mathbf{x})}
+\]
+where $\mathbf{x}$ is the vector of absolute token log-probability values.
+
+\textbf{Step 2: Distribution shape determines aggregation function sensitivity.}
+
+\begin{itemize}
+\item \emph{Min log-probability} captures the worst-case token. Maximally discriminative for peaked distributions; unreliable for flat ones.
+\item \emph{Mean log-probability} integrates across all tokens. Appropriate for flat distributions; dilutes peaked signals.
+\item \emph{Raw sum log-probability} (unnormalized): equals $\log P(\text{sequence})$. Captures length $\times$ per-token confidence jointly.
+\end{itemize}
+
+\textbf{Step 3: Aggregation-distribution alignment produces AUROC differentials.}
+
+Predictions:
+\begin{itemize}
+\item \textbf{P1:} $\text{AUROC}(\min) > \text{AUROC}(\text{mean})$ on TriviaQA (factual recall) by $\geq 0.02$, 95\% CI excluding zero, both models.
+\item \textbf{P2:} $\text{AUROC}(\text{mean}) > \text{AUROC}(\min)$ on TruthfulQA (imitative falsehood) by $\geq 0.02$, 95\% CI excluding zero, both models.
+\end{itemize}
+
+\subsection{Models}
+
+Two frozen open-weight LLMs at 7B scale:
+\begin{itemize}
+\item \textbf{LLaMA-2-7B} (\texttt{meta-llama/Llama-2-7b-hf})
+\item \textbf{Mistral-7B-v0.1} (\texttt{mistralai/Mistral-7B-v0.1})
+\end{itemize}
+
+Cross-architecture replication provides the strongest available generalizability evidence within the 7B parameter scale.
+
+\subsection{Inference Protocol}
+
+Single greedy forward pass: \texttt{do\_sample=False}, \texttt{max\_new\_tokens=30}, \texttt{batch\_size=1}. Batch size 1 is mandatory for numerical correctness under \texttt{flash\_attention\_2}. Scores are negated before AUROC computation. Custom implementation (22/22 unit tests passing) used in place of lm-polygraph due to hardware/dependency compatibility constraints. Bootstrap: $n{=}1000$, seed$=42$, percentile method.
+
+\subsection{Hypothesis Design}
+
+Four nested hypotheses verify the mechanism at increasing specificity:
+\begin{itemize}
+\item \textbf{h-e1} (Existence): Gate --- do aggregation methods produce different AUROC on any pair?
+\item \textbf{h-m1} (Distributional): Do recall-failure hallucinations produce peaked token distributions?
+\item \textbf{h-m2} (Rank-correlation): Does Spearman $\rho$ confirm the directional advantage at signal level?
+\item \textbf{h-m3} (AUROC threshold): Do P1 and P2 hold at AUROC threshold level?
+\end{itemize}

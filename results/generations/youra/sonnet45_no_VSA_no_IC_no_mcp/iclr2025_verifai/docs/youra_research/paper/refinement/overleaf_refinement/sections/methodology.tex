@@ -1,0 +1,48 @@
+
+\subsubsection{3.1 Combined Scoring Function}
+
+At each generation step t, each beam candidate y is scored using a weighted combination of log-likelihood and syntax validity:
+
+score(y) = $\alpha \times$ log P(y | x) + $\beta \times$ valid(y)
+
+where $\alpha =0.7$ weights model fluency, $\beta =0.3$ weights syntax correctness, and valid(y) $\in$ {0, 1} indicates whether the partial sequence parses successfully via Python's \texttt{ast.parse()}. This formulation differs from constrained decoding (which masks invalid tokens, enforcing valid(y)=1 always) and soft penalties (which apply small negative logits that prove too weak to influence generation). By treating validity as an explicit scoring dimension, the model can explore invalid paths when they have sufficiently high likelihood, but systematically favors valid alternatives when available.
+
+The choice of $\alpha =0.7, \beta =0.3$ reflects dual objectives of maintaining generation quality while providing sufficient validity guidance. Preliminary analysis (h-m2 scoring experiments) showed that pure log-likelihood beam search ($\alpha =1.0, \beta =0.0)$ yields 60-70\% error rates similar to greedy sampling, while pure validity scoring ($\alpha =0.0, \beta =1.0)$ produces grammatically correct but semantically incoherent outputs. The 70/30 split balances these extremes: 73\% of beams remain valid during generation (h-m2 result), and final argmax selection achieves 76.22\% validity (h-m4 result) while maintaining generation fluency. This small validity weight ($\beta =0.3)$ produces large error reduction (66.4\% relative) because the binary validity signal provides strong constraint---invalid beams receive zero validity score regardless of likelihood.
+
+\subsubsection{3.2 Syntax Validation via AST Parsing}
+
+Syntax is validated using Python's standard library \texttt{ast.parse()} function, which attempts to parse the generated code into an abstract syntax tree. If parsing succeeds, the code is syntactically valid (valid(y)=1); if parsing raises a \texttt{SyntaxError}, the code is invalid (valid(y)=0). This approach offers three advantages. First, speed: AST parsing completes in 0.029ms on average (h-e1 measurement), $1000\times$ faster than conservative 50ms budget and negligible compared to model inference time (~100ms per token). Second, reliability: \texttt{ast.parse()} is the canonical Python syntax checker, identical to what interpreters use. Third, simplicity: no grammar engineering or custom parser development is needed.
+
+Syntax-only validation has scope limitations. AST parse success guarantees syntactic correctness but not semantic correctness: code like \texttt{result = ''string'' + 5} parses successfully but raises \texttt{TypeError} at runtime. Validation does not address type errors, runtime errors, or functional incorrectness---the upper bound on the method's effectiveness is the semantic correctness of the base model.
+
+\subsubsection{3.3 Beam Search with Validity Scoring}
+
+Standard beam search is applied with beam width k=5, generating k candidate sequences in parallel and maintaining the top-k by combined score at each step. The generation process operates as follows:
+
+\begin{enumerate}
+\item Initialization: Start with k beams initialized to the input prompt context
+\item Expansion: For each beam, generate next-token candidates using model logits
+\item Scoring: For each expanded beam, compute score(y) = $\alpha$ log P(y|x) + $\beta \times$ valid(y) by parsing the sequence with \texttt{ast.parse()}
+\item Pruning: Retain the top-k beams by score, discarding lower-scoring candidates
+\item Termination: Continue until all beams produce EOS tokens or reach maximum length (512 tokens)
+\item Selection: Return the beam with highest final score as the output
+\end{enumerate}
+
+The choice of k=5 balances exploration and computational cost. Ablation experiments (h-m1) showed that k=3 under-explores the syntax space (only 3 candidates per problem), while k=10 provides diminishing returns (diversity saturates at 100\% even for k=5) at $2\times$ runtime cost. With k=5, generation completes in 4.5 minutes for HumanEval-164 (4.$5\times$ greedy sampling), representing acceptable overhead for batch generation or offline code synthesis.
+
+\subsubsection{3.4 Mechanistic Validation Design}
+
+Rather than evaluating only the end-to-end method, the approach is decomposed into five mechanistic hypotheses that test each component independently:
+
+\textbf{h-e1 (Infrastructure Feasibility)} tests whether beam search with AST scoring is computationally viable: does AST parsing complete in <50ms per sample, and does generation finish in <30 minutes for the full benchmark?
+
+\textbf{h-m1 (Beam Diversity)} tests whether beam search maintains k=5 distinct candidates throughout generation, providing a candidate pool for validity selection. This hypothesis also validates the choice of k=5 through ablation over k $\in$ {3, 5, 10}.
+
+\textbf{h-m2 (Combined Scoring)} tests whether the scoring function correctly ranks valid beams higher than invalid beams. The proportion of valid beams during generation is measured (target: $\geq 60$\%) and compared against pure log-likelihood beam search baseline.
+
+\textbf{h-m3 (Invalid Beam Pruning)} tests whether invalid beams are systematically removed during generation, not just at initialization. The proportion of invalid beams in the top-k from generation start to completion is tracked, expecting $\geq 50$\% reduction.
+
+\textbf{h-m4 (Final Output Quality)} tests the main claim: does final output validity exceed 60\% (error rate <40\%), and does this represent significant improvement over the 70.73\% greedy baseline?
+
+Each hypothesis defines success criteria and gate types (MUST\_WORK for h-e1, SHOULD\_WORK for h-m1--h-m4), enabling structured decision-making: if h-e1 fails, the approach is abandoned (infrastructure doesn't work); if h-m2 fails, scoring weights or formula are adjusted (PIVOT); if h-m4 fails, the conclusion is that the mechanism doesn't reduce errors (ABANDON main hypothesis).
+

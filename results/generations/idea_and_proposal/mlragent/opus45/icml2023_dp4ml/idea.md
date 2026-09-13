@@ -1,0 +1,9 @@
+﻿# Title: Dual Sensitivity Maps for Neural Network Explanation via Lagrangian Perturbation Analysis
+
+## Motivation
+Despite the success of deep learning, explaining model predictions remains challenging. Current explanation methods (e.g., gradient-based saliency maps, SHAP) often lack theoretical grounding in optimization principles. Lagrange duality offers a principled framework for measuring sensitivity to perturbations—the dual variables (multipliers) naturally quantify how much the optimal objective changes with respect to constraint perturbations. This connection to sensitivity analysis is well-established in convex optimization but remains largely unexploited for explaining deep neural networks. Bridging this gap could provide more theoretically-grounded and semantically meaningful explanations.
+
+## Main Idea
+We propose formulating neural network prediction as a constrained optimization problem where input features are subject to perturbation constraints, then leveraging approximate Lagrangian duality to generate explanations. Specifically, we: (1) reformulate inference as minimizing a loss subject to bounded input perturbations in semantically meaningful directions; (2) compute approximate dual variables using techniques like convex relaxations or local linearizations around the operating point; (3) interpret these dual values as "importance scores" indicating prediction sensitivity to each feature constraint.
+
+Our methodology involves solving a sequence of relaxed dual problems at different scales, aggregating dual multipliers into "Dual Sensitivity Maps." We expect these maps to provide explanations that are more robust to adversarial manipulation and better aligned with human intuition compared to purely gradient-based methods. The approach also naturally extends to measuring sensitivity to domain-shift constraints, enabling applications in transfer learning and model adaptation diagnostics.

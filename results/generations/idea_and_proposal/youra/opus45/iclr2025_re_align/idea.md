@@ -1,0 +1,8 @@
+## Title
+Predictive Coding Training for Principled Brain-AI Representational Alignment
+
+## Motivation
+Understanding how to align artificial neural network representations with biological visual systems remains a fundamental challenge across machine learning and neuroscience. Current approaches lack principled methods to systematically increase alignment—most improvements are incidental rather than designed. This gap limits our ability to build brain-like AI systems and use AI as models of biological computation. We propose that training neural networks with the same computational objective that biological systems use—predictive coding—will produce measurably greater representational alignment.
+
+## Main Idea
+We hypothesize that predictive coding (PC) training, which minimizes hierarchical prediction errors, induces shared computational structure with biological visual systems, manifesting as increased representational alignment. We test this using ResNet-50 with four conditions: (1) standard supervised baseline, (2) architecture control (lateral connections only), (3) PC-full training, and (4) parametric PC with varying objective weights (α). Alignment is measured via debiased CKA/RSA against brain-score benchmarks (macaque V1-IT, human fMRI, mouse V1). Key predictions: PC-trained networks will significantly outperform both baselines (isolating the PC objective's effect), and alignment will show dose-response relationship with α. Falsification occurs if architecture alone explains improvements or no cross-species generalization emerges. Success would establish PC training as a principled intervention for controllable brain-AI alignment.

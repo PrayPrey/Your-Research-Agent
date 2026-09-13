@@ -1,0 +1,65 @@
+
+\subsubsection{3.1 Overview}
+
+SE-Distilled Probes (SEDP) extend SEPs by incorporating semantic similarity features as auxiliary inputs during training. The approach combines two information sources: hidden state representations from the LLM and summary statistics computed from pairwise similarities among generated responses.
+
+The training pipeline consists of:
+\begin{enumerate}
+\item Response generation: N=20 responses per question using temperature sampling
+\item SE label computation: Clustering responses via NLI entailment and computing semantic entropy
+\item Feature extraction: Hidden states from layer 25 at TBG position, plus similarity statistics
+\item Probe training: Logistic regression on concatenated features
+\end{enumerate}
+
+\subsubsection{3.2 Semantic Entropy Labels}
+
+SE labels were computed following Farquhar et al. (2024). For each question, N=20 responses were generated using temperature T=0.7. Responses were clustered by semantic equivalence using DeBERTa-v3-large-MNLI, where two responses were considered equivalent if bidirectional entailment probability exceeded 0.5.
+
+Given clusters $C_1$, ..., $C_k$ with sizes n\_1, ..., n\_k, semantic entropy was computed as:
+
+H\_SE = -sum(p\_i * log(p\_i))
+
+where p\_i = n\_i / N. SE labels were binarized using the median threshold for probe training.
+
+\subsubsection{3.3 Hidden State Extraction}
+
+Hidden states were extracted from layer 25 of Llama-3-8B-Instruct (32 layers total) at the Token-Before-Generation (TBG) position---the last token of the prompt before generation begins. This configuration was selected based on published guidance that middle-to-late layers contain SE-relevant information.
+
+\subsubsection{3.4 Similarity Feature Extraction}
+
+For each question's response set:
+\begin{enumerate}
+\item All N=20 responses were embedded using sentence-transformers (all-MiniLM-L6-v2)
+\item Pairwise cosine similarity matrix S was computed
+\item Summary statistics were extracted from the upper triangle: [mean, std, min, max]
+\end{enumerate}
+
+This produced a 4-dimensional similarity feature vector per question.
+
+\subsubsection{3.5 Probe Architecture}
+
+The baseline SEP used logistic regression on hidden states (4096 dimensions):
+
+y\_hat = sigmoid($W_h$ * h + b)
+
+SEDP extended this by concatenating similarity features:
+
+y\_hat = sigmoid(W * [h; s] + b)
+
+where s is the 4-dimensional similarity vector, yielding 4100 input dimensions. Both probes used sklearn's LogisticRegression with L2 regularization (C=1.0) and LBFGS optimizer.
+
+\subsubsection{3.6 Training Protocol}
+
+The experiment used TruthfulQA \citep{Lin2022TruthfulQA} with an 80/20 train/test split (approximately 653/164 questions) and fixed random seed 42. No hyperparameter search was performed; the experiment was designed as an existence proof to determine whether the approach produces meaningful SE correlation.
+
+\subsubsection{3.7 Evaluation Metrics}
+
+Two metrics were used:
+
+\begin{itemize}
+\item Spearman correlation (rho): Rank correlation between predicted SE probabilities and true continuous SE values. The threshold for the existence proof was rho >= 0.3.
+\end{itemize}
+
+\begin{itemize}
+\item AUROC: Binary classification performance for detecting high-uncertainty questions. Random baseline is 0.50.
+\end{itemize}

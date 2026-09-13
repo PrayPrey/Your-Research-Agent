@@ -1,0 +1,442 @@
+# Phase 3 Implementation Tasks: H-M2
+# Pre-Softmax Logit Margin Inflation — Alignment Confidence Mechanism
+# Generated: 2026-03-15 | Schema: v1.1
+
+version: "1.0"
+
+metadata:
+  hypothesis_id: "h-m2"
+  hypothesis_type: "MECHANISM"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-03-15"
+  based_on:
+    - "h-m2/03_prd.md"
+    - "h-m2/03_architecture.md"
+    - "h-m2/03_logic.md"
+    - "h-m2/03_config.md"
+  complexity_score: 12
+  complexity_level: "Simple/Moderate (INCREMENTAL)"
+  base_hypothesis: "h-m1"
+  excluded_subtasks: []
+
+tasks:
+
+  # ── ENVIRONMENT SETUP ──────────────────────────────────────────────────────
+
+  - id: "ENV-1"
+    title: "Environment Setup"
+    type: "setup"
+    priority: 94
+    description: >
+      Verify Python environment has all required packages for H-M2:
+      numpy>=1.24, scipy>=1.10, matplotlib>=3.7, seaborn>=0.12, pyyaml>=6.0.
+      Verify lm-eval v0.4.11 installed (for Path B fallback only).
+      Verify h-e1/code/calibration_analysis.py is importable.
+      Set CUDA_VISIBLE_DEVICES to empty GPU.
+    complexity: null
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "## 8. Dependencies"
+      - file: "h-m2/03_config.md"
+        section: "## Inherited Configuration"
+
+  # ── EPIC IMPLEMENTATION TASKS ─────────────────────────────────────────────
+
+  - id: "A-1"
+    title: "Project Setup — h-m2/code/ structure and config.py"
+    type: "implementation"
+    priority: 93
+    description: >
+      Create h-m2/code/ directory structure. Implement config.py with all
+      path constants (H_E1_RESULTS_DIR, H_E1_CODE_DIR, H_E1_VALIDATION_PATH,
+      H_M2_RESULTS_DIR, H_M2_FIGURES_DIR, H_M2_REPORT_PATH), gate constants
+      (GATE_TYPE="SHOULD_WORK", MIN_PPO_SIZES_PASSING=2, N_BOOTSTRAP=1000,
+      SEED=42, N_ITEMS_EXPECTED=14042), lm-eval config (LMEVAL_NUM_FEWSHOT=4),
+      and MODEL_REGISTRY (12 models). Create h-m2/figures/ and h-m2/results/ dirs.
+    complexity: 6
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "### config"
+      - file: "h-m2/03_config.md"
+        section: "## A-2: Path A Data Loader"
+      - file: "h-m2/03_logic.md"
+        section: "## A-1: Project Setup"
+
+  - id: "A-2"
+    title: "Path A Data Loader — load from H-E1 cached lm-eval outputs"
+    type: "implementation"
+    priority: 92
+    description: >
+      Implement load_data.py Path A: use h-e1's load_lmeval_samples(model_id, results_dir)
+      to load per-item log-probability matrices for all 12 Pythia models from
+      h-e1/code/results/. Validate N_items == 14042 and shape (N, 4) per model.
+      Import path: sys.path.insert(0, H_E1_CODE_DIR); from calibration_analysis import load_lmeval_samples.
+      Return ({model_key: (N,4) float64}, "Path A").
+    complexity: 10
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-2: Path A Data Loader"
+      - file: "h-m2/03_architecture.md"
+        section: "### load_data"
+      - file: "h-m2/03_config.md"
+        section: "## A-2: Path A Data Loader"
+
+  - id: "A-3"
+    title: "Path B Fallback — lm-eval re-run with --log_samples"
+    type: "implementation"
+    priority: 91
+    description: >
+      Implement Path B in load_data.py: subprocess lm_eval CLI for all 12 models
+      with --log_samples --num_fewshot 4 --tasks mmlu. Execute sequentially.
+      OOM retry with --batch_size 4. Raise RuntimeError after 2 failures.
+      Load results via load_lmeval_samples() after each run.
+      Dispatcher: try Path A first, fallback to Path B automatically.
+    complexity: 12
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-3: Path B Fallback lm-eval"
+      - file: "h-m2/03_config.md"
+        section: "## A-11: Main Orchestrator"
+
+  - id: "L-M2-3-1"
+    title: "Subtask: run_lmeval_for_model — subprocess CLI with OOM retry"
+    type: "subtask"
+    priority: 49
+    parent_epic: "A-3"
+    description: >
+      Implement run_lmeval_for_model(model_key, hf_id, output_dir, device, num_fewshot, timeout).
+      Build lm_eval CLI command with --log_samples. subprocess.run with check=True, timeout.
+      On CUDA OOM: retry with --batch_size 4. Raise RuntimeError after 2 failures.
+      Return output directory path.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-3: Path B Fallback lm-eval"
+
+  - id: "L-M2-3-2"
+    title: "Subtask: load_logprob_matrices_path_b — sequential 12-model loop"
+    type: "subtask"
+    priority: 48
+    parent_epic: "A-3"
+    description: >
+      Implement load_logprob_matrices_path_b: loop 12 models sequentially,
+      call run_lmeval_for_model for each, then load via load_lmeval_samples.
+      Validate N==14042 per model. Return ({model_key: (N,4)}, "Path B").
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-3: Path B Fallback lm-eval"
+
+  - id: "A-4"
+    title: "Core Margin Module — margin_analysis.py"
+    type: "implementation"
+    priority: 90
+    description: >
+      Implement margin_analysis.py (NEW module):
+      compute_logit_margins(logprob_matrix: (N,4)) -> margins: (N,);
+      compute_delta_margin(base_logprobs, aligned_logprobs, n_bootstrap=1000, seed=42)
+        -> (delta_mean, ci_lower_95, ci_upper_95);
+      compute_all_delta_margins(logprob_matrices, sizes, alignments) -> {alignment_size: (mean,lo,hi)};
+      verify_mechanism_activated(results_dict) -> (bool, indicators).
+      Assert margins >= 0; raise ValueError on NaN.
+    complexity: 11
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-4: Core Margin Module"
+      - file: "h-m2/03_architecture.md"
+        section: "### margin_analysis"
+      - file: "h-m2/03_prd.md"
+        section: "### FR-3: Pre-Softmax Logit Margin Computation"
+
+  - id: "L-M2-4-1"
+    title: "Subtask: compute_logit_margins + compute_delta_margin"
+    type: "subtask"
+    priority: 47
+    parent_epic: "A-4"
+    description: >
+      Implement compute_logit_margins: np.sort descending axis=1; margin=col0-col1.
+      Implement compute_delta_margin: bootstrap CI loop n=1000; assert positive margins;
+      raise ValueError on NaN. Returns (delta_mean, ci_lower, ci_upper).
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-4: Core Margin Module"
+
+  - id: "L-M2-4-2"
+    title: "Subtask: compute_all_delta_margins + verify_mechanism_activated"
+    type: "subtask"
+    priority: 46
+    parent_epic: "A-4"
+    description: >
+      Implement compute_all_delta_margins: loop 9 pairs (3 alignments × 3 sizes);
+      aggregate {alignment_size: (mean, lo, hi)} dict.
+      Implement verify_mechanism_activated: check shape==14042, margins positive,
+      delta computed; count PPO sizes with delta>0 and ci_lower>0.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-4: Core Margin Module"
+
+  - id: "A-5"
+    title: "Gradient Ordering Test — Wilcoxon signed-rank PPO>=DPO>SFT"
+    type: "implementation"
+    priority: 89
+    description: >
+      Implement test_gradient_ordering(delta_ppo, delta_dpo, delta_sft) in margin_analysis.py.
+      Wilcoxon signed-rank one-sided (alternative='greater') across 3 Pythia sizes.
+      Fallback to NaN if scipy raises ValueError (ties with n=3).
+      Returns {ppo_ge_dpo_stat, ppo_ge_dpo_p, dpo_gt_sft_stat, dpo_gt_sft_p}.
+    complexity: 7
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-5: Gradient Ordering Test"
+      - file: "h-m2/03_prd.md"
+        section: "### FR-5: Gradient Ordering Test"
+
+  - id: "A-6"
+    title: "Gate Evaluation — evaluate_should_work_gate"
+    type: "implementation"
+    priority: 88
+    description: >
+      Implement gate_and_report.evaluate_should_work_gate(delta_results).
+      PASS if >=2/3 PPO sizes have delta_mean > 0 AND ci_lower > 0.
+      On FAIL: return exploration_notes with {action: EXPLORE, hypothesis, next_step}.
+      Returns (gate_result: "PASS"|"FAIL", failed_checks, exploration_notes).
+    complexity: 7
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-6: Gate Evaluation"
+      - file: "h-m2/03_prd.md"
+        section: "### FR-4: SHOULD_WORK Gate Evaluation"
+
+  - id: "A-7"
+    title: "Figure 1 — Δmargin gate bar chart"
+    type: "implementation"
+    priority: 87
+    description: >
+      Implement visualization.plot_delta_margin_bar(delta_results, figures_dir, dpi=150).
+      Grouped bar chart: PPO/DPO/SFT × 3 sizes with asymmetric 95% CI error bars.
+      Colors: red=PPO, orange=DPO, blue=SFT. Dashed zero reference line.
+      Save to h-m2/figures/figure_01_delta_margin_gate.png. Return saved path.
+    complexity: 9
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-7: Figure 1 (Gate Chart)"
+      - file: "h-m2/03_config.md"
+        section: "## A-7: Figure 1 (Gate Chart)"
+      - file: "h-m2/03_prd.md"
+        section: "### FR-7: Figure Generation"
+
+  - id: "A-8"
+    title: "Figures 2-5 — violin, scatter, heatmap, CDF"
+    type: "implementation"
+    priority: 86
+    description: >
+      Implement visualization.py figures 2-5:
+      Fig 2: plot_margin_violin (base vs PPO 1.4b margin distributions, seaborn violin);
+      Fig 3: plot_delta_margin_vs_delta_ece (scatter 9 pairs, load ΔECE from h-e1/04_validation.md);
+      Fig 4: plot_gradient_ordering_heatmap (3×3 seaborn heatmap alignment×size);
+      Fig 5: plot_margin_cdf (empirical CDF base vs PPO 1.4b).
+      generate_all_figures() orchestrates all 5.
+    complexity: 12
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-8: Figures 2-5"
+      - file: "h-m2/03_prd.md"
+        section: "### FR-7: Figure Generation"
+
+  - id: "L-M2-8-1"
+    title: "Subtask: plot_margin_violin + plot_margin_cdf"
+    type: "subtask"
+    priority: 45
+    parent_epic: "A-8"
+    description: >
+      Implement plot_margin_violin: compute margins from logprob_matrices["pythia-1.4b-base/ppo"];
+      seaborn violin plot; save figure_02.
+      Implement plot_margin_cdf: np.sort margins empirical CDF; save figure_05.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-8: Figures 2-5"
+
+  - id: "L-M2-8-2"
+    title: "Subtask: plot_delta_margin_vs_delta_ece + plot_gradient_ordering_heatmap"
+    type: "subtask"
+    priority: 44
+    parent_epic: "A-8"
+    description: >
+      Implement load_delta_ece_from_validation: regex parse h-e1/04_validation.md for ΔECE values.
+      Implement plot_delta_margin_vs_delta_ece: scatter 9 model-size pairs with Pearson r annotation.
+      Implement plot_gradient_ordering_heatmap: seaborn 3×3 heatmap (alignment × size).
+      Save figure_03 and figure_04.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-8: Figures 2-5"
+
+  - id: "A-9"
+    title: "Validation Report — generate 04_validation.md"
+    type: "implementation"
+    priority: 85
+    description: >
+      Implement gate_and_report.generate_validation_report(...) writing h-m2/04_validation.md.
+      Required sections: metadata, gate_result (PASS/FAIL), delta_margin_table (9 pairs),
+      bootstrap_ci_ppo (3 CI lowers), gradient_ordering_stats (Wilcoxon p-values),
+      mechanism_indicators, exploration_notes (if FAIL), figure_paths, key_findings (>=3).
+      Return output path.
+    complexity: 9
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-9: Validation Report"
+      - file: "h-m2/03_config.md"
+        section: "## A-9: Validation Report"
+      - file: "h-m2/03_prd.md"
+        section: "### FR-8: Validation Report Generation"
+
+  - id: "A-10"
+    title: "verification_state.yaml Update"
+    type: "implementation"
+    priority: 84
+    description: >
+      Implement gate_and_report.write_gate_to_verification_state(gate_result, delta_results,
+      gate_report_path, verification_state_path).
+      Parse YAML, update sub_hypotheses.h-m2 gate and validation fields atomically (.tmp rename).
+      key_metrics: delta_ppo_{1.4b|2.8b|6.9b}, ci_lower_ppo_{sizes}, execution_path.
+      Preserves all other hypothesis entries unchanged.
+    complexity: 8
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-9: Validation Report"
+      - file: "h-m2/03_architecture.md"
+        section: "### gate_and_report"
+
+  - id: "A-11"
+    title: "Main Orchestrator — run_margin_analysis.py"
+    type: "implementation"
+    priority: 83
+    description: >
+      Implement run_margin_analysis.py main(smoke_test=False, device='cuda') 8-step pipeline:
+      1. load_logprob_matrices (Path A -> Path B fallback)
+      2. Validate shapes == (14042, 4)
+      3. compute_all_delta_margins (9 pairs)
+      4. test_gradient_ordering
+      5. verify_mechanism_activated
+      6. evaluate_should_work_gate
+      7. generate_all_figures
+      8. generate_validation_report + write_gate_to_verification_state + save experiment_results.json
+      CLI: --smoke-test --device args. Exit 0 on PASS, 1 on FAIL.
+    complexity: 10
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## A-11: Main Orchestrator"
+      - file: "h-m2/03_config.md"
+        section: "## A-11: Main Orchestrator"
+      - file: "h-m2/03_architecture.md"
+        section: "### run_margin_analysis"
+
+  - id: "A-12"
+    title: "Integration Test — end-to-end smoke test"
+    type: "implementation"
+    priority: 82
+    description: >
+      Implement end-to-end smoke test (--smoke-test flag, n=10 items).
+      Verify all 5 figures generated in h-m2/figures/.
+      Verify 04_validation.md written with required sections.
+      Verify experiment_results.json created.
+      Verify gate_result in {"PASS", "FAIL"}.
+      gate_result not meaningful at n=10 but all outputs must be produced.
+    complexity: 9
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## A-12: Integration Test"
+      - file: "h-m2/03_logic.md"
+        section: "## A-11: Main Orchestrator"
+
+  # ── CONFIG SUBTASKS ────────────────────────────────────────────────────────
+
+  - id: "C-2-1"
+    title: "Config subtask: Path anchor verification"
+    type: "subtask"
+    priority: 43
+    parent_epic: "A-2"
+    description: >
+      Verify _H_E1_DIR resolves correctly relative to h-m2/code/ directory.
+      H_E1_RESULTS_DIR = str(_H_E1_DIR / "code" / "results") matches h-m1 pattern.
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## A-2: Path A Data Loader"
+
+  - id: "C-2-2"
+    title: "Config subtask: Model key format verification"
+    type: "subtask"
+    priority: 42
+    parent_epic: "A-2"
+    description: >
+      Confirm MODEL_REGISTRY key format "{size}-{alignment}" matches h-e1
+      load_lmeval_samples() results directory glob pattern.
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## A-2: Path A Data Loader"
+
+  - id: "C-7-1"
+    title: "Config subtask: Figure color mapping"
+    type: "subtask"
+    priority: 41
+    parent_epic: "A-7"
+    description: >
+      Apply FigureConfig.colors: PPO=red, DPO=orange, SFT=blue, base=gray
+      consistently across all 5 figures in visualization.py.
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## A-7: Figure 1 (Gate Chart)"
+
+  - id: "C-9-1"
+    title: "Config subtask: Validation report required sections"
+    type: "subtask"
+    priority: 40
+    parent_epic: "A-9"
+    description: >
+      Implement ReportConfig.required_sections validation: gate_result, delta_margin_table,
+      bootstrap_ci_ppo, gradient_ordering_stats, execution_path, key_findings (>=3),
+      figure_paths, exploration_notes (if FAIL only).
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## A-9: Validation Report"
+
+  - id: "C-11-1"
+    title: "Config subtask: ExperimentConfig runtime population"
+    type: "subtask"
+    priority: 39
+    parent_epic: "A-11"
+    description: >
+      Populate ExperimentConfig at runtime from config.py constants:
+      hypothesis_folder, h_e1_results_dir, h_m2_results_dir, model_registry,
+      figures_dir, validation_report_path. smoke_test_n_items=10 for --smoke-test mode.
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## A-11: Main Orchestrator"
+
+  # ── FAILSAFE ───────────────────────────────────────────────────────────────
+
+  - id: "FAILSAFE-1"
+    title: "Failsafe — Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: >
+      If any step fails: check Path A vs Path B execution. If Path A fails,
+      activate Path B and retry. If gate FAIL: record EXPLORE status and
+      continue to H-M3 (SHOULD_WORK gate failure does not stop pipeline).
+      Write partial results to experiment_results.json with failure_mode field.
+      Update verification_state.yaml with actual gate result regardless.
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "### FR-4: SHOULD_WORK Gate Evaluation"
+      - file: "h-m2/02c_experiment_brief.md"
+        section: "## PoC Success Check"
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 12
+  logic_subtasks: 6
+  config_subtasks: 5
+  failsafe: 1
+  total: 25
+  budget_max: 30
+  within_budget: true
+  excluded_subtasks: 0
+  tier: "FULL"

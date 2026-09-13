@@ -1,0 +1,71 @@
+"""Fast gate-check experiment: N=500 only, 10 seeds."""
+import json
+import time
+from pathlib import Path
+
+import config
+from data import download_model_zoo, load_checkpoints, split_test_set
+from sweep import run_sweep
+from stats import summarize_all
+from evaluate import (
+    plot_gate_comparison,
+    plot_learning_curve,
+    plot_seed_scatter,
+    plot_box_distribution,
+)
+
+def main():
+    cfg = config.CONFIG
+    t0 = time.time()
+
+    print("Loading model zoo...")
+    zoo_path = download_model_zoo(cfg.data.zoo_dir)
+    items = load_checkpoints(zoo_path)
+    train_pool, test_items = split_test_set(items, cfg.data.n_test, cfg.data.split_seed)
+    print(f"Train pool: {len(train_pool)}, Test: {len(test_items)}")
+
+    # Gate check only: N=500
+    n_values = [config.PRIMARY_N]
+    seeds = cfg.train.seeds
+
+    print(f"\nRunning gate check: N={n_values}, seeds={seeds}")
+    results = run_sweep(train_pool, test_items, n_values, seeds)
+
+    print("\nComputing statistics...")
+    summary = summarize_all(results)
+
+    gate = summary[config.PRIMARY_N]
+    gate_pass = gate["pass"]
+    print(f"\n=== GATE CHECK (N={config.PRIMARY_N}) ===")
+    print(f"NFN R²: {gate['mean_r2_nfn']:.4f} ± {gate['std_r2_nfn']:.4f}")
+    print(f"MLP R²: {gate['mean_r2_mlp']:.4f} ± {gate['std_r2_mlp']:.4f}")
+    print(f"Delta:  {gate['mean_delta']:.4f} ± {gate['std_delta']:.4f}")
+    print(f"p-value: {gate['p_value']:.4e}")
+    print(f"PASS: {gate_pass} (target delta >= {config.R2_DELTA_TARGET}, p < {config.ALPHA})")
+
+    print("\nGenerating figures...")
+    figures_dir = cfg.figures_dir
+    plot_gate_comparison(results, config.PRIMARY_N, f"{figures_dir}/gate_comparison.png")
+    plot_seed_scatter(results, config.PRIMARY_N, f"{figures_dir}/seed_scatter.png")
+    plot_box_distribution(results, config.PRIMARY_N, f"{figures_dir}/box_distribution.png")
+    print(f"Figures saved to {figures_dir}/")
+
+    results_dir = cfg.results_dir
+    Path(results_dir).mkdir(parents=True, exist_ok=True)
+    output = {
+        "results": results,
+        "summary": {str(k): v for k, v in summary.items()},
+        "gate_n": config.PRIMARY_N,
+        "gate_pass": gate_pass,
+        "elapsed_sec": time.time() - t0,
+    }
+    with open(f"{results_dir}/results.json", "w") as f:
+        json.dump(output, f, indent=2)
+    print(f"Results saved to {results_dir}/results.json")
+
+    print(f"\nTotal time: {output['elapsed_sec']:.1f}s")
+    print("EXPERIMENT COMPLETE")
+    return output
+
+if __name__ == "__main__":
+    main()

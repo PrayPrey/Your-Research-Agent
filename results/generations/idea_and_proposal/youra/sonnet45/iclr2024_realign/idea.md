@@ -1,0 +1,8 @@
+# Title
+Causal Dissection of Representational Alignment and Computational Mechanisms in Vision Transformers
+
+# Motivation
+Despite extensive research on representational alignment between biological and artificial neural networks, a fundamental question remains unanswered: Does alignment causally drive computational mechanisms, or is it merely a byproduct of shared optimization? Current studies show correlations between alignment and beneficial properties (generalization, efficiency), but lack interventional evidence. Understanding this causal relationship is critical for AI safety and interpretability—if alignment drives computation, it becomes an actionable lever for steering model behavior; if not, alternative intervention targets are needed.
+
+# Main Idea
+We test whether representational alignment causally affects computational mechanisms using a dual-measurement intervention design. We train Vision Transformers (ViT-B/16) on ImageNet with varying alignment pressure (λ ∈ {0, 0.5, 1.0}) via REPA-style loss, while controlling task accuracy (±5%). We simultaneously measure alignment (CKA similarity to reference) and computational flow (attention entropy, mutual information I(X;T), I(T;Y)). **Causal hypothesis**: Increasing alignment systematically changes computational mechanisms. **Null hypothesis**: Alignment and computation are dissociable—alignment increases without affecting information flow patterns. Statistical validation uses mixed-effects ANOVA with accuracy covariate across 9 models (3 conditions × 3 seeds). This establishes whether alignment is a causal driver or epiphenomenal indicator, directly informing representation engineering strategies for AI safety.

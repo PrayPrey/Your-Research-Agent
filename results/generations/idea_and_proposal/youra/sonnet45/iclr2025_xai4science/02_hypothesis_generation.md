@@ -1,0 +1,315 @@
+# Phase 2A Extended: Hypothesis Clarification Summary
+# SynthEx - Hybrid Synthetic-Real Verification Framework
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** Round 1 (FEASIBLE)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-SynthEx-001
+**Confidence Level:** 0.85
+
+**Main Hypothesis (H1):**
+
+Ante-hoc interpretable models that demonstrate high explanation-oracle alignment on synthetic tasks with constructible ground-truth explanations (structural alignment ≥0.85, semantic similarity ≥0.80, causal consistency ≥0.75) will exhibit significantly higher faithfulness on real-world tasks (measured by expert-validated explanation agreement ≥0.70) compared to models selected without synthetic verification (baseline agreement ~0.45-0.55).
+
+**Alternative Hypothesis (H0):**
+
+Synthetic oracle alignment scores do NOT predict real-world faithfulness. Models passing synthetic verification show no significant difference in expert-validated explanation agreement compared to randomly selected models (both ~0.45-0.55).
+
+### 1.2 Variables
+
+| Variable Type | Name | Operationalization | Measurement |
+|--------------|------|-------------------|-------------|
+| **Independent (IV1)** | Ante-hoc Model Architecture | Model type used for self-explanation | Categorical: Concept-based, Attention-based, Prototype-based |
+| **Independent (IV2)** | Synthetic Task Complexity | Number of ground-truth causal factors | Continuous: 2-10 causal factors |
+| **Independent (IV3)** | Verification Stage | Which stage of SynthEx framework | Categorical: Stage 1 (synthetic), Stage 2 (real) |
+| **Dependent (DV1)** | Synthetic Faithfulness Score | Explanation-oracle alignment | Continuous: F = 0.4*S + 0.3*M + 0.3*C (0.0-1.0) |
+| **Dependent (DV2)** | Real-world Faithfulness | Expert-validated explanation agreement | Continuous: Cohen's kappa (0.0-1.0) |
+| **Controlled (CV1)** | Synthetic Data Generation | Embedded ground-truth mechanism | Fixed: Causal graph with known edge weights |
+| **Controlled (CV2)** | Expert Labeling Protocol | Real-world explanation annotation | Fixed: 3 domain experts, majority vote |
+| **Controlled (CV3)** | Training Procedure | Model optimization setup | Fixed: Adam, lr=1e-3, batch=32, epochs=100 |
+
+**Metric Definitions:**
+- **S (Structural):** Top-k feature importance overlap with oracle (threshold ≥0.85)
+- **M (Semantic):** Cosine similarity of explanation embeddings (threshold ≥0.80)
+- **C (Causal):** Intervention direction prediction accuracy (threshold ≥0.75)
+- **F (Composite):** Weighted combination 0.4*S + 0.3*M + 0.3*C
+
+### 1.3 Causal Mechanism
+
+**Proposed Causal Chain:**
+
+```
+Synthetic Task Design (Constructible GT)
+    ↓ [BY CONSTRUCTION]
+Ground-Truth Oracle Available
+    ↓ [ESTABLISHED METHODOLOGY]
+Quantitative Faithfulness Measurement
+    ↓ [TRANSFER ASSUMPTION - KEY]
+High Synthetic Alignment Score
+    ↓ [EMPIRICAL VALIDATION NEEDED]
+Model Explanation Mechanism Validated
+    ↓ [CRITICAL LINK]
+Higher Real-World Faithfulness
+```
+
+**Evidence for Causal Links:**
+
+1. **Synthetic Design → GT Oracle:** STRONG (by construction, Eris & Wagner 2025)
+2. **GT Oracle → Quantitative Measurement:** STRONG (Rao et al. 2022 methodology)
+3. **High Synthetic Score → Validated Mechanism:** MODERATE (requires empirical validation)
+4. **Validated Mechanism → Real Faithfulness:** MODERATE-HIGH (systems engineering V&V analogy, Meyer 2023)
+
+**Key Tension:**
+Synthetic tasks must be simple enough for constructible ground-truth BUT complex enough to reflect real explanation challenges. Resolved by two-stage design: Stage 1 efficient screening, Stage 2 validates transfer.
+
+### 1.4 Key Assumptions
+
+**A1. Synthetic Representativeness:**
+Synthetic tasks can capture essential causal structures present in real scientific tasks.
+- *Testability:* Measure correlation between synthetic and real scores
+- *Risk:* No transfer if violated
+- *Mitigation:* Domain expert involvement in task design
+
+**A2. Ground-Truth Constructibility:**
+Ground-truth explanations can be embedded in data generation process for scientific tasks.
+- *Testability:* Expert validation of synthetic oracle plausibility
+- *Risk:* Synthetic oracles measure wrong thing
+- *Mitigation:* Align synthetic causal graphs with domain knowledge
+
+**A3. Explanation Transfer:**
+Models generating faithful explanations on synthetic tasks use generalizable reasoning mechanisms.
+- *Testability:* Test on out-of-distribution synthetic tasks
+- *Risk:* Models overfit to synthetic explanations
+- *Mitigation:* Diverse synthetic task battery, architectural constraints
+
+**A4. Metric Sufficiency:**
+Structural, semantic, and causal alignment metrics sufficiently capture faithfulness.
+- *Testability:* Compare metric scores with human expert assessments
+- *Risk:* High metrics but low expert agreement
+- *Mitigation:* Multi-metric approach, expert validation in Stage 2
+
+### 1.5 Scope & Boundaries
+
+**Applies To:**
+- ✅ Ante-hoc models with explicit explanation modules (concept-based, attention-based, prototype-based)
+- ✅ Scientific domains: Climate attribution, Materials property prediction, Healthcare diagnostics
+- ✅ Supervised classification/regression tasks with 2-10 causal factors
+
+**Does NOT Apply To:**
+- ❌ Post-hoc explanation methods (SHAP, LIME, GradCAM)
+- ❌ Black-box models without explanation modules
+- ❌ Fully black-box scientific problems (no known causal structure)
+- ❌ Tasks requiring strictly qualitative explanations
+
+**Known Boundaries:**
+- Synthetic task complexity limited by oracle construction cost
+- Real-world validation requires domain experts (availability constraint)
+- Evaluates explanation faithfulness, NOT primary task accuracy
+- Transfer guarantee strongest when synthetic-real causal structures align
+
+### 1.6 Testable Predictions
+
+**Primary Prediction (P1):**
+
+IF ante-hoc model M achieves composite synthetic faithfulness score ≥0.80 on diverse synthetic task battery (n≥20 tasks),
+THEN M will show expert-validated explanation agreement ≥0.70 on real-world test set (n≥100 samples, 3 experts),
+COMPARED TO models without synthetic verification showing baseline agreement ~0.45-0.55.
+
+**Measurable Outcome:** Cohen's kappa ≥0.70 vs baseline ~0.50, p<0.05, Cohen's d≥0.8
+
+**Secondary Prediction (P2):**
+
+IF synthetic tasks include domain-specific causal structures (physics-informed, chemistry-informed, clinically-informed),
+THEN synthetic-verified models will show higher domain-specific faithfulness (≥0.75) compared to generic synthetic tasks (~0.60).
+
+**Secondary Prediction (P3):**
+
+IF model architecture has structural bias toward interpretability (concept bottleneck, sparse attention),
+THEN it will achieve higher synthetic faithfulness scores (≥0.85) compared to unconstrained architectures (≤0.70).
+
+**Falsification Criteria:**
+
+Hypothesis is FALSIFIED if ANY of:
+1. No correlation: r(synthetic, real) < 0.3, p > 0.05 across ≥5 model types
+2. No advantage: Verified models show real agreement ≤0.55 (within baseline range)
+3. Gaming observed: Synthetic score ≥0.85 but real agreement <0.40
+4. Cross-domain failure: Framework works in one domain but fails (r<0.2) in others
+
+### 1.7 Statistical Verification Design
+
+**Experimental Design:** Mixed between-within subjects
+- Between: Model Architecture (3-5 types)
+- Within: Verification Stage (Stage 1: Synthetic, Stage 2: Real)
+
+**Sample Sizes:**
+- Stage 1: 20-30 synthetic tasks per domain × 3 domains = 60-90 total
+- Stage 2: 100-150 samples per domain with expert labels = 300-450 total
+- Models tested: 15-25 models (3-5 architectures × 3-5 variants)
+
+**Primary Hypothesis Test:**
+- H1: μ(real_agreement | synthetic_score ≥ 0.80) > μ(real_agreement | no_verification)
+- Test: Independent samples t-test
+- Expected effect: Cohen's d ≥ 0.8
+- Power: n=15 models per group for 80% power at α=0.05
+
+**Secondary Analyses:**
+1. Correlation: Pearson r between synthetic score and real agreement (expected r≥0.6)
+2. Regression: Real_agreement ~ Synthetic_score + Architecture + Domain
+3. ANOVA: 3×3 design (Architecture × Domain) on synthetic scores
+
+**Success Criteria:**
+- Primary: p<0.05, Cohen's d≥0.8
+- Correlation: r≥0.6, p<0.01
+- Replication: Effect holds across all 3 domains
+
+---
+
+## 2. Contribution Summary
+
+**Primary Contribution:**
+
+**Explanation Oracle Framework** - First systematic adaptation of test oracle methodology from systems engineering to ante-hoc XAI, enabling automated, quantitative faithfulness verification through synthetic tasks with constructible ground-truth explanations.
+
+**Supporting Contributions:**
+
+**Theoretical (TC1-2):**
+1. Explanation Oracle concept - ground-truth explanations constructible by design
+2. Synthetic-Real Transfer Principle - empirical validation that synthetic faithfulness predicts real faithfulness
+
+**Methodological (MC1-2):**
+1. Two-Stage Hybrid Verification Framework (synthetic screening + real validation)
+2. Multi-metric faithfulness assessment (structural + semantic + causal alignment)
+3. Domain-specific oracle construction guidelines (physics/chemistry/clinical-informed)
+
+**Practical (PC1-2):**
+1. Benchmark suite for ante-hoc XAI (60-90 synthetic tasks across 3 domains)
+2. Efficient screening protocol (~70% reduction in expert annotation burden)
+
+**Gap Addressed:**
+Gap 2 - Ante-hoc Interpretability Faithfulness Verification (CRITICAL impact)
+
+**Novelty:**
+- First test oracle application to ante-hoc XAI
+- First empirical study of synthetic-real faithfulness transfer
+- First domain-specific XAI verification framework for scientific applications
+
+---
+
+## 3. Key Related Work
+
+**Foundation Papers (Phase 1 Evidence):**
+
+1. **Christiansen et al. 2023** - "How Faithful are Self-Explainable GNNs?"
+   - Relationship: MOTIVATION - identifies faithfulness problem
+   - SynthEx builds on: Provides systematic verification solution
+
+2. **Rao et al. 2022** - "Towards Better Understanding Attribution Methods"
+   - Relationship: METHODOLOGY - faithfulness metrics
+   - SynthEx extends: Adapts to ante-hoc context with ground-truth oracles
+
+3. **Di Marino et al. 2025** - "Ante-Hoc Methods Survey"
+   - Relationship: LANDSCAPE - comprehensive ante-hoc overview
+   - SynthEx fills gap: Unified verification framework across all methods
+
+**Cross-Domain Inspiration:**
+
+1. **Meyer & Oosthuizen 2023** - "V&V Methods for AI Systems"
+   - Source domain: Systems Engineering
+   - Transferred concept: Test oracle methodology
+   - Translation fidelity: HIGH
+
+2. **Eris & Wagner 2025** - "Explainable Testing for Automotive Systems"
+   - Source domain: Automotive Safety
+   - Transferred concept: Automated verification pipeline
+   - Translation fidelity: HIGH
+
+**Comparison to Existing Approaches:**
+
+| Method | Objectivity | Scalability | Transfer Validity | Cost | SynthEx Advantage |
+|--------|-------------|-------------|-------------------|------|-------------------|
+| Qualitative | Low | Low | N/A | Low | Objective + Scalable |
+| Post-hoc comparison | Medium | High | Unknown | Medium | Independent GT oracle |
+| Synthetic-only | High | High | Unknown | Low | Validates transfer (Stage 2) |
+| **SynthEx** | **High** | **High** | **Validated** | **Medium** | **Best of all** |
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence): Synthetic Faithfulness Measurement**
+- Tests: Can we build synthetic tasks with reliable oracles and metrics?
+- Experiments: Task battery construction, oracle validation, metric reliability
+- Success: Oracle plausibility ≥0.80, metric reliability α≥0.75
+
+**SH2 (Mechanism): Synthetic-Real Transfer Correlation**
+- Tests: Do synthetic scores predict real faithfulness?
+- Experiments: Correlation analysis across architectures and domains
+- Success: r≥0.6, p<0.01, consistent across all domains
+
+**SH3 (Comparison): Synthetic Verification Advantage**
+- Tests: Do verified models outperform unverified on real tasks?
+- Experiments: Verified vs unverified comparison, threshold sensitivity
+- Success: Mean difference ≥0.15, p<0.05, Cohen's d≥0.8
+
+### Readiness Checklist
+
+- ✅ Variables: Clearly defined, operationalized, measurable
+- ✅ Predictions: Testable, falsifiable, quantified
+- ✅ Scope: Bounded with explicit exclusions
+- ✅ Assumptions: Stated with testability and mitigation
+- ✅ Contributions: Defined and differentiated from existing work
+- ✅ Related Work: Foundation papers, cross-domain sources, comparisons
+- ✅ Statistical Design: Tests specified, power analysis, controls
+
+**Phase 2B Readiness: READY ✅**
+
+### Open Questions
+
+1. **Metric Weighting:** Should F = 0.4*S + 0.3*M + 0.3*C be learned or domain-specific?
+2. **Task Diversity:** What's minimum synthetic task count for reliable verification?
+3. **Transfer Boundaries:** What synthetic-real mismatches break transfer?
+4. **Expert Threshold:** Is κ≥0.70 appropriate or should it be domain-dependent?
+5. **Architecture Adaptations:** Do concept-based vs attention-based need different oracle designs?
+
+---
+
+## Key Clarifications Achieved
+
+**From Phase 2A to Phase 2A Extended:**
+
+1. **Mode Selection:** Clarified as Mechanism Study (investigating transfer relationship)
+2. **Scope Narrowing:** Reduced from "ante-hoc models" to specific architectures and 3 domains
+3. **Metric Precision:** Operationalized S, M, C with formulas and thresholds
+4. **Statistical Design:** Specified exact tests, sample sizes, power analysis
+5. **Transfer Assumption:** Made explicit with testability criteria and mitigation
+
+**Impact on Phase 2B:**
+- Clear experimental roadmap (SH1-3 map to specific experiments)
+- Reduced ambiguity (all metrics operationalized, thresholds quantified)
+- Feasibility increased (scope bounded to 3 domains, 2-10 factors)
+- Falsification enabled (clear criteria for rejecting hypothesis)
+
+---
+
+**One-Sentence Summary:**
+
+Ante-hoc interpretable models passing quantitative faithfulness tests on synthetic tasks with ground-truth explanation oracles (composite score ≥0.80) will show significantly higher expert-validated explanation agreement on real scientific tasks (≥0.70) compared to unverified baselines (~0.50), establishing a two-stage verification framework that reduces expert annotation burden by ~70% while maintaining validity.
+
+---
+
+*Generated: 2026-02-06*
+*Phase: 2A Extended (Scientific Clarification)*
+*Status: Ready for Phase 2B Verification Planning*
+*Hypothesis ID: H-SynthEx-001*
+*Confidence: 0.85*
+*Gap Addressed: Gap 2 - Ante-hoc Interpretability Faithfulness Verification*

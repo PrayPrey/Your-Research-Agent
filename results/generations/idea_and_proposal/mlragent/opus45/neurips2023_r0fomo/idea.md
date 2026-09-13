@@ -1,0 +1,9 @@
+﻿# Title: Uncertainty-Guided Prompt Ensemble for Robust Few-Shot Learning
+
+## Motivation
+Few-shot learning with foundation models is highly sensitive to prompt design and example selection, where small variations can cause dramatic performance drops. Current approaches lack reliable mechanisms to detect when predictions are likely to fail under distribution shift. This unpredictability poses significant risks when deploying foundation models in real-world applications where robustness is critical. We need methods that can both quantify uncertainty and actively leverage it to improve robustness.
+
+## Main Idea
+We propose an uncertainty-guided prompt ensemble framework that dynamically combines multiple prompting strategies based on estimated prediction confidence. The approach works in three stages: (1) Generate diverse prompts through automated paraphrasing and example permutation, creating a prompt bank with varied linguistic structures and example orderings; (2) Train a lightweight uncertainty estimator using Monte Carlo dropout and semantic consistency checking across prompt variations to identify inputs where the model is likely unreliable; (3) For high-uncertainty inputs, dynamically aggregate predictions across the prompt ensemble using learned attention weights, while routing confident predictions through a single optimized prompt for efficiency.
+
+We will evaluate on standard few-shot benchmarks under various distribution shifts (domain, style, adversarial perturbations) and measure both accuracy and calibration. Expected outcomes include improved worst-case performance and better-calibrated confidence estimates that correlate with actual error rates, enabling safer deployment with appropriate human oversight when uncertainty is high.

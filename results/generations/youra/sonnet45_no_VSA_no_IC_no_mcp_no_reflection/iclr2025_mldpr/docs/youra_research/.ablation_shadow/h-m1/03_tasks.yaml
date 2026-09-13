@@ -1,0 +1,275 @@
+data_preparation:
+- acceptance_criteria:
+  - Symlink h-m1/data -> h-e1/data/pwc_leaderboards exists
+  - '3 JSONL files accessible: imagenet_raw.jsonl, glue_raw.jsonl, squad_raw.jsonl'
+  dependencies: []
+  description: Create symlink from h-m1/data to h-e1/data/pwc_leaderboards (reuse
+    validated JSONL)
+  estimated_complexity: 1
+  id: M1-DATA-1
+  priority: P0
+  reference_files:
+  - 03_prd.md#FR-1
+  - 03_architecture.md#External-Dependencies
+  status: pending
+  title: Symlink h-e1 Data
+  type: data
+environment_setup:
+- acceptance_criteria:
+  - All packages installed successfully
+  - Python 3.8+ verified
+  dependencies: []
+  description: Install pandas>=1.3.0, numpy>=1.21.0, scipy>=1.7.0, matplotlib>=3.4.0
+  estimated_complexity: 1
+  id: M1-ENV-1
+  priority: P0
+  reference_files:
+  - 03_prd.md#Dependencies
+  status: pending
+  title: Install Dependencies
+  type: environment
+failsafe:
+- acceptance_criteria:
+  - Loads ImageNet JSONL only
+  - Computes rolling std (6mo window, 0.5% threshold)
+  - Prints first convergence date
+  - Validates 2017-2020 range
+  dependencies: []
+  description: If main pipeline fails, implement simplified convergence detection
+    for ImageNet only (expected to converge 2017-2020)
+  estimated_complexity: 3
+  id: M1-FAILSAFE
+  priority: P2
+  reference_files:
+  - 03_prd.md#Risks-Mitigations
+  status: pending
+  title: 'Minimal PoC: Single Benchmark Convergence'
+  type: failsafe
+implementation:
+- acceptance_criteria:
+  - PWCDataLoader class implemented
+  - load_benchmark() returns DataFrame with [submission_date, score, benchmark, model_name]
+  - prepare_monthly_aggregation() adds 'month' column (Period[M])
+  breakdown: 1+1+1+1 (file I/O + parsing + groupby + validation)
+  dependencies:
+  - M1-DATA-1
+  - M1-ENV-1
+  description: Load h-e1 JSONL, monthly aggregation
+  estimated_complexity: 4
+  id: M1-1
+  priority: P0
+  reference_files:
+  - 03_architecture.md#Epic-Tasks
+  - 03_prd.md#FR-1
+  - 03_logic.md#data_loader.py
+  status: pending
+  title: Data Loading
+  type: epic
+- acceptance_criteria:
+  - ConvergenceDetector class implemented
+  - compute_rolling_std() returns Series[month] -> float
+  - 'Handles edge cases: min_periods=3, handles missing months'
+  breakdown: 2+2+3+2 (groupby + nlargest + rolling + edge cases)
+  dependencies:
+  - M1-1
+  description: Top-5 extraction, 6-month rolling std
+  estimated_complexity: 9
+  id: M1-2
+  priority: P0
+  reference_files:
+  - 03_architecture.md#Epic-Tasks
+  - 03_prd.md#FR-2
+  - 03_logic.md#convergence_detector.py
+  status: pending
+  subtasks:
+  - M1-2-1
+  - M1-2-2
+  title: Rolling Window Statistics
+  type: epic
+- acceptance_criteria:
+  - detect_first_convergence() returns (date, std) or (None, None)
+  - Handles benchmarks with no convergence gracefully
+  breakdown: 2+1+2+1 (mask logic + first index + storage + error handling)
+  dependencies:
+  - M1-2
+  description: First convergence date per benchmark
+  estimated_complexity: 6
+  id: M1-3
+  priority: P0
+  reference_files:
+  - 03_architecture.md#Epic-Tasks
+  - 03_prd.md#FR-3
+  - 03_logic.md#convergence_detector.py
+  status: pending
+  subtasks:
+  - M1-3-1
+  title: Convergence Detection
+  type: epic
+- acceptance_criteria:
+  - StatisticalValidator.levene_test() returns {stat, pvalue}
+  - validate_convergence() returns dict with test results per benchmark
+  - p<0.05 threshold checked
+  breakdown: 2+2+2+1 (pre/post split + scipy call + p-value interpretation + reporting)
+  dependencies:
+  - M1-3
+  description: Levene's test pre/post convergence
+  estimated_complexity: 7
+  id: M1-4
+  priority: P1
+  reference_files:
+  - 03_architecture.md#Epic-Tasks
+  - 03_prd.md#FR-4
+  - 03_logic.md#statistical_validator.py
+  status: pending
+  title: Statistical Validation
+  type: epic
+- acceptance_criteria:
+  - ConvergenceVisualizer.plot_timeline() generates PNG per benchmark
+  - Threshold line at 0.5% displayed
+  - Convergence zone shaded green
+  - Saved to figures/convergence_timeline_{benchmark}.png
+  breakdown: 2+2+2+2 (matplotlib setup + 3 benchmarks + threshold shading + save)
+  dependencies:
+  - M1-2
+  description: Rolling std plots with threshold line
+  estimated_complexity: 8
+  id: M1-5
+  priority: P1
+  reference_files:
+  - 03_architecture.md#Epic-Tasks
+  - 03_prd.md#FR-5
+  - 03_logic.md#visualizer.py
+  status: pending
+  subtasks:
+  - M1-5-1
+  title: Timeline Visualization
+  type: epic
+- acceptance_criteria:
+  - plot_gate_metrics() generates bar chart
+  - Shows target (2/3 benchmarks) vs actual convergence count
+  - Saved to figures/gate_metrics.png
+  breakdown: 2+1+1+1 (data prep + bar chart + labels + save)
+  dependencies:
+  - M1-3
+  description: Target vs actual bar chart
+  estimated_complexity: 5
+  id: M1-6
+  priority: P0
+  reference_files:
+  - 03_architecture.md#Epic-Tasks
+  - 03_prd.md#FR-6
+  - 03_logic.md#visualizer.py
+  status: pending
+  title: Gate Metrics Comparison
+  type: epic
+- acceptance_criteria:
+  - run_convergence_experiment() executes full pipeline
+  - Outputs results/convergence_results.json
+  - 'Prints summary: convergence dates, p-values, gate status (PASS/FAIL)'
+  breakdown: 2+1+2+2 (loop logic + error handling + JSON serialization + console output)
+  dependencies:
+  - M1-1
+  - M1-2
+  - M1-3
+  - M1-4
+  - M1-5
+  - M1-6
+  description: Main experiment loop, results JSON
+  estimated_complexity: 7
+  id: M1-7
+  priority: P0
+  reference_files:
+  - 03_architecture.md#Epic-Tasks
+  - 03_architecture.md#Integration-Points
+  - 03_logic.md#main_experiment.py
+  status: pending
+  title: Pipeline Orchestration
+  type: epic
+- acceptance_criteria:
+  - min_periods=3 prevents spurious convergence on 1-2 months
+  - Missing months interpolated or skipped cleanly
+  dependencies:
+  - M1-2
+  description: Handle sparse data, missing months, min_periods validation
+  estimated_complexity: 2
+  id: M1-2-1
+  parent: M1-2
+  priority: P0
+  reference_files:
+  - 03_logic.md#Subtask-M1-2-1
+  status: pending
+  title: 'Edge Case Handling: Rolling Window'
+  type: subtask
+- acceptance_criteria:
+  - nlargest(5) extracts top-5 per month
+  - Ties handled consistently (first 5 in sorted order)
+  dependencies:
+  - M1-2
+  description: Extract top-5 scores per month, handle ties
+  estimated_complexity: 2
+  id: M1-2-2
+  parent: M1-2
+  priority: P0
+  reference_files:
+  - 03_logic.md#Subtask-M1-2-2
+  status: pending
+  title: Top-K Selection Per Month
+  type: subtask
+- acceptance_criteria:
+  - detect_first_convergence() returns (None, None) when no convergence
+  - Downstream code handles None without crashing
+  dependencies:
+  - M1-3
+  description: Return None gracefully when no month satisfies threshold
+  estimated_complexity: 1
+  id: M1-3-1
+  parent: M1-3
+  priority: P1
+  reference_files:
+  - 03_logic.md#Subtask-M1-3-1
+  status: pending
+  title: No-Convergence Handling
+  type: subtask
+- acceptance_criteria:
+  - Green shading below 0.5% threshold line
+  - Alpha=0.2 for transparency
+  dependencies:
+  - M1-5
+  description: fill_between for convergence zone visualization
+  estimated_complexity: 1
+  id: M1-5-1
+  parent: M1-5
+  priority: P1
+  reference_files:
+  - 03_logic.md#Subtask-M1-5-1
+  status: pending
+  title: Threshold Shading
+  type: subtask
+metadata:
+  budget: 30
+  complexity_level: Simple
+  complexity_score: 11
+  epic_tasks: 7
+  generated_at: '2026-08-28T11:15:00Z'
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  subtasks: 4
+  tier: FULL
+  total_tasks: 11
+summary:
+  by_priority:
+    P0: 9
+    P1: 3
+    P2: 1
+  by_status:
+    completed: 0
+    failed: 0
+    in_progress: 0
+    pending: 11
+  by_type:
+    data: 1
+    environment: 1
+    epic: 7
+    failsafe: 1
+    subtask: 4
+  total: 11

@@ -1,0 +1,605 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-05-04T10:15:00.000000+00:00"
+  source_documents:
+    - h-m2/03_prd.md
+    - h-m2/03_architecture.md
+    - h-m2/03_logic.md
+    - h-m2/03_config.md
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 18
+  failsafe: 1
+  total: 30
+
+tasks:
+  # ─── Environment Setup ───────────────────────────────────────────────────────
+  - id: "ENV-1"
+    title: "Environment Setup"
+    type: "setup"
+    priority: 94
+    description: >
+      Install required Python packages and verify GPU availability.
+      Packages: torch>=2.0, transformers>=4.35, peft>=0.6, datasets>=2.14,
+      scipy>=1.10, numpy>=1.24, matplotlib>=3.7, pandas>=2.0, tqdm>=4.65.
+      Set CUDA_VISIBLE_DEVICES to a single empty GPU.
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "## 7. Dependencies"
+      - file: "h-m2/03_config.md"
+        section: "## Environment / Path Configuration"
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "torch.cuda.is_available() == True"
+      - "CUDA_VISIBLE_DEVICES set to single GPU"
+
+  # ─── Epic Tasks ──────────────────────────────────────────────────────────────
+  - id: "A-1"
+    title: "Project Setup"
+    type: "setup"
+    priority: 93
+    complexity: 7
+    description: >
+      Create h-m2/code/ directory structure. Implement config.py with
+      BudgetSweepConfig and AdapterSpec dataclasses. Wire H-E1 adapter path
+      resolution (outputs/h-e1/{model}-{condition}/). Implement get_default_config()
+      returning all 4 adapter combinations (LLaMA-2-7B + Mistral-7B × sequential +
+      eviction-aware). Implement validate_config() checking adapter path existence.
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "### config.py"
+      - file: "h-m2/03_config.md"
+        section: "## BudgetSweepConfig Dataclass"
+      - file: "h-m2/03_logic.md"
+        section: "## config.py — API"
+    acceptance_criteria:
+      - "BudgetSweepConfig instantiates with defaults"
+      - "get_default_config() returns 4 AdapterSpec entries"
+      - "validate_config() raises ValueError for missing adapter paths"
+
+  - id: "A-2"
+    title: "Dataset Module"
+    type: "data-pipeline"
+    priority: 92
+    complexity: 10
+    description: >
+      Implement dataset.py as thin wrapper re-exporting from h-m1/code/data.py via
+      importlib dynamic loading. Add TASK_SCORER_MAP mapping all 21 LongBench tasks
+      to scorer functions (F1 / ROUGE-L / accuracy / edit-distance). Implement
+      score_prediction(task_name, prediction, answers) and run_task_evaluation()
+      running full test split for one task with batch_size=1. Implement
+      compute_category_accuracies() aggregating to 6-category means using
+      LONGBENCH_CATEGORIES with hyphenated keys.
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "### dataset.py"
+      - file: "h-m2/03_logic.md"
+        section: "## dataset.py — API"
+      - file: "h-m2/03_config.md"
+        section: "## LongBench Task Configuration"
+    acceptance_criteria:
+      - "LONGBENCH_TASKS has 21 entries"
+      - "LONGBENCH_CATEGORIES has 6 hyphenated keys"
+      - "compute_category_accuracies returns 6 non-NaN values"
+      - "run_task_evaluation returns float score"
+
+  - id: "A-3"
+    title: "Model Module"
+    type: "model"
+    priority: 91
+    complexity: 11
+    description: >
+      Implement model.py with importlib dynamic loading of H2OEvictionAwareAttention,
+      inject_h2o_wrappers, load_base_model from h-e1/code/model.py and
+      load_adapter_model, set_h2o_training_mode from h-m1/code/model.py.
+      Implement set_h2o_budget(model, kv_budget_ratio) via direct attribute assignment
+      on all H2OEvictionAwareAttention instances; raise ValueError if no wrappers found.
+      Implement verify_budget_applied(model, expected_ratio) checking all wrappers.
+      Implement load_model_for_sweep() loading base + PEFT adapter with
+      attn_implementation='eager', injecting H2O wrappers for eviction-aware type,
+      returning model in eval mode. Map "sequential" -> condition "baseline".
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "### model.py"
+      - file: "h-m2/03_logic.md"
+        section: "## model.py — API"
+      - file: "h-m2/03_logic.md"
+        section: "## External Dependencies API"
+    acceptance_criteria:
+      - "set_h2o_budget sets kv_budget_ratio on all H2OEvictionAwareAttention instances"
+      - "verify_budget_applied returns True when ratio matches"
+      - "load_model_for_sweep returns model in eval mode"
+      - "ValueError raised if no H2O wrappers found"
+
+  - id: "A-4"
+    title: "BudgetSweepEvaluator"
+    type: "evaluation"
+    priority: 90
+    complexity: 13
+    description: >
+      Implement evaluate.py with RunResult dataclass (model_name, adapter_type,
+      budget_ratio, per_task_scores, category_scores). Implement
+      BudgetSweepEvaluator.evaluate_single_run(): set H2O budget, activate eviction
+      via set_h2o_training_mode(model, True), run all 21 LongBench tasks, return
+      RunResult. Implement BudgetSweepEvaluator.run_all(): execute all 12 runs
+      (2 adapter types × 3 budget ratios × 2 models) with GPU memory management
+      (load/unload models). Implement save_run_results() saving CSV.
+      Implement verify_mechanism_activated() checking budget_set + gap_variance_nonzero.
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "### evaluate.py"
+      - file: "h-m2/03_logic.md"
+        section: "## evaluate.py — API"
+      - file: "h-m2/03_prd.md"
+        section: "### FR-3: Budget-Ratio Sweep Evaluator"
+    acceptance_criteria:
+      - "run_all() returns exactly 12 RunResult objects"
+      - "Each RunResult has 6 category_scores entries"
+      - "CSV output contains all 12 runs"
+      - "set_h2o_training_mode called before each evaluation run"
+
+  - id: "A-5"
+    title: "SpearmanAnalyzer"
+    type: "analysis"
+    priority: 89
+    complexity: 12
+    description: >
+      Implement analyze.py with GapMatrix (per-model per-r per-category gaps and
+      mean_gaps), SpearmanResult (model_name, rho, pval, gate_passed where
+      gate_passed = rho < -0.8), MonotonicityResult (per_category bool dict,
+      fraction_monotone). Implement SpearmanAnalyzer.compute_gap_matrix() building
+      GapMatrix from List[RunResult]. Implement compute_spearman() calling
+      scipy.stats.spearmanr([0.25, 0.50, 0.75], [mean_gap_25, mean_gap_50,
+      mean_gap_75]). Implement check_monotonicity() per category. Implement
+      run_full_analysis() returning {gap_matrices, spearman_results, monotonicity,
+      gate_passed}. Implement save_summary() writing JSON.
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "### analyze.py"
+      - file: "h-m2/03_logic.md"
+        section: "## analyze.py — API"
+      - file: "h-m2/03_prd.md"
+        section: "### FR-5: Spearman Correlation Analysis"
+    acceptance_criteria:
+      - "SpearmanResult.gate_passed == True iff rho < -0.8"
+      - "GapMatrix.mean_gaps has 3 entries (one per budget ratio)"
+      - "MonotonicityResult.fraction_monotone is float in [0.0, 1.0]"
+      - "JSON summary saved with all models' Spearman results"
+
+  - id: "A-6"
+    title: "Visualization"
+    type: "visualization"
+    priority: 88
+    complexity: 10
+    description: >
+      Implement visualize.py with 4 mandatory figures:
+      (1) plot_gap_vs_budget(): line plot x=budget ratio, y=mean gap, one line per model,
+      error bars across categories, saved as gap_vs_budget.png.
+      (2) plot_spearman_bar(): bar chart of Spearman rho per model, reference line at -0.8,
+      saved as spearman_bar.png.
+      (3) plot_gap_heatmap(): 6-category × 3-budget-ratio heatmap, color=gap magnitude,
+      one per model, saved as gap_heatmap_{model}.png.
+      (4) plot_absolute_accuracy_curves(): per-model line plots of absolute accuracy
+      for both adapter types at each r, saved as absolute_curves_{model}.png.
+      Implement save_all_figures() saving all figures to figures/ dir.
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "### visualize.py"
+      - file: "h-m2/03_logic.md"
+        section: "## visualize.py — API"
+      - file: "h-m2/03_config.md"
+        section: "## Visualization Configuration"
+    acceptance_criteria:
+      - "All 4 figure types generated as PNG"
+      - "gap_vs_budget.png has reference annotations"
+      - "spearman_bar.png has horizontal line at y=-0.8"
+      - "figures/ directory created if not exists"
+
+  - id: "A-7"
+    title: "Mechanism Verification"
+    type: "verification"
+    priority: 87
+    complexity: 8
+    description: >
+      Implement verify_mechanism_activated() in evaluate.py (or separate
+      verification.py): three checks:
+      (1) budget_set: all H2OEvictionAwareAttention instances have kv_budget_ratio == r,
+      (2) all_ratios_evaluated: set(results_by_r.keys()) == {0.25, 0.50, 0.75},
+      (3) gap_variance_nonzero: np.std(list(results_by_r.values())) > 1e-6.
+      Return (all_pass, indicators_dict). Log activation indicator message per run.
+      Fail fast if budget_set check fails (H2O injection not working).
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "### FR-6: Mechanism Verification"
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-7-1"
+      - file: "h-m2/02c_experiment_brief.md"
+        section: "### Mechanism Activation Indicators"
+    acceptance_criteria:
+      - "Returns (True, all_true_dict) when all 3 checks pass"
+      - "Returns (False, indicators) with specific failing check identified"
+      - "Fail-fast raises RuntimeError when budget_set=False"
+
+  - id: "A-8"
+    title: "Smoke Test"
+    type: "testing"
+    priority: 86
+    complexity: 7
+    description: >
+      Implement smoke_test.py with run_smoke_test() function. Load one adapter
+      (GPT-2 proxy if LLaMA/Mistral unavailable) on short ~512-token input.
+      Sweep r in {0.25, 0.50, 0.75}: verify set_h2o_budget() changes
+      kv_budget_ratio attribute on all H2OEvictionAwareAttention modules.
+      Verify compute_category_accuracies returns 6 non-NaN values.
+      Run before full 12-run evaluation. Return True if all checks pass.
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "### smoke_test.py"
+      - file: "h-m2/03_prd.md"
+        section: "### FR-8: Smoke Test"
+      - file: "h-m2/03_logic.md"
+        section: "## smoke_test.py — API"
+    acceptance_criteria:
+      - "run_smoke_test() returns True on valid setup"
+      - "Budget ratio attribute verified for each r in {0.25, 0.50, 0.75}"
+      - "category aggregation returns 6 non-NaN values"
+
+  - id: "A-9"
+    title: "Orchestrator"
+    type: "integration"
+    priority: 85
+    complexity: 8
+    description: >
+      Implement run_experiment.py main() orchestrating: (1) load config via
+      get_default_config(), (2) run smoke test via run_smoke_test() — abort if fails,
+      (3) BudgetSweepEvaluator.run_all() -> List[RunResult], (4) save_run_results()
+      -> CSV, (5) SpearmanAnalyzer.run_full_analysis() -> dict,
+      (6) SpearmanAnalyzer.save_summary() -> JSON, (7) save_all_figures() -> PNGs,
+      (8) log gate result: rho < -0.8 on >=1 model. Set CUDA_VISIBLE_DEVICES and
+      seed at startup. Argparse for --device, --results-dir, --figures-dir.
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "### run_experiment.py"
+      - file: "h-m2/03_logic.md"
+        section: "## run_experiment.py — API"
+      - file: "h-m2/03_config.md"
+        section: "## Environment / Path Configuration"
+    acceptance_criteria:
+      - "Smoke test failure aborts with clear error message"
+      - "All 12 runs complete and CSV saved"
+      - "JSON summary includes gate_passed field"
+      - "All 4 PNG figures saved"
+
+  - id: "A-10"
+    title: "Unit Tests"
+    type: "testing"
+    priority: 84
+    complexity: 9
+    description: >
+      Implement tests/ directory with test files: test_config.py (BudgetSweepConfig
+      defaults, validate_config with missing path), test_model.py (set_h2o_budget
+      attribute setting, verify_budget_applied, load_model_for_sweep with GPT-2 proxy),
+      test_evaluate.py (RunResult construction, evaluate_single_run mock, save_run_results
+      CSV format), test_analyze.py (compute_gap_matrix from mock RunResults, spearmanr
+      gate logic, monotonicity check), test_visualize.py (figure generation without display).
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "## File Organization"
+      - file: "h-m2/03_logic.md"
+        section: "## Unit Test Coverage"
+      - file: "h-m2/03_config.md"
+        section: "## Subtask C-10"
+    acceptance_criteria:
+      - "All test files importable"
+      - "test_config.py passes validate_config tests"
+      - "test_analyze.py verifies rho < -0.8 gate logic"
+      - "pytest -x exits 0"
+
+  # ─── Subtasks (Logic) ────────────────────────────────────────────────────────
+  - id: "L-2-1"
+    title: "importlib re-export + TASK_SCORER_MAP"
+    type: "subtask"
+    priority: 49
+    parent: "A-2"
+    description: >
+      dataset.py: implement importlib dynamic load of h-m1/code/data.py to re-export
+      LongBenchDataLoader, LONGBENCH_TASKS, LONGBENCH_CATEGORIES. Build TASK_SCORER_MAP
+      dict mapping all 21 task names to scorer type strings ("f1", "rouge-l",
+      "accuracy", "edit-distance").
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-2-1"
+
+  - id: "L-2-2"
+    title: "run_task_evaluation + compute_category_accuracies"
+    type: "subtask"
+    priority: 48
+    parent: "A-2"
+    description: >
+      Implement run_task_evaluation(model, tokenizer, task_name, max_seq_length, device)
+      loading full task test split and scoring with batch_size=1. Implement
+      compute_category_accuracies(per_task_scores) using LONGBENCH_CATEGORIES hyphenated
+      keys to produce 6-category mean dict.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-2-2"
+
+  - id: "L-3-1"
+    title: "importlib loading pattern for H-E1/H-M1"
+    type: "subtask"
+    priority: 47
+    parent: "A-3"
+    description: >
+      model.py: implement importlib.util.spec_from_file_location pattern (identical to
+      h-m1/code/model.py lines 19-32) to load H2OEvictionAwareAttention, inject_h2o_wrappers,
+      load_base_model from h-e1/code/model.py and load_adapter_model, set_h2o_training_mode
+      from h-m1/code/model.py.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-3-1"
+
+  - id: "L-3-2"
+    title: "set_h2o_budget implementation"
+    type: "subtask"
+    priority: 46
+    parent: "A-3"
+    description: >
+      Implement set_h2o_budget(model, kv_budget_ratio): iterate model.modules(), find
+      H2OEvictionAwareAttention instances, set module.kv_budget_ratio = kv_budget_ratio.
+      Raise ValueError if count == 0 (no wrappers injected).
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-3-2"
+
+  - id: "L-3-3"
+    title: "verify_budget_applied implementation"
+    type: "subtask"
+    priority: 45
+    parent: "A-3"
+    description: >
+      Implement verify_budget_applied(model, expected_ratio): return True iff all
+      H2OEvictionAwareAttention instances have kv_budget_ratio == expected_ratio.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-3-3"
+
+  - id: "L-3-4"
+    title: "load_model_for_sweep implementation"
+    type: "subtask"
+    priority: 44
+    parent: "A-3"
+    description: >
+      Implement load_model_for_sweep(model_name, adapter_path, adapter_type,
+      initial_budget): call load_adapter_model with condition mapped from
+      "sequential"->"baseline", "eviction-aware"->"eviction-aware". Set
+      attn_implementation='eager'. Return model in eval() mode.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-3-4"
+
+  - id: "L-4-1"
+    title: "RunResult dataclass"
+    type: "subtask"
+    priority: 43
+    parent: "A-4"
+    description: >
+      Define RunResult dataclass: model_name (str), adapter_type (str), budget_ratio
+      (float), per_task_scores (Dict[str, float]), category_scores (Dict[str, float]).
+      Add to_dict() method for CSV serialization.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-4-1"
+
+  - id: "L-4-2"
+    title: "evaluate_single_run implementation"
+    type: "subtask"
+    priority: 42
+    parent: "A-4"
+    description: >
+      Implement BudgetSweepEvaluator.evaluate_single_run(): call set_h2o_budget(model, r),
+      call set_h2o_training_mode(model, True) to activate eviction, run all 21 tasks via
+      run_task_evaluation, call compute_category_accuracies, return RunResult.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-4-2"
+
+  - id: "L-4-3"
+    title: "run_all 12-run orchestration"
+    type: "subtask"
+    priority: 41
+    parent: "A-4"
+    description: >
+      Implement BudgetSweepEvaluator.run_all(): outer loop over models and adapter_types,
+      inner loop over budget_ratios. Load model once per (model, adapter_type) pair,
+      sweep budgets without reloading. Unload (del model, torch.cuda.empty_cache())
+      after each (model, adapter_type) pair to manage GPU memory. Return List[RunResult].
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-4-3"
+
+  - id: "L-4-4"
+    title: "save_run_results + verify_mechanism_activated"
+    type: "subtask"
+    priority: 40
+    parent: "A-4"
+    description: >
+      Implement save_run_results(results, output_dir): write CSV with columns
+      model_name, adapter_type, budget_ratio, {21 task scores}, {6 category scores}.
+      Wire verify_mechanism_activated() call in evaluate_single_run for logging.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-4-4"
+
+  - id: "L-5-1"
+    title: "GapMatrix + SpearmanResult + MonotonicityResult dataclasses"
+    type: "subtask"
+    priority: 39
+    parent: "A-5"
+    description: >
+      Define GapMatrix(model_name, gaps: Dict[float, Dict[str, float]], mean_gaps:
+      Dict[float, float]), SpearmanResult(model_name, rho, pval, gate_passed),
+      MonotonicityResult(model_name, per_category: Dict[str, bool], fraction_monotone).
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-5-1"
+
+  - id: "L-5-2"
+    title: "compute_gap_matrix implementation"
+    type: "subtask"
+    priority: 38
+    parent: "A-5"
+    description: >
+      Implement SpearmanAnalyzer.compute_gap_matrix(results): group RunResults by
+      (model_name, adapter_type, budget_ratio), compute per-category gap as
+      eviction_aware_score - sequential_score, compute mean_gaps per budget_ratio.
+      Return Dict[str, GapMatrix] keyed by model_name.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-5-2"
+
+  - id: "L-5-3"
+    title: "compute_spearman + check_monotonicity"
+    type: "subtask"
+    priority: 37
+    parent: "A-5"
+    description: >
+      Implement compute_spearman(gap_matrix): call scipy.stats.spearmanr(
+      [0.25, 0.50, 0.75], [mean_gap_25, mean_gap_50, mean_gap_75]), set
+      gate_passed = rho < -0.8. Implement check_monotonicity(gap_matrix): per-category
+      check gap(0.25) > gap(0.50) > gap(0.75), compute fraction_monotone.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-5-3"
+
+  - id: "L-5-4"
+    title: "run_full_analysis + save_summary"
+    type: "subtask"
+    priority: 36
+    parent: "A-5"
+    description: >
+      Implement run_full_analysis(results): call compute_gap_matrix, compute_spearman
+      per model, check_monotonicity per model, determine overall gate_passed = any
+      SpearmanResult.gate_passed. Return analysis dict. Implement save_summary()
+      serializing to JSON with rho, pval, gate_passed per model.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-5-4"
+
+  - id: "L-7-1"
+    title: "verify_mechanism_activated three-check implementation"
+    type: "subtask"
+    priority: 35
+    parent: "A-7"
+    description: >
+      Implement verify_mechanism_activated(model, budget_ratio, results_by_r):
+      check (1) budget_set via verify_budget_applied(), (2) all_ratios_evaluated
+      set check, (3) gap_variance_nonzero via np.std > 1e-6. Return (all_pass,
+      indicators). Raise RuntimeError if budget_set is False (fail-fast).
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "## Subtask L-7-1"
+      - file: "h-m2/02c_experiment_brief.md"
+        section: "### Mechanism Activation Indicators"
+
+  # ─── Subtasks (Config) ───────────────────────────────────────────────────────
+  - id: "C-10-1"
+    title: "test_config + test_model unit tests"
+    type: "subtask"
+    priority: 29
+    parent: "A-10"
+    description: >
+      Implement tests/test_config.py: test BudgetSweepConfig defaults, get_default_config
+      returns 4 AdapterSpec, validate_config raises ValueError for missing path.
+      Implement tests/test_model.py: test set_h2o_budget attribute assignment,
+      verify_budget_applied True/False, load_model_for_sweep with GPT-2 proxy.
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## Subtask C-10-1"
+
+  - id: "C-10-2"
+    title: "test_evaluate + test_analyze + test_visualize unit tests"
+    type: "subtask"
+    priority: 28
+    parent: "A-10"
+    description: >
+      Implement tests/test_evaluate.py: RunResult construction, mock evaluate_single_run,
+      CSV format from save_run_results. Implement tests/test_analyze.py: compute_gap_matrix
+      from mock RunResults, spearmanr gate (rho < -0.8), monotonicity fraction.
+      Implement tests/test_visualize.py: figure generation with matplotlib Agg backend.
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## Subtask C-10-2"
+
+  - id: "C-6-1"
+    title: "gap_vs_budget + spearman_bar figure implementations"
+    type: "subtask"
+    priority: 27
+    parent: "A-6"
+    description: >
+      Implement plot_gap_vs_budget(): x=budget_ratio [0.25,0.50,0.75], y=mean_gap,
+      one line per model, error bars = std across 6 categories, reference line at y=0,
+      figsize=(8,5). Implement plot_spearman_bar(): grouped bar per model, horizontal
+      dashed line at y=-0.8 labeled "gate threshold", figsize=(6,5).
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## Subtask C-6-1"
+      - file: "h-m2/03_logic.md"
+        section: "## visualize.py — API"
+
+  - id: "C-6-2"
+    title: "gap_heatmap + absolute_curves figure implementations"
+    type: "subtask"
+    priority: 26
+    parent: "A-6"
+    description: >
+      Implement plot_gap_heatmap(): seaborn heatmap or matplotlib imshow, rows=6 categories,
+      cols=3 budget ratios, color=gap magnitude, one figure per model, figsize=(8,6).
+      Implement plot_absolute_accuracy_curves(): per-model line plot, x=budget_ratio,
+      y=mean_accuracy, 2 lines (sequential vs eviction-aware), figsize=(8,5).
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## Subtask C-6-2"
+
+  - id: "C-9-1"
+    title: "argparse + logging setup for run_experiment.py"
+    type: "subtask"
+    priority: 25
+    parent: "A-9"
+    description: >
+      Add argparse CLI to run_experiment.py: --device (default "cuda"), --results-dir,
+      --figures-dir, --smoke-test-only flag, --seed. Configure Python logging with
+      timestamps. Set torch.manual_seed and numpy random seed at startup.
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "## Subtask C-9-1"
+      - file: "h-m2/03_architecture.md"
+        section: "### run_experiment.py"
+
+  # ─── Failsafe ────────────────────────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: >
+      Verify all evaluation runs completed and outputs saved. Check:
+      (1) CSV exists with 12 rows, (2) JSON summary has gate_passed field,
+      (3) all 4 PNG figures exist in figures/. Log final gate result:
+      Spearman rho < -0.8 on >=1 model. If SHOULD_WORK gate fails (rho >= -0.8
+      on both models), document as scope limitation and confirm H-M3 continuation.
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "## 8. Success Criteria"
+      - file: "h-m2/02c_experiment_brief.md"
+        section: "### Mechanism Failure Detection"
+    acceptance_criteria:
+      - "CSV with 12 rows saved"
+      - "JSON summary with gate_passed field"
+      - "4 PNG figures in figures/"
+      - "Gate result logged (PASS or SHOULD_WORK-FAIL with scope limitation note)"

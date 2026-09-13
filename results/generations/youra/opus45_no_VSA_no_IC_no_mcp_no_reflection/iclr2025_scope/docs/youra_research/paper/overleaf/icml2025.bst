@@ -1,0 +1,1 @@
+% Use plain.bst fallback

@@ -1,0 +1,79 @@
+
+\subsubsection{Overview}
+
+The experimental design is motivated by the need to distinguish between ''mypy helps through the expected type-specificity mechanism'' and ''mypy helps through an unexpected mechanism.'' To achieve this distinction, a mechanistic decomposition is required --- a causal chain from signal existence through LLM consumption to overall effect to type-specificity. This structure also supports diagnosis: if the primary pass@1 comparison (h-m3) were null, the causal chain would identify which step failed.
+
+\subsubsection{Experimental Conditions}
+
+Three experimental conditions are defined:
+
+\begin{itemize}
+\item \textbf{Condition A (execution-only):} After each generation attempt, run the solution against EvalPlus test cases. Capture pass/fail status and, on failure, the exception trace or wrong-output message. Feed this as feedback to the LLM for the next repair attempt.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{Condition B (execution+mypy):} Same as Condition A, but additionally run \texttt{mypy --ignore-missing-imports --no-strict-optional} on the generated code and append the mypy output to the feedback prompt before calling the LLM.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{Condition C (execution+mypy+Z3):} Same as Condition B, but for problems in the arithmetic subset where a valid Z3 specification was generated and a counterexample was found, additionally append the Z3 counterexample to the repair prompt.
+\end{itemize}
+
+Condition A corresponds to the Self-Debug baseline. Condition B is the treatment. Condition C is the extension tested in h-z1.
+
+\subsubsection{LLM Configuration}
+
+All experiments use GPT-4o-mini via the OpenAI API:
+
+\begin{itemize}
+\item \textbf{Initial generation:} temperature=0.8, max\_tokens=1024
+\item \textbf{Repair loop:} temperature=0.0, max\_tokens=2048
+\item \textbf{Seeds for h-m3:} {42, 123, 456}
+\end{itemize}
+
+Temperature=0.0 for repair makes error elimination results (h-m1) interpretable --- the LLM's repair policy is a fixed function of the feedback. Three seeds at temperature=0.8 for initial generation separate initial solution randomness from repair-loop behavior.
+
+\subsubsection{Repair Loop Structure}
+
+\begin{verbatim}
+Algorithm 1: Execution+mypy Repair Loop (Condition B)
+
+Input:  problem p, initial solution s_0, rounds k=5
+Output: final solution s_k, pass@1 indicator
+
+1. For round r = 0 to k-1:
+   a. result_exec ← evaluate(s_r, p.tests)
+   b. If result_exec.passed: return s_r, PASS
+   c. result_mypy ← run_mypy(s_r)           // Condition B only
+   d. feedback ← format(result_exec, result_mypy)
+   e. s_{r+1} ← LLM.generate(repair_prompt(p, s_r, feedback), T=0.0)
+2. Return s_k, evaluate(s_k, p.tests).passed
+\end{verbatim}
+
+mypy invocation uses \texttt{--ignore-missing-imports --no-strict-optional} to reduce false positives. mypy timeout: 30 seconds per call.
+
+\subsubsection{Sub-Hypothesis Structure}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Sub-hypothesis & Research Question & Gate Type \\
+\midrule
+h-e1 & Does mypy signal exist? ($\geq 10$\% error rate in failing solutions) & MUST\_WORK \\
+h-m1 & Does the LLM consume mypy feedback? (Spearman $\rho$ < 0 on error trajectory) & MUST\_WORK \\
+h-m2 & Is improvement type-specific? (delta\_type > delta\_non) & SHOULD\_WORK \\
+h-m3 & Does execution+mypy outperform execution-only? (pass@1\_B > pass@1\_A) & MUST\_WORK \\
+h-z1 & Does Z3 CE feedback further improve pass@1? (pass@1\_C > pass@1\_B) & SHOULD\_WORK \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+MUST\_WORK gates are necessary conditions for the primary contribution; SHOULD\_WORK gates test exploratory extensions whose failure is recorded as a limitation rather than a pipeline blocker.
+
+\subsubsection{Z3 Specification Pipeline}
+
+For the arithmetic subset (h-z1), a three-stage pipeline is used: (1) \textbf{curation} by heuristic keyword matching yielding 123 candidate problems from 164 HumanEval+ problems; (2) \textbf{spec generation} by prompting GPT-4o-mini to write Z3 Python assertions; (3) \textbf{validation} against EvalPlus ground-truth tests (validity rate: 91.1\%, 112 of 123 curated problems). For valid specs, counterexample generation is attempted per repair round (CE activation rate: 16.1\%, 18 of 112 problems). The pipeline is implemented in \texttt{h-z1/code/z3\textbackslash \_utils.py}.
+

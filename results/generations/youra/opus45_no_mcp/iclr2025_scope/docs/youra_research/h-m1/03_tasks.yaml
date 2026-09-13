@@ -1,0 +1,146 @@
+# H-M1: Loss Landscape Geometry Analysis Tasks
+# Generated: 2026-08-19
+# Tier: FULL (MECHANISM hypothesis)
+# Total Budget: 30 tasks max
+# Actual: 20 tasks (8 epics + 12 subtasks)
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  actual_tasks: 20
+  epic_count: 8
+  subtask_count: 12
+
+epics:
+  M-1:
+    title: "Setup & data loading"
+    description: "Wrap h-e1 data.py for GSM8K/NQ 500-sample landscape eval sets, batch=16"
+    complexity: 6
+    breakdown: [2, 2, 1, 1]  # [implementation, integration, testing, documentation]
+    dependencies: []
+    output_file: "code/data.py"
+    subtasks:
+      - id: M-1.1
+        title: "Import h_e1 data module"
+        description: "Set up imports from h_e1.code.data for load_benchmark, format_for_causal_lm"
+      - id: M-1.2
+        title: "Implement load_landscape_eval_set"
+        description: "Create DataLoader wrapper with batch_size=16, max_length=512"
+
+  M-2:
+    title: "Load transformer + mamba models"
+    description: "Reuse h-e1 load_baseline_model/load_proposed_model, verify both loadable with LoRA configs"
+    complexity: 5
+    breakdown: [1, 3, 0, 1]
+    dependencies: []
+    output_file: "code/model.py"
+    subtasks:
+      - id: M-2.1
+        title: "Create model loading wrapper"
+        description: "Thin wrapper over h_e1.code.model functions for consistent interface"
+
+  M-3:
+    title: "SAM sharpness measurement"
+    description: "Implement measure_sharpness_sam: grad-direction perturbation, base/perturbed loss, param restore"
+    complexity: 9
+    breakdown: [3, 1, 3, 2]
+    dependencies: [M-1, M-2]
+    output_file: "code/landscape.py"
+    subtasks:
+      - id: M-3.1
+        title: "Implement compute_loss helper"
+        description: "Batch loss computation over dataloader with gradient accumulation"
+      - id: M-3.2
+        title: "Implement SAM perturbation"
+        description: "Gradient direction normalization, epsilon scaling, parameter update"
+      - id: M-3.3
+        title: "Implement parameter restore"
+        description: "Store/restore original parameters after perturbation measurement"
+
+  M-4:
+    title: "Hessian eigenvalue analysis"
+    description: "Integrate PyHessian, compute top-50 eigenvalues + trace via power iteration"
+    complexity: 10
+    breakdown: [3, 3, 3, 1]
+    dependencies: [M-1, M-2]
+    output_file: "code/landscape.py"
+    subtasks:
+      - id: M-4.1
+        title: "PyHessian integration"
+        description: "Set up Hessian computation wrapper with proper model/dataloader interface"
+      - id: M-4.2
+        title: "Power iteration implementation"
+        description: "Compute top-k eigenvalues via power iteration method"
+      - id: M-4.3
+        title: "Trace computation"
+        description: "Hutchinson estimator for Hessian trace"
+
+  M-5:
+    title: "KL divergence + secondary metrics"
+    description: "Bin eigenvalues, compute KL divergence, spectral norm ratio, trace ratio"
+    complexity: 6
+    breakdown: [2, 1, 2, 1]
+    dependencies: [M-4]
+    output_file: "code/metrics.py"
+    subtasks:
+      - id: M-5.1
+        title: "Eigenvalue binning"
+        description: "Histogram binning for eigenvalue distributions"
+      - id: M-5.2
+        title: "KL divergence computation"
+        description: "scipy.stats.entropy wrapper with epsilon smoothing"
+
+  M-6:
+    title: "Gate check logic"
+    description: "Implement check_gate_conditions per PRD formula (sharpness_delta_pct, kl_div thresholds)"
+    complexity: 4
+    breakdown: [1, 1, 1, 1]
+    dependencies: [M-3, M-5]
+    output_file: "code/metrics.py"
+    subtasks: []
+
+  M-7:
+    title: "Visualization"
+    description: "3 figures: eigenvalue histogram overlay, sharpness bar chart, log-scale eigenvalue spectrum"
+    complexity: 5
+    breakdown: [2, 1, 1, 1]
+    dependencies: [M-3, M-4]
+    output_file: "code/visualize.py"
+    subtasks: []
+
+  M-8:
+    title: "End-to-end integration run"
+    description: "Wire config->data->model(h-e1)->landscape->metrics->visualize->gate report for both datasets x both models"
+    complexity: 8
+    breakdown: [2, 3, 1, 2]
+    dependencies: [M-1, M-2, M-3, M-4, M-5, M-6, M-7]
+    output_file: "code/run_experiment.py"
+    subtasks: []
+
+execution_order:
+  - [M-1, M-2]  # parallel: data + model loading
+  - [M-3, M-4]  # parallel: SAM sharpness + Hessian eigenvalues
+  - M-5         # KL divergence (depends on M-4)
+  - M-6         # Gate check (depends on M-3, M-5)
+  - M-7         # Visualization (depends on M-3, M-4)
+  - M-8         # Integration (depends on all)
+
+complexity_distribution:
+  very_high: []          # 18-20
+  high: []               # 14-17
+  medium: [M-3, M-4, M-8] # 9-13
+  low: [M-1, M-2, M-5, M-6, M-7] # 4-8
+
+gate_conditions:
+  primary:
+    metric: sharpness_delta_pct
+    formula: "|sharpness_mamba - sharpness_transformer| / sharpness_transformer"
+    threshold: "> 0.10"
+    pass_condition: "Measurable landscape geometry change"
+  secondary:
+    metric: kl_divergence
+    formula: "KL(eigenvalue_hist_transformer || eigenvalue_hist_mamba)"
+    threshold: "> 0.1"
+    pass_condition: "Eigenspectrum distribution shift"

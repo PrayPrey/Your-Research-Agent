@@ -1,0 +1,9 @@
+﻿# Title: Carbon-Aware Neural Compiler Optimization for Distributed LLM Training
+
+## Motivation
+Training large language models across thousands of accelerators consumes enormous amounts of energy, with carbon footprints varying dramatically based on when and where computation occurs. Current compiler partitioning schemes for distributed training optimize primarily for throughput and memory, ignoring the temporal and spatial variability of carbon intensity across data centers. This disconnect represents a missed opportunity: by making carbon-awareness a first-class optimization objective in ML compilers, we can significantly reduce the environmental impact of LLM training without substantially compromising performance.
+
+## Main Idea
+We propose a learned compiler optimization framework that jointly optimizes computation partitioning, scheduling, and placement decisions for distributed LLM training while incorporating real-time carbon intensity signals. Our approach uses a graph neural network (GNN) to encode the computation graph and a reinforcement learning agent that learns to make partitioning and scheduling decisions. The key innovation is a multi-objective reward function balancing training throughput against carbon emissions, informed by carbon intensity forecasts from regional grids.
+
+The system learns to: (1) defer carbon-intensive operations to low-carbon periods when slack exists, (2) shift workloads to geographically greener regions, and (3) exploit heterogeneous hardware efficiency under varying power constraints. We will evaluate on realistic LLM training workloads, targeting 15-25% carbon reduction with less than 5% throughput degradation. This work bridges ML for compilers with sustainability, establishing reproducible benchmarks for carbon-aware systems research.

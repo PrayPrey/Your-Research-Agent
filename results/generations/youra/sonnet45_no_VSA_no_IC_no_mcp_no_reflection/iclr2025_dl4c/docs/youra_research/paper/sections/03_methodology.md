@@ -1,0 +1,65 @@
+# Methodology
+
+## Overview
+
+Building on our observation that strategic debugging operates as a feedback loop (error → cluster → prioritize → fix) rather than a learning system, we design a three-metric framework testing each stage: (1) **fix-impact-ratio** measures prioritization efficiency (tests passed per modification), (2) **clustering coefficient** measures error pattern recognition (consecutive fixing of same-type errors vs random ordering), and (3) **held-out test slope** attempts to measure transfer learning (passing unseen tests without error messages). All metrics are execution-based, requiring no subjective model judges or manual evaluation.
+
+## Fix-Impact-Ratio
+
+**Definition:** For a debugging session with test suite $T = \{t_1, ..., t_n\}$ and modification sequence $M = \{m_1, ..., m_k\}$, fix-impact-ratio is:
+
+$$\text{FIR} = \frac{1}{k} \sum_{i=1}^{k} \Delta_{\text{passing}}(m_i)$$
+
+where $\Delta_{\text{passing}}(m_i)$ counts test cases that transition from failing to passing after modification $m_i$.
+
+**Rationale:** Strategic agents identify root causes affecting multiple test failures simultaneously (e.g., three failures sharing "index out of range" error stem from one off-by-one bug), achieving ratio > 2.0. Sequential trial-and-error agents address each failure independently, yielding ratio ≈ 1.0 (one fix per test). This metric captures debugging efficiency — how many test failures resolved per code modification — without requiring manual labels for "strategic" vs "sequential" behavior.
+
+**Measurement:** We execute the agent on multi-test problems (15+ test cases), track test-passing status after each modification, compute $\Delta_{\text{passing}}$ per modification, and aggregate. Comparison to random-sampling baseline (agent generates code variations without error feedback, temperature=0.7) establishes discriminative power via t-test or Mann-Whitney U (p < 0.05).
+
+## Error Clustering Coefficient
+
+**Definition:** Given a debugging session with $k$ modifications addressing error types $\{e_1, ..., e_k\}$ (e.g., syntax, runtime, logic, edge_case), clustering coefficient is:
+
+$$\text{CC} = \frac{C_{\text{observed}}}{C_{\text{random}}}$$
+
+where $C_{\text{observed}}$ counts consecutive pairs of same-type errors in the fix sequence, and $C_{\text{random}}$ is the expected count under random permutation of error types.
+
+**Rationale:** Agents with pattern recognition cluster similar errors (fix all syntax errors consecutively before addressing runtime errors), yielding coefficient > 1.0. Random ordering yields coefficient ≈ 1.0. We use permutation test (1000 random shuffles) to compute $C_{\text{random}}$ per problem, controlling for problem-specific error distributions. Coefficient > 0.3 with p < 0.05 indicates clustering above chance.
+
+**Measurement:** Error types are labeled manually (syntax, runtime, logic, edge_case) or via automated heuristics (error message keywords). We record the sequence of error types addressed during debugging, count consecutive same-type pairs ($C_{\text{observed}}$), permute error sequence 1000 times to compute expected consecutive pairs under random ordering ($C_{\text{random}}$), and test significance. Inter-annotator agreement (Cohen's kappa > 0.7) validates manual labels when used.
+
+## Held-Out Test Slope
+
+**Definition:** For a problem with $n$ test cases, reveal $n/2$ failures to the agent (error messages shown), withhold $n/2$ (no error messages). Measure held-out test pass rate $P_{\text{held}}(i)$ at iteration $i$:
+
+$$\text{Slope} = \frac{\text{d}P_{\text{held}}}{\text{d}i}$$
+
+Compare agent slope to random-mutation baseline slope via permutation test. Ratio $\text{Slope}_{\text{agent}} / \text{Slope}_{\text{random}} > 1.5$ with p < 0.05 indicates transfer learning.
+
+**Rationale:** If agents extract patterns from revealed test failures (e.g., "edge cases fail with empty arrays"), they should pass held-out tests of the same type without seeing error messages — predicting failure modes rather than reacting to feedback. This tests whether clustering (Stage 1) enables transfer learning beyond the feedback loop. Random baseline controls for test informativeness (some modifications accidentally pass held-out tests).
+
+**Measurement:** We split test suite 50/50 revealed/held-out, run agent with revealed feedback only (held-out failures hidden), track $P_{\text{held}}(i)$ per iteration, fit linear regression to measure slope, generate 1000 random-mutation samples for baseline slope distribution, and compute permutation-test p-value.
+
+## Experimental Design
+
+We test three hypotheses validating the feedback-loop stages:
+
+- **H-E1 (Primary Experiment):** Fix-impact-ratio discriminates strategic (ratio > 2.0) from sequential (ratio ≈ 1.0) debugging with p < 0.05, large effect size (Cohen's d > 0.8). Uses controlled trajectories with known clustering vs random ordering.
+
+- **H-M1 (Mechanism: Clustering):** Agents with clustering capability (mock parameter `clustering_strength=0.5`) achieve coefficient > 0.3 vs random baseline (coefficient ≈ 1.0), p < 0.05 via permutation test. Tests whether agents recognize error patterns (Stage 1).
+
+- **H-M2 (Mechanism: Prioritization):** Agents with clustering (h-m1 validated) show higher proportion of high-impact fixes ($\Delta_{\text{passing}} \geq 2$) than baseline: proposed 42.5% vs baseline 19.8%, p < 0.05. Tests whether clustering enables prioritization (Stage 2).
+
+- **H-M3 (Mechanism: Transfer):** Pattern memory module extracts patterns from revealed tests, applies to held-out tests. Slope ratio agent/random > 1.5, p < 0.05. Tests whether clustering+prioritization enable transfer learning (Stage 3).
+
+**Implementation:** All experiments use mock agents (controlled parameters: `clustering_strength`, `fix_success_rate`) and synthetic datasets (problems: sum, max, array operations, balanced error types: 25% syntax, 25% runtime, 25% logic, 25% edge_case). Mock validation establishes metric sensitivity (whether metrics *can* detect strategic behavior when engineered) before real-world deployment with GPT-4 + Codeforces.
+
+**Baselines:** (1) Random sampling (generate code variations without error feedback, temperature=0.7), (2) Sequential trial-and-error (address failures one-by-one in test index order). Both baselines provide null models for fix-impact-ratio and clustering coefficient.
+
+**Statistical Tests:** t-test or Mann-Whitney U for fix-impact-ratio (continuous metric), permutation test (1000 samples) for clustering coefficient and held-out slope (controls for problem-specific distributions). Significance threshold p < 0.05. Cohen's d for effect size (0.2=small, 0.5=medium, 0.8=large).
+
+## Limitations
+
+Mock implementation (not real GPT-4 API or Codeforces dataset) limits ecological validity — metrics validated on controlled data may behave differently with production agents and real competitive programming problems. Manual error type labels introduce annotation burden (mitigated by automated heuristics or skipping h-m1 if kappa < 0.7). Held-out methodology assumes 50% revealed tests provide sufficient clustering signal while 50% held-out tests enable transfer measurement — if split is too aggressive, both metrics degrade.
+
+Framework applies to multi-test scenarios (15+ test cases, diverse error types). Single-test benchmarks (HumanEval: 1-5 tests) lack sufficient signal for clustering or held-out analysis. Measures debugging efficiency, not code quality (maintainability, efficiency, style).

@@ -1,0 +1,245 @@
+# Phase 2A-Extended: Hypothesis Clarification Summary
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Research Topic:** PAC-Bayesian theory for sample-efficient interactive learning
+**Source:** Round 1 FEASIBLE hypothesis from Phase 2A
+**Status:** ✅ READY FOR PHASE 2B
+
+---
+
+## Executive Summary
+
+**Hypothesis ID:** H-ICML2023-PAC-001
+
+**Title:** PAC-Bayesian Sample Complexity Bounds for Query-Driven Active Learning via Martingale Analysis
+
+**Confidence:** 0.85 (High)
+
+**Core Claim:**
+
+Martingale PAC-Bayesian bounds can be derived for active learning that explicitly account for adaptive query selection. Under realizability, information-theoretic query strategies achieve **O(d log(1/δ)/ε²) label complexity** with provably smaller constants than random sampling.
+
+---
+
+## 1. Main Hypothesis
+
+**Formal Statement:**
+
+We hypothesize that extending martingale PAC-Bayes theory (Rivasplata et al. 2020) to active learning yields generalization bounds:
+
+**R(h) ≤ R̂(h) + √((KL(Q||P) + ∑ᵢ I(Qᵢ;Yᵢ|history))/2n)**
+
+where the query-dependent term ∑ᵢ I(Qᵢ;Yᵢ) quantifies query selection impact. Information gain maximization provably minimizes this term, achieving tighter bounds than random sampling.
+
+**Alternative Hypothesis (H0):**
+
+PAC-Bayesian bounds for active learning cannot be tightened beyond passive learning bounds. Information gain provides no provable advantage.
+
+---
+
+## 2. Key Variables
+
+| Type | Variable | Measurement | Expected Effect |
+|------|----------|-------------|-----------------|
+| **IV** | Query Strategy | {Random, InfoGain, Uncertainty} | InfoGain → Tighter bounds |
+| **DV1** | Label Complexity | Queries to achieve ε-error | Lower with InfoGain |
+| **DV2** | Bound Tightness | Bound - actual error | Tighter with InfoGain |
+| **DV3** | Query KL Term | ∑ᵢ I(Qᵢ;Yᵢ) | Minimized by InfoGain |
+
+---
+
+## 3. Causal Mechanism
+
+```
+Information Gain Query Selection
+    ↓ (maximizes posterior information)
+Reduces Query-Dependent Mutual Information
+    ↓ (tightens PAC-Bayesian bound)
+Improved Generalization Bound
+    ↓ (sample efficiency)
+Reduced Label Complexity
+```
+
+**Key Theoretical Results:**
+
+1. **Theorem 1:** Martingale PAC-Bayes bound holds for active learning with query-dependent term
+2. **Theorem 2:** Information gain maximization minimizes query-dependent bound term
+3. **Corollary:** Label complexity O(d log(1/δ)/ε²) with query-strategy-dependent constants
+
+---
+
+## 4. Testable Predictions
+
+**P1 (Primary):** Information gain achieves I_IG ≤ 0.7 × I_rand (30% reduction in query-dependent term)
+
+**P2:** Bound correctly predicts label complexity ordering across strategies (Spearman ρ ≥ 0.8)
+
+**P3:** Agnostic case degrades gracefully: n_agnostic ≈ n_realizable + O(η/ε²)
+
+**Falsification:** If I_IG ≥ I_rand or n_IG ≥ n_rand, hypothesis is rejected
+
+---
+
+## 5. Contribution
+
+**Theoretical:** First PAC-Bayesian bounds explicitly accounting for adaptive query selection in active learning
+
+**Methodological:** Rigorous theoretical justification for information-theoretic active learning (BALD)
+
+**Practical:** Enables label complexity estimation for cost-sensitive applications with theoretical guarantees
+
+**Novelty:** Combines PAC-Bayes with active learning (no prior work addresses this intersection)
+
+---
+
+## 6. Key Assumptions
+
+1. **Martingale Extension:** Rivasplata (2020) framework extends to learner-controlled sampling
+2. **Variational Approximation:** MC Dropout / Deep Ensembles sufficiently accurate for bound computation
+3. **Realizability (for tight bounds):** True function f* in hypothesis class H
+4. **Bounded Capacity:** Finite VC dimension d (or effective dimension for neural networks)
+
+**Mitigation:** Agnostic case analysis for non-realizable settings; empirical approximation error quantification
+
+---
+
+## 7. Scope & Limitations
+
+**Applies To:**
+- Pool-based active learning (classification)
+- Hypothesis classes with finite VC dimension
+- Applications where label cost >> query computation cost
+
+**Does NOT Apply To:**
+- Stream-based active learning
+- Regression tasks
+- Reinforcement learning
+- Unbounded neural networks without capacity constraints
+
+**Limitations:**
+- Computational complexity: O(|pool| × K) per query (K = posterior samples)
+- Variational approximation introduces gap between theory and practice
+- Realizability assumption for tight bounds (agnostic case has weaker guarantees)
+
+---
+
+## 8. Sub-Hypothesis Decomposition (Phase 2B Preview)
+
+**SH1 (Existence):** Martingale PAC-Bayes framework extends to active learning
+- **Verification:** Formal proof + empirical bound validity (violation rate ≤ δ)
+- **Dependency:** Independent (foundational)
+
+**SH2 (Mechanism):** Information gain minimizes query-dependent bound term
+- **Verification:** Theorem proof + empirical I_IG < I_rand
+- **Dependency:** Requires SH1
+
+**SH3 (Comparison):** Information gain achieves better label complexity than baselines
+- **Verification:** Analytical prediction + empirical validation (α ≤ 0.8)
+- **Dependency:** Requires SH1 + SH2
+
+---
+
+## 9. Experimental Design
+
+**Statistical Framework:** PAC with Bayesian posterior inference
+
+**Sample Size:** n=25 runs (paired t-test, power=0.90, α=0.05)
+
+**Datasets:** MNIST, CIFAR-10 binary, UCI benchmarks
+
+**Baselines:** Random, Uncertainty, BALD, Query-by-Committee
+
+**Metrics:** Label complexity, bound tightness, query-dependent KL term
+
+**Validation:**
+1. Realizable setting (MNIST 3vs8, RBF SVM)
+2. Agnostic setting (XOR vs linear separable)
+3. Neural network extension (CIFAR-10, ResNet-18)
+
+**Reproducibility:** Code release, fixed seeds, Docker environment, public datasets
+
+---
+
+## 10. Related Work Differentiation
+
+| Work | Their Contribution | Our Addition |
+|------|-------------------|--------------|
+| **BALD (2011)** | Information gain query selection (heuristic) | PAC-Bayesian bounds + optimality proof |
+| **Hanneke (2014)** | Active learning theory (disagreement coefficient) | PAC-Bayesian framework with posterior analysis |
+| **Haddouche (2022)** | Online PAC-Bayes (passive stream) | Active query selection (learner control) |
+| **Rivasplata (2020)** | Martingale PAC-Bayes (general sequential) | Active learning specialization + info gain optimality |
+
+**Gap Filled:** First work combining PAC-Bayesian sample complexity with active learning's adaptive query selection
+
+---
+
+## 11. Phase 2B Readiness
+
+**Readiness Checklist:**
+- [x] Hypothesis clarity (causal mechanism, variables, predictions)
+- [x] Theoretical soundness (assumptions, related work, mathematical framework)
+- [x] Experimental design (statistical plan, confounding control, reproducibility)
+- [x] Sub-hypotheses identified with dependencies
+- [x] Resource feasibility (public data, single GPU, standard benchmarks)
+
+**Status:** ✅ **READY FOR PHASE 2B VERIFICATION PLANNING**
+
+---
+
+## 12. Open Questions for Phase 2B
+
+**P0 (Blocking):**
+- Q1: Precise σ-algebra definition for martingale formalism
+- Q2: Agnostic bound tightness analysis
+
+**P1 (High Priority):**
+- Q3: Variational approximation error propagation
+- Q4: Computational scalability limits (max pool size)
+
+**P2 (Medium):**
+- Neural network effective dimension measurement
+- Baseline comparison fairness (compute vs label budget)
+
+---
+
+## 13. Expected Timeline
+
+**Phase 2B (Verification Planning):** 1 month
+- Decompose into sub-hypotheses
+- Design verification experiments for each SH
+- Plan dependency-aware execution
+
+**Phase 3 (Implementation Planning):** 1 month
+- PRD, Architecture, PRP creation
+- Complexity assessment
+
+**Phase 4 (Coding & Validation):** 3-4 months
+- Theory: Formal proofs (1-2 months)
+- Implementation: Bound computation + experiments (1-2 months)
+- Validation: Benchmark + sensitivity analysis (1 month)
+
+**Total:** 5-6 months for hypothesis verification
+
+---
+
+## Full Documentation
+
+**Complete Analysis:** See `02a_extended_hypothesis_full.md` for:
+- Detailed variable interactions
+- Complete causal mechanism with evidence
+- Full assumption justifications
+- Statistical verification design
+- Sensitivity analysis plan
+- All open questions with resolution paths
+
+---
+
+**Generated:** 2026-02-06 (Phase 2A-Extended Workflow - YOLO MODE)
+**Input:** 02a_round_1_discussion.md (Round 1 - FEASIBLE)
+**Output Status:** Ready for `/phase2b-planning` execution
+**Next Step:** Execute Phase 2B to decompose into verifiable sub-hypotheses
+
+---
+
+*This summary provides the essential information for Phase 2B planning while maintaining full traceability to the detailed analysis.*

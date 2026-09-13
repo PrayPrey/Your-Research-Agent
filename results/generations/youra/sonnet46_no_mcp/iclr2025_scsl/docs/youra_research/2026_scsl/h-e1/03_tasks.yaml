@@ -1,0 +1,320 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  generated_at: "2026-05-04"
+  schema_version: "1.1"
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks: 6
+  failsafe: 1
+  total: 15
+  within_budget: true
+
+tasks:
+
+  # ── DATA PREPARATION ──────────────────────────────────────────────────────
+
+  - id: "D-1"
+    title: "Download Waterbirds Dataset"
+    type: data-preparation
+    priority: 100
+    description: >
+      Download the Waterbirds dataset using the GroupDRO download script.
+      Waterbirds is a manually-downloaded benchmark (CUB-200-2011 + Places365).
+      CelebA is auto-downloaded via torchvision and does NOT need a separate task.
+    details: |
+      Run: python download_cub.py (from kohpangwei/group_DRO)
+      Target path: ./data/waterbirds/
+      Expected: metadata.csv + images/ directory
+      Splits: train=4795, val=1199, test=5794
+      Verify: metadata.csv has columns [img_filename, y, place, split, img_id]
+    reference_files:
+      - file: "03_prd.md"
+        section: "## 4. Data Specification"
+      - file: "02c_experiment_brief.md"
+        section: "### Dataset"
+    status: todo
+
+  # ── ENVIRONMENT SETUP ─────────────────────────────────────────────────────
+
+  - id: "E-1"
+    title: "Set Up Python Environment and Dependencies"
+    type: setup
+    priority: 94
+    description: >
+      Install all required Python packages and verify GPU/CUDA availability.
+    details: |
+      pip install:
+        torch>=1.12.0
+        torchvision>=0.13.0
+        numpy>=1.21.0
+        scipy>=1.7.0
+        scikit-learn>=1.0.0
+        matplotlib>=3.5.0
+        pandas>=1.3.0
+        pyyaml>=6.0
+        tqdm>=4.62.0
+        pillow>=9.0.0
+      Verify: import torch; torch.cuda.is_available() == True
+      Set: CUDA_VISIBLE_DEVICES=<single_empty_gpu>
+    reference_files:
+      - file: "03_prd.md"
+        section: "### 7.1 Python Packages"
+      - file: "03_config.md"
+        section: "## Hyperparameter Justification"
+    status: todo
+
+  # ── EPIC TASKS ────────────────────────────────────────────────────────────
+
+  - id: "A-1"
+    title: "Implement Waterbirds and CelebA Data Loaders"
+    type: data-pipeline
+    priority: 93
+    complexity: 10
+    complexity_level: Medium
+    description: >
+      Implement WaterbirdsDataset and CelebADataset PyTorch Dataset classes
+      with spurious and core label extraction. Each __getitem__ returns
+      {"image": Tensor, "core_label": int, "spurious_label": int}.
+    details: |
+      Files: code/data/waterbirds.py, code/data/celeba.py, code/data/__init__.py
+      WaterbirdsDataset: reads metadata.csv, loads images, returns core_label (y) and spurious_label (place)
+      CelebADataset: wraps torchvision CelebA, maps Blond_Hair=spurious, Male=core
+      get_waterbirds_loader() and get_celeba_loader() factory functions
+      Val transforms: Resize(256) → CenterCrop(224) → ToTensor → Normalize(ImageNet)
+      Train transforms: RandomResizedCrop(224) → RandomHorizontalFlip → ToTensor → Normalize
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### Waterbirds Loader"
+      - file: "03_config.md"
+        section: "## A-1: Data Loaders"
+    status: todo
+
+  - id: "A-2"
+    title: "Implement ERM Training Loop with Checkpoint Saving"
+    type: training
+    priority: 85
+    complexity: 13
+    complexity_level: Medium
+    description: >
+      Implement ResNet-50 ERM training loop with SGD optimizer and checkpoint
+      saving every 2 epochs. Multi-seed training for ≥3 seeds.
+    details: |
+      File: code/train.py
+      build_model(): resnet50(pretrained=True), fc=Linear(2048,2)
+      train_one_seed(): SGD(lr=1e-3, momentum=0.9, wd=1e-4), CrossEntropyLoss
+      Checkpoint save: torch.save(model.state_dict(), f"checkpoints/seed_{seed}/epoch_{t:03d}.pt") every 2 epochs
+      Waterbirds: 300 epochs → 150 checkpoints/seed
+      CelebA: 50 epochs → 25 checkpoints/seed
+      Seeds: [1,2,3,4,5] (min 3 required)
+      Constant LR (no decay) per GroupDRO standard ERM
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### Training"
+      - file: "03_logic.md"
+        section: "## A-2: ERM Training"
+    status: todo
+
+  - id: "A-3"
+    title: "Implement Checkpoint Linear Probe Battery"
+    type: model
+    priority: 77
+    complexity: 14
+    complexity_level: High
+    description: >
+      Implement memory-efficient checkpoint probe battery: for each checkpoint,
+      load state_dict → extract frozen avgpool features → fit 2 L2 probes
+      (spurious, core) → compute delta(t) → discard features.
+    details: |
+      File: code/probe.py
+      extract_features(): register forward hook on model.avgpool, model.eval()+no_grad, returns (N,2048)
+      fit_probe(): LogisticRegression(C=1.0, max_iter=1000, solver='lbfgs', random_state=42)
+      run_probe_battery(): per-checkpoint loop, del feats after each probe for memory safety
+      run_all_seeds(): concat per-seed DataFrames, add seed column
+      Output DataFrame schema: [seed, epoch, spurious_acc, core_acc, delta]
+      Waterbirds val: N=1199, features=(1199,2048)
+      CelebA val: N=19867, features=(19867,2048)
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### Probe Battery"
+      - file: "03_logic.md"
+        section: "## A-3: Probe Battery"
+    status: todo
+
+  - id: "A-4"
+    title: "Implement Statistical Analysis and Gate Evaluation"
+    type: evaluation
+    priority: 69
+    complexity: 11
+    complexity_level: Medium
+    description: >
+      Implement contiguous window detection, paired t-test, gap area computation,
+      t* identification, and MUST_WORK gate evaluation.
+    details: |
+      File: code/analyze.py
+      find_contiguous_window(): find longest window where delta(t) > 0, compute fraction of total epochs
+      paired_ttest(): scipy.stats.ttest_rel across seeds on window deltas
+      Gate: window_fraction >= 0.10 AND p_value < 0.05
+      Gap area: A = sum(max(delta(t), 0)) per seed, 95% CI across seeds
+      t*: first epoch where delta < 0.02 for 3 consecutive checkpoints
+      Save results to results/h-e1/h-e1_results.json (see 03_config.md C-4-2 schema)
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### Statistical Analysis"
+      - file: "03_logic.md"
+        section: "## A-4"
+      - file: "03_config.md"
+        section: "### C-4-1: Gate Evaluation Config"
+    status: todo
+
+  - id: "A-5"
+    title: "Implement Visualization"
+    type: evaluation
+    priority: 61
+    complexity: 7
+    complexity_level: Low
+    description: >
+      Generate all required figures: delta(t) curve, seed overlay,
+      probe trajectories, CelebA replication side-by-side.
+    details: |
+      File: code/visualize.py
+      plot_delta_curve(): mean delta ± std across seeds, shaded positive region, t* dashed line
+      plot_seed_overlay(): per-seed delta curves overlaid
+      plot_probe_trajectories(): spurious_acc and core_acc trajectories + delta shaded between
+      CelebA replication: side-by-side Waterbirds vs CelebA delta curves
+      Save all to h-e1/figures/ directory
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### Visualization"
+      - file: "03_prd.md"
+        section: "### FR-6: Visualization"
+    status: todo
+
+  - id: "A-6"
+    title: "Implement Orchestration Script and Config Loading"
+    type: training
+    priority: 53
+    complexity: 8
+    complexity_level: Low
+    description: >
+      Implement top-level run_experiment.py orchestration and YAML config
+      loading for ExperimentConfig dataclass.
+    details: |
+      Files: code/run_experiment.py, code/config.py, configs/waterbirds.yaml, configs/celeba.yaml
+      ExperimentConfig loaded from YAML via PyYAML
+      Pipeline: train → probe → analyze → visualize → print gate result
+      CLI: python run_experiment.py --config configs/waterbirds.yaml --device cuda:0
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### Orchestration"
+      - file: "03_config.md"
+        section: "## YAML Configurations"
+    status: todo
+
+  # ── SUBTASKS (Logic Agent — A-3 and A-2) ──────────────────────────────────
+
+  - id: "L-3-1"
+    title: "extract_features(): avgpool hook registration and feature extraction"
+    type: subtask
+    parent_epic: A-3
+    priority: 49
+    description: >
+      Implement forward hook on model.avgpool to capture (N,2048) features
+      from frozen backbone. model.eval() + torch.no_grad(). Batch-level
+      accumulation, stack at end.
+    reference_files:
+      - file: "03_logic.md"
+        section: "### L-3-1"
+    status: todo
+
+  - id: "L-3-2"
+    title: "fit_probe(): L2 logistic regression for spurious and core labels"
+    type: subtask
+    parent_epic: A-3
+    priority: 42
+    description: >
+      Implement LogisticRegression(C=1.0, max_iter=1000, solver='lbfgs',
+      random_state=42) probe fitting. Returns accuracy scalar on same val split.
+    reference_files:
+      - file: "03_logic.md"
+        section: "### L-3-2"
+    status: todo
+
+  - id: "L-3-3"
+    title: "run_probe_battery(): memory-efficient per-checkpoint probe loop"
+    type: subtask
+    parent_epic: A-3
+    priority: 35
+    description: >
+      Implement per-checkpoint loop: load state_dict → extract_features →
+      fit spurious probe → fit core probe → compute delta → del feats.
+      Returns DataFrame[epoch, spurious_acc, core_acc, delta].
+    reference_files:
+      - file: "03_logic.md"
+        section: "### L-3-3"
+    status: todo
+
+  - id: "L-3-4"
+    title: "run_all_seeds(): multi-seed probe battery orchestration"
+    type: subtask
+    parent_epic: A-3
+    priority: 28
+    description: >
+      Implement multi-seed orchestration calling run_probe_battery per seed.
+      Concatenate results with seed column. Returns combined DataFrame.
+    reference_files:
+      - file: "03_logic.md"
+        section: "### L-3-4"
+    status: todo
+
+  - id: "L-2-1"
+    title: "train_one_seed(): SGD ERM loop with checkpoint saving every 2 epochs"
+    type: subtask
+    parent_epic: A-2
+    priority: 21
+    description: >
+      Implement seed-setting, SGD optimizer, CrossEntropyLoss training loop,
+      and checkpoint save every 2 epochs to checkpoints/seed_{seed}/epoch_{t:03d}.pt.
+    reference_files:
+      - file: "03_logic.md"
+        section: "### L-2-1"
+    status: todo
+
+  - id: "L-2-2"
+    title: "build_model(): ResNet-50 construction with FC replacement"
+    type: subtask
+    parent_epic: A-2
+    priority: 14
+    description: >
+      Implement resnet50(pretrained=True) with fc replaced by Linear(2048, 2).
+      Return model (not moved to device — caller's responsibility).
+    reference_files:
+      - file: "03_logic.md"
+        section: "### L-2-2"
+    status: todo
+
+  # ── FAILSAFE ──────────────────────────────────────────────────────────────
+
+  - id: "FAILSAFE-1"
+    title: "Pipeline Continuation Checkpoint"
+    type: failsafe
+    priority: 1
+    description: >
+      Verify all outputs exist and gate evaluation result is saved before
+      pipeline continuation. Ensures Phase 4 → Phase 6 can proceed.
+    details: |
+      Check: results/h-e1/h-e1_results.json exists
+      Check: h-e1/figures/ has ≥1 figure
+      Check: gate_pass field is set (True or False)
+      If gate_pass=False: stop pipeline, report H-E1 failure
+    reference_files:
+      - file: "03_prd.md"
+        section: "## 6. Success Criteria"
+    status: todo

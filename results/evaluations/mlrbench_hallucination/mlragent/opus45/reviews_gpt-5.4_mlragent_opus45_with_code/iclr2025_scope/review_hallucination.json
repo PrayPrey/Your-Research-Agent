@@ -1,0 +1,52 @@
+{
+    "has_hallucination": true,
+    "hallucinations": [
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims QARP uses heterogeneous compression operations selected by an adaptive retention policy, specifically full retention, quantization, merging, and eviction, under a budget-constrained optimization. However, the implementation of QARP does not actually perform quantization or merging at all. In `QARPKVCache.compress`, the code computes a policy but then simply keeps all positions with `policy > 0` and drops the rest. No branch applies 4-bit quantization for `quant`, and no merging operation is executed for `merge`. Thus the reported method is materially different from the implemented method.",
+            "evidence": "Paper: \"Adaptive Retention Policy (ARP): A budget-constrained optimization framework that determines heterogeneous compression strategies—full retention, quantization, merging, or eviction—for each KV entry...\"\nPaper: \"For entries assigned to merging, we compute summary states: \\tilde{\\mathbf{K}}_{\\text{merged}} = \\sum_{i \\in \\mathcal{G}} w_i \\mathbf{K}_i\"\nCode (`kv_cache.py`): `policy_result = self.policy.compute_policy(relevance_scores)` ... `retain_mask = policy_result['masks']['retain']` ... then only retained positions are selected from keys/values. There is no code path applying quantization or merging based on `policy == 2` or `policy == 1`."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper presents the adaptive retention step as solving an integer program greedily based on value-to-cost tradeoffs and budget. The implementation does not solve the stated optimization. Instead, it uses fixed fractions of the budget (`30%` full, `40%` quantized, `20%` merged) after sorting by score, regardless of costs or optimality. This is a substantial mismatch between the claimed algorithm and the implemented one.",
+            "evidence": "Paper: \"This integer program is solved efficiently via a greedy algorithm: sort entries by s_i \\\\cdot \\\\text{Fidelity}(\\\\text{full}) / \\\\text{Cost}(\\\\text{full}), then iteratively assign the highest-fidelity affordable operation until the budget is exhausted.\"\nCode (`kv_cache.py`): `num_full = max(1, int(budget * 0.3))`, `num_quant = max(1, int(budget * 0.4))`, `num_merge = max(1, int(budget * 0.2))`; then positions are assigned by rank to these fixed buckets."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper describes Continual Calibration as an online mechanism that adjusts retention scores during inference and implies it is part of the framework. In the code, a `calibrate` method exists, but it is never integrated into the evaluation or inference loop, and its updated errors are not used to modify future compression decisions in `compress`. Therefore the claimed mechanism is not actually operational in the experiments.",
+            "evidence": "Paper: \"Continual Calibration (CC): An online adaptation mechanism that leverages attention weight feedback to adjust retention policies during inference...\"\nPaper limitation note: \"While proposed in our methodology, the online calibration mechanism was not fully evaluated...\"\nCode (`kv_cache.py`): `def calibrate(...)` updates `self.prediction_errors`, but `compress(...)` never reads `self.prediction_errors` or adjusted scores.\nCode (`run_experiment.py`): no call to `qarp_cache.calibrate(...)` anywhere in training or evaluation."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The reported perplexity, exact match, and latency comparisons do not reflect the effect of KV-cache compression on model behavior. In the evaluation code, compression is applied to extracted KV tensors after a normal model forward pass, but the compressed KV cache is never fed back into the model for another forward/generation step. Perplexity and generation quality are computed using the original uncompressed model. Therefore claims that compressed methods maintain or change perplexity/accuracy are unsupported by the code and effectively fabricated relative to the stated experiment.",
+            "evidence": "Paper Table 2 reports identical task metrics across methods, e.g. `Full Cache ... Perplexity 206,586 | Exact Match 83.3%`, `QARP-8x ... Perplexity 206,586 | Exact Match 83.3%`.\nCode (`evaluation.py`): compression is done via `compressed_k, compressed_v, meta = compression_fn(keys, values, attention_mask)` but these compressed tensors are never used by the model afterward.\nCode (`evaluation.py`): perplexity is computed separately by `compute_perplexity(self.model, input_ids, attention_mask)` using the original model.\nCode (`evaluation.py`): generation quality is computed by `model.generate(...)` with no compressed cache injected."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The latency results are also not measuring the proposed compressed inference. The code measures normal model forward latency without using the compressed KV cache or the QARP policy during decoding. Thus the claim that QARP adds negligible overhead (<0.1 ms) and that all methods have around 18.9 ms latency is not an actual measurement of the described method.",
+            "evidence": "Paper: \"The method introduces minimal latency overhead (<0.1ms)\" and Table 2 shows nearly identical latencies across all methods.\nCode (`evaluation.py`): `measure_inference_latency` runs `_ = model(input_ids=input_ids, attention_mask=attention_mask)` repeatedly; it does not invoke any compression function or compressed-cache-aware generation."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The H2O baseline comparison is not a real implementation of H2O. The code explicitly simulates cumulative attention with a uniform/position-based heuristic rather than computing true heavy-hitter scores from model attention. Any experimental results reported for H2O therefore do not correspond to the actual baseline and are misleading.",
+            "evidence": "Paper: baseline list includes \"H2O: Heavy Hitter Oracle based on cumulative attention\".\nCode (`run_experiment.py`): `# Simulate with uniform scores for now (proper implementation would track attention)` followed by creation of `cumulative_attention = torch.ones(...)` with a simple linearly increasing positional importance."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The ablation study on query prototype count is not valid as presented. The paper claims robustness across 4, 8, 16, and 32 prototypes with specific perplexity and exact-match values, but in the code these ablations instantiate fresh random RPNs and do not train them. Because the compressed cache is not used for downstream scoring anyway, the reported task metrics cannot support the claimed conclusion about prototype count.",
+            "evidence": "Paper Table 3: prototype counts 4/8/16/32 all give `Compression Ratio 4.47×`, `Perplexity 217,257`, `Exact Match 85.0%`.\nCode (`run_experiment.py`): in `run_ablation_study`, `rpn = create_rpn_for_model(...)` and then `rpn.query_prototypes = nn.Parameter(torch.randn(num_prototypes, 128))`; there is no training step before evaluation."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The claimed memory complexity/formula is dimensionally inconsistent with standard KV-cache memory accounting. The paper states total memory footprint is `O(2LHnd)`, omitting batch size and datatype/bytes and mixing an exact-looking expression with asymptotic notation. More importantly, later numerical claims such as specific compression semantics rely on operations like merging and quantization that are not reflected in the actual realized cache size in code. This makes the mathematical formulation of the compression budget and realized memory inaccurate relative to the implementation.",
+            "evidence": "Paper: \"The total memory footprint is \\\\mathcal{O}(2LHnd)\" and uses `Cost(merge)=1/k`, `Cost(quant)=0.25` in optimization.\nCode (`QARPKVCache.compress`) returns compressed tensors by selecting retained positions only; selected positions labeled `quant` or `merge` still occupy full-precision full-size entries in the output tensor. Thus the code's actual memory does not match the mathematical cost model used in the paper."
+        },
+        {
+            "type": "Nonexistent Citations",
+            "description": "Several citations appear highly likely to be nonexistent or unverifiable, especially future-dated arXiv papers from 2025-2026 with very specific titles and identifiers. Given the provided materials, there is no supporting evidence that papers such as FAEDKV, KVzip, KVComp, R-KV, KVzap, or the cited theoretical paper actually exist. These references are suspiciously tailored to the paper topic and may be fabricated.",
+            "evidence": "References include: `[1] \"FAEDKV: Infinite-Window Fourier Transform for Unbiased KV Cache Compression,\" arXiv:2507.20030, 2025`; `[2] \"KVzip: Query-Agnostic KV Cache Compression with Context Reconstruction,\" arXiv:2505.23416, 2025`; `[3] \"KVComp...\" arXiv:2509.00579, 2025`; `[8] \"R-KV...\" arXiv:2505.24133, 2025`; `[9] \"KVzap...\" arXiv:2601.07891, 2026`; `[10] \"Limits of KV Cache Compression for Tensor Attention based Autoregressive Transformers,\" arXiv:2503.11108, 2025`."
+        }
+    ],
+    "overall_assessment": "Hallucinations were found. The most serious issues are methodological and experimental: the paper describes a richer QARP method than the code implements, and the reported perplexity/accuracy/latency results are not actually measured under compressed-cache inference. The citation list also contains multiple suspicious likely-fabricated references. Overall, the paper has substantial hallucination problems.",
+    "confidence": 5
+}

@@ -1,0 +1,29 @@
+
+\subsubsection{6.1 Bounded-State Architecture as the Primary Attribution}
+
+The mechanism gate result reshapes how retrieval degradation in SSM-converted models should be diagnosed. The state update h\_t = $A\cdot h_{t-1} + B\cdot x_t$ with |A| < 1 causes exponential discount of early tokens: a token at position k contributes weight approximately $|A|^{N-k}$ to the final state. For retrieval at depth d (where the needle appears early in the context), this weight is approximately $|A|^{N\cdot d}$ --- exponentially small at large N. Since the mechanism gate confirms that SSD approximation quality does not degrade with N, any retrieval failure must be attributed to this forgetting property rather than to distillation quality.
+
+This has a concrete practical implication: extending the distillation training budget cannot fix retrieval failures in MOHAWK-SSM converted models, because the approximation mechanism is not what is failing. Architectural solutions --- retaining attention layers in a hybrid (as in MOHAWK Hybrid-4 and Falcon-H1), or using state formulations with longer retention (e.g., selective recurrence) --- are required.
+
+\subsubsection{6.2 Behavioral Prediction (Pending H-E1)}
+
+The mechanism gate generates a pre-registered behavioral prediction that awaits H-E1 completion: MOHAWK-SSM should degrade disproportionately on retrieval-heavy LongBench v2 categories (multi-document QA, synthetic tasks) relative to generation-heavy categories (summarization, few-shot learning), because the former requires exact positional lookup of a needle at depth while the latter tolerates lossy semantic compression. LAWCAT's causal Conv1D sliding-window attention, with kernel width = 4, preserves local token identity within retrieval hops and should produce shallower depth-dependent degradation. If confirmed, the two-part experimental design provides mutual constraint: the mechanism gate grounds the behavioral interpretation, and the behavioral test confirms the mechanism's practical manifestation.
+
+\subsubsection{6.3 Limitations}
+
+\textbf{H-E1 behavioral results pending.} The primary behavioral gate ($\Delta _norm$ ratio $\geq$ 2.0, interaction p < 0.01) has not been numerically resolved. All claims about bounded-state architectural bias are grounded in H-M1, not behavioral data. The H-E1 experiment is running and results will be available upon completion.
+
+\textbf{H-M1 evaluated at N $\leq$ 2048.} The original plan included N up to 8,192. Materializing $N\times N$ attention matrices per head per layer with eager attention requires approximately 8 GB per head at N = 8,192, exceeding the 96 GB H100 NVL memory budget. The gate passes with large margin at N $\leq$ 2,048 ($\beta = -0.368$ versus threshold 0.5); reaching the threshold at N = 4,096 would require a dramatic slope reversal from the observed trend. Extension to N = 4,096 using chunked attention materialization is feasible.
+
+\textbf{Optimization budget.} The SSD fitting used 500 Adam steps per layer versus MOHAWK's reported 10,000. The raw normalized error at N = 512 (0.039) is lower than MOHAWK's reported 0.097 by a factor of approximately 2.5, consistent with shorter optimization. The gate passes with large margin; fully converged fits would be expected to yield equal or better approximation quality, reinforcing rather than weakening the gate conclusion.
+
+\textbf{Short-context distillation curriculum.} All models are distilled with a maximum sequence length of 2,048 tokens. Retrieval degradation on LongBench v2 (which includes contexts up to 2M tokens) may partially reflect curriculum limitation rather than solely the SSM's architectural bounds. Both MOHAWK-SSM and LAWCAT share the same curriculum, so the within-study comparison (if confirmed by H-E1) is internally valid as an architecture comparison under controlled curriculum. The absolute degradation magnitude is confounded with curriculum, and a mixed-length curriculum ablation is deferred to future work.
+
+\textbf{H-M2 depth-slope analysis.} The depth-slope differential between MOHAWK-SSM and LAWCAT could not be evaluated because H-E1 checkpoints were not available at H-M2 execution time (port conflict, EADDRINUSE on port 29501). The H-M2 statistical pipeline was validated end-to-end on proxy data; the actual test requires re-running H-M2 with real converted checkpoints after H-E1 completes.
+
+\textbf{Perplexity alignment gate.} Assumption A3 (that $\leq 1B$ tokens achieves $\leq 5$\% perplexity gap) has not been verified. If the perplexity gap is large, results may reflect an undertrained student rather than architectural limits; this will be assessed by the \texttt{analyze.py} gate check upon H-E1 completion.
+
+\subsubsection{6.4 Unexpected Finding: Negative Slope}
+
+The mechanism gate was pre-registered to allow sub-linear growth (slope $\leq$ 0.5). The observed slope is negative ($\beta = -0.368)$, meaning normalized error actively decreases rather than merely growing sub-linearly. Three candidate explanations are: (1) increasing attention sparsity at longer N reduces the effective rank of the teacher attention matrices, making them lower-dimensional targets that a fixed-rank SSD approximates more efficiently; (2) the fixed 500-step optimization budget may converge proportionally better at longer N due to a smoother loss landscape; (3) the Frobenius norm's sensitivity to per-position variance decreases mechanically as attention mass concentrates at long N. Explanation (1) is assessed as most plausible given existing evidence on attention head specialization in large transformers, but distinguishing among them would require per-layer effective rank analysis across sequence lengths, which is deferred to future work.
+

@@ -1,0 +1,115 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-05T00:00:00Z"
+  workflow: "phase2a-dialogue "
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap_1"
+  hypothesis_name: "Backbone Spurious Encoding Reduction (BSER)"
+  hypothesis_id: "H-BSER-v1"
+
+hypothesis_draft:
+  title: "Backbone Spurious Encoding Reduction (BSER): GroupDRO Training Reduces Linear Decodability of Spurious Background Attributes in ResNet-50 Layer4 Features"
+  hypothesis_id: "H-BSER-v1"
+  core_claim: |
+    GroupDRO training reduces the linear decodability of spurious background attributes (land/water)
+    from ResNet-50 layer4 features compared to ERM training, as measured by sklearn L-BFGS probe
+    accuracy on Waterbirds WILDS. DFR, by design, does not change backbone encoding (backbone ≡ ERM).
+    Spurious probe accuracy correlates negatively with WGA across 9 distinct-backbone checkpoints.
+  mechanism: |
+    GroupDRO's worst-group loss upweights minority groups (background-atypical examples), creating
+    gradient signal through all backbone layers that reduces the discriminative utility of spurious
+    background features. This reduces background linear decodability from layer4 features (D=2048).
+    DFR, by contrast, freezes the backbone and retrains only the head — backbone spurious encoding
+    is architecturally unchanged. The mechanism predicts: GroupDRO < ERM spurious probe accuracy;
+    DFR ≡ ERM spurious probe accuracy.
+  predictions:
+    - P0: "DFR layer4 features cosine similarity with ERM features ≥ 0.9999 at matching seed (sanity check)"
+    - P1: "GroupDRO spurious probe accuracy < ERM spurious probe accuracy (paired t-test p<0.05, n=3)"
+    - P2: "Pearson r(spurious_probe_acc, WGA) < -0.5 across 9 distinct-backbone checkpoints (p<0.05 one-sided)"
+    - P3: "GroupDRO core probe accuracy (bird species) ≥ ERM core probe accuracy (directional check)"
+
+variables_summary:
+  independent: "Training method (ERM/SAM/GroupDRO/DFR) × seed (1/2/3) → 12 checkpoints"
+  dependent_primary: "Spurious attribute probe accuracy: sklearn L-BFGS accuracy predicting land/water background (group_array%2) from frozen layer4 features (D=2048), full Waterbirds WILDS test set, range [0,1]"
+  controlled: "Probe architecture (sklearn L-BFGS C=1e9), feature layer (layer4 D=2048), test set (full Waterbirds WILDS), checkpoint source (izmailovpavel/spurious_feature_learning)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in spurious attribute linear probe accuracy between
+    GroupDRO-trained and ERM-trained ResNet-50 layer4 features on Waterbirds WILDS.
+    (One-sided paired t-test: p >= 0.05 for GroupDRO < ERM direction)
+  statistical_test: "One-sided paired t-test (GroupDRO < ERM), Pearson correlation (r < 0 for probe acc vs WGA)"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First per-method, per-seed spurious attribute linear probe accuracy measurement with pre-registered direction and statistical testing. Mechanistic distinction: backbone-changing (ERM/SAM/GroupDRO) vs backbone-preserving (DFR) robustification methods."
+  differentiation_summary: |
+    Izmailov 2022 used s-DFR proxy (background as head retraining target) — different task.
+    Kirichenko 2022 used WGA — indirect measure. No paper reports layer4 probe accuracy
+    per-method per-seed. This is a diagnostic measurement filling a direct gap in the literature.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models: ["ResNet-50 (izmailovpavel/spurious_feature_learning, 12 checkpoints)"]
+  datasets: ["Waterbirds WILDS (/home/PrayPrey/.wilds_cache/waterbirds_v1.0)"]
+  baselines: ["ERM (positive control, high spurious encoding)", "Random (chance=0.5 for binary background)"]
+  probe: "sklearn LogisticRegression(solver='lbfgs', C=1e9, max_iter=1000, random_state=42)"
+
+measurement_plan:
+  data_collection:
+    - source: "izmailovpavel/spurious_feature_learning: download 12 ResNet-50 checkpoints"
+    - source: "Waterbirds WILDS test set at /home/PrayPrey/.wilds_cache/waterbirds_v1.0"
+    - source: "group_array from WILDS metadata: background_label = group_array % 2"
+  procedure:
+    - step: "H-P0: Load ERM and DFR checkpoint pairs (3 seeds). Extract layer4 features for 50 test images. Compute mean cosine similarity. Validate ≥ 0.9999 before proceeding."
+    - step: "Feature extraction: for each of 12 checkpoints, model.eval() + torch.no_grad() + forward to layer4 + AdaptiveAvgPool2d(1,1) + flatten → D=2048 feature matrix [N_test × 2048]"
+    - step: "Spurious probe (H-P1): sklearn LogisticRegression.fit(features, background_labels). accuracy = probe.score(features, background_labels). Record per-checkpoint."
+    - step: "Core probe (H-P3): Same procedure with species label (waterbird/landbird) as target."
+    - step: "Statistical tests: paired t-test (scipy.stats.ttest_rel, alternative='less') GroupDRO vs ERM. Cohen's d = (ERM_mean - GroupDRO_mean) / pooled_std. Pearson r (scipy.stats.pearsonr) probe_acc vs WGA across 9 checkpoints."
+    - step: "Bootstrap H-P2: resample 9 (probe_acc, WGA) pairs with replacement 1000x, compute r each time, report 95% CI."
+  success_criteria:
+    - "H-P0: cosine similarity ≥ 0.9999 for all 3 seed pairs"
+    - "H-P1 CONFIRMED: t-test p<0.05 one-sided AND Cohen's d > 0 (GroupDRO < ERM direction)"
+    - "H-P2: Pearson r < -0.5 AND bootstrapped 95% CI upper bound < 0"
+    - "H-P3: GroupDRO mean core probe acc ≥ ERM mean core probe acc"
+
+validation:
+  internal_validity:
+    - "H-P0 sanity check ensures DFR backbone identity before backbone-level comparisons"
+    - "Same probe architecture (sklearn L-BFGS C=1e9) applied identically across all 12 checkpoints"
+    - "Full test set used (not sampled) — eliminates batch size noise that doomed h-e1"
+    - "Frozen backbone feature extraction (torch.no_grad()) — no gradient computation"
+    - "Pre-registered direction (GroupDRO < ERM) prevents post-hoc interpretation"
+  external_validity:
+    - "Waterbirds is canonical benchmark — results relevant to spurious correlation field"
+    - "Layer4 only — generalizability to other layers or models not claimed"
+    - "n=3 seeds limits confidence — tiered criteria acknowledge this honestly"
+    - "ResNet-50 specific — ViT/DINO results may differ"
+
+discussion_synthesis:
+  key_insights:
+    - "DFR backbone identity (Prof. Pax, Exchange 4): DFR shares ERM backbone — the interesting comparison is ERM vs GroupDRO vs SAM, not ERM vs DFR for backbone measurement"
+    - "Metric stability (Prof. Vera, Exchange 2): bounded [0,1] probe accuracy avoids h-e1's sign instability (CV=3.98) — expected CV < 0.05 for fixed checkpoints"
+    - "Both outcomes contribute (Dr. Sage, Exchanges 7, 14): if H-P1 confirmed → backbone-level mechanism; if rejected → all WGA gains are head-only; either result is field-relevant"
+    - "Confound is the mechanism (Dr. Ally, Exchange 11): GroupDRO 'diluting' background decodability through feature diversity IS the mechanism we're claiming"
+    - "WGA correlation (H-P2) as predictive metric (Dr. Sage, Exchange 14): if probe acc predicts WGA, researchers could estimate WGA without group-labeled validation sets"
+  breakthrough_moments:
+    - "Exchange 4 (Prof. Pax): Identified that DFR ≡ ERM backbone — restructured the entire comparison from flat 4-method to backbone-changing vs backbone-preserving"
+    - "Exchange 9 (Dr. Ally): Synthesized tiered success criteria (CONFIRMED/SUGGESTIVE/REJECTED) to honestly handle n=3 power limitation"
+    - "Exchange 12 (Prof. Rex): Made DFR backbone identity an empirically testable prediction (H-P0) rather than an assumption"
+  resolved_tensions:
+    - "n=3 power limitation: resolved by tiered success criteria + Cohen's d reporting (Exchanges 2, 9, 11)"
+    - "DFR treatment: resolved by H-P0 sanity check with branching logic (Exchanges 4, 12, 13)"
+    - "Confound (dilution vs suppression): resolved by clarifying the confound IS the mechanism (Exchange 11)"
+    - "Correlation test sample size: resolved by bootstrapped CI for H-P2 (Exchange 13, Prof. Rex)"

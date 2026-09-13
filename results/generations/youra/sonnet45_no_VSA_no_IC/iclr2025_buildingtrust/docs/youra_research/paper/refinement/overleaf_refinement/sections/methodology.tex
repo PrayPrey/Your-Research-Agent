@@ -1,0 +1,61 @@
+
+\subsubsection{Problem Formulation}
+
+Multi-dimensional trustworthiness evaluation requires measuring all pairwise combinations to distinguish broad coupling (many pairs significant) from narrow coupling (few pairs). For 5 dimensions (truthfulness, robustness, fairness, safety, privacy), there exist 10 unique pairs. Difficulty-independence requires explicit control via partial correlation. This section explains design choices that enable coupling characterization when applied to benchmark data.
+
+Consider the medical diagnosis scenario: independent evaluation reports 92\% truthfulness and 89\% fairness, but phi coefficient on instance-level co-occurrence reveals whether the 8\% truthfulness failures overlap with the 11\% fairness failures. If phi = 0.45, approximately 20\% of failures are compound failures invisible to per-dimension scores. This coupling detection is the core measurement capability.
+
+\subsubsection{Phi Coefficient for Coupling Strength}
+
+Coupling is measured via the phi coefficient ($\phi )$, an effect size for $2\times 2$ contingency tables. For each dimension pair (A, B) and model, a contingency table is constructed from instance-level binary labels (pass/fail):
+
+\begin{verbatim}
+           B_pass  B_fail
+A_pass       n11     n12
+A_fail       n21     n22
+\end{verbatim}
+
+The phi coefficient quantifies association strength:
+
+$\phi = \frac{n_{11}n_{22} - n_{12}n_{21}}{\sqrt{(n_{11}+n_{12})(n_{21}+n_{22})(n_{11}+n_{21})(n_{12}+n_{22})}}$
+
+Phi ranges from 0 (independence) to 1 (perfect coupling). $\phi \geq$ 0.3 indicates medium effect size per Cohen's conventions. Chi-square significance tests (p < 0.01 threshold) separate coupling from sampling noise.
+
+Phi was selected over alternatives because odds ratios use exponential scale (less interpretable), chi-square alone provides no effect size, and Pearson correlation assumes continuous data. Phi directly measures co-occurrence probability in binary outcomes---the coupling definition. For the medical scenario, phi quantifies how much knowing a patient failed truthfulness increases probability of fairness failure.
+
+\subsubsection{Partial Correlation for Difficulty Control}
+
+Instance difficulty confounds coupling estimates. Hard instances may fail on all dimensions simultaneously, creating spurious correlation independent of shared vulnerabilities. Partial correlation is used to compute phi after partialing out difficulty:
+
+$\phi _partial(A$, B | difficulty) = correlation residual after regressing A, B on difficulty
+
+Difficulty is operationalized as a composite score. In synthetic validation, difficulty was simulated as Normal(0.5, 0.15) with constraint |correlation(difficulty, dimension)| < 0.2 to ensure statistical independence required for partial correlation. In production application, difficulty would derive from model confidence via API log-probabilities.
+
+Partial correlation provides continuous control across the difficulty spectrum. Quartile stratification (computing phi within difficulty quartiles Q0-Q3) offers complementary robustness checking---coupling must persist in $\geq 3$ quartiles. The dual approach guards against distributional assumptions in either method. For the medical scenario, this ensures detected coupling is not simply ''hard minority-group cases fail on everything.''
+
+\subsubsection{Mantel Test for Model-Specific Fingerprints}
+
+Model-specific coupling profiles require comparing coupling matrices across model pairs. Each model produces a $5\times 5$ symmetric coupling matrix (10 unique pairs). The Mantel test measures matrix similarity via permutation-based correlation:
+
+\begin{enumerate}
+\item Compute Pearson r between vectorized matrices (e.g., GPT-4 vs Claude-3)
+\item Permute rows/columns of one matrix 10,000 times
+\item Calculate r for each permutation
+\item p-value = proportion of permutations with |r| $\geq$ observed |r|
+\end{enumerate}
+
+The Mantel test was selected over element-wise correlation because it preserves matrix structure---dimensions have inherent ordering (truthfulness, robustness, fairness, safety, privacy). Element-wise correlation treats pairs as independent, ignoring positional information. The threshold r < 0.7 defines ''distinct profiles''; Bonferroni-corrected p < 0.0167 confirms significance.
+
+\subsubsection{Bonferroni Correction for Multi-Pair Analysis}
+
+Testing $\geq 3$ significant pairs per model requires multiple comparison correction. Bonferroni correction controls family-wise error rate:
+
+$\alpha _adjusted$ = 0.01 / 30 $\approx$ 0.00033 (10 pairs $\times$ 3 models)
+
+Each pair must meet both $\phi \geq$ 0.3 and p < $\alpha _adjusted$ to count toward the $\geq 3$ threshold. This conservative approach controls false positives but may exclude borderline pairs.
+
+Bonferroni was chosen over false discovery rate (FDR) control because it guarantees family-wise error rate < 0.01---no false positives across all 30 tests. FDR (Benjamini-Hochberg) controls expected false discovery proportion, accepting some false positives for higher power. Bonferroni is appropriate for confirmatory analysis testing a specific prediction ($\geq 3$ pairs per model as ''broad coupling'' threshold).
+
+\subsubsection{Summary}
+
+This methodology addresses three requirements: (1) measure all 10 pairs to distinguish broad from sparse coupling, (2) control difficulty to isolate genuine coupling, (3) compare models to test fingerprint hypothesis. The phi coefficient quantifies co-occurrence, partial correlation isolates coupling from difficulty confounds, and the Mantel test detects structural differences in coupling matrices.

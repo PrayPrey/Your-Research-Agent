@@ -1,0 +1,8 @@
+# Title
+Reflexive Bidirectional Alignment: Preserving Human Agency in AI Systems via Cybernetic Feedback Control
+
+# Motivation
+Current AI alignment approaches risk depleting human agency through learned helplessness and deskilling. While bidirectional alignment frameworks propose mutual human-AI adaptation, they lack concrete mechanisms to actively preserve user autonomy during training. This creates a critical gap: AI systems optimized for preference alignment may inadvertently reduce users' decision-making capacity and self-determination over sustained interactions.
+
+# Main Idea
+We propose Reflexive Bidirectional Alignment (RBA), which treats human agency as a homeostatic control variable maintained through cybernetic feedback loops during RLHF training. The system continuously monitors composite agency scores (aggregating decision autonomy, self-initiation rates, preference overrides, and task delegation patterns) every K adaptation steps, comparing against user-specific baselines. When agency deviation exceeds 5%, Pareto optimization dynamically adjusts the dual-objective reward function R_total = R_alignment + λ_agency × R_agency_preservation, balancing alignment quality with agency preservation. Testing on conversational AI with n≥25 users, we predict maintaining agency within 5% of baseline while achieving 88-90% preference match accuracy (matching standard RLHF). This approach extends existing learnable protocols (BiCA) by adding explicit reflexive control, validated through behavioral proxy correlation (r≥0.8) with psychometric assessments, with ≤15% computational overhead for production deployment.

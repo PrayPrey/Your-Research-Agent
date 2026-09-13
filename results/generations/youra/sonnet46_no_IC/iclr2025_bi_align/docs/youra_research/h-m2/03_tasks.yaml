@@ -1,0 +1,334 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  created_at: "2026-08-04"
+  description: "Residual Capability Signal Confirmation — FWL theorem via OLS residualization"
+
+budget_summary:
+  environment_setup: 1
+  data_preparation: 0
+  epic_tasks: 8
+  subtasks: 8
+  failsafe: 1
+  total: 18
+
+tasks:
+  # ── Environment Setup (priority 94) ──────────────────────────────────────
+  - id: "T-0"
+    title: "Environment Setup"
+    type: setup
+    priority: 94
+    description: >
+      Verify all required packages are installed: numpy, scipy, statsmodels,
+      pingouin (NEW — not in h-e1/h-m1), matplotlib, seaborn, pandas.
+      Create docs/youra_research/h-m2/figures/ directory.
+      Confirm CSV exists at docs/data_AlpacaEval_2/weighted_alpaca_eval_gpt4_turbo_leaderboard.csv.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_prd.md"
+        section: "7. Dependencies"
+      - file: "docs/youra_research/h-m2/03_config.md"
+        section: "Requirements"
+    acceptance_criteria:
+      - "pingouin importable (pip install pingouin if missing)"
+      - "figures/ directory exists"
+      - "CSV file accessible"
+
+  # ── Epic Tasks (priority 93 → 50) ────────────────────────────────────────
+  - id: "A-1"
+    title: "Environment Setup Verification"
+    type: setup
+    priority: 93
+    description: >
+      Confirm runtime environment: import all 7 libraries, assert no import errors.
+      Verify CSV path is correct. Create figures/ dir if not exists.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_architecture.md"
+        section: "Epic Tasks A-1"
+      - file: "docs/youra_research/h-m2/03_config.md"
+    complexity: 4
+    acceptance_criteria:
+      - "All imports succeed"
+      - "CSV readable with pandas"
+      - "figures/ directory created"
+
+  - id: "A-2"
+    title: "Data Pipeline"
+    type: data-pipeline
+    priority: 92
+    description: >
+      Copy data_loader.py from h-e1 (load_and_validate unchanged — same signature,
+      same logic). Verify load_and_validate() returns clean DataFrame with N>=200.
+      Columns needed: win_rate, length_controlled_winrate, avg_length.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_architecture.md"
+        section: "DataLoader"
+      - file: "docs/youra_research/h-m2/03_prd.md"
+        section: "4. Data Specification"
+      - file: "docs/youra_research/h-e1/code/data_loader.py"
+    complexity: 5
+    acceptance_criteria:
+      - "load_and_validate() returns df with len >= 200"
+      - "No NaN in win_rate, length_controlled_winrate, avg_length"
+
+  - id: "A-3"
+    title: "OLS Residualization Module"
+    type: implementation
+    priority: 91
+    description: >
+      Implement residualizer.py with two functions:
+      regress_out(y, x) — OLS via numpy.linalg.lstsq, returns (residuals, r_squared).
+      compute_residuals(df) — calls regress_out twice for win_rate and lc_winrate,
+      returns {win_rate_resid, lc_resid, r2_win, r2_lc}.
+      This is the CORE new contribution of h-m2.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-3-1 regress_out"
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-3-2 compute_residuals"
+      - file: "docs/youra_research/h-m2/03_architecture.md"
+        section: "Residualizer"
+    complexity: 9
+    acceptance_criteria:
+      - "regress_out() residuals are orthogonal to x (correlation ~ 0)"
+      - "compute_residuals() returns all 4 dict keys"
+      - "R² values logged"
+
+  - id: "A-4"
+    title: "Spearman Correlation + Bootstrap CI"
+    type: implementation
+    priority: 90
+    description: >
+      Implement spearman_analysis.py:
+      spearman_residuals(win_resid, lc_resid) -> {rho, p_value} via scipy.stats.spearmanr.
+      bootstrap_spearman(win_resid, lc_resid, n=1000, seed=42) -> (ci_lower, ci_upper, boot_rhos)
+      using rng.choice(n, size=n, replace=True) matching h-e1 pattern.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-4-1 bootstrap_spearman"
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-4-2 spearman_residuals"
+      - file: "docs/youra_research/h-m2/03_architecture.md"
+        section: "SpearmanAnalysis"
+    complexity: 10
+    acceptance_criteria:
+      - "rho value computed and > 0 (expected ~0.985)"
+      - "p_value << 0.05"
+      - "bootstrap CI shape (2,) excludes 0"
+
+  - id: "A-5"
+    title: "FWL Consistency + Pingouin Cross-Validation"
+    type: implementation
+    priority: 89
+    description: >
+      Add to spearman_analysis.py:
+      fwl_consistency_check(rho, h_e1=0.9851) -> {fwl_delta, fwl_consistent}.
+      pingouin_cross_validate(df) -> {pingouin_r, pingouin_p, consistent_with_residual}
+      using pingouin.partial_corr(method='spearman').
+      Note: pingouin result column is 'p-val' (with hyphen).
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "FWL and Pingouin"
+      - file: "docs/youra_research/h-m2/03_prd.md"
+        section: "FR-5 FR-6"
+    complexity: 8
+    acceptance_criteria:
+      - "fwl_delta < 0.02 (FWL theorem)"
+      - "pingouin r matches rho within 0.005"
+
+  - id: "A-6"
+    title: "Gate Evaluator"
+    type: implementation
+    priority: 88
+    description: >
+      Implement gate_evaluator.py:
+      evaluate_gate(rho, p_value, ci_lower, fwl_delta) -> {passes_gate, fwl_consistent, gate_reason}.
+      Gate: passes_gate = (rho > 0) AND (p_value < 0.05) AND (ci_lower > 0).
+      Consistency: fwl_consistent = (fwl_delta < 0.02).
+      Gate type: SHOULD_WORK — failure documents but does not stop pipeline.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_architecture.md"
+        section: "GateEvaluator"
+      - file: "docs/youra_research/h-m2/03_prd.md"
+        section: "8. Success Criteria"
+    complexity: 6
+    acceptance_criteria:
+      - "evaluate_gate returns dict with passes_gate, fwl_consistent, gate_reason"
+      - "SHOULD_WORK semantics: failure is non-fatal"
+
+  - id: "A-7"
+    title: "Visualization Suite (5 Figures)"
+    type: implementation
+    priority: 87
+    description: >
+      Implement visualizer.py with save_all_figures() dispatching to 5 private functions:
+      1. _residuals_scatter — scatter win_rate_resid vs lc_resid + regression line + rho annotation
+      2. _residual_distributions — side-by-side histograms of both residuals
+      3. _partial_regression — statsmodels plot_partregress (added-variable plot)
+      4. _fwl_consistency — bar/point comparison H-E1 vs H-M2 with ±0.02 tolerance band
+      5. _bootstrap_distribution — histogram of 1000 boot_rhos with CI and null line
+      Save to docs/youra_research/h-m2/figures/.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-7-1 Visualizer"
+      - file: "docs/youra_research/h-m2/03_prd.md"
+        section: "FR-8"
+      - file: "docs/youra_research/h-m2/03_architecture.md"
+        section: "Visualizer"
+    complexity: 12
+    acceptance_criteria:
+      - "5 PNG files saved to figures/"
+      - "save_all_figures() returns list of 5 paths"
+
+  - id: "A-8"
+    title: "Report Writer + Orchestrator"
+    type: implementation
+    priority: 86
+    description: >
+      Implement report_writer.py: write_validation_report() writes 04_validation.md
+      with gate result, rho, p, CI, FWL delta, pingouin result, R² diagnostics, figure paths.
+      Implement run_experiment.py: main() orchestrates full pipeline end-to-end.
+      Run experiment and verify 04_validation.md is generated.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-8-1 run_experiment"
+      - file: "docs/youra_research/h-m2/03_architecture.md"
+        section: "ReportWriter RunExperiment"
+      - file: "docs/youra_research/h-m2/03_prd.md"
+        section: "FR-9"
+    complexity: 9
+    acceptance_criteria:
+      - "04_validation.md generated with all required sections"
+      - "Gate result (PASS/FAIL) clearly stated"
+      - "rho, p_value, CI, FWL_delta all reported"
+      - "Figure paths listed"
+
+  # ── Logic Subtasks (priority 49 → 20) ────────────────────────────────────
+  - id: "L-3-1"
+    title: "regress_out() implementation"
+    type: subtask
+    parent: "A-3"
+    priority: 49
+    description: >
+      Full implementation of regress_out(y, x):
+      X_mat = np.column_stack([np.ones(len(x)), x])
+      coefs = np.linalg.lstsq(X_mat, y, rcond=None)[0]
+      residuals = y - X_mat @ coefs
+      r_squared = 1 - ss_res/ss_tot
+      Returns (residuals: np.ndarray, r_squared: float).
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-3-1"
+
+  - id: "L-3-2"
+    title: "compute_residuals() orchestration"
+    type: subtask
+    parent: "A-3"
+    priority: 48
+    description: >
+      compute_residuals(df) calls regress_out for both win_rate and lc_winrate
+      against avg_length. Logs R² for each. Returns dict with 4 keys.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-3-2"
+
+  - id: "L-4-1"
+    title: "bootstrap_spearman() with default_rng"
+    type: subtask
+    parent: "A-4"
+    priority: 47
+    description: >
+      bootstrap_spearman(win_resid, lc_resid, n_bootstrap=1000, seed=42):
+      rng = np.random.default_rng(seed)
+      Each iteration: idx = rng.choice(n, size=n, replace=True)
+      boot_rho = spearmanr(win_resid[idx], lc_resid[idx])[0]
+      CI = np.percentile(boot_rhos, [2.5, 97.5])
+      Returns (ci_lower, ci_upper, boot_rhos).
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-4-1"
+
+  - id: "L-4-2"
+    title: "spearman_residuals + FWL + pingouin functions"
+    type: subtask
+    parent: "A-4"
+    priority: 46
+    description: >
+      spearman_residuals() returns {rho, p_value} from scipy.stats.spearmanr.
+      fwl_consistency_check() returns {fwl_delta, fwl_consistent}.
+      pingouin_cross_validate() uses pingouin.partial_corr with method='spearman';
+      result column is 'p-val' (hyphen not underscore).
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-4-2"
+
+  - id: "L-7-1"
+    title: "Visualizer figure implementations"
+    type: subtask
+    parent: "A-7"
+    priority: 45
+    description: >
+      Implement all 5 private figure functions per 03_logic.md L-7-1 spec.
+      _partial_regression uses statsmodels.graphics.regressionplots.plot_partregress.
+      Each function accepts out_path (full path string) and saves PNG.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-7-1"
+
+  - id: "L-8-1"
+    title: "run_experiment.py main() orchestration"
+    type: subtask
+    parent: "A-8"
+    priority: 44
+    description: >
+      main() orchestration per 03_logic.md L-8-1:
+      load -> residualize -> spearman -> bootstrap -> fwl -> pingouin -> gate -> visualize -> report.
+      All constants from ExperimentConfig dataclass (03_config.md).
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_logic.md"
+        section: "L-8-1"
+
+  # ── Config Subtasks ───────────────────────────────────────────────────────
+  - id: "C-8-1"
+    title: "ExperimentConfig dataclass"
+    type: subtask
+    parent: "A-8"
+    priority: 43
+    description: >
+      Implement frozen dataclass ExperimentConfig with all constants:
+      CSV_PATH, FIGURES_DIR, OUTPUT_PATH, N_BOOTSTRAP=1000, RANDOM_STATE=42,
+      ALPHA=0.05, H_E1_R_PARTIAL=0.9851, FWL_TOLERANCE=0.02, MIN_N_CLEAN=200.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_config.md"
+
+  - id: "C-8-2"
+    title: "Requirements specification"
+    type: subtask
+    parent: "A-1"
+    priority: 42
+    description: >
+      Write requirements.txt with pinned versions.
+      Key new dependency: pingouin>=0.5.0 (not in h-e1/h-m1).
+      All other packages inherited.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_config.md"
+        section: "Requirements"
+
+  # ── Failsafe ─────────────────────────────────────────────────────────────
+  - id: "FAILSAFE"
+    title: "Pipeline Continuation Checkpoint"
+    type: failsafe
+    priority: 1
+    description: >
+      Final checkpoint: verify 04_validation.md exists and contains gate result.
+      If gate FAILS (SHOULD_WORK): document failure in verification_state.yaml,
+      continue pipeline to h-m3. Do NOT stop pipeline on SHOULD_WORK failure.
+    reference_files:
+      - file: "docs/youra_research/h-m2/03_prd.md"
+        section: "8. Success Criteria"
+    acceptance_criteria:
+      - "04_validation.md exists with gate result"
+      - "verification_state.yaml updated with validation.status"

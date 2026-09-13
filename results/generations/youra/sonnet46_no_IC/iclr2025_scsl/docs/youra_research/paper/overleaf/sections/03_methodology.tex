@@ -1,0 +1,48 @@
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Overview}
+
+Our diagnostic approach rests on a single observation: if backbone-level spurious encoding and head-level decision making are the two sites of robustification, then we need a measurement that is sensitive to one and \emph{not} the other. A linear probe trained on \emph{frozen} backbone features to predict the \emph{spurious attribute} is exactly this measurement --- it captures what the backbone encodes while being independent of head weights.
+
+We design a three-gate verification study with pre-registered statistical tests to characterize the mechanistic pathway from GroupDRO's training objective to backbone spurious encoding change.
+
+\subsection{Checkpoints and Dataset}
+
+\paragraph{Checkpoints.} We use the publicly available \texttt{izmailovpavel/spurious\_feature\_learning} checkpoints \cite{izmailov2022feature}: 12 ResNet-50 models trained on Waterbirds WILDS (3 seeds $\times$ 4 methods: ERM, SAM, GroupDRO, DFR). Matched seeds across all 4 methods enable paired statistical tests (within-seed variance controlled).
+
+\paragraph{Dataset.} Waterbirds WILDS \cite{sagawa2019distributionally,koh2021wilds} provides 4,795 training and 5,794 test images with strong background-label covariance. The \texttt{group\_array} annotation provides binary background labels (\texttt{group\_array \% 2}: 0 = land, 1 = water).
+
+\subsection{Background Linear Probe Protocol}
+
+\paragraph{Feature extraction.} For each checkpoint, we extract features from the ResNet-50 layer4 output using a forward hook with \texttt{torch.no\_grad()}, followed by \texttt{AdaptiveAvgPool2d(output\_size=(1,1))} to produce a $D=2048$ feature vector per image, evaluated on the full test set ($N=5{,}794$).
+
+\paragraph{Probe classifier.} \texttt{sklearn.linear\_model.LogisticRegression(solver='lbfgs', C=1e9, max\_iter=1000, random\_state=42)} trained to predict background attribute from layer4 features. $C=10^9$ (no effective regularization) is the established convention \cite{kirichenko2022last,murotkar2024identifying} and avoids optimizer geometry confounds.
+
+\subsection{DFR Backbone Identity Verification (H-P0)}
+
+We verify that DFR and ERM share identical backbone weights at matching seeds using mean cosine similarity of layer4 feature vectors (50 test images, 3 seed pairs). \textbf{Pre-registered gate:} mean cosine similarity $\geq 0.9999$ for all 3 seed pairs.
+
+\subsection{Gradient Propagation Verification (H-M2)}
+
+We analyze weight-level changes: L2 norms of weight differences (GroupDRO $-$ ERM) per ResNet-50 block, computing backbone/head ratio. DFR$-$ERM serves as a negative control. \textbf{Pre-registered gate:} backbone/head ratio $> 1$ for all 3 seeds.
+
+\subsection{Primary Probe Accuracy Test (H-M3)}
+
+One-sided paired t-test (GroupDRO $<$ ERM direction, $n = 3$ seed pairs) on background probe accuracy. \textbf{Pre-registered thresholds:} CONFIRMED ($p < 0.05$, $d > 0$); SUGGESTIVE ($0.05 \leq p < 0.10$, $d > 0.5$).
+
+\subsection{WGA Correlation Analysis (H-P2, Exploratory)}
+
+Pearson $r$ between probe accuracy values and WGA values \cite{izmailov2022feature} across 9 non-DFR checkpoints. 95\% bootstrap CI (percentile method, $n\_\text{resamples}=1{,}000$). \textbf{Pre-registered gate (SHOULD\_WORK):} $r < -0.5$.
+
+\subsection{Mechanistic Chain Structure}
+
+The four experiments form a verified mechanistic chain:
+\begin{align*}
+&\text{GroupDRO minority upweighting (H-M1, MUST\_WORK)} \\
+&\quad\to \text{Group-balanced gradient propagates to backbone (H-M2, SHOULD\_WORK)} \\
+&\qquad\to \text{Reduced background linear decodability in layer4 (H-M3, MUST\_WORK)} \\
+&\qquad\qquad\to \text{Improved WGA (H-P2, SHOULD\_WORK, exploratory)}
+\end{align*}
+
+DFR establishes the structural alternative: head recalibration on unchanged backbone features (H-P0, cosine sim = 1.000000) achieves WGA = 0.91.

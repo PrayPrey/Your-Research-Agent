@@ -1,0 +1,9 @@
+# RLHub: A Decentralized Infrastructure for Democratizing Reinforcement Learning Through Artifact Sharing
+
+## Motivation
+Reinforcement learning research suffers from a "tabula rasa" paradigm where training from scratch excludes resource-constrained researchers and wastes computation. While reusing prior work (policies, datasets, models) could democratize RL, current sharing is fragmented across GitHub repositories with no discoverability, quality control, or standardization. Existing solutions like D4RL (datasets only) and Stable-Baselines3 Zoo (curated policies only) address fragments but lack comprehensive infrastructure for community-driven artifact sharing with quality certification.
+
+## Main Idea
+We propose RLHub, an open infrastructure platform combining five innovations: (1) **standardized packaging** (ONNX for cross-framework policies, Parquet for datasets), (2) **quality certification** (Bronze/Silver/Gold badges via automated testing, crowd-sourcing, and expert panels), (3) **decentralized storage** (IPFS with optional blockchain), (4) **semantic discovery** (RL-specific search by algorithm/environment/performance), and (5) **environment version control**. 
+
+The causal mechanism operates through a five-step chain: standardization enables cross-framework compatibility → expands reuse opportunities → quality badges build trust → academic credit (conference reproducibility badges) incentivizes contributions → growing artifact library democratizes access. We test this via consortium-funded deployment targeting 200+ researchers from 50+ institutions, 100K+ GPU-hours saved, and 200+ community-contributed artifacts within 12 months, measured through platform analytics and user surveys.

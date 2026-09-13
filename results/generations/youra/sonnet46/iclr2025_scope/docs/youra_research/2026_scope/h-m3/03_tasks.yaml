@@ -1,0 +1,745 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m3"
+  hypothesis_id_upper: "H-M3"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-05-08T09:00:00Z"
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ─────────────────────────────────────────────
+  # ENVIRONMENT SETUP (priority 99)
+  # ─────────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Setup H-M3 development environment"
+    description: |
+      Install required packages and verify environment:
+        torch>=2.0.0
+        transformers>=4.40.0
+        peft>=0.10.0
+        datasets>=2.18.0
+        evaluate>=0.4.0
+        scipy>=1.10.0
+        scikit-learn>=1.3.0
+        numpy>=1.24.0
+        matplotlib>=3.7.0
+        seaborn>=0.12.0
+        accelerate>=0.27.0
+        tqdm>=4.65.0
+        pyyaml>=6.0
+
+      Create directory structure:
+        h-m3/code/
+        h-m3/figures/
+        h-m3/code/tests/
+
+      Set GPU environment:
+        export CUDA_VISIBLE_DEVICES=<empty_gpu_id>
+        export HF_HOME=~/.cache/huggingface
+
+      Verify local model cache exists:
+        ~/.cache/huggingface/hub/models--meta-llama--Llama-3.1-8B
+
+      Verify inherited artifact exists:
+        h-m2/experiment_results.json (must contain sparsity_profiles["0.01"])
+
+      Reference repos (do NOT clone, reference only):
+        - QingruZhang/AdaLoRA
+        - sockeye44/dorascope
+        - huggingface/peft
+    feature_tag: "setup"
+    priority: 99
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#C-A6-2-paths-and-output-config"
+
+  # ─────────────────────────────────────────────
+  # EPIC TASKS (priority 98–89)
+  # ─────────────────────────────────────────────
+  - id: "task-002"
+    epic: "A-1: Project Setup + Config"
+    title: "Implement config.py and project structure"
+    description: |
+      Implement ExperimentConfig, AdaLoRAConfig, GateConfig, PathConfig dataclasses in config.py.
+      Include YAML serialization (to_yaml / from_yaml).
+      Create config.yaml with all hyperparameters.
+      Target files: h-m3/code/config.py, h-m3/code/config.yaml
+    feature_tag: "setup"
+    priority: 98
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      Create tests/test_config.py:
+      - test ExperimentConfig default values
+      - test AdaLoRAConfig target_r validation (must equal floor(0.60 * 16) = 9)
+      - test GateConfig gate_pass() logic with R6 fallback
+      - test YAML round-trip serialization
+    reference_files:
+      architecture: "03_architecture.md#A-1-Project-Setup-Config"
+      logic: null
+      config: "03_config.md#C-A2-1-lora-training-config-schema"
+
+  - id: "task-003"
+    epic: "A-1: Project Setup + Config"
+    title: "Implement data_utils.py (GLUE + sparsity loader)"
+    description: |
+      Implement:
+        - GlueDataset(encodings, labels): torch.utils.data.Dataset
+        - load_sparsity_profiles(h_m2_results_path) -> np.ndarray(32,)
+          Load from h-m2/experiment_results.json["sparsity_profiles"]["0.01"]
+        - load_glue_dataloader(task, split, tokenizer, cfg) -> DataLoader
+          SST-2: tokenize sentence, labels {0,1}
+          MNLI: tokenize premise+hypothesis (SEP), labels {0,1,2}
+        - get_num_labels(task) -> int (2 for sst2, 3 for mnli)
+      Note: h-m2 data_utils.py has NO GLUE support — implement fresh.
+      Target file: h-m3/code/data_utils.py
+    feature_tag: "data-pipeline"
+    priority: 97
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      Create tests/test_data_utils.py:
+      - test load_sparsity_profiles returns ndarray(32,) with values in [0,1]
+      - test get_num_labels returns 2 for sst2, 3 for mnli
+      - test GlueDataset __len__ and __getitem__ with mock encodings
+    reference_files:
+      architecture: "03_architecture.md#DataUtils-data_utilspy"
+      logic: "03_logic.md#External-Dependencies-API"
+      config: null
+
+  - id: "task-004"
+    epic: "A-2: Uniform LoRA Trainer"
+    title: "Implement lora_trainer.py (uniform LoRA training + delta-W + grad norms)"
+    description: |
+      Implement:
+        - load_base_model(cfg, num_labels) -> AutoModelForSequenceClassification
+          Use local_files_only=True, torch_dtype=bfloat16
+        - load_tokenizer(cfg) -> LlamaTokenizer
+        - train_uniform_lora(task, seed, cfg, return_delta_w, return_grad_norms) -> Dict
+          Returns {"accuracy": float, "delta_w": Dict[str,Tensor], "grad_norms": Dict[str,float]}
+          Training: AdamW lr=2e-4, warmup_ratio=0.03, 3 epochs, batch_size=16
+          Register backward hooks on lora_A parameters to capture gradients
+        - compute_delta_w(model) -> Dict[str, Tensor]
+          ΔW = lora_B.weight @ lora_A.weight, detached to CPU
+        - compute_grad_norms(stored_grads) -> Dict[str, float]
+        - evaluate_model(model, dataloader, task, cfg) -> float
+      Target file: h-m3/code/lora_trainer.py
+    feature_tag: "training"
+    priority: 96
+    source_document: "03_architecture.md"
+    complexity: 16
+    test_requirements: |
+      Create tests/test_lora_trainer.py:
+      - test compute_delta_w produces tensors matching B@A shape
+      - test compute_grad_norms returns float values per layer
+      - test evaluate_model returns float in [0, 1]
+    reference_files:
+      architecture: "03_architecture.md#LoraTrainer-lora_trainerpy"
+      logic: "03_logic.md#Subtask-L-A2-1-train_uniform_lora"
+      config: "03_config.md#C-A2-1-lora-training-config-schema"
+
+  - id: "task-005"
+    epic: "A-3: Joint Rank Sensitivity Sweep (Stream 1)"
+    title: "Implement sensitivity_sweep.py (320-run budget-neutral perturbation engine)"
+    description: |
+      Implement:
+        - build_joint_rank_pattern(perturbed_layer_idx, delta_r, r_base, n_layers, target_modules) -> Dict[str, int]
+          Budget-neutral: reduce target layer by delta_r, redistribute freed budget across 31 other layers
+          Minimum rank = 1 (never zero)
+        - run_single_perturbation(task, seed, layer_idx, delta_r, baseline_acc, cfg) -> float
+          Returns accuracy_drop for one (task, seed, layer) configuration
+        - run_sensitivity_sweep(task, cfg, baseline_accs) -> np.ndarray(32,)
+          32 × 5 = 160 runs per task; average over 5 seeds
+        - run_all_sensitivity_sweeps(cfg, baseline_accs) -> Dict[str, ndarray]
+          Returns {"sst2": ndarray(32,), "mnli": ndarray(32,)}
+        - identify_sensitive_layers(accuracy_drops, threshold=0.005) -> ndarray(32, bool)
+          Log: [SENSITIVITY] Layer {l}: accuracy_drop={drop:.4f}, sensitive={...}
+        - check_delta_r_fallback(accuracy_drops, threshold, cfg) -> int
+          Returns 4 if no sensitive layers found, else cfg.delta_r
+      Target file: h-m3/code/sensitivity_sweep.py
+    feature_tag: "experiment"
+    priority: 95
+    source_document: "03_architecture.md"
+    complexity: 18
+    test_requirements: |
+      Create tests/test_sensitivity_sweep.py:
+      - test build_joint_rank_pattern is budget-neutral (sum unchanged)
+      - test build_joint_rank_pattern minimum rank = 1
+      - test identify_sensitive_layers returns boolean mask
+      - test check_delta_r_fallback returns 4 when no sensitive layers
+    reference_files:
+      architecture: "03_architecture.md#SensitivitySweep-sensitivity_sweeppy"
+      logic: "03_logic.md#Subtask-L-A3-1-build_joint_rank_pattern"
+      config: "03_config.md#C-A2-1-lora-training-config-schema"
+
+  - id: "task-006"
+    epic: "A-4: AdaLoRA Reference Runner (Stream 2)"
+    title: "Implement adalora_runner.py (AdaLoRA training + rank_pattern extraction)"
+    description: |
+      Implement:
+        - run_adalora(task, seed, cfg) -> Dict[str, int]
+          AdaLoraConfig: target_r=9, init_r=16, tinit=100, tfinal=1500, deltaT=10, beta1=beta2=0.85
+          Training loop with model.base_model.update_and_mask(global_step)
+          Returns rank_pattern after training
+        - run_all_adalora(cfg) -> Dict[str, ndarray]
+          2 tasks × 5 seeds = 10 runs; average rank_pattern per task
+        - extract_rank_pattern(model) -> Dict[str, int]
+        - rank_pattern_to_array(rank_pattern, n_layers=32) -> ndarray(32,)
+          Parse layer index from key; aggregate via mean over 7 projections
+        - check_uniform_allocation(rank_pattern_array) -> bool
+          Flag if std < 0.1 (AdaLoRA failed to learn heterogeneous allocation)
+      Target file: h-m3/code/adalora_runner.py
+    feature_tag: "experiment"
+    priority: 94
+    source_document: "03_architecture.md"
+    complexity: 15
+    test_requirements: |
+      Create tests/test_adalora_runner.py:
+      - test rank_pattern_to_array produces shape (32,)
+      - test check_uniform_allocation returns True for uniform arrays
+      - test extract_rank_pattern handles both rank_pattern dict formats
+    reference_files:
+      architecture: "03_architecture.md#AdaLoraRunner-adalora_runnerpy"
+      logic: "03_logic.md#Subtask-L-A4-1-run_adalora"
+      config: "03_config.md#C-A4-1-adalora-config-schema"
+
+  - id: "task-007"
+    epic: "A-5: Delta-W Spectral Analysis (Stream 3)"
+    title: "Implement spectral_analysis.py (SVD + multiple regression + semipartial r²)"
+    description: |
+      Implement:
+        - compute_spectral_decay_ratio(delta_w: Tensor, top_k=4) -> float
+          Covariance-based SVD via eigvalsh on smaller dimension of WᵀW or WWᵀ
+          Returns sum(top-k SVs) / Frobenius norm
+        - compute_all_spectral_decays(delta_w_dict, cfg) -> ndarray(32,)
+          Average over gate_proj/up_proj/down_proj per layer
+        - run_multiple_regression(sparsity, grad_norms, spectral_decay) -> Dict
+          Full: [sparsity, grad_norm] → spectral_decay
+          Reduced: [grad_norm] → spectral_decay
+          unique_var_sparsity = r2_full - r2_grad_only
+          p_value via t-test (df = 32 - 3 = 29)
+        - compute_semipartial_r2(sparsity, grad_norms, spectral_decay) -> Tuple[float, float]
+          Returns (unique_var_sparsity, p_value_sparsity_beta)
+      Target file: h-m3/code/spectral_analysis.py
+    feature_tag: "experiment"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 17
+    test_requirements: |
+      Create tests/test_spectral_analysis.py:
+      - test compute_spectral_decay_ratio returns value in (0, 1]
+      - test compute_spectral_decay_ratio handles degenerate (zero) ΔW
+      - test run_multiple_regression: unique_var_sparsity = r2_full - r2_grad_only
+      - test compute_all_spectral_decays returns shape (32,)
+    reference_files:
+      architecture: "03_architecture.md#SpectralAnalysis-spectral_analysispy"
+      logic: "03_logic.md#Subtask-L-A5-1-compute_spectral_decay_ratio"
+      config: "03_config.md#C-A6-1-gate-threshold-config"
+
+  - id: "task-008"
+    epic: "A-6: Correlation Analysis + Gate"
+    title: "Implement correlation_analysis.py (Pearson r, Kendall tau, gate evaluation)"
+    description: |
+      Implement:
+        - compute_pearson_r(sparsity, accuracy_drops, sensitive_mask) -> Tuple[float, float]
+          Pearson r on sensitive layers only; return (nan, nan) if <3 sensitive layers
+        - compute_kendall_tau(sparsity, adalora_ranks) -> Tuple[float, float]
+          scipy.stats.kendalltau(variant='b') across all 32 layers
+        - evaluate_gate(all_metrics, n_sensitive_sst2, cfg) -> Dict
+          R6 fallback: if n_sensitive_sst2 < 5, use MNLI-only Pearson + tau gates
+          gate_pass = gate_pearson AND gate_tau AND gate_spectral
+          Print [GATE] MUST_WORK: PASS/FAIL with all metric values
+        - check_r6_fallback(n_sensitive_sst2, cfg) -> bool
+      Target file: h-m3/code/correlation_analysis.py
+    feature_tag: "evaluation"
+    priority: 92
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      Create tests/test_correlation_analysis.py:
+      - test compute_pearson_r returns (nan, nan) when <3 sensitive layers
+      - test evaluate_gate correctly applies R6 fallback when n_sensitive_sst2 < 5
+      - test evaluate_gate returns gate_pass=True only when all 3 sub-gates pass
+    reference_files:
+      architecture: "03_architecture.md#CorrelationAnalysis-correlation_analysispy"
+      logic: "03_logic.md#Subtask-L-A6-1-compute_pearson_r"
+      config: "03_config.md#C-A6-1-gate-threshold-config"
+
+  - id: "task-009"
+    epic: "A-7: Visualization"
+    title: "Implement visualize.py (6 required figures)"
+    description: |
+      Implement all 6 figure functions in h-m3/code/visualize.py:
+      1. plot_gate_metrics_comparison(pearson_r, kendall_tau, unique_var, thresholds, output_dir)
+         Bar chart: gate metrics vs thresholds for SST-2 and MNLI [MANDATORY]
+      2. plot_sparsity_vs_sensitivity(sparsity, accuracy_drops, sensitive_masks, pearson_results, output_dir)
+         Scatter: per-layer sparsity vs sensitivity; highlight sensitive layers; annotate Pearson r
+      3. plot_sensitivity_heatmap(accuracy_drops, sparsity, output_dir)
+         32x2 heatmap (layers x tasks) with sparsity overlay
+      4. plot_adalora_allocation(adalora_ranks, sparsity, kendall_tau, output_dir)
+         Bar chart: AdaLoRA allocation vs sparsity-predicted; Kendall tau annotated
+      5. plot_spectral_vs_sparsity(spectral_decay, sparsity, grad_norms, regression_results, output_dir)
+         Scatter: ΔW spectral decay vs sparsity; regression line + 95% CI; semipartial r² annotated
+      6. plot_sensitivity_histogram(accuracy_drops, threshold, output_dir)
+         Histogram of per-layer accuracy drops with >=0.5% threshold line
+      7. generate_all_figures(results, cfg) — calls all 6; saves to cfg.figures_dir
+      Output: h-m3/figures/
+    feature_tag: "evaluation"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      Create tests/test_visualize.py:
+      - test generate_all_figures runs without error on mock data
+      - test figures are saved to output_dir
+    reference_files:
+      architecture: "03_architecture.md#Visualize-visualizepy"
+      logic: null
+      config: null
+
+  - id: "task-010"
+    epic: "A-8: Results Logging + Validation Report"
+    title: "Implement results_logger.py (JSON results + 04_validation.md)"
+    description: |
+      Implement:
+        - save_results_json(results, path) — save all experiment results to h-m3/experiment_results.json
+        - generate_validation_report(results, gate_result, cfg, output_path)
+          Write 04_validation.md with: gate evaluation table, all metric values, PASS/FAIL status,
+          per-stream analysis, R6 fallback status, key findings list
+        - log_sensitivity_indicators(layer_idx, accuracy_drop, sensitive_threshold)
+          Print: [SENSITIVITY] Layer {l}: accuracy_drop={drop:.4f}, sensitive={...}
+        - print_gate_summary(gate_result)
+          Print [GATE] MUST_WORK: PASS/FAIL + all metric values
+      Target file: h-m3/code/results_logger.py
+    feature_tag: "evaluation"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      Create tests/test_results_logger.py:
+      - test save_results_json creates valid JSON file
+      - test generate_validation_report creates 04_validation.md with PASS/FAIL
+    reference_files:
+      architecture: "03_architecture.md#ResultsLogger-results_loggerpy"
+      logic: null
+      config: null
+
+  - id: "task-011"
+    epic: "A-9: Experiment Orchestrator"
+    title: "Implement run_experiment.py (top-level stream sequencer)"
+    description: |
+      Implement run_experiment.py orchestrating all 3 streams:
+        - run_stream1_reference(cfg) -> Dict: uniform LoRA, 2 tasks x 5 seeds = 10 runs
+        - run_stream1_sweep(cfg, baseline_accs) -> Dict: 32x2x5 = 320 perturbation runs
+        - run_stream2(cfg) -> Dict: AdaLoRA reference, 2 tasks x 5 seeds = 10 runs
+        - run_stream3(cfg, stream1_results) -> Dict: spectral analysis + regression
+        - main(): full pipeline: stream1_ref → stream1_sweep → stream2 → stream3
+                               → correlation → gate → visualize → save → report
+      Parse args: --config config.yaml [--seeds] [--num_epochs] [--delta_r]
+      Target file: h-m3/code/run_experiment.py
+    feature_tag: "experiment"
+    priority: 89
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      Create tests/test_run_experiment.py:
+      - test CLI arg parsing accepts --config
+      - test run_stream3 passes correctly shaped inputs to spectral_analysis
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment-run_experimentpy"
+      logic: "03_logic.md#Data-Flow-Summary"
+      config: "03_config.md#C-A6-2-paths-and-output-config"
+
+  # ─────────────────────────────────────────────
+  # LOGIC SUBTASKS (priority 88–75)
+  # ─────────────────────────────────────────────
+  - id: "task-012"
+    epic: "A-3: Joint Rank Sensitivity Sweep (Stream 1)"
+    title: "L-A3-1: Implement build_joint_rank_pattern with integer budget redistribution"
+    description: |
+      Detailed implementation of budget-neutral rank redistribution:
+        freed_rank_per_module = delta_r
+        freed_total = len(target_modules) * delta_r  (7 * 2 = 14 units freed)
+        extra_per_layer = freed_total // (n_other * len(target_modules))
+        remainder = freed_total % (n_other * len(target_modules))
+        Distribute remainder as bonus=1 to first `remainder` layer-module pairs
+        Minimum rank for perturbed layer = max(1, r_base - delta_r)
+      Reference: 03_logic.md L-A3-1 pseudo-code
+    feature_tag: "experiment"
+    priority: 88
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test sum of all ranks == n_layers * n_modules * r_base (budget neutral)
+      - test perturbed layer rank = max(1, r_base - delta_r)
+    reference_files:
+      architecture: "03_architecture.md#SensitivitySweep-sensitivity_sweeppy"
+      logic: "03_logic.md#Subtask-L-A3-1-build_joint_rank_pattern"
+      config: null
+
+  - id: "task-013"
+    epic: "A-3: Joint Rank Sensitivity Sweep (Stream 1)"
+    title: "L-A3-2: Implement run_single_perturbation with LoraConfig rank_pattern"
+    description: |
+      Build LoraConfig with rank_pattern dict (PEFT API) for a single layer perturbation.
+      Load base model fresh each call (no reuse across layers — GPU memory management).
+      Call finetune and evaluate; return baseline_acc - perturbed_acc.
+      Call log_sensitivity_indicator after each run.
+      Reference: 03_logic.md L-A3-2 pseudo-code
+    feature_tag: "experiment"
+    priority: 87
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test LoraConfig with rank_pattern builds without error
+      - test accuracy_drop = baseline_acc - perturbed_acc (positive means sensitive)
+    reference_files:
+      architecture: "03_architecture.md#SensitivitySweep-sensitivity_sweeppy"
+      logic: "03_logic.md#Subtask-L-A3-2-run_single_perturbation"
+      config: null
+
+  - id: "task-014"
+    epic: "A-3: Joint Rank Sensitivity Sweep (Stream 1)"
+    title: "L-A3-3: Implement run_sensitivity_sweep (32-layer loop, 5-seed averaging)"
+    description: |
+      Outer loop: for l in range(32)
+      Inner loop: for seed in cfg.seeds (5 seeds)
+      drops[l, s_idx] = run_single_perturbation(...)
+      Return drops.mean(axis=1) → ndarray(32,)
+      Log progress: [SWEEP] Layer {l}, Seed {seed}: drop={drop:.4f}
+      Reference: 03_logic.md L-A3-3 pseudo-code
+    feature_tag: "experiment"
+    priority: 86
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test output shape is (32,)
+      - test averaging over seeds is correct
+    reference_files:
+      architecture: "03_architecture.md#SensitivitySweep-sensitivity_sweeppy"
+      logic: "03_logic.md#Subtask-L-A3-3-run_sensitivity_sweep"
+      config: null
+
+  - id: "task-015"
+    epic: "A-3: Joint Rank Sensitivity Sweep (Stream 1)"
+    title: "L-A3-4: Implement identify_sensitive_layers with [SENSITIVITY] logging"
+    description: |
+      Boolean mask: sensitive_mask = accuracy_drops >= threshold (0.005)
+      Log for each layer: [SENSITIVITY] Layer {l}: accuracy_drop={drop:.4f}, sensitive={...}
+      Print total: [SENSITIVITY] Total sensitive layers: {n}/{32}
+      Reference: 03_logic.md L-A3-4 pseudo-code
+    feature_tag: "experiment"
+    priority: 85
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test returns bool ndarray shape (32,)
+      - test threshold boundary (exactly 0.005 → sensitive=True)
+    reference_files:
+      architecture: "03_architecture.md#SensitivitySweep-sensitivity_sweeppy"
+      logic: "03_logic.md#Subtask-L-A3-4-identify_sensitive_layers"
+      config: null
+
+  - id: "task-016"
+    epic: "A-3: Joint Rank Sensitivity Sweep (Stream 1)"
+    title: "L-A3-5: Implement check_delta_r_fallback and re-run logic"
+    description: |
+      If sensitive_mask.sum() == 0 after initial sweep:
+        Log: "No sensitive layers found, increasing delta_r to 4"
+        Return delta_r=4
+      Else: return cfg.delta_r (=2)
+      In run_experiment.py: if fallback triggered, re-run entire sweep with delta_r=4.
+      Reference: 03_logic.md L-A3-5 pseudo-code
+    feature_tag: "experiment"
+    priority: 84
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test returns 4 when all drops < threshold
+      - test returns 2 when at least one sensitive layer exists
+    reference_files:
+      architecture: "03_architecture.md#SensitivitySweep-sensitivity_sweeppy"
+      logic: "03_logic.md#Subtask-L-A3-5-check_delta_r_fallback"
+      config: null
+
+  - id: "task-017"
+    epic: "A-5: Delta-W Spectral Analysis (Stream 3)"
+    title: "L-A5-1: Implement compute_spectral_decay_ratio (covariance-based SVD)"
+    description: |
+      Input: delta_w tensor (d_out, d_in), top_k=4
+      Algorithm:
+        dw = delta_w.float()
+        if d_out >= d_in: gram = dw.T @ dw  # (d_in, d_in)
+        else: gram = dw @ dw.T              # (d_out, d_out)
+        eigenvalues = torch.linalg.eigvalsh(gram).clamp(min=0.0)
+        singular_values = eigenvalues.sqrt()  # ascending order
+        ratio = singular_values[-top_k:].sum() / torch.norm(dw, 'fro')
+        Handle degenerate: if frob_norm < 1e-10, return 0.0
+      Reference: 03_logic.md L-A5-1 pseudo-code
+    feature_tag: "experiment"
+    priority: 83
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test output in (0, 1] for non-zero ΔW
+      - test returns 0.0 for zero tensor
+      - test both d_out >= d_in and d_out < d_in cases
+    reference_files:
+      architecture: "03_architecture.md#SpectralAnalysis-spectral_analysispy"
+      logic: "03_logic.md#Subtask-L-A5-1-compute_spectral_decay_ratio"
+      config: null
+
+  - id: "task-018"
+    epic: "A-5: Delta-W Spectral Analysis (Stream 3)"
+    title: "L-A5-2: Implement compute_all_spectral_decays (32-layer aggregation)"
+    description: |
+      For each layer l in range(32):
+        Collect spectral_decay_ratio for gate_proj, up_proj, down_proj
+        layer_spectral[l] = mean of available projections
+      Returns ndarray(32,)
+      Key format: "model.layers.{l}.mlp.{proj}"
+      Reference: 03_logic.md L-A5-2 pseudo-code
+    feature_tag: "experiment"
+    priority: 82
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test output shape (32,)
+      - test handles missing projections gracefully
+    reference_files:
+      architecture: "03_architecture.md#SpectralAnalysis-spectral_analysispy"
+      logic: "03_logic.md#Subtask-L-A5-2-compute_all_spectral_decays"
+      config: null
+
+  - id: "task-019"
+    epic: "A-5: Delta-W Spectral Analysis (Stream 3)"
+    title: "L-A5-3: Implement run_multiple_regression (semipartial r² + p-value)"
+    description: |
+      X_full = [sparsity, grad_norms] (32, 2)
+      X_grad = [grad_norms] (32, 1)
+      r2_full = LinearRegression().fit(X_full, spectral_decay).score()
+      r2_grad_only = LinearRegression().fit(X_grad, spectral_decay).score()
+      unique_var_sparsity = max(0, r2_full - r2_grad_only)
+      p-value: OLS t-statistic for sparsity coefficient, df=n-3=29
+        X_aug = [ones, sparsity, grad_norms] (32, 3)
+        cov_beta = mse * pinv(X_aug.T @ X_aug)
+        se_sparsity = sqrt(cov_beta[1, 1])
+        t_stat = coef_sparsity / se_sparsity
+        p_value = 2 * scipy.stats.t.sf(abs(t_stat), df=29)
+      Reference: 03_logic.md L-A5-3 pseudo-code
+    feature_tag: "experiment"
+    priority: 81
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test unique_var_sparsity = r2_full - r2_grad_only
+      - test p_value in [0, 1]
+      - test returns all required keys
+    reference_files:
+      architecture: "03_architecture.md#SpectralAnalysis-spectral_analysispy"
+      logic: "03_logic.md#Subtask-L-A5-3-run_multiple_regression"
+      config: null
+
+  - id: "task-020"
+    epic: "A-5: Delta-W Spectral Analysis (Stream 3)"
+    title: "L-A5-4: Implement compute_semipartial_r2 (convenience wrapper)"
+    description: |
+      Wrapper calling run_multiple_regression.
+      Returns (unique_var_sparsity, p_value_sparsity_beta).
+      Reference: 03_logic.md L-A5-4 pseudo-code
+    feature_tag: "experiment"
+    priority: 80
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test returns tuple of length 2
+      - test consistent with run_multiple_regression output
+    reference_files:
+      architecture: "03_architecture.md#SpectralAnalysis-spectral_analysispy"
+      logic: "03_logic.md#Subtask-L-A5-4-compute_semipartial_r2"
+      config: null
+
+  - id: "task-021"
+    epic: "A-2: Uniform LoRA Trainer"
+    title: "L-A2-1: Implement train_uniform_lora with backward hook gradient capture"
+    description: |
+      Register backward hooks on all lora_A parameters:
+        def hook_fn(grad, n=name): stored_grads[n] = grad.detach().cpu()
+        param.register_hook(hook_fn)
+      Confirm hooks fire on loss.backward()
+      Store accumulated gradients (last backward pass or running mean)
+      Call compute_delta_w and compute_grad_norms post-training
+      Reference: 03_logic.md L-A2-1 pseudo-code
+    feature_tag: "training"
+    priority: 79
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test backward hooks correctly capture gradient tensors
+      - test returned dict has delta_w, grad_norms, accuracy keys
+    reference_files:
+      architecture: "03_architecture.md#LoraTrainer-lora_trainerpy"
+      logic: "03_logic.md#Subtask-L-A2-1-train_uniform_lora"
+      config: null
+
+  - id: "task-022"
+    epic: "A-2: Uniform LoRA Trainer"
+    title: "L-A2-2: Implement compute_delta_w (B@A extraction from PEFT model)"
+    description: |
+      For each LoRA module (hasattr lora_A and lora_B):
+        A = module.lora_A["default"].weight   # shape (r, d_in)
+        B = module.lora_B["default"].weight   # shape (d_out, r)
+        dw = (B @ A).detach().cpu()           # shape (d_out, d_in)
+        clean key = name.replace("base_model.model.", "")
+      Handle PEFT module naming conventions
+      Reference: 03_logic.md L-A2-2 pseudo-code
+    feature_tag: "training"
+    priority: 78
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test dw shape matches B@A for all projection types
+      - test key cleaning removes base_model.model. prefix
+    reference_files:
+      architecture: "03_architecture.md#LoraTrainer-lora_trainerpy"
+      logic: "03_logic.md#Subtask-L-A2-2-compute_delta_w"
+      config: null
+
+  - id: "task-023"
+    epic: "A-2: Uniform LoRA Trainer"
+    title: "L-A2-3: Implement compute_grad_norms (Frobenius norm per layer)"
+    description: |
+      For each stored gradient tensor:
+        grad_norms[name] = torch.norm(grad, 'fro').item()
+      Returns Dict[str, float]
+      Aggregate per MLP layer (sum or mean across 7 projections if needed)
+      Reference: 03_logic.md L-A2-3 pseudo-code
+    feature_tag: "training"
+    priority: 77
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test output values are positive floats
+      - test output dict has same keys as stored_grads
+    reference_files:
+      architecture: "03_architecture.md#LoraTrainer-lora_trainerpy"
+      logic: "03_logic.md#Subtask-L-A2-3-compute_grad_norms"
+      config: null
+
+  - id: "task-024"
+    epic: "A-4: AdaLoRA Reference Runner (Stream 2)"
+    title: "L-A4-1: Implement run_adalora with update_and_mask training loop"
+    description: |
+      AdaLoraConfig(target_r=9, init_r=16, tinit=100, tfinal=1500, deltaT=10, beta1=0.85, beta2=0.85)
+      Training: call model.base_model.update_and_mask(global_step) after each optimizer.step()
+      Post-training: extract rank_pattern via extract_rank_pattern(model)
+      Flag uniform allocation: if check_uniform_allocation(rank_pattern_array): log warning
+      Reference: 03_logic.md L-A4-1 pseudo-code
+    feature_tag: "experiment"
+    priority: 76
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test AdaLoraConfig instantiation with correct params
+      - test update_and_mask is called at each step
+    reference_files:
+      architecture: "03_architecture.md#AdaLoraRunner-adalora_runnerpy"
+      logic: "03_logic.md#Subtask-L-A4-1-run_adalora"
+      config: "03_config.md#C-A4-1-adalora-config-schema"
+
+  - id: "task-025"
+    epic: "A-4: AdaLoRA Reference Runner (Stream 2)"
+    title: "L-A4-2: Implement rank_pattern_to_array with regex layer index extraction"
+    description: |
+      Parse keys with re.search(r'layers\.(\d+)\.', key) to get layer index
+      Aggregate per-layer: mean over all projection types found for layer l
+      Returns ndarray(32,) ordered by layer index
+      check_uniform_allocation: return True if std(array) < 0.1
+      Reference: 03_logic.md L-A4-2 pseudo-code
+    feature_tag: "experiment"
+    priority: 75
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test regex correctly extracts layer indices from PEFT key format
+      - test output shape (32,)
+      - test uniform check detects std < 0.1
+    reference_files:
+      architecture: "03_architecture.md#AdaLoraRunner-adalora_runnerpy"
+      logic: "03_logic.md#Subtask-L-A4-2-rank_pattern_to_array"
+      config: null
+
+  # ─────────────────────────────────────────────
+  # TESTS EPIC (priority 74)
+  # ─────────────────────────────────────────────
+  - id: "task-026"
+    epic: "A-10: Tests"
+    title: "Implement pytest test suite for all modules"
+    description: |
+      Create full pytest test suite in h-m3/code/tests/:
+        conftest.py — shared fixtures (mock config, mock sparsity arrays, mock ΔW tensors)
+        test_config.py
+        test_data_utils.py
+        test_lora_trainer.py
+        test_sensitivity_sweep.py
+        test_adalora_runner.py
+        test_spectral_analysis.py
+        test_correlation_analysis.py
+        test_visualize.py
+        test_results_logger.py
+        test_run_experiment.py
+
+      All tests must:
+        - Use REAL assertions (not assert True or pass)
+        - Be runnable with: cd h-m3/code && pytest tests/ -v
+        - Cover the test requirements specified in each epic task
+    feature_tag: "experiment"
+    priority: 74
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: "This IS the test task."
+    reference_files:
+      architecture: "03_architecture.md#A-10-Tests"
+      logic: null
+      config: null
+
+  # ─────────────────────────────────────────────
+  # FAILSAFE (priority 1)
+  # ─────────────────────────────────────────────
+  - id: "task-027"
+    epic: "Pipeline Management"
+    title: "Pipeline Continuation Checkpoint"
+    description: "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK"
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "system"
+    complexity: null
+    test_requirements: "Failsafe task does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 14
+  tests_epic: 1
+  failsafe: 1
+  total: 27

@@ -1,0 +1,351 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-21T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-2"
+  gap_title: "Variance-Guided vs Random Data Selection for Binary Execution Reward RLEF Has Not Been Directly Compared"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 12
+  convergence_reason: "All 6 convergence criteria met at Exchange 12: SPECIFIC, MECHANISM, PREDICTIONS, NOVELTY, FEASIBILITY, OBJECTIONS"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "GRPO gradient magnitude is directly governed by within-group reward variance: σ = √(k(G-k))/G, where k is correct completions out of G"
+      status: "BUILD_ON"
+      evidence: "bay-yearick-lab/grpo-standard-deviation-identity GitHub repo; mathematical identity confirmed by VIGOR (arXiv:2607.22002)"
+
+    - claim: "69.25% of GRPO groups produce zero gradient at G=4 under binary rewards (54.75% all-fail, 14.50% all-pass)"
+      status: "BUILD_ON"
+      evidence: "Gradient Starvation paper, arXiv:2605.07689 — empirical characterization"
+
+    - claim: "Difficulty-targeted data selection reduces RLVR compute by 23–62% on math reasoning benchmarks"
+      status: "BUILD_ON"
+      evidence: "Sun et al. 2025 (arXiv:2506.05316, 55 citations) — difficulty-targeted online selection for GRPO"
+
+    - claim: "RLEF with binary execution reward improves code generation pass@1 for LLMs"
+      status: "BUILD_ON"
+      evidence: "Gehring et al. 2024 (arXiv:2410.02089, 164 citations) — seminal RLEF paper, ICML 2025"
+
+    - claim: "EvalPlus correctness-based pass@1 evaluation is operational in h-e1 environment with confirmed correct scoring"
+      status: "BUILD_ON"
+      evidence: "h-e1 environment validation (documented in Phase 1 Section 1 constraints)"
+
+    - claim: "TRL GRPO trainer (use_vllm=False, generation_batch_size=4) is functional in h-e1 environment"
+      status: "BUILD_ON"
+      evidence: "h-e1 environment validation; vLLM 0.11.0 + trl 1.10 confirmed incompatible"
+
+    - claim: "Per-problem binary reward variance distribution across MBPP for DeepSeek-Coder-7B-Instruct is uncharacterized"
+      status: "PROVE_NEW"
+      evidence: "Phase 1 gap analysis — no prior paper has published this distribution"
+
+    - claim: "Variance-guided offline frozen-model profiling for binary execution reward RLEF subset selection outperforms random selection"
+      status: "PROVE_NEW"
+      evidence: "Phase 1 gap analysis — no prior comparison exists for code generation with binary execution rewards"
+
+  scope_reduction_percentage: 75
+  phase2b_4_instructions: |
+    The 6 BUILD_ON claims are established facts confirmed by peer-reviewed papers and h-e1 environment validation.
+    Phase 2B should not re-verify these; use them as foundations for the experimental design.
+    The 2 PROVE_NEW claims are the core novel contributions requiring empirical validation in Phase 4.
+    Experimental verification must use MBPP training split + HumanEval+ EvalPlus + TRL GRPO — no new benchmarks.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-VarianceGuidedRLEF-v1"
+  confidence_level: 0.78
+  core_hypothesis_statement: |
+    Under short RLEF (20–50 GRPO steps, use_vllm=False, G=4, generation_batch_size=4) for code
+    generation, if variance-guided subset selection is applied (top-50 MBPP training problems by
+    frozen-model binary execution reward variance p_i*(1-p_i), computed via k=8 i.i.d. completions
+    from frozen DeepSeek-Coder-7B-Instruct), then HumanEval+ pass@1 improvement per gradient step
+    will exceed random-50 subset RLEF, because variance profiling concentrates GRPO gradient steps
+    on problems with nonzero within-group reward variance while random selection includes ~69%
+    zero-gradient problems that waste training capacity.
+  alternative_hypothesis_h0: |
+    There is no significant difference in HumanEval+ pass@1 improvement between variance-selected
+    and random-selected RLEF subsets of equal size (N=50) at 50 GRPO steps, measured by EvalPlus
+    correctness-based evaluation.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Data selection method"
+      type: "categorical"
+      operationalization: "Training subset assigned to GRPO trainer"
+      levels:
+        - "variance-50: top-50 MBPP problems by p_i*(1-p_i) from frozen-model profiling (k=8)"
+        - "random-50: N=50 MBPP problems sampled uniformly at random (fixed seed)"
+        - "full-374: complete MBPP training split (374 problems)"
+
+  dependent:
+    - name: "HumanEval+ pass@1 improvement over baseline"
+      type: "continuous"
+      operationalization: "EvalPlus correctness-based pass@1 on HumanEval+ (164 problems) at 50-step checkpoint minus pre-training baseline pass@1, units: absolute percentage points"
+      primary: true
+
+    - name: "Mean frac_reward_zero_std during GRPO training"
+      type: "continuous"
+      operationalization: "TRL built-in metric: fraction of training groups with reward standard deviation = 0, averaged across all steps 1–50; lower = more informative gradient signal"
+      primary: false
+
+    - name: "HumanEval+ pass@1 improvement learning curve"
+      type: "continuous"
+      operationalization: "EvalPlus pass@1 at checkpoints steps 10, 20, 50 minus baseline; characterizes learning dynamics"
+      primary: false
+
+  controlled:
+    - name: "Base model"
+      operationalization: "DeepSeek-Coder-7B-Instruct, same checkpoint for all conditions"
+    - name: "GRPO hyperparameters"
+      operationalization: "G=4, use_vllm=False, generation_batch_size=4, learning_rate=5e-7 (TRL default)"
+    - name: "Step budget"
+      operationalization: "50 GRPO steps for all conditions"
+    - name: "Reward function"
+      operationalization: "binary_execution_reward (subprocess exec, 10s timeout) — verified correct in h-e1"
+    - name: "Evaluation benchmark"
+      operationalization: "HumanEval+ via EvalPlus correctness scoring (same 164 problems, same k=8 eval generations)"
+    - name: "Profiling sample size"
+      operationalization: "k=8 i.i.d. completions per MBPP problem for variance estimation"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 4
+  steps:
+    - step: 1
+      description: "Frozen-model binary reward profiling computes per-problem pass rates p_i = correct(k=8)/8 for all 374 MBPP problems, yielding variance_i = p_i*(1-p_i)"
+      evidence: "facebookresearch/mbr-exec provides execution-based pass rate computation pattern for MBPP; bay-yearick-lab/grpo-standard-deviation-identity formalizes the variance-gradient connection"
+      falsifier: "If the variance distribution is unimodal at p≈0.5 for all problems (all problems equally learnable), selection provides no advantage"
+
+    - step: 2
+      description: "Problems with near-zero variance (p_i ≈ 0 or p_i ≈ 1) produce zero GRPO gradient under any group sampling (σ = √(k(G-k))/G = 0 when k=0 or k=G); top-50 by variance eliminates these problems from training"
+      evidence: "Gradient Starvation paper (arXiv:2605.07689): 69.25% of groups zero-gradient at G=4; σ = √(k(G-k))/G identity is exact (bay-yearick-lab)"
+      falsifier: "If random-50 has similar frac_reward_zero_std as variance-50 during training, the selection failed to distinguish learnable from non-learnable problems"
+
+    - step: 3
+      description: "GRPO training on variance-selected problems produces nonzero gradients on a higher fraction of steps than random-50, because selected problems have p_i ≈ 0.5 (maximum variance), meaning k ∈ {1,2,3} of G=4 completions succeed with high probability"
+      evidence: "Prompt Replay (arXiv:2603.21177): targeting pass rate ≈ 0.5 maximizes advantage signal; VIGOR (arXiv:2607.22002): variance-utility selection proves gradient efficiency; LZE (arXiv:2605.17003): outcome-uncertainty selection"
+      falsifier: "If mean frac_reward_zero_std is NOT lower for variance-50 than random-50 throughout training, the mechanism fails"
+
+    - step: 4
+      description: "Concentrated gradient signal across all 50 steps on learnable problems produces superior policy improvement, manifesting as higher HumanEval+ pass@1 at the 50-step checkpoint relative to random-50"
+      evidence: "Sun et al. 2025 (arXiv:2506.05316): 23–62% compute reduction with difficulty-targeted selection; same mechanism predicts pass@1 improvement advantage"
+      falsifier: "If HumanEval+ pass@1 improvement for variance-50 is not ≥ 1pp greater than random-50 at 50 steps, the gradient concentration does not translate to capability improvement"
+
+  key_tension: "The frozen-model variance proxy may degrade as a learning zone predictor once the model begins training — a problem that was at p_i=0.45 at step 0 may move to p_i=0.75 by step 20. The hypothesis assumes the frozen-model snapshot is a sufficient proxy over the SHORT training regime (20–50 steps) only."
+  evidence_summary: |
+    The causal chain is grounded in the exact mathematical identity σ = √(k(G-k))/G (bay-yearick-lab),
+    confirmed by empirical evidence of 69.25% zero-gradient groups (arXiv:2605.07689), validated by
+    multiple independent data selection papers (Sun et al. 2025, VIGOR, Prompt Replay, LZE, LearnAlign)
+    converging on intermediate-difficulty / intermediate-pass-rate problems as the GRPO learning frontier.
+    The offline profiling approach is mechanistically novel; the gradient-concentration mechanism is
+    well-established.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "k=8 frozen-model completions per MBPP problem provide adequate ranking stability for variance-based selection (top-50 rank is stable vs ground-truth ranking)"
+    supporting_evidence: "k=8 aligns with GRPO group size G=4-8; expected MSE of variance estimate from k=8 is bounded; bay-yearick-lab identity shows the formula holds for any k"
+    consequence_if_violated: "The selected top-50 problems would be a noisy approximation of the true high-variance problems; the selection advantage would be diminished but not eliminated"
+
+  - id: "A2"
+    assumption: "MBPP training split (374 problems) is sufficiently heterogeneous in difficulty for DeepSeek-Coder-7B-Instruct to produce a non-degenerate variance distribution (not all p_i ≈ 0 or p_i ≈ 1)"
+    supporting_evidence: "RLVR on MBPP with GRPO/GSPO (Skopin & Kotelnikov, arXiv:2605.30478) reports up to 13pp pass@1 gain — implies meaningful variance in the training set; MBPP is designed to span difficulty levels"
+    consequence_if_violated: "If DeepSeek-Coder-7B is already near-perfect on MBPP (p_i ≈ 1 for most problems), top-50 by variance would only find the hardest problems and variance-selection would confound with difficulty-selection"
+
+  - id: "A3"
+    assumption: "The frozen-model variance ranking at step 0 is a sufficient proxy for the GRPO learning zone over 20–50 training steps (the proxy doesn't become stale too quickly)"
+    supporting_evidence: "20–50 GRPO steps on 50 problems represents a very short training regime; significant capability shifts typically require hundreds to thousands of steps; prior RLEF papers show meaningful improvement occurs at step counts this small"
+    consequence_if_violated: "The selected problems would rapidly move out of the learning zone after a few steps, nullifying the selection advantage; measurable as frac_reward_zero_std rising to match random-50 mid-training"
+
+  - id: "A4"
+    assumption: "HumanEval+ pass@1 improvement is a valid and sensitive proxy for RLEF training effectiveness, with at least 2pp detectable improvement achievable in 50 GRPO steps on MBPP"
+    supporting_evidence: "Skopin & Kotelnikov (arXiv:2605.30478): up to 13pp MBPP pass@1 gain with GRPO at full scale; HumanEval+ cross-benchmark generalization is standard in RLEF papers; EvalPlus confirmed working in h-e1"
+    consequence_if_violated: "If 50 GRPO steps on 50 problems is insufficient to move HumanEval+ pass@1 above noise, the primary metric (P1) would not be measurable; secondary metric P2 (frac_reward_zero_std) would still be informative"
+
+  - id: "A5"
+    assumption: "The 3-condition comparison is causally identified — differences in HumanEval+ pass@1 improvement between variance-50, random-50, and full-374 at 50 steps are attributable to data selection method, not initialization variance"
+    supporting_evidence: "Random-50 condition serves as the randomization control; fixed random seed for random-50 selection; same base model checkpoint for all conditions"
+    consequence_if_violated: "Single-run comparison may be confounded by GRPO initialization variance; mitigation: report within-training metrics (frac_reward_zero_std) as mechanistic evidence independent of final pass@1"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    Short RLEF regimes (20–50 GRPO steps) on MBPP training split (374 problems) with binary execution
+    reward for code generation, using DeepSeek-Coder-7B-Instruct as the base model. Applicable when:
+    (1) compute budget allows only a fraction of full-dataset RLEF, (2) a frozen-model profiling phase
+    is feasible before training begins, (3) the reward function is binary (pass/fail execution correctness).
+
+  does_not_apply_to: |
+    Full-epoch RLEF (hundreds to thousands of steps) where frozen-model variance proxy likely degrades.
+    Scalar (non-binary) reward functions where p*(1-p) variance doesn't directly govern gradient magnitude.
+    Models already fine-tuned extensively on MBPP or similar code datasets (variance distribution may be
+    degenerate). Non-code generation domains (mechanism is domain-general but not empirically validated here).
+    Datasets with very few problems (< 100) where top-50 selection represents the majority.
+
+  known_limitations: |
+    k=8 profiling introduces estimation noise at extreme pass rates (p_i close to 0 or 1); k=16 would
+    reduce noise but doubles profiling compute. Group-size mismatch: k=8 profiling vs G=4 GRPO training;
+    ranking stability should be reported as a profiling diagnostic. SQ4 (cross-architecture Code-LLaMA-7B
+    replication) is out of scope for primary hypothesis; extension experiment only if compute budget allows.
+    Single-run experiment may have high variance in final HumanEval+ pass@1; secondary metric
+    (frac_reward_zero_std averaged over training) provides mechanistic evidence more robust to single-eval noise.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Variance-50 achieves ≥ 2 absolute pass@1 points improvement on HumanEval+ at 50 GRPO steps, and this improvement exceeds random-50's improvement by ≥ 1 absolute pass@1 point"
+    test_method: "EvalPlus correctness-based pass@1 evaluation on HumanEval+ (164 problems, k=8 generations per problem) at step 50 checkpoint for variance-50 and random-50 conditions"
+    success_criterion: "variance_50_improvement ≥ 2.0pp AND (variance_50_improvement - random_50_improvement) ≥ 1.0pp"
+    falsification: "variance_50_improvement < 2.0pp OR variance_50_improvement ≤ random_50_improvement OR (variance_50_improvement - random_50_improvement) < 1.0pp"
+
+  - id: "P2"
+    primary: false
+    statement: "Mean TRL frac_reward_zero_std is strictly lower for variance-50 than random-50 throughout GRPO training, confirming that variance profiling successfully identifies problems with nonzero gradient signal"
+    test_method: "Compare mean frac_reward_zero_std logged by TRL GRPO trainer for variance-50 vs random-50, measured at steps 10, 20, 50"
+    success_criterion: "mean_frac_zero_std(variance-50) < mean_frac_zero_std(random-50) at all three checkpoints (steps 10, 20, 50)"
+    falsification: "mean_frac_zero_std(variance-50) ≥ mean_frac_zero_std(random-50) at any checkpoint, indicating the profiling failed to distinguish learnable from non-learnable problems"
+
+  - id: "P3"
+    primary: false
+    statement: "If both variance-50 and full-374 achieve ≥ 2pp HumanEval+ improvement at 50 GRPO steps, then variance-50's improvement is ≥ 80% of full-374's improvement (efficiency claim: ~13% of data recovers ≥ 80% of performance)"
+    test_method: "EvalPlus pass@1 at step 50 for variance-50 and full-374 conditions, conditional on both exceeding 2pp improvement threshold"
+    success_criterion: "(variance_50_improvement / full_374_improvement) ≥ 0.80, conditional on full_374_improvement ≥ 2.0pp AND variance_50_improvement ≥ 2.0pp"
+    falsification: "(variance_50_improvement / full_374_improvement) < 0.80, or condition not met (neither achieves 2pp — in which case P3 is declared untestable)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "MBPP (Mostly Basic Python Problems)"
+    type: "standard"
+    source: "google-research-datasets/mbpp (HuggingFace Datasets)"
+    path: "Training split: 374 problems; evaluation uses HumanEval+ (separate)"
+    hypothesis_fit: "MBPP is the standard benchmark for binary execution reward RLEF in code generation; h-e1 environment confirms it is operational with binary_execution_reward; the 374-problem training split provides the data selection pool"
+
+  model:
+    name: "DeepSeek-Coder-7B-Instruct"
+    type: "Code LLM, instruction-tuned, 7B parameters"
+    source: "deepseek-ai/deepseek-coder-7b-instruct-v1.5 (HuggingFace)"
+    hypothesis_fit: "Confirmed functional in h-e1 environment; 7B scale balances capability (non-trivial MBPP performance) with tractable training time; DeepSeek-Coder family widely used in code RLEF research"
+
+  baselines:
+    - name: "Random-50 subset RLEF"
+      method: "Uniformly random selection of 50 MBPP training problems (fixed seed), GRPO training for 50 steps, same hyperparameters as variance-50"
+    - name: "Full-374 RLEF"
+      method: "GRPO training on complete MBPP training split (374 problems) for 50 steps, same hyperparameters"
+    - name: "Pre-training baseline"
+      method: "DeepSeek-Coder-7B-Instruct with no RLEF fine-tuning; EvalPlus pass@1 on HumanEval+ at step 0"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "Offline frozen-model variance profiling for binary execution reward RLEF subset selection in code generation"
+  key_innovation: "Separation of cheap profiling phase (frozen model, k=8 completions, ~19 min) from expensive training phase (GRPO), enabling 'profile once, train anywhere' data selection for RLEF — distinct from all prior online selection methods (VIGOR, Sun et al., Prompt Replay, LZE)"
+  differentiation:
+    - prior_work: "Sun et al. 2025 (arXiv:2506.05316)"
+      difference: "Sun et al. use online difficulty estimation with attention mechanism during training; we use offline frozen-model variance profiling before training. Sun et al. target math reasoning with scalar rewards; we target code generation with binary execution rewards."
+
+    - prior_work: "VIGOR (arXiv:2607.22002)"
+      difference: "VIGOR uses online within-group variance estimation during training to allocate rollouts; we use offline frozen-model pass rate to estimate variance before training begins. VIGOR is online and iterative; our approach is a single pre-training profiling pass."
+
+    - prior_work: "Prompt Replay (arXiv:2603.21177)"
+      difference: "Prompt Replay uses the running pass rate during training (online) to prioritize pass rate ≈ 0.5 problems; we compute pass rates offline on a frozen model. Prompt Replay cannot be deployed without an active training loop."
+
+    - prior_work: "LZE (arXiv:2605.17003)"
+      difference: "LZE fuses pass-rate momentum + outcome-uncertainty online during training; our approach is purely offline. LZE targets math reasoning; we target binary execution reward code generation."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "Random-50 RLEF (same step budget)"
+      performance: "Unknown — to be measured in experiment"
+      dataset: "MBPP → HumanEval+"
+      why_insufficient: "Random selection does not account for per-problem gradient signal quality; expected to include ~69% zero-gradient groups"
+
+    - method: "Full-374 RLEF (same step budget)"
+      performance: "RLVR on MBPP (Skopin & Kotelnikov arXiv:2605.30478): up to 13pp pass@1 gain at full scale (different models)"
+      dataset: "MBPP → HumanEval+"
+      why_insufficient: "Full dataset requires 7× more training problems per step; inefficient given that ~69% of problems produce zero gradients"
+
+    - method: "Sun et al. 2025 difficulty-targeted selection"
+      performance: "23–62% compute reduction, comparable final performance on math reasoning"
+      dataset: "Math reasoning benchmarks (not MBPP/HumanEval+)"
+      why_insufficient: "Online selection requires active training; not applicable to code generation with binary execution rewards; does not study offline profiling"
+
+  best_baseline_performance: "RLEF (Gehring et al. 2024, 164 citations): order-of-magnitude inference-time sample reduction; confirms binary execution reward RLEF is effective for code generation at scale"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "The MBPP training split must exhibit heterogeneous per-problem variance p_i*(1-p_i) for DeepSeek-Coder-7B-Instruct, with a meaningful fraction of problems in the intermediate learning zone (0.2 < p_i*(1-p_i)) — testable via profiling alone before any GRPO training"
+  sh2_mechanism: "Variance-guided selection reduces TRL frac_reward_zero_std relative to random selection throughout GRPO training, confirming that p*(1-p) profiling successfully identifies problems where GRPO gradients are nonzero"
+  sh3_comparison: "Variance-50 vs random-50 pass@1 improvement comparison at 50 GRPO steps — primary causal comparison. Full-374 comparison for efficiency claim (P3). Code-LLaMA-7B comparison deferred to Phase 5 (cross-architecture baseline)."
+  open_questions:
+    - "What is the actual p_i distribution shape across MBPP for DeepSeek-Coder-7B-Instruct? (learnable cluster size determines selection advantage)"
+    - "How much does the frozen-model variance ranking degrade as a learning zone predictor after 10, 20, 50 GRPO steps?"
+    - "Is k=8 profiling stable enough that rank-50 and rank-51 don't swap on re-profiling? (ranking stability diagnostic)"
+    - "Does the variance-selection advantage hold for Code-LLaMA-7B-Instruct under the same protocol? (stretch goal)"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "Converged at Exchange 12 after 12 exchanges; all 6 convergence criteria satisfied (SPECIFIC, MECHANISM, PREDICTIONS, NOVELTY, FEASIBILITY, OBJECTIONS)"
+  clarity_verified: true
+  remaining_objections:
+    - "k=8 profiling vs G=4 training group-size mismatch — acknowledged as design limitation; quantify ranking stability as profiling diagnostic"
+    - "SQ4 (Code-LLaMA-7B) out of scope for primary hypothesis — extension experiment only"
+
+discussion_context:
+  total_exchanges: 12
+  agent_participation:
+    dr_nova: 3
+    prof_vera: 2
+    dr_sage: 2
+    prof_pax: 2
+    dr_ally: 2
+    prof_rex: 2
+  paper_citations: 14
+  convergence_type: "qualitative"

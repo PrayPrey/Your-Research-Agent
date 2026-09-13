@@ -1,0 +1,37 @@
+
+\subsubsection{Dataset}
+
+Experiments use the QA subset of HaluEval \citep{Lietal2023}, loaded from the pminervini/HaluEval HuggingFace dataset. A stratified sample of 2,000 examples (1,000 hallucinated, 1,000 factual) is drawn with a fixed random seed (seed=42), producing a balanced 50\% base rate that makes AUROC directly interpretable as discrimination above 0.5. Responses in this subset are typically short (1–2 sentences, 5–15 tokens), which is a key characteristic distinguishing them from TriviaQA/NQ responses (typically 20–50 tokens).
+
+\subsubsection{Model}
+
+LLaMA-2-7B-chat (meta-llama/Llama-2-7b-chat-hf) is used in float16 precision on a single NVIDIA H100 NVL GPU (CUDA_VISIBLE_DEVICES=4). Inference parameters are fixed across all UQ methods: greedy temperature = 0.0, stochastic temperature = 1.0, max_new_tokens = 256, N = 5 stochastic samples. All three UQ methods share the same inference outputs: token entropy reuses greedy logits (cast to float32 before softmax for fp16 numerical safety); semantic entropy and SelfCheckGPT both use the same five stochastic samples. This design eliminates inference variance as a confound when comparing methods.
+
+\subsubsection{UQ Signal Pipelines}
+
+\textbf{Token Entropy (TE).} Mean Shannon entropy over per-token output distributions from the greedy pass:
+
+$$H_\text{token}(x) = \frac{1}{T} \sum_{t=1}^{T} H(p_t)$$
+
+where $p_t$ is the token probability distribution at position $t$ and $T$ is the sequence length.
+
+\textbf{Semantic Entropy (SE).} Computed over NLI-based semantic equivalence clusters of the N=5 stochastic samples, following the lorenzkuhn/semantic_uncertainty implementation \citep{Kuhnetal2023}. For each ordered response pair $(r_i, r_j)$, bidirectional NLI entailment is checked using microsoft/deberta-large-mnli with batch size 16. Pairs with mutual entailment are merged via union-find clustering. Cluster entropy is:
+
+$$H_\text{semantic}(x) = -\sum_c p_c \log p_c, \quad p_c = |C_c| / N$$
+
+If all N responses are assigned to distinct clusters, $H_\text{semantic}$ equals $\log_2(N)$ for every example, producing a constant signal. The NLI clustering step is the mechanism studied in H-M2.
+
+\textbf{SelfCheckGPT-BERTScore (SCG).} Inconsistency between the greedy response and each stochastic sample, measured by BERTScore:
+
+$$\text{SCG}(x) = 1 - \frac{1}{N} \sum_{i=1}^{N} \text{BERTScore}(r_\text{greedy}, r_i)$$
+
+Higher SCG indicates more inconsistent generation, predicted to correspond to hallucination under the assumption that hallucinations arise from model uncertainty.
+
+\subsubsection{Evaluation Protocol}
+
+AUROC is computed for each UQ signal against binary hallucination labels. Bootstrap confidence intervals (95\%) are estimated from N=1,000 resamples with seed=42. Pairwise significance is assessed using the criterion Δ AUROC ≥ 0.05 and non-overlapping 95\% CIs, with Bonferroni correction for three pairwise comparisons (α_corrected = 0.05/3 ≈ 0.0167).
+
+\subsubsection{Implementation}
+
+All code is implemented in Python 3.10 with PyTorch. The pipeline consists of: \texttt{data.py} (dataset loading and stratified sampling), \texttt{inference.py} (greedy and stochastic LLM inference with checkpoint-resume), \texttt{uq_signals.py} (TE, SE, and SCG computation), \texttt{evaluate.py} (AUROC, bootstrap CI, pairwise gate check), and \texttt{visualize.py} (figure generation). Checkpoint-resume was necessary for SelfCheckGPT computation, which required approximately 2.7 hours for 2,000 examples on the H100 NVL.
+

@@ -1,0 +1,8 @@
+# Title
+Cryptographic Budget Amortization for Privacy-Preserving Machine Learning Explainability
+
+# Motivation
+Current regulations (GDPR Article 22, EU AI Act) mandate both explainability and privacy for ML systems, yet these requirements conflict: traditional differential privacy methods degrade explanation quality to unusable levels (fidelity <0.3) at regulatory privacy budgets (ε≤1.0). Per-query privacy costs scale linearly with explanation samples, forcing practitioners to choose between compliance and utility. This gap prevents deployment of interpretable ML in high-stakes domains like healthcare and finance, where both transparency and confidentiality are legally required.
+
+# Main Idea
+We propose using Secure Multi-Party Computation (SMPC) to aggregate model predictions during explanation generation (LIME/SHAP), achieving constant O(1) privacy cost instead of linear O(N) scaling. The core mechanism: cryptographic confidentiality protects individual predictions during aggregation, requiring differential privacy noise only on the final aggregate—amortizing privacy budget across thousands of queries. We hypothesize this enables 2-3× fidelity improvement (ρ>0.8 vs. <0.3) at ε=1.0 compared to per-query differential privacy. Validation involves controlled experiments on ResNet-18/ImageNet and BERT/GLUE, measuring explanation fidelity via Spearman correlation with ground-truth attributions, with optional FPGA acceleration for near-real-time deployment. Expected impact: GDPR-compliant explainability without utility sacrifice, enabling regulatory-ready ML systems.

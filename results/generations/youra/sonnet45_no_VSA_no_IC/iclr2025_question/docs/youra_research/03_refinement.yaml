@@ -1,0 +1,548 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-20T03:15:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Self-Play)"
+  schema_version: "10.0.0"
+  gap_id: "gap-3"
+  gap_title: "Empirical AUROC vs Inference Cost Trade-off for Single-Pass Methods"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 9
+  convergence_reason: "All convergence criteria met: SPECIFIC (Pareto frontier formalized), MECHANISM (3 methods with HaluEval→TruthfulQA protocol), PREDICTIONS (H1/H2/H3 quantitative), NOVELTY (first systematic cost-performance benchmark), FEASIBILITY (Phase 0 baseline check + theoretical soundness), OBJECTIONS (all resolved per Prof. Rex final verdict)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Temperature scaling is a single-parameter post-hoc calibration method with 0× inference cost overhead"
+      status: "BUILD_ON"
+      evidence: "Guo et al. 2017 (9294 citations) - seminal temperature scaling paper, foundational work"
+
+    - claim: "Conformal prediction provides distribution-free coverage guarantees for uncertainty estimation"
+      status: "BUILD_ON"
+      evidence: "Kumar et al. 2023 (148 citations) - conformal prediction for selective NLG"
+
+    - claim: "MC dropout approximates Bayesian inference via variational inference, requiring k forward passes"
+      status: "BUILD_ON"
+      evidence: "Established in Gal & Ghahramani 2016, referenced in discussion as theoretical foundation"
+
+    - claim: "TruthfulQA has human-annotated truthfulness labels (817 questions) as ground truth"
+      status: "BUILD_ON"
+      evidence: "Official TruthfulQA dataset (sylinrl/TruthfulQA, 911 stars) - Lin et al. 2021 foundational paper"
+
+    - claim: "Prior work compared UQ methods in isolation but never mapped complete cost-performance trade-off space"
+      status: "PROVE_NEW"
+      evidence: "Research gap identified in Phase 1 - Yang et al. 2023 tested TruthfulQA selective QA but no cost analysis, Zhang et al. 2020 compared calibration but not LLM context"
+
+    - claim: "Zero-cost methods (temp scaling) can achieve AUROC competitive with expensive methods (MC dropout k=5)"
+      status: "PROVE_NEW"
+      evidence: "Hypothesis H2 - this is the provocative claim that challenges 'more compute = better UQ' assumption"
+
+    - claim: "Different UQ methods occupy distinct positions on empirical Pareto frontier at different cost zones"
+      status: "PROVE_NEW"
+      evidence: "Hypothesis H3 - core novelty claim, requires empirical validation"
+
+  scope_reduction_percentage: 57 # 4 BUILD_ON out of 7 total claims = (4/7)*100 ≈ 57%
+
+  phase2b_4_instructions: |
+    **Section 0 Usage for Phase 2B Step 4 (Proof Experiment Design):**
+
+    BUILD_ON claims (4/7) do NOT require new validation - cite existing literature:
+    - Temperature scaling (Guo 2017), conformal prediction (Kumar 2023), MC dropout (Gal & Ghahramani 2016)
+    - TruthfulQA ground truth labels (Lin et al. 2021 official dataset)
+
+    PROVE_NEW claims (3/7) require empirical validation:
+    1. **Gap claim (prior work comparison):** Literature review in Related Work section demonstrates no prior systematic cost-performance benchmark exists
+    2. **H2 (zero-cost competitiveness):** Phase 1 experiment MUST measure |AUROC_temp - AUROC_mc5| ≤ 0.05
+    3. **H3 (Pareto frontier):** Phase 2 analysis MUST construct Pareto set and verify |Pareto| ≥ 2 with statistical significance
+
+    Scope reduction: ~57% of conceptual groundwork is already established literature.
+    Research contribution focuses on the 43% empirical novelty (cost-performance mapping).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-ParetoUQ-v1"
+  confidence_level: 0.85 # All persona verdicts STRONG (Nova/Vera/Sage/Pax), Prof. Rex final verdict: "ready for Phase 2B"
+
+  core_hypothesis_statement: |
+    Under selective prediction on TruthfulQA (817 human-annotated questions) using Llama-3.1-8B-Instruct,
+    if we compare temperature scaling (0× cost), conformal prediction (0× cost), and MC dropout (k-dependent cost),
+    then at least 2 methods will occupy distinct positions on the empirical Pareto frontier (no method strictly dominates another),
+    because different UQ mechanisms trade off calibration quality vs computational cost at different efficiency zones.
+
+  alternative_hypothesis_h0: |
+    There is no cost-performance trade-off: a single method (e.g., MC dropout k=5) strictly dominates
+    all others by achieving both higher AUROC and equal-or-lower inference cost, collapsing the Pareto
+    frontier to one optimal point.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "UQ_method"
+      type: "categorical"
+      operationalization: "Uncertainty quantification algorithm applied to model outputs"
+      levels:
+        - "temperature_scaling"
+        - "conformal_prediction"
+        - "mc_dropout_k1"
+        - "mc_dropout_k3"
+        - "mc_dropout_k5"
+        - "mc_dropout_k10"
+
+  dependent:
+    - name: "AUROC_selective_prediction"
+      type: "continuous"
+      operationalization: "Area Under ROC Curve for binary classification (correct vs incorrect prediction) using uncertainty score as discriminator. Range: [0.0, 1.0]. Computed on TruthfulQA test set (817 questions). Success threshold: ≥0.70 per primary research question."
+      primary: true
+
+    - name: "inference_cost_normalized"
+      type: "continuous"
+      operationalization: "FLOPs count per TruthfulQA query, normalized to single forward pass = 1.0×. MC dropout k=N measured as N.0× ± 0.1×. Temperature scaling and conformal prediction = 1.0× (post-hoc, excludes one-time calibration overhead)."
+      primary: false
+
+  controlled:
+    - name: "model_architecture"
+      operationalization: "Fixed at Llama-3.1-8B-Instruct (HuggingFace checkpoint) for all methods. No variation in model size or architecture."
+
+    - name: "calibration_dataset"
+      operationalization: "HaluEval (~10k samples) used for calibrating temperature scaling and conformal prediction nonconformity scores. Same calibration data across methods to isolate UQ algorithm effect."
+
+    - name: "test_dataset"
+      operationalization: "TruthfulQA full dataset (817 questions, human-annotated truthfulness labels). Hold-out from calibration, never touched during method setup."
+
+    - name: "random_seed"
+      operationalization: "Fixed seeds for 3 independent runs (seeds: 42, 123, 456). Report mean ± std across runs for AUROC."
+
+    - name: "evaluation_protocol"
+      operationalization: "Official TruthfulQA evaluation script (sylinrl/TruthfulQA repo). Human-annotated labels as ground truth (not GPT-judge scores)."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  narrative: |
+    **Mechanism: Cost-Performance Trade-offs in Uncertainty Quantification**
+
+    Different UQ methods achieve calibration through fundamentally different mechanisms:
+
+    1. **Temperature Scaling (0× cost):** Post-hoc calibration via single learnable parameter T.
+       Scales logits by 1/T before softmax, optimized on validation set. Zero inference overhead
+       because T is applied once after model forward pass. Limitation: assumes monotonic relationship
+       between confidence and correctness (may fail if base model has complex miscalibration patterns).
+
+    2. **Conformal Prediction (0× cost):** Distribution-free coverage via nonconformity scores.
+       Uses calibration set to compute score thresholds (sample frequency × semantic similarity per Su et al. 2024).
+       Zero inference overhead because calibration is one-time setup. Limitation: requires calibration
+       set from same/similar distribution as test set (HaluEval → TruthfulQA transfer may degrade).
+
+    3. **MC Dropout (k× cost):** Bayesian approximation via stochastic forward passes. Enables dropout
+       at inference, samples k predictions, computes variance/entropy as uncertainty. Cost scales linearly
+       with k. Advantage: captures model uncertainty directly (epistemic uncertainty). Limitation: k=1
+       degrades to deterministic baseline, k>10 becomes expensive for 2-5× budget constraint.
+
+    **Why Pareto frontier emerges:**
+
+    If temp scaling achieves AUROC 0.68 at 0× cost but MC dropout k=5 achieves 0.73 at 5× cost,
+    neither dominates: temp scaling is cheaper, MC dropout is more accurate. Practitioners choose
+    based on deployment budget. If temp scaling achieved 0.73 at 0× cost, it would dominate MC dropout
+    entirely (H3 would fail). The existence of ≥2 Pareto-optimal methods proves cost-performance trade-offs exist.
+
+  diagram: |
+    ┌────────────────────────────────────────────────────────────────┐
+    │ UQ Method Selection → Inference Cost & Calibration Quality    │
+    └────────────────────────────────────────────────────────────────┘
+                            │
+          ┌─────────────────┼─────────────────┐
+          │                 │                 │
+          ▼                 ▼                 ▼
+    ┌──────────┐    ┌──────────────┐   ┌──────────────┐
+    │ Temp     │    │ Conformal    │   │ MC Dropout   │
+    │ Scaling  │    │ Prediction   │   │ (k samples)  │
+    │ (0× cost)│    │ (0× cost)    │   │ (k× cost)    │
+    └──────────┘    └──────────────┘   └──────────────┘
+          │                 │                 │
+          │ Post-hoc        │ Nonconformity   │ Bayesian
+          │ logit/T         │ scores from     │ variance
+          │ calibration     │ calib. set      │ across k passes
+          │                 │                 │
+          ▼                 ▼                 ▼
+    ┌────────────────────────────────────────────────┐
+    │ Uncertainty Score per TruthfulQA Question      │
+    └────────────────────────────────────────────────┘
+                            │
+                            ▼
+    ┌────────────────────────────────────────────────┐
+    │ Rank by Uncertainty → Selective Prediction     │
+    │ (reject high-uncertainty queries)              │
+    └────────────────────────────────────────────────┘
+                            │
+                            ▼
+    ┌────────────────────────────────────────────────┐
+    │ AUROC = f(correct vs incorrect classification) │
+    │ Cost = FLOPs normalized to 1.0× baseline       │
+    └────────────────────────────────────────────────┘
+                            │
+                            ▼
+    ┌────────────────────────────────────────────────┐
+    │ Pareto Frontier: {(cost_i, AUROC_i) |          │
+    │   no method j has cost_j ≤ cost_i AND          │
+    │   AUROC_j > AUROC_i with p < 0.05}             │
+    └────────────────────────────────────────────────┘
+
+  logical_chain:
+    - step: 1
+      action: "Select UQ method (temp scaling, conformal prediction, or MC dropout k={1,3,5,10})"
+      inputs: ["Model: Llama-3.1-8B-Instruct", "Calibration: HaluEval", "Test: TruthfulQA"]
+      outputs: ["UQ_method choice"]
+
+    - step: 2
+      action: "Apply UQ method to TruthfulQA questions"
+      inputs: ["UQ_method", "TruthfulQA questions (817)"]
+      outputs: ["Uncertainty scores per question", "Inference cost (FLOPs)"]
+
+    - step: 3
+      action: "Rank questions by uncertainty score, compute AUROC for selective prediction"
+      inputs: ["Uncertainty scores", "Human-annotated labels (correct/incorrect)"]
+      outputs: ["AUROC_selective_prediction", "inference_cost_normalized"]
+
+    - step: 4
+      action: "Repeat for all UQ methods, aggregate over 3 random seeds"
+      inputs: ["6 UQ methods × 3 seeds"]
+      outputs: ["Mean AUROC ± std", "Mean cost ± std per method"]
+
+    - step: 5
+      action: "Construct Pareto frontier from (cost, AUROC) pairs"
+      inputs: ["6 methods with (cost_i, AUROC_i)"]
+      outputs: ["Pareto set = methods where no other method dominates (paired t-test p < 0.05)"]
+
+    - step: 6
+      action: "Test hypotheses H1/H2/H3"
+      inputs: ["Pareto set", "AUROC values", "Statistical tests"]
+      outputs: ["H1: MC k=5 highest AUROC?", "H2: |AUROC_temp - AUROC_mc5| ≤ 0.05?", "H3: |Pareto| ≥ 2?"]
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - assumption: "8B model baseline accuracy ≥ 45% on TruthfulQA"
+    validity: "HIGH"
+    validation_method: "Phase 0 pre-check: empirically measure Llama-3.1-8B-Instruct accuracy on TruthfulQA before proceeding. If <45%, hypothesis is NOT testable at 8B scale."
+    impact_if_violated: "CRITICAL - insufficient signal for UQ methods to demonstrate value. Would invalidate entire experiment at 8B scale. Mitigation: document limitation and recommend ≥70B model follow-up."
+
+  - assumption: "HaluEval calibration set is representative enough for conformal prediction to generalize to TruthfulQA"
+    validity: "MEDIUM"
+    validation_method: "Cross-dataset generalization is explicitly tested (DQ4). If conformal prediction AUROC degrades significantly vs temp scaling, this assumption is violated."
+    impact_if_violated: "MEDIUM - conformal prediction may fail to transfer across task distributions (hallucination detection ≠ truthfulness QA). This is a scientifically valuable negative result if observed."
+
+  - assumption: "Human-annotated TruthfulQA labels provide reliable ground truth (not GPT-judge artifacts)"
+    validity: "HIGH"
+    validation_method: "Official TruthfulQA dataset uses human consensus annotations (Lin et al. 2021). GPT-judge metrics are for automated evaluation only, not ground truth."
+    impact_if_violated: "LOW - dataset is foundational in LLM evaluation community (911 GitHub stars, widely cited). If labels were unreliable, prior work (Yang et al. 2023) would have reported issues."
+
+  - assumption: "FLOPs count accurately reflects inference cost (wall-clock time may vary with hardware/batching)"
+    validity: "HIGH"
+    validation_method: "FLOPs is hardware-agnostic and deterministic. Wall-clock time varies with GPU type, batch size, memory bandwidth. We normalize to 1.0× baseline (single forward pass FLOPs)."
+    impact_if_violated: "LOW - practitioner deployment costs include latency (wall-clock), not just FLOPs. Mitigation: report both FLOPs and wall-clock time in supplementary materials."
+
+  - assumption: "Statistical significance (paired t-test, p < 0.05, n=3 seeds) is sufficient for reproducibility"
+    validity: "MEDIUM"
+    validation_method: "Standard in ML research (3 random seeds is common practice). Larger n would improve confidence but increases compute cost ~linearly."
+    impact_if_violated: "MEDIUM - small n=3 may miss rare failure modes. Mitigation: if results show high variance (std > 0.03 AUROC), increase to n=5 seeds for critical comparisons."
+
+  - assumption: "Low-star implementation repos (LofreeCP: 9 stars, dropwise: 8 stars) are correct implementations of papers"
+    validity: "LOW"
+    validation_method: "Validate against paper specifications. Su et al. 2024 specifies nonconformity = sample_frequency × semantic_similarity. If repo deviates, implement manually from paper."
+    impact_if_violated: "LOW - repos are starting points, not dependencies. Mitigation: cross-check implementation against paper pseudo-code before trusting results."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Null Hypothesis (H0)
+# ═══════════════════════════════════════════════════════════════
+
+null_hypothesis:
+  h0_statement: |
+    There is no cost-performance trade-off among single-forward-pass UQ methods on TruthfulQA
+    selective prediction. A single method (e.g., MC dropout k=5) strictly dominates all others
+    by achieving both:
+    (1) Statistically higher AUROC (paired t-test p < 0.05)
+    (2) Equal or lower inference cost (FLOPs ≤ other methods)
+
+    This would collapse the Pareto frontier to one optimal point, making budget-aware UQ selection unnecessary.
+
+  statistical_test: "Paired t-test (two-tailed) comparing AUROC distributions across methods, α = 0.05, n=3 seeds per method"
+
+  rejection_criteria: |
+    **Reject H0 if ANY of the following hold:**
+
+    1. **H3 confirmed:** Pareto set contains ≥2 methods where neither dominates the other
+       (i.e., method A has higher AUROC but higher cost, method B has lower AUROC but lower cost,
+       with statistically significant AUROC difference p < 0.05).
+
+       Example: temp scaling = (1.0×, 0.68±0.02) and MC dropout k=5 = (5.0×, 0.73±0.02),
+       paired t-test p = 0.001 → both Pareto-optimal → H0 rejected.
+
+    2. **H2 confirmed AND H1 confirmed:** Temp scaling achieves AUROC within Δ=0.05 of MC dropout k=5
+       (|AUROC_temp - AUROC_mc5| ≤ 0.05) AND MC dropout k=5 has highest AUROC overall.
+
+       This proves zero-cost methods are competitive despite not being optimal → trade-off exists → H0 rejected.
+
+    **Fail to reject H0 if:**
+    - Only one method is Pareto-optimal (e.g., MC dropout k=5 dominates all others with both
+      higher AUROC AND equal/lower cost).
+    - All methods have statistically indistinguishable AUROC (overlapping 95% CIs) → no method
+      can be distinguished as superior → Pareto frontier collapses to noise.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P0"
+    statement: "Llama-3.1-8B-Instruct achieves baseline accuracy ≥ 45% on TruthfulQA (817 human-annotated questions)"
+    measurement_protocol: "Load HuggingFace checkpoint 'meta-llama/Llama-3.1-8B-Instruct', evaluate using official TruthfulQA evaluation script (sylinrl/TruthfulQA repo), report accuracy with 95% binomial confidence interval"
+    success_criteria: "Accuracy ≥ 45% with 95% CI lower bound > 42%"
+    type: "go_no_go" # Phase 0 pre-check
+    falsifiable: true
+    falsification_consequence: "CRITICAL - If fails, hypothesis is NOT testable at 8B scale. Document as limitation: 'Baseline accuracy too low for UQ methods to demonstrate value. Future work: test with ≥70B models.' STOP experiment."
+
+  - id: "H1"
+    statement: "MC dropout k=5 achieves the highest AUROC among all tested UQ methods"
+    measurement_protocol: "Compute AUROC_selective_prediction for all 6 methods (temp scaling, conformal prediction, MC dropout k=1,3,5,10). Rank by mean AUROC over 3 random seeds. MC dropout k=5 must rank #1."
+    success_criteria: "AUROC_mc5 > max(AUROC_temp, AUROC_conf, AUROC_mc1, AUROC_mc3, AUROC_mc10) with paired t-test p < 0.05 for all pairwise comparisons"
+    type: "expected" # Confirms intuition that more compute → better UQ
+    falsifiable: true
+    falsification_consequence: "MEDIUM - If temp scaling or conformal prediction achieves higher AUROC than MC dropout k=5 (p < 0.05), we've discovered that zero-cost methods can OUTPERFORM expensive methods → paradigm shift. H2 would be strengthened beyond 'competitive' to 'superior'."
+
+  - id: "H2"
+    statement: "Temperature scaling achieves AUROC within Δ=0.05 of MC dropout k=5 (zero-cost method competitive with 5× cost method)"
+    measurement_protocol: "Compute |AUROC_temp - AUROC_mc5| using mean values over 3 seeds. Check if difference ≤ 0.05 (absolute AUROC points)."
+    success_criteria: "|AUROC_temp - AUROC_mc5| ≤ 0.05"
+    type: "surprising" # Challenges 'more compute = better UQ' dogma
+    falsifiable: true
+    falsification_consequence: "LOW - If |AUROC_temp - AUROC_mc5| > 0.05, temp scaling is NOT competitive → MC dropout's 5× cost is justified for applications requiring high AUROC. This is a negative result but still valuable: practitioners need MC dropout for high-stakes selective prediction."
+
+  - id: "H3"
+    statement: "At least 2 UQ methods lie on the empirical Pareto frontier (no single method dominates all others)"
+    measurement_protocol: "For each method i, compute (cost_i, AUROC_i). Method i is Pareto-optimal if no method j exists where (cost_j ≤ cost_i AND AUROC_j > AUROC_i with paired t-test p < 0.05). Count |Pareto set| ≥ 2."
+    success_criteria: "|{i | i is Pareto-optimal AND ∀j ≠ i, NOT (cost_j ≤ cost_i AND AUROC_j - AUROC_i > 0 with p < 0.05)}| ≥ 2"
+    type: "core_novelty" # Core claim of Pareto frontier existence
+    falsifiable: true
+    falsification_consequence: "HIGH - If only 1 method is Pareto-optimal (e.g., MC dropout k=5 dominates all others), Pareto frontier collapses to single winner → budget-aware UQ selection is unnecessary. Core novelty claim fails. However, this is still a valuable negative result: 'Comprehensive benchmark shows MC dropout k=5 is universally optimal for TruthfulQA selective prediction.'"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Novelty Assessment
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  what_is_new: |
+    **1. First Systematic Cost-Performance Benchmark for UQ on TruthfulQA:**
+
+    Prior work tested individual UQ methods (Yang et al. 2023: selective QA on TruthfulQA;
+    Su et al. 2024: conformal prediction; Guo et al. 2017: temperature scaling) but NO prior
+    study systematically compares AUROC vs inference cost across multiple single-pass methods
+    on the same benchmark.
+
+    **2. Pareto Frontier Framing for Practitioner-Facing UQ Selection:**
+
+    Instead of declaring "Method X wins", we map the complete trade-off space. This enables
+    budget-aware method selection: practitioners see exact cost vs accuracy trade-offs and
+    choose based on deployment constraints. Current literature treats method comparison as
+    winner-take-all horse races (Zhang et al. 2020: Mix-n-Match ensemble comparison; no cost analysis).
+
+    **3. Empirical Test of "Zero-Cost Competitiveness" Hypothesis:**
+
+    H2 explicitly tests whether temp scaling (0× cost) achieves AUROC within Δ=0.05 of MC dropout k=5 (5× cost).
+    If TRUE, this challenges the field's implicit "more compute = better UQ" assumption. No prior work
+    directly tests this cost-efficiency hypothesis on LLM selective prediction.
+
+    **4. Cross-Dataset Generalization Test (HaluEval → TruthfulQA):**
+
+    Calibrating on HaluEval and testing on TruthfulQA directly addresses DQ4 (cross-dataset AUROC ≥ 0.65).
+    Lin et al. 2025 studied domain-shift conformal prediction but NOT in the LLM selective prediction context.
+    Our setup tests whether calibration transfers across related-but-distinct tasks (hallucination detection
+    vs truthfulness QA).
+
+  comparison_to_prior_work: |
+    **Yang et al. 2023 (16 citations):**
+    - Tested TruthfulQA selective QA with uncertainty estimates
+    - Showed "significantly higher accuracy" using selective prediction
+    - **Gap:** No cost analysis, no multi-method comparison, no AUROC vs cost curves
+
+    **Su et al. 2024 (74 citations):**
+    - Introduced API-only conformal prediction (no logit access)
+    - Outperformed logit-based baselines
+    - **Gap:** Tested on single dataset, no cost-performance comparison with other methods
+
+    **Zhang et al. 2020 (293 citations):**
+    - Compared ensemble/compositional calibration methods
+    - Introduced kernel-density ECE estimator
+    - **Gap:** Not LLM-focused, no selective prediction application, no inference cost analysis
+
+    **Guo et al. 2017 (9294 citations):**
+    - Seminal temperature scaling paper
+    - Demonstrated modern NNs poorly calibrated
+    - **Gap:** Focused on calibration metrics (ECE), not selective prediction AUROC or cost trade-offs
+
+    **Our Contribution:**
+    - **First** to systematically benchmark AUROC vs cost for 6 UQ method variants (temp scaling,
+      conformal prediction, MC dropout k=1,3,5,10) on TruthfulQA selective prediction
+    - **First** to frame UQ method selection as Pareto frontier optimization (practitioner-facing)
+    - **First** to empirically test "zero-cost competitiveness" hypothesis (H2) in LLM context
+    - **First** to validate cross-dataset generalization (HaluEval → TruthfulQA) for conformal prediction
+
+  paradigm_shift_potential: |
+    **IF H2 is confirmed (temp scaling AUROC within Δ=0.05 of MC dropout k=5):**
+
+    This would challenge the implicit assumption that "better UQ requires more compute." Temperature
+    scaling achieves competitive performance at 0× inference overhead, making MC dropout's 5× cost
+    unjustified for many applications. Paradigm shift: practitioners default to zero-cost methods
+    (temp scaling, conformal prediction) unless they need the marginal AUROC improvement from MC dropout.
+
+    **IF H3 is confirmed (≥2 methods Pareto-optimal):**
+
+    This validates budget-aware UQ selection as a new subfield. Current research focuses on "which
+    method is best?" (winner-take-all). Our result would shift focus to "which method is best FOR
+    MY BUDGET?" Opening research directions:
+    - Adaptive UQ budgeting: dynamically switch methods based on query difficulty
+    - Cost-aware ensemble methods: combine cheap + expensive UQ for hybrid efficiency
+    - Budget-constrained benchmarking: standardize cost reporting in UQ papers
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  what_is_included:
+    - "Single-forward-pass UQ methods (temp scaling, conformal prediction, MC dropout k≤10)"
+    - "TruthfulQA selective prediction task (817 human-annotated questions)"
+    - "Llama-3.1-8B-Instruct model (fixed architecture, no scaling study)"
+    - "AUROC metric for selective prediction quality"
+    - "FLOPs-based inference cost (normalized to 1.0× baseline)"
+    - "Cross-dataset generalization test (HaluEval calibration → TruthfulQA test)"
+
+  what_is_excluded:
+    - "Ensemble methods (>10× cost, outside 2-5× budget constraint from primary research question)"
+    - "Spectral normalization (Phase 1 Gap 1 - unstudied for LLMs, no implementation evidence)"
+    - "Model scale dependency study (Phase 1 Gap 2 - deferred to future work, would require ≥70B models)"
+    - "Multiple-choice TruthfulQA (MC1, MC2 tasks - focus on generative QA only)"
+    - "Token-level UQ methods (Phase 1 ROUTE_TO_0 failure - don't predict correctness at small scale)"
+    - "HaluEval as test set (used only for calibration, TruthfulQA is primary evaluation)"
+
+  limitations:
+    - "8B model scale only - if Phase 0 baseline accuracy <45%, hypothesis NOT testable at this scale"
+    - "Single benchmark (TruthfulQA) - generalization to other truthfulness/factuality benchmarks unknown"
+    - "HaluEval calibration may not transfer to TruthfulQA (cross-dataset generalization is explicitly tested)"
+    - "n=3 random seeds - small sample size, high-variance results may require n=5 for confidence"
+    - "Low-star implementation repos (LofreeCP: 9 stars, dropwise: 8 stars) - must validate against paper specs"
+
+  boundary_conditions:
+    - condition: "Phase 0 baseline accuracy ≥ 45%"
+      consequence_if_violated: "STOP experiment, document limitation: hypothesis requires ≥70B models"
+
+    - condition: "All methods achieve AUROC ≥ 0.60 (above random baseline 0.50 + noise margin)"
+      consequence_if_violated: "Document: TruthfulQA selective prediction too challenging for current single-pass UQ methods"
+
+    - condition: "Conformal prediction AUROC not catastrophically degraded vs temp scaling (difference <0.15)"
+      consequence_if_violated: "Document: HaluEval → TruthfulQA calibration transfer fails for conformal prediction"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Experimental Setup Summary
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  phase_0_baseline_check:
+    objective: "Validate 8B model has sufficient signal for UQ methods (accuracy ≥ 45%)"
+    protocol: |
+      1. Load Llama-3.1-8B-Instruct from HuggingFace (meta-llama/Llama-3.1-8B-Instruct)
+      2. Evaluate on TruthfulQA using official evaluation script (sylinrl/TruthfulQA repo)
+      3. Report accuracy with 95% binomial confidence interval
+      4. **Decision rule:** If accuracy ≥ 45%, proceed to Phase 1. If <45%, STOP and document limitation.
+    expected_outcome: "Accuracy ≥ 45% (relaxed from 50% to account for adversarial TruthfulQA design)"
+
+  phase_1_main_experiment:
+    objective: "Compare 6 UQ methods on TruthfulQA selective prediction (AUROC vs cost)"
+
+    methods:
+      - name: "temperature_scaling"
+        implementation: "gpleiss/temperature_scaling (1172 stars) or probkit/probmetrics (68 stars, modern)"
+        calibration: "Optimize T on HaluEval validation set (minimize NLL or ECE)"
+        inference_cost: "1.0× (post-hoc, no inference overhead)"
+
+      - name: "conformal_prediction"
+        implementation: "SU-JIAYUAN/LofreeCP (9 stars, EMNLP'24) - validate against Su et al. 2024 paper spec"
+        calibration: "Compute nonconformity scores (sample_frequency × semantic_similarity) on HaluEval"
+        inference_cost: "1.0× (post-calibration, per-query cost is single forward pass)"
+
+      - name: "mc_dropout_k1"
+        implementation: "aryanator/dropwise (8 stars) or manual (enable dropout at inference, sample k=1)"
+        calibration: "None (deterministic, equivalent to baseline)"
+        inference_cost: "1.0× (k=1 is single forward pass)"
+
+      - name: "mc_dropout_k3"
+        implementation: "Same as k=1, sample k=3 forward passes"
+        calibration: "None (epistemic uncertainty from variance)"
+        inference_cost: "3.0× ± 0.1× (3 forward passes)"
+
+      - name: "mc_dropout_k5"
+        implementation: "Same as k=1, sample k=5 forward passes"
+        calibration: "None"
+        inference_cost: "5.0× ± 0.1×"
+
+      - name: "mc_dropout_k10"
+        implementation: "Same as k=1, sample k=10 forward passes"
+        calibration: "None"
+        inference_cost: "10.0× ± 0.1× (exceeds 2-5× budget but included as upper bound)"
+
+    datasets:
+      calibration: "HaluEval (~10k samples) - for temp scaling and conformal prediction only"
+      test: "TruthfulQA (817 questions, human-annotated truthfulness labels)"
+
+    evaluation_protocol: |
+      For each UQ method and each random seed (seeds: 42, 123, 456):
+        1. Apply method to TruthfulQA test set (never touched during calibration)
+        2. Compute uncertainty score per question
+        3. Rank questions by uncertainty (high uncertainty → reject in selective prediction)
+        4. Compute AUROC: True Positive = correctly predicted & accepted, False Positive = incorrectly predicted & accepted
+        5. Measure inference cost: FLOPs count normalized to single forward pass = 1.0×
+
+      Aggregate: Mean AUROC ± std, Mean cost ± std over 3 seeds per method
+
+    statistical_tests: "Paired t-test (two-tailed, α=0.05) for pairwise AUROC comparisons"
+
+  phase_2_analysis:
+    objective: "Construct Pareto frontier and test H1/H2/H3"
+
+    pareto_frontier_construction: |
+      For each method i, compute (cost_i, AUROC_i) = (mean_cost, mean_AUROC) over 3 seeds.
+
+      Method i is Pareto-optimal IF:
+        ∀ method j ≠ i, NOT (cost_j ≤ cost_i AND AUROC_j > AUROC_i with paired t-test p < 0.05)
+
+      Pareto set = {i | i is Pareto-optimal}
+
+    hypothesis_tests:
+      - id: "H1"
+        test: "MC dropout k=5 ranks #1 by AUROC (paired t-test vs all others, p < 0.05)"
+        pass_criteria: "AUROC_mc5 > max(AUROC_temp, AUROC_conf, AUROC_mc1, AUROC_mc3, AUROC_mc10) with p < 0.05"
+
+      - id: "H2"
+        test: "Temperature scaling AUROC within Δ=0.05 of MC dropout k=5"
+        pass_criteria: "|AUROC_temp - AUROC_mc5| ≤ 0.05"
+
+      - id: "H3"
+        test: "Pareto set contains ≥2 methods with statistically distinct AUROCs"
+        pass_criteria: "|Pareto set| ≥ 2 AND pairwise t-tests show p < 0.05 between any two Pareto methods"

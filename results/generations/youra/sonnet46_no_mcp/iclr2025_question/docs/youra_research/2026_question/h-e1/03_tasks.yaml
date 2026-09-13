@@ -1,0 +1,536 @@
+version: "1.1"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-05-11T01:30:00.000000+00:00"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: true
+    excluded_count: 1
+    excluded_ids: ["task-015-config"]
+    exclusion_reason: "C-A4-1 config subtask removed (lowest parent complexity=12) to stay within LIGHT=15 budget. Config details merged into task-007 (A-6 Orchestration)."
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASKS — in priority order (highest first)
+# ═══════════════════════════════════════════════════════════════════════════════
+tasks:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # ENVIRONMENT SETUP (priority 94)
+  # Source: 03_prd.md §8.1 Dependencies
+  # ─────────────────────────────────────────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Install Python dependencies and verify GPU environment"
+    description: |
+      Install all required Python packages and verify the GPU environment.
+
+      Packages to install (requirements.txt):
+        torch>=2.0.0
+        transformers>=4.35.0
+        datasets>=2.14.0
+        selfcheckgpt>=0.1.0
+        bert-score>=0.3.13
+        scikit-learn>=1.3.0
+        numpy>=1.24.0
+        scipy>=1.11.0
+        matplotlib>=3.7.0
+        seaborn>=0.12.0
+        nltk>=3.8.0
+        tqdm>=4.65.0
+
+      Steps:
+        1. Create requirements.txt in h-e1/code/
+        2. pip install -r requirements.txt
+        3. Verify GPU available: torch.cuda.is_available()
+        4. Set CUDA_VISIBLE_DEVICES to single empty GPU (check nvidia-smi)
+        5. Verify HuggingFace token for meta-llama access
+        6. Create output directories: data/, outputs/greedy_logits/, outputs/uq_scores/, results/, figures/
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - tests/test_setup.py
+      - test_gpu_available(): assert torch.cuda.is_available()
+      - test_imports(): import all required packages without error
+      - test_output_dirs(): assert all required directories exist
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # EPIC IMPLEMENTATION TASKS (priority 93-50)
+  # Source: 03_architecture.md §Epic Tasks
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - id: "task-002"
+    epic: "A-1 Data Setup"
+    title: "Implement HaluEval-QA dataset loading and stratified sampling"
+    description: |
+      Implement code/data.py to load HaluEval-QA from HuggingFace and create the 2K stratified sample.
+
+      Functions to implement:
+        - load_halueval_qa(cfg: ExperimentConfig) -> List[Dict[str, Any]]
+        - save_dataset(examples, path) -> None
+        - load_dataset_from_disk(path) -> List[Dict[str, Any]]
+
+      Logic:
+        1. datasets.load_dataset("pminervini/HaluEval", "qa_samples")
+        2. Separate by hallucination label (True/False)
+        3. random.seed(42); sample 1000 hallucinated + 1000 factual
+        4. Shuffle combined list with seed=42
+        5. Save to data/halueval_qa_2k.json as JSON
+        6. Fields per example: {id, question, answer, hallucination_label (bool)}
+    feature_tag: "data-pipeline"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: |
+      - tests/test_data.py
+      - test_load_halueval_qa(): assert len(result) == 2000, balanced labels
+      - test_stratification(): assert sum(x['hallucination_label'] for x in data) == 1000
+      - test_reproducibility(): two loads with seed=42 produce same order
+    reference_files:
+      architecture: "03_architecture.md#A-1-Data-Setup"
+      logic: null
+      config: "03_config.md#dataset-config"
+
+  - id: "task-003"
+    epic: "A-2 LLM Inference"
+    title: "Implement LLM inference pipeline (greedy + stochastic with checkpoint-resume)"
+    description: |
+      Implement code/inference.py for LLaMA-2-7B-chat inference with checkpoint-resume support.
+
+      Functions to implement:
+        - load_llm(cfg) -> (model, tokenizer)
+        - run_greedy_inference(examples, model, tokenizer, cfg, resume=True) -> None
+        - run_stochastic_inference(examples, model, tokenizer, cfg, resume=True) -> None
+        - load_greedy_outputs(outputs_dir) -> Dict[int, Dict]
+        - load_stochastic_outputs(outputs_dir) -> Dict[int, List[str]]
+
+      Outputs:
+        - outputs/greedy_responses.jsonl: {id, response_text}
+        - outputs/greedy_logits/example_{id}.pt: float16 tensor [seq_len, vocab_size]
+        - outputs/stochastic_samples.jsonl: {id, samples: [str x5]}
+
+      See subtasks L-A2-1, L-A2-2, L-A2-3 for detailed implementation.
+    feature_tag: "model"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - tests/test_inference.py
+      - test_greedy_output_shape(): logit tensor shape [seq_len, vocab_size]
+      - test_stochastic_count(): exactly N=5 samples per example
+      - test_checkpoint_resume(): run twice, second run skips completed examples
+    reference_files:
+      architecture: "03_architecture.md#A-2-LLM-Inference"
+      logic: "03_logic.md#L-A2-1-L-A2-3"
+      config: "03_config.md#llm-inference-config"
+
+  - id: "task-004"
+    epic: "A-3 UQ Signal Computation"
+    title: "Implement all three UQ signal computations (token entropy, semantic entropy, SelfCheckGPT)"
+    description: |
+      Implement code/uq_signals.py for all three UQ signals.
+
+      Functions to implement:
+        - compute_token_entropy_mean(logits: torch.Tensor) -> float
+        - compute_all_token_entropy(outputs_dir, cfg) -> Dict[int, float]
+        - load_nli_pipeline(cfg) -> pipeline
+        - cluster_by_nli(samples, nli_pipeline, batch_size=16) -> Dict[int, int]
+        - compute_semantic_entropy(samples, nli_pipeline, batch_size=16) -> float
+        - compute_all_semantic_entropy(outputs_dir, cfg) -> Dict[int, float]
+        - compute_selfcheckgpt_bertscore(greedy_response, stochastic_samples) -> float
+        - compute_all_selfcheckgpt(outputs_dir, cfg) -> Dict[int, float]
+
+      Outputs:
+        - outputs/uq_scores/token_entropy_mean.json
+        - outputs/uq_scores/semantic_entropy.json
+        - outputs/uq_scores/selfcheckgpt_bertscore_n5.json
+
+      See subtasks L-A3-1, L-A3-2, L-A3-3, L-A3-4 for detailed implementation.
+    feature_tag: "model"
+    priority: 80
+    source_document: "03_architecture.md"
+    complexity: 17
+    test_requirements: |
+      - tests/test_uq_signals.py
+      - test_token_entropy_scalar(): output is float in [0, inf)
+      - test_semantic_entropy_range(): output >= 0.0
+      - test_nli_clustering_all_same(): identical samples → 1 cluster, entropy=0
+      - test_nli_clustering_all_different(): all unique → N clusters, max entropy
+    reference_files:
+      architecture: "03_architecture.md#A-3-UQ-Signal-Computation"
+      logic: "03_logic.md#L-A3-1-L-A3-4"
+      config: "03_config.md#nli-model-config"
+
+  - id: "task-005"
+    epic: "A-4 AUROC Evaluation"
+    title: "Implement AUROC evaluation, bootstrap CI, statistical testing, and gate check"
+    description: |
+      Implement code/evaluate.py for complete evaluation pipeline.
+
+      Functions to implement:
+        - compute_auroc(labels, scores) -> float
+        - bootstrap_auroc_ci(labels, scores, n_resamples=1000, seed=42) -> (float, float)
+        - pairwise_auroc_differences(auroc_map, ci_map) -> List[Dict]
+        - check_must_work_gate(pairwise_results, cfg) -> Dict
+        - save_results(auroc_map, ci_map, pairwise_results, gate_result, results_dir) -> None
+
+      Gate check logic:
+        - alpha_corrected = 0.05 / 3 = 0.0167 (Bonferroni)
+        - gate_passed = any pair where delta_auroc >= 0.05 AND CIs non-overlapping
+        - Direction check: semantic_entropy AUROC > token_entropy_mean AUROC
+
+      Outputs:
+        - results/h_e1_results.json
+        - results/h_e1_gate_check.json
+
+      See subtask C-A4-1 for configuration details.
+    feature_tag: "evaluation"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - tests/test_evaluate.py
+      - test_auroc_perfect(): all-correct → AUROC=1.0
+      - test_bootstrap_ci_coverage(): CI width > 0, seed reproducibility
+      - test_gate_pass(): synthetic data with >0.05 gap → gate_passed=True
+      - test_gate_fail(): all methods same AUROC → gate_passed=False
+    reference_files:
+      architecture: "03_architecture.md#A-4-AUROC-Evaluation"
+      logic: "03_logic.md#evaluate-api"
+      config: "03_config.md#evaluation-config"
+
+  - id: "task-006"
+    epic: "A-5 Results + Visualization"
+    title: "Implement results persistence and figure generation"
+    description: |
+      Implement code/visualize.py for required figures.
+
+      Functions to implement:
+        - plot_auroc_bar_chart(auroc_map, ci_map, save_path) -> None
+        - plot_roc_curves_overlay(labels, scores_map, auroc_map, save_path) -> None
+
+      Required figures:
+        1. figures/auroc_bar_chart.png — bar chart per UQ method with 95% CI error bars,
+           color-coded by method family (token=blue, semantic=green, selfcheck=orange)
+        2. figures/roc_curves_overlay.png — ROC curves all 3 methods on same plot
+           with AUC annotation in legend
+
+      Optional (implement if time permits):
+        3. figures/bootstrap_distribution.png — violin plot of 1K bootstrap AUROCs
+        4. figures/score_distribution.png — KDE of UQ scores by hallucination label
+    feature_tag: "evaluation"
+    priority: 65
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - tests/test_visualize.py
+      - test_bar_chart_created(): file exists after call
+      - test_roc_curves_created(): file exists after call
+      - test_figure_readable(): matplotlib can re-read the saved PNG
+    reference_files:
+      architecture: "03_architecture.md#A-5-Results-Visualization"
+      logic: null
+      config: null
+
+  - id: "task-007"
+    epic: "A-6 Orchestration & Tests"
+    title: "Implement run_experiment.py orchestrator and complete test suite"
+    description: |
+      Implement code/run_experiment.py as end-to-end entry point.
+
+      Orchestration order:
+        1. cfg = get_config()
+        2. examples = load_halueval_qa(cfg) [or load from disk if exists]
+        3. model, tokenizer = load_llm(cfg)
+        4. run_greedy_inference(examples, model, tokenizer, cfg, resume=True)
+        5. run_stochastic_inference(examples, model, tokenizer, cfg, resume=True)
+        6. del model, tokenizer; torch.cuda.empty_cache()  # free GPU for NLI
+        7. token_entropy_scores = compute_all_token_entropy(outputs_dir, cfg)
+        8. nli_pipe = load_nli_pipeline(cfg)
+        9. semantic_entropy_scores = compute_all_semantic_entropy(outputs_dir, cfg)
+        10. selfcheckgpt_scores = compute_all_selfcheckgpt(outputs_dir, cfg)
+        11. labels = [ex['hallucination_label'] for ex in examples]
+        12. auroc_map, ci_map = evaluate all three methods
+        13. pairwise = pairwise_auroc_differences(auroc_map, ci_map)
+        14. gate = check_must_work_gate(pairwise, cfg)
+        15. save_results(...)
+        16. plot_auroc_bar_chart(...); plot_roc_curves_overlay(...)
+        17. Print gate result summary
+
+      Also ensure all test files pass: pytest h-e1/code/tests/ -v
+    feature_tag: "experiment"
+    priority: 60
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - tests/test_run_experiment.py
+      - test_config_loads(): get_config() returns ExperimentConfig instance
+      - test_orchestration_order(): mock each step, verify call order
+      - test_gate_result_printed(): stdout contains gate pass/fail message
+    reference_files:
+      architecture: "03_architecture.md#A-6-Orchestration-Tests"
+      logic: null
+      config: "03_config.md#experiment-config"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SUBTASKS — Logic Agent (priority 49-10)
+  # Source: 03_logic.md
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - id: "task-008"
+    epic: "A-3 UQ Signal Computation"
+    title: "L-A3-1: Implement NLI bidirectional clustering and semantic entropy"
+    description: |
+      Implement cluster_by_nli() using union-find bidirectional NLI entailment (Kuhn 2023).
+
+      Key implementation details (from 03_logic.md):
+        - Build N*(N-1) ordered pairs from N=5 samples → 20 pairs
+        - NLI output shape: [B, 3] where labels are [contradiction, neutral, entailment]
+        - Bidirectional: both (i→j) AND (j→i) must predict ENTAILMENT (label index 2)
+        - Use union-find for transitive cluster closure (not greedy assignment)
+        - Cluster frequency: Counter(cluster_ids.values()); probs = [c/N for c in counts]
+        - Shannon entropy: -sum(p * log(p) for p in probs if p > 0)
+        - Edge case: N=1 sample → entropy=0.0
+    feature_tag: "model"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_clustering_identical_samples(): all same → 1 cluster
+      - test_clustering_all_distinct(): all different → N clusters
+      - test_entropy_zero_one_cluster(): single cluster → entropy=0
+    reference_files:
+      logic: "03_logic.md#L-A3-1"
+      architecture: "03_architecture.md#A-3-UQ-Signal-Computation"
+      config: null
+
+  - id: "task-009"
+    epic: "A-3 UQ Signal Computation"
+    title: "L-A3-2: Implement token entropy mean with fp16 safety"
+    description: |
+      Implement compute_token_entropy_mean() with numerical stability.
+
+      Key implementation details (from 03_logic.md):
+        - Cast fp16 logits to float32 before softmax: logits.float()
+        - probs = torch.softmax(logits.float(), dim=-1)  # shape [seq_len, vocab_size]
+        - token_entropies = -torch.sum(probs * torch.log(probs + 1e-9), dim=-1)  # [seq_len]
+        - return token_entropies.mean().item()
+        - Only compute entropy over generated tokens (not prompt tokens)
+        - Skip padding tokens (attention_mask=0 positions)
+    feature_tag: "model"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_entropy_uniform(): uniform distribution → log(vocab_size)
+      - test_entropy_peaked(): one-hot → ~0
+      - test_fp16_input(): float16 input handled without overflow
+    reference_files:
+      logic: "03_logic.md#L-A3-2"
+      architecture: "03_architecture.md#A-3-UQ-Signal-Computation"
+      config: null
+
+  - id: "task-010"
+    epic: "A-3 UQ Signal Computation"
+    title: "L-A3-3: Implement SelfCheckGPT-BERTScore integration with sentence segmentation"
+    description: |
+      Implement compute_selfcheckgpt_bertscore() using official selfcheckgpt package.
+
+      Key implementation details (from 03_logic.md):
+        - Sentence segmentation: nltk.sent_tokenize(greedy_response)
+        - If no sentences detected, wrap full response as single sentence
+        - checker = SelfCheckBERTScore(rescale_with_baseline=True)
+        - scores = checker.predict(sentences=[s1, s2, ...], sampled_passages=samples[:5])
+        - scores shape: [num_sentences] — inconsistency per sentence
+        - Aggregate: mean(scores) → single float
+        - Higher score = more inconsistent = more hallucinated
+        - Cache checker instance across examples (expensive to load)
+    feature_tag: "model"
+    priority: 41
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_single_sentence_response(): handles 1-sentence greedy response
+      - test_aggregation(): mean of per-sentence scores returned
+      - test_output_range(): score in [0, 1] approximately
+    reference_files:
+      logic: "03_logic.md#L-A3-3"
+      architecture: "03_architecture.md#A-3-UQ-Signal-Computation"
+      config: null
+
+  - id: "task-011"
+    epic: "A-3 UQ Signal Computation"
+    title: "L-A3-4: Implement batched NLI pair inference with OOM fallback"
+    description: |
+      Implement _build_nli_pairs() and _run_nli_batch() for efficient NLI at scale.
+
+      Key implementation details (from 03_logic.md):
+        - N=5 samples → 20 ordered pairs (i,j) for i≠j
+        - Format: "{sample_i} [SEP] {sample_j}" for DeBERTa input
+        - Truncate to 512 tokens: tokenizer(text, truncation=True, max_length=512)
+        - Run in chunks of batch_size=16: 20 pairs → 2 forward passes
+        - OOM fallback: catch torch.cuda.OutOfMemoryError, retry batch_size=1
+        - Return: List[int] of NLI label indices (0=contradiction, 1=neutral, 2=entailment)
+        - Bidirectional check: pairs[2*k] and pairs[2*k+1] must BOTH be label=2
+    feature_tag: "model"
+    priority: 37
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_pair_count(): N=5 → 20 pairs built
+      - test_batch_chunks(): 20 pairs with batch_size=16 → 2 batches
+      - test_truncation(): long inputs truncated to 512 tokens
+    reference_files:
+      logic: "03_logic.md#L-A3-4"
+      architecture: "03_architecture.md#A-3-UQ-Signal-Computation"
+      config: "03_config.md#nli-model-config"
+
+  - id: "task-012"
+    epic: "A-2 LLM Inference"
+    title: "L-A2-1: Implement greedy inference with logit capture and fp16 persistence"
+    description: |
+      Implement run_greedy_inference() with output_scores=True for logit extraction.
+
+      Key implementation details (from 03_logic.md):
+        - model.generate(input_ids, output_scores=True, return_dict_in_generate=True,
+                         do_sample=False, temperature=0.0, max_new_tokens=256)
+        - Stack scores: torch.stack(output.scores, dim=0).squeeze(1) → [seq_len, vocab_size]
+        - Save as float16: tensor.half() to reduce disk usage
+        - Save path: outputs/greedy_logits/example_{id}.pt
+        - Save response text separately to outputs/greedy_responses.jsonl
+        - Use tqdm for progress bar over 2000 examples
+    feature_tag: "model"
+    priority: 33
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_logit_shape(): saved tensor shape is [seq_len, vocab_size]
+      - test_logit_dtype(): saved as float16
+      - test_response_saved(): greedy_responses.jsonl appended correctly
+    reference_files:
+      logic: "03_logic.md#L-A2-1"
+      architecture: "03_architecture.md#A-2-LLM-Inference"
+      config: "03_config.md#llm-inference-config"
+
+  - id: "task-013"
+    epic: "A-2 LLM Inference"
+    title: "L-A2-2: Implement batched stochastic sampling (N=5 in single generate call)"
+    description: |
+      Implement run_stochastic_inference() using input_ids.expand() for efficiency.
+
+      Key implementation details (from 03_logic.md):
+        - Encode single example: input_ids shape [1, prompt_len]
+        - Expand: input_ids.expand(N, -1) → [N, prompt_len] for N=5 parallel samples
+        - model.generate(expanded_ids, do_sample=True, temperature=1.0, max_new_tokens=256)
+        - Output shape: [N, prompt_len + max_new_tokens]
+        - Decode each row: tokenizer.decode(output[i, prompt_len:], skip_special_tokens=True)
+        - Save: {"id": idx, "samples": ["text1", ..., "text5"]} to stochastic_samples.jsonl
+        - Memory note: N=5 parallel sequences in fp16 ≈ 5x memory; fallback to sequential if OOM
+    feature_tag: "model"
+    priority: 29
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_sample_count(): exactly 5 samples per example
+      - test_samples_are_strings(): all samples are non-empty strings
+      - test_stochastic_diversity(): samples differ from each other (not all identical)
+    reference_files:
+      logic: "03_logic.md#L-A2-2"
+      architecture: "03_architecture.md#A-2-LLM-Inference"
+      config: "03_config.md#llm-inference-config"
+
+  - id: "task-014"
+    epic: "A-2 LLM Inference"
+    title: "L-A2-3: Implement checkpoint-resume for JSONL outputs"
+    description: |
+      Implement checkpoint-resume logic to allow interrupted inference to restart.
+
+      Key implementation details (from 03_logic.md):
+        - For JSONL files: scan existing file to build set of completed IDs
+          completed_ids = {json.loads(line)['id'] for line in open(path)}
+        - For logit .pt files: scan outputs/greedy_logits/ directory for existing example_{id}.pt
+          completed_ids = {int(f.stem.split('_')[-1]) for f in Path(dir).glob('example_*.pt')}
+        - Skip example if id in completed_ids
+        - Append mode for JSONL: open(path, 'a') not 'w'
+        - Display resume status: "Resuming from {len(completed_ids)} completed examples"
+    feature_tag: "model"
+    priority: 25
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_resume_skips_done(): pre-populate JSONL, verify skipped on second run
+      - test_append_mode(): existing file not overwritten
+      - test_completed_count_reported(): resume message shows correct count
+    reference_files:
+      logic: "03_logic.md#L-A2-3"
+      architecture: "03_architecture.md#A-2-LLM-Inference"
+      config: null
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # CONFIG SUBTASK (priority 20)
+  # Source: 03_config.md
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  # task-015-config (C-A4-1) EXCLUDED by budget rebalancing — see metadata.budget_rebalancing
+  # Config implementation details are in 03_config.md and covered by task-007 (A-6)
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # FAILSAFE TASK (priority 1)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - id: "task-016-failsafe"
+    epic: "Pipeline Continuation"
+    title: "FAILSAFE: Validate gate result and prepare Phase 4 completion report"
+    description: |
+      Final pipeline checkpoint. Verify all outputs exist and summarize gate result.
+
+      Steps:
+        1. Verify all output files exist:
+           - outputs/uq_scores/token_entropy_mean.json
+           - outputs/uq_scores/semantic_entropy.json
+           - outputs/uq_scores/selfcheckgpt_bertscore_n5.json
+           - results/h_e1_results.json
+           - results/h_e1_gate_check.json
+           - figures/auroc_bar_chart.png
+           - figures/roc_curves_overlay.png
+        2. Read h_e1_gate_check.json and print summary:
+           - AUROC per method
+           - Pairwise differences with CI overlap status
+           - Gate result: PASS / FAIL
+        3. If gate PASS: print "MUST_WORK gate: SATISFIED"
+        4. If gate FAIL: print "MUST_WORK gate: NOT SATISFIED — see gate_check.json"
+        5. This output is consumed by Phase 4 validator to determine validation result.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUDGET SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+budget_summary:
+  data_preparation: 0      # HaluEval auto-downloads via HuggingFace (no manual download task)
+  environment_setup: 1     # task-001
+  epic_tasks: 6            # task-002 through task-007 (A-1 through A-6)
+  subtasks: 7              # task-008..014 (L-A3-1..4, L-A2-1..3); C-A4-1 excluded by rebalancing
+  failsafe: 1              # task-016-failsafe
+  total: 15                # 1 + 6 + 7 + 1 = 15 (within LIGHT budget of 15 ✅)

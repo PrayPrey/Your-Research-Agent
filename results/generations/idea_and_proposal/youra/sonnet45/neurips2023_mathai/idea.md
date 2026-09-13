@@ -1,0 +1,10 @@
+# Title
+Structural Invariance Testing: Measuring Compositional Abstraction in LLMs Through Performance Variance Analysis
+
+# Motivation
+Current mathematical reasoning benchmarks fail to distinguish genuine understanding from pattern memorization in LLMs. Models achieve >90% accuracy on standard benchmarks yet show dramatic performance drops (up to 19.6%) when problems are superficially varied while preserving deep mathematical structure. This saturation-without-understanding problem prevents researchers from tracking genuine reasoning progress and identifying brittleness in deployed systems. We need diagnostic tools that measure whether models extract compositional abstractions or merely match surface features to memorized patterns.
+
+# Main Idea
+We propose the Abstraction Index (AI), a variance-based metric quantifying performance consistency across structural equivalence classes—problem sets with identical deep structure but systematic surface variations (semantic context, numerical values, notation, linguistic expression). The core hypothesis: models with genuine compositional abstraction should demonstrate performance invariance across these variations (AI > 0.7), while memorization-dependent models show high accuracy but low AI (< 0.5). 
+
+Our framework controls for confounds through expert difficulty validation (±1 point variance), contamination screening, and stochastic variance decomposition. We test across four mathematical domains (arithmetic, algebra, geometry, proofs) using existing benchmarks (GSM8K, MATH). Expected outcomes include a validated diagnostic framework classifying models into four patterns (strong abstraction, brittle memorization, capability gaps, inconsistent performance), enabling benchmark designers and model developers to measure understanding beyond accuracy metrics.

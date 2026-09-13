@@ -1,0 +1,136 @@
+\section{Experimental Setup}
+
+We design experiments to answer four research questions that directly test our representational alignment hypothesis and scaffolding framework:
+
+\begin{itemize}
+    \item \textbf{RQ1}: Does structured error formatting improve repair success over raw compiler output?
+    \item \textbf{RQ2}: Is the improvement due to organizational structure, or merely information content?
+    \item \textbf{RQ3}: What is the optimal level of fix specificity?
+    \item \textbf{RQ4}: Does model scale interact with format benefit?
+\end{itemize}
+
+\subsection{Datasets}
+
+We evaluate on EvalPlus benchmarks \citep{guo2024evalplus}, which provide rigorous evaluation with 80$\times$ more test cases than original HumanEval/MBPP:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dataset} & \textbf{Problems} & \textbf{Tests per Problem} & \textbf{Source} \\
+\midrule
+HumanEval+ & 164 & $\sim$80 avg & EvalPlus \\
+MBPP+ & 378 & $\sim$80 avg & EvalPlus \\
+\textbf{Total} & 542 & $\sim$43,360 & -- \\
+\bottomrule
+\end{tabular}
+\caption{Evaluation datasets.}
+\end{table}
+
+\textbf{Why EvalPlus}: Original HumanEval/MBPP have saturated (99.4\% and 94.2\% pass@1 for top models). EvalPlus's expanded test suites provide discriminative evaluation and generate more diverse error instances for our experiments.
+
+\subsubsection{Error Collection Process}
+
+\begin{enumerate}
+    \item Run base model generation on all problems
+    \item Collect failed test cases with static analysis errors
+    \item Parse errors to extract: line number, error type, error message, code context
+    \item Filter for 8 supported error types (balanced sampling)
+\end{enumerate}
+
+We collect 500 error instances per experiment, stratified across error types to ensure balanced representation.
+
+\subsection{Models}
+
+We evaluate across three model scales to test scale interaction:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Model} & \textbf{Parameters} & \textbf{Access} & \textbf{Purpose} \\
+\midrule
+CodeLlama-7B-Instruct & 7B & HuggingFace & Small scale \\
+CodeLlama-34B-Instruct & 34B & HuggingFace & Medium scale \\
+GPT-4 & $\sim$175B+ & OpenAI API & Large scale \\
+\bottomrule
+\end{tabular}
+\caption{Models evaluated.}
+\end{table}
+
+\textbf{Why this selection}: CodeLlama variants provide controlled comparison within a model family, while GPT-4 represents current state-of-the-art for code generation. This span enables testing our hypothesis that smaller models benefit more from structured formatting.
+
+\subsection{Baselines}
+
+\textbf{Primary baseline}: Self-repair with raw compiler output, following the theoxo/self-repair framework \citep{theoxo2024iclr}. This represents the standard practice of feeding raw tracebacks directly to the model.
+
+\textbf{Control conditions}:
+\begin{itemize}
+    \item \textbf{Verbose-Raw}: Expanded raw output with additional whitespace and formatting---controls for prompt length
+    \item \textbf{Scrambled}: Structured format content with randomly permuted section order---controls for information content
+\end{itemize}
+
+\textbf{Why these baselines}: The Scrambled condition is critical for causal inference. If Structured $>$ Scrambled, the effect is due to organizational structure, not information availability. Verbose-Raw rules out simple length effects.
+
+\subsection{Sub-Hypothesis Experiments}
+
+\subsubsection{H-E1: Existence Test (MUST\_WORK)}
+\begin{itemize}
+    \item \textbf{Design}: Within-subject comparison of Raw vs Structured format
+    \item \textbf{N}: 500 error instances $\times$ 2 conditions
+    \item \textbf{Metric}: Repair success rate (binary)
+    \item \textbf{Success criterion}: Structured $>$ Raw with $p < 0.05$
+\end{itemize}
+
+\subsubsection{H-M1: Information Preservation (MUST\_WORK)}
+\begin{itemize}
+    \item \textbf{Design}: Reconstruction test using third-party LLM
+    \item \textbf{N}: 500 error pairs across 8 error types
+    \item \textbf{Metric}: Field extraction accuracy
+    \item \textbf{Success criterion}: $>$95\% reconstruction accuracy
+\end{itemize}
+
+\subsubsection{H-M2: Representational Alignment (SHOULD\_WORK)}
+\begin{itemize}
+    \item \textbf{Design}: Paired comparison of Structured vs Scrambled
+    \item \textbf{N}: 500 error instances, paired
+    \item \textbf{Statistical test}: McNemar's chi-squared for paired binary outcomes
+    \item \textbf{Success criterion}: Structured $>$ Scrambled with $p < 0.05$
+\end{itemize}
+
+\subsubsection{H-M3: Fix Specificity (SHOULD\_WORK)}
+\begin{itemize}
+    \item \textbf{Design}: 4-level within-subject comparison (Levels 0-3)
+    \item \textbf{N}: 500 instances $\times$ 4 levels $\times$ 3 repetitions
+    \item \textbf{Statistical test}: Mixed-effects model with quadratic contrast
+    \item \textbf{Success criterion}: Significant quadratic term, peak at Level 1-2
+\end{itemize}
+
+\subsubsection{H-C1: Scale Interaction (SHOULD\_WORK)}
+\begin{itemize}
+    \item \textbf{Design}: 2$\times$3 factorial (Format $\times$ Model Scale)
+    \item \textbf{N}: 542 problems $\times$ 6 cells
+    \item \textbf{Statistical test}: Two-way ANOVA with interaction term
+    \item \textbf{Success criterion}: Interaction $p < 0.05$, $\eta^2 > 0.01$
+\end{itemize}
+
+\subsection{Evaluation Metrics}
+
+\textbf{Primary metric}: Repair success rate---proportion of errors successfully fixed within max iterations.
+
+\textbf{Secondary metrics}:
+\begin{itemize}
+    \item Pass@1 improvement: Delta vs base model without repair
+    \item Iterations to success: Attempts required (when successful)
+    \item Error type breakdown: Success rate per error category
+\end{itemize}
+
+\textbf{Statistical significance}: All comparisons use $p < 0.05$ threshold with Benjamini-Hochberg FDR correction for multiple comparisons. Effect sizes reported as Cohen's d for continuous outcomes and odds ratios for binary outcomes.
+
+\subsection{Implementation Details}
+
+\textbf{Inference}: Temperature = 0.0 for deterministic comparison. Max repair iterations = 5. Batch size = 1 (sequential repair).
+
+\textbf{Hardware}: 5$\times$ NVIDIA H100 NVL (95GB each). CodeLlama models run locally; GPT-4 via API.
+
+\textbf{Reproducibility}: Seeded randomization (seed=42) for all stochastic components. All code available in supplementary materials.

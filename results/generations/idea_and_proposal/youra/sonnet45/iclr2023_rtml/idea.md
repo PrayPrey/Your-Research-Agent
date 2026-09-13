@@ -1,0 +1,8 @@
+# Title
+SVFit-Unlearn: Ultra-Efficient Bias Mitigation in Foundation Models via Singular Value Decomposition
+
+# Motivation
+Large-scale pre-trained models encode societal biases (gender, race, religion) that amplify discrimination in mission-critical applications. Existing bias-aware unlearning methods achieve 94-97% demographic parity improvement but require updating 100% of model parameters—prohibitively expensive for billion-parameter foundation models. Parameter-efficient methods like LoRA (6.25% parameters) lack validation for fairness tasks. This creates a critical gap: organizations cannot affordably fix biased deployed models post-hoc. We need methods achieving full-model fairness performance at <1% parameter cost to democratize bias mitigation.
+
+# Main Idea
+We hypothesize that bias information concentrates in identifiable singular values within pre-trained weight matrices, enabling ultra-efficient debiasing. Our method combines: (1) gradient-based influence functions to identify top-k bias-encoding singular values, (2) selective SVD updates on only these values (<0.1% parameters) via demographic parity loss, and (3) cross-bias transfer where single-attribute debiasing (e.g., gender) reduces correlated biases (race, religion) by ≥50%. We test on CelebA and CUB-200 datasets, comparing SVFit-Unlearn against LoRA (6.25%) and full-model baselines through rigorous ablation studies. Expected outcome: ≥90% demographic parity improvement at 1000× efficiency versus full unlearning, with <5% accuracy loss. This enables post-deployment fairness fixes for resource-constrained organizations, validated through paired t-tests (n≥20 runs, p<0.05).

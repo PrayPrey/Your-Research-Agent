@@ -1,0 +1,528 @@
+version: "1.0"
+schema_version: "1.1"
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-08-05"
+  phase: 3
+  prerequisite: h-e1
+  description: "Execution test feedback vs pylint/mypy at iso-compute (B=1000 tokens). McNemar test, HumanEval+MBPP, Llama 3.1 8B + Qwen2.5-Coder-7B replication."
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 9
+  subtasks: 16
+  failsafe: 1
+  total: 27
+  budget_remaining: 3
+
+tasks:
+  # ─── ENVIRONMENT SETUP (priority 94) ───────────────────────────────────────
+  - id: ENV-1
+    title: "Environment Setup and H-E1 Result Verification"
+    type: setup
+    priority: 94
+    description: >
+      Install all required packages. Verify H-E1 results exist for reuse.
+      Pin dependencies in requirements.txt.
+      Packages: groq>=0.9.0, vllm>=0.4.0, transformers>=4.43.0, torch>=2.1.0,
+      evalplus>=0.3.0, human-eval>=1.0.0, statsmodels>=0.14.0, scipy>=1.11.0,
+      datasets>=2.20.0, numpy>=1.24.0, pandas>=2.0.0, matplotlib>=3.7.0,
+      tqdm>=4.65.0, pyyaml>=6.0.
+      Verify existence of:
+        docs/youra_research/h-e1/results/baseline_humaneval.jsonl
+        docs/youra_research/h-e1/results/baseline_mbpp.jsonl
+        docs/youra_research/h-e1/results/pylint_humaneval.jsonl
+        docs/youra_research/h-e1/results/pylint_mbpp.jsonl
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "7.1 Python Packages"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "7.4 H-E1 Result Dependencies"
+    acceptance_criteria:
+      - "pip install succeeds without conflicts"
+      - "All 4 H-E1 result files exist and are non-empty JSONL"
+      - "requirements.txt written with pinned versions"
+
+  # ─── EPIC TASKS (priority 93-50) ───────────────────────────────────────────
+  - id: M-1
+    title: "Project Setup and H-E1 Module Reuse"
+    type: setup
+    priority: 93
+    complexity: 7
+    complexity_breakdown: "Size=2+Deps=2+Algo=1+Integ=2"
+    description: >
+      Copy data_loader.py, model_client.py, code_executor.py from H-E1 to experiments/h-m1/.
+      Add run_in_sandbox() to code_executor.py (NEW wrapper returning {passed, error, returncode, error_type}).
+      Create experiments/h-m1/ directory structure. Pin requirements.txt.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_architecture.md"
+        section: "External Dependencies (H-E1 Code)"
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-2-1: run_in_sandbox"
+    acceptance_criteria:
+      - "experiments/h-m1/ directory created with all module files"
+      - "run_in_sandbox() implemented: returns {passed, error, returncode, error_type}"
+      - "python -c 'from data_loader import load_humaneval' succeeds"
+      - "python -c 'from model_client import ModelClient' succeeds"
+
+  - id: M-2
+    title: "Execution Repair Loop (Core Mechanism)"
+    type: model
+    priority: 92
+    complexity: 14
+    complexity_breakdown: "Size=3+Deps=3+Algo=5+Integ=3"
+    description: >
+      Implement execution_repair_loop.py: the core H-M1 mechanism.
+      Round 0: generate from problem prompt.
+      Rounds 1-3: run sandbox → format error → build repair prompt → generate repair.
+      Token budget tracking (B=1000, min_remaining=50 guard).
+      Per-round result logging with error_snippet (first 200 chars).
+      Include verify_mechanism() pilot check (20 problems, assert feedback applied >20%).
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-2-2: format_execution_feedback"
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-2-3: execution_repair_loop"
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-2-4: verify_mechanism"
+      - file: "docs/youra_research/h-m1/03_architecture.md"
+        section: "ExecutionRepairLoop"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "FR-3: Execution Test Feedback Repair Loop"
+    acceptance_criteria:
+      - "execution_repair_loop() runs end-to-end on 5 HumanEval problems"
+      - "Returns dict with final_code, passed, tokens_used, rounds list"
+      - "tokens_used never exceeds B=1000"
+      - "verify_mechanism() passes on 20 HumanEval pilot problems"
+      - "Per-round results include feedback_type='execution' for repair rounds"
+
+  - id: M-3
+    title: "Execution Condition Runner (Llama 3.1 8B)"
+    type: evaluation
+    priority: 85
+    complexity: 12
+    complexity_breakdown: "Size=3+Deps=3+Algo=3+Integ=3"
+    description: >
+      Implement run_execution_condition() in evaluator.py.
+      Incremental JSONL write with resume support (skip task_ids already in file).
+      tqdm progress bar. Run on full HumanEval (164) + MBPP (374/378).
+      Each record: {task_id, rounds, tokens_used, final_passed}.
+      Implement load_condition_results() and load_h_e1_results() for McNemar pairing.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-3-1: run_execution_condition"
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-3-2: load_condition_results"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "FR-3: Execution Test Feedback Repair Loop"
+    acceptance_criteria:
+      - "run_execution_condition() writes JSONL incrementally (resume works after interrupt)"
+      - "All 164 HumanEval + 374 MBPP problems processed for Llama 3.1 8B"
+      - "execution_humaneval_llama.jsonl and execution_mbpp_llama.jsonl created"
+      - "Resume test: re-run after partial completion skips completed task_ids"
+
+  - id: M-4
+    title: "Round Results Export for H-M3"
+    type: data-pipeline
+    priority: 84
+    complexity: 8
+    complexity_breakdown: "Size=2+Deps=2+Algo=2+Integ=2"
+    description: >
+      Implement extract_round_results() → save round_results_*.json.
+      Schema: {task_id: {round_0: bool, round_1: bool|null, round_2: bool|null, round_3: bool|null}}.
+      null = round not reached. Validate all task_ids present before saving.
+      CRITICAL: H-M3 downstream experiment consumes these files.
+      Save: round_results_humaneval_llama.json, round_results_mbpp_llama.json.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "extract_round_results (for H-M3)"
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "round_results_*.json (REQUIRED BY H-M3)"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "NFR-4: Per-Round Data for H-M3"
+    acceptance_criteria:
+      - "round_results_humaneval_llama.json created with all 164 task_ids"
+      - "round_results_mbpp_llama.json created with all 374/378 task_ids"
+      - "Schema: {task_id: {round_0: bool, round_1: bool|null, ...}}"
+      - "null only where round was not reached (budget exhausted or passed early)"
+
+  - id: M-5
+    title: "Replication Model Run (Qwen2.5-Coder-7B)"
+    type: evaluation
+    priority: 75
+    complexity: 10
+    complexity_breakdown: "Size=2+Deps=3+Algo=2+Integ=3"
+    description: >
+      Run same execution repair protocol with Qwen2.5-Coder-7B-Instruct.
+      Initialize ModelClient(model="Qwen/Qwen2.5-Coder-7B-Instruct", backend="hf").
+      Run run_execution_condition() on HumanEval + MBPP.
+      Save execution_*_qwen.jsonl and round_results_*_qwen.json.
+      Provides replication check for directional ranking (Δ_execution > Δ_pylint).
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-5-1: ReplicationConfig"
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-5-2: Replication YAML Schema"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "FR-4: Execution Test Feedback Repair Loop (Qwen)"
+    acceptance_criteria:
+      - "execution_humaneval_qwen.jsonl and execution_mbpp_qwen.jsonl created"
+      - "round_results_humaneval_qwen.json and round_results_mbpp_qwen.json created"
+      - "All 164 HumanEval + 374 MBPP problems processed for Qwen"
+
+  - id: M-6
+    title: "Statistical Tests Module (McNemar + Bootstrap CI)"
+    type: evaluation
+    priority: 70
+    complexity: 13
+    complexity_breakdown: "Size=3+Deps=3+Algo=4+Integ=3"
+    description: >
+      Implement statistical_tests.py.
+      run_mcnemar_test(): 2x2 contingency table, exact (binomial) if n_discordant<25 else chi-square.
+      bootstrap_ci_delta_diff(): 10k resamples, 95% CI on (Δ_execution - Δ_pylint).
+      compute_gate_result(): MUST_WORK gate — both p<0.05 AND exec_only > pylint_only on BOTH benchmarks.
+      Run for HE/MBPP × Llama/Qwen (4 McNemar tests total).
+      Save mcnemar_humaneval.json, mcnemar_mbpp.json, mcnemar_qwen_*.json.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-6-1: run_mcnemar_test"
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-6-2: bootstrap_ci_delta_diff"
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-7-1: MetricsConfig"
+    acceptance_criteria:
+      - "run_mcnemar_test() returns {table, pvalue, exec_only, pylint_only, significant, direction}"
+      - "exact=True when n_discordant<25, False otherwise"
+      - "bootstrap_ci_delta_diff() returns (float, float) CI tuple with seed=42"
+      - "compute_gate_result() correctly combines HE and MBPP McNemar results"
+      - "All 4 mcnemar_*.json files created"
+
+  - id: M-7
+    title: "Metric Computation and Summary Report"
+    type: evaluation
+    priority: 65
+    complexity: 11
+    complexity_breakdown: "Size=3+Deps=3+Algo=3+Integ=2"
+    description: >
+      Implement compute_metrics() in evaluator.py aggregating all results.
+      Primary: delta_execution_*, delta_pylint_* (from H-E1), delta_diff_*, mcnemar_p_*, gate_passed.
+      Per-round: pass@1 per round for both conditions and both benchmarks.
+      Replication: same metrics for Qwen2.5-Coder-7B.
+      Save metrics.json and summary.md with gate verdict.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "metrics.json (primary output)"
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-7-2: metrics.json Schema"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "FR-6: Metric Computation and Summary Report"
+    acceptance_criteria:
+      - "metrics.json created with all required fields"
+      - "gate field present with gate_passed bool and reason string"
+      - "summary.md created with human-readable gate verdict"
+      - "delta_execution_humaneval and delta_execution_mbpp computed correctly"
+
+  - id: M-8
+    title: "Visualization (5 Figures)"
+    type: evaluation
+    priority: 60
+    complexity: 13
+    complexity_breakdown: "Size=3+Deps=2+Algo=4+Integ=4"
+    description: >
+      Implement visualizer.py with 5 figures.
+      Figure 1 (MANDATORY): Delta comparison bar chart — Δ_exec/Δ_pylint × HE/MBPP with 95% CI and McNemar p annotation.
+      Figure 2 (MANDATORY): Per-round pass@1 trajectory — rounds 0-3, execution vs pylint, both benchmarks.
+      Figure 3: Replication comparison — Llama vs Qwen delta side-by-side.
+      Figure 4: Token budget distribution histogram.
+      Figure 5: Error type analysis — distribution + repair success rate by error type.
+      Output to docs/youra_research/h-m1/figures/.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-8-1: VizConfig"
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-8-2: Figure-Specific Configs"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "FR-8: Visualization Generation"
+    acceptance_criteria:
+      - "All 5 figure PNG files created in docs/youra_research/h-m1/figures/"
+      - "figure1_delta_comparison.png shows 4 bars with CI error bars and p-value annotation"
+      - "figure2_per_round_trajectory.png shows lines for rounds 0-3"
+      - "Figures readable at 150 DPI"
+
+  - id: M-9
+    title: "Orchestrator and CLI"
+    type: training
+    priority: 55
+    complexity: 12
+    complexity_breakdown: "Size=3+Deps=4+Algo=2+Integ=3"
+    description: >
+      Implement run_experiment.py: argparse CLI with all flags.
+      Flags: --model, --backend, --token-budget (1000), --max-repair-rounds (3), --seed (42),
+             --reuse-h-e1-results, --h-e1-results-dir, --output-dir, --run-replication, --pilot-only.
+      End-to-end flow: load data → init model → load H-E1 results → pilot check →
+        run execution condition → extract round results → run replication → statistical tests →
+        compute metrics → generate figures → print gate result.
+      Resume detection: detect_resume_state() checks existing JSONL files.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-9-1: detect_resume_state"
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-9-2: print_gate_result"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "FR-9: Experiment Orchestration"
+    acceptance_criteria:
+      - "python run_experiment.py --help shows all flags"
+      - "--pilot-only flag runs verify_mechanism() and exits"
+      - "--reuse-h-e1-results skips baseline/pylint re-computation"
+      - "Gate result printed with PASS/FAIL verdict and p-values"
+
+  # ─── SUBTASKS from Logic Agent (priority 49-30) ────────────────────────────
+  - id: L-2-1
+    title: "Implement run_in_sandbox() in code_executor.py"
+    type: subtask
+    parent_epic: M-2
+    priority: 49
+    description: >
+      Add run_in_sandbox(code, test_code, timeout=15.0) -> dict to code_executor.py.
+      Uses subprocess.run with capture_output=True, text=True. python -I for isolation.
+      Returns {passed: bool, error: str|None, returncode: int, error_type: str|None}.
+      Extracts error_type from last non-empty line of stderr (e.g. "AssertionError").
+      Cleans up temp file in finally block.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-2-1: run_in_sandbox"
+
+  - id: L-2-2
+    title: "Implement format_execution_feedback()"
+    type: subtask
+    parent_epic: M-2
+    priority: 48
+    description: >
+      Add format_execution_feedback(exec_result, problem, benchmark, max_error_chars=500) -> str
+      to execution_repair_loop.py. Truncates error to max_error_chars to avoid token waste.
+      Returns "Execution error (ErrorType):\n{error}" format string for repair prompt injection.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-2-2: format_execution_feedback"
+
+  - id: L-2-3
+    title: "Implement execution_repair_loop() main loop"
+    type: subtask
+    parent_epic: M-2
+    priority: 47
+    description: >
+      Core repair loop: round 0 generate → sandbox → repair rounds 1-3.
+      Token budget guard: remaining = B - tokens_used; if remaining < 50: break.
+      Build repair prompt from EXECUTION_REPAIR_PROMPT_TEMPLATE.
+      Log RoundResult dataclass per round. Stop early if tests pass.
+      Handle both humaneval (problem["test"]) and mbpp (problem["test_list"]) test formats.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-2-3: execution_repair_loop"
+
+  - id: L-2-4
+    title: "Implement verify_mechanism() pilot check"
+    type: subtask
+    parent_epic: M-2
+    priority: 46
+    description: >
+      Add verify_mechanism(problems, benchmark, client, n=20, feedback_threshold=0.20) -> dict.
+      Runs execution_repair_loop on first n problems. Asserts feedback applied in >threshold*n problems.
+      Returns {n_pilot, n_with_feedback, feedback_fraction, avg_repair_rounds, mechanism_active}.
+      Raises AssertionError with clear message if mechanism not active.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-2-4: verify_mechanism"
+
+  - id: L-3-1
+    title: "Implement run_execution_condition() with resume"
+    type: subtask
+    parent_epic: M-3
+    priority: 40
+    description: >
+      Implement incremental JSONL writer with task_id-based resume.
+      Load existing task_ids from output_path if resume=True.
+      Open file in append mode. Write one JSON record per problem, flush after each.
+      tqdm progress bar with desc="execution/{benchmark}".
+      Returns list of all results (including resumed).
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-3-1: run_execution_condition"
+
+  - id: L-3-2
+    title: "Implement load_condition_results() and load_h_e1_results()"
+    type: subtask
+    parent_epic: M-3
+    priority: 39
+    description: >
+      load_condition_results(jsonl_path) -> dict[task_id -> dict]: read JSONL, index by task_id.
+      load_h_e1_results(h_e1_results_dir) -> dict: loads all 4 H-E1 result files
+      (baseline_humaneval, baseline_mbpp, pylint_humaneval, pylint_mbpp).
+      Returns nested dict keyed by condition name.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-3-2: load_condition_results"
+
+  - id: L-6-1
+    title: "Implement run_mcnemar_test()"
+    type: subtask
+    parent_epic: M-6
+    priority: 35
+    description: >
+      Build 2×2 contingency table from paired (pylint_pass, exec_pass) per task_id.
+      exact=True if n_discordant < 25 (binomial), else chi-square with correction.
+      Use statsmodels.stats.contingency_tables.mcnemar.
+      Return full result dict: table, both_pass, pylint_only, exec_only, both_fail,
+      n_discordant, statistic, pvalue, exact, significant, direction.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-6-1: run_mcnemar_test"
+
+  - id: L-6-2
+    title: "Implement bootstrap_ci_delta_diff() and compute_gate_result()"
+    type: subtask
+    parent_epic: M-6
+    priority: 34
+    description: >
+      bootstrap_ci_delta_diff: 10k resamples with np.random.default_rng(seed=42).
+      Computes Δ_exec - Δ_pylint per bootstrap sample. Returns (ci_lower, ci_upper).
+      compute_gate_result: gate_passed = he_p<0.05 AND exec_only>pylint_only AND mbpp_p<0.05 AND exec_only>pylint_only.
+      Generate descriptive reason string for each outcome case.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-6-2: bootstrap_ci_delta_diff"
+
+  - id: L-9-1
+    title: "Implement detect_resume_state()"
+    type: subtask
+    parent_epic: M-9
+    priority: 30
+    description: >
+      Check existing JSONL files to determine what has been computed.
+      Count lines in execution_humaneval_{model}.jsonl and execution_mbpp_{model}.jsonl
+      for both llama and qwen. Returns {llama: {he_done, he_total, he_complete, ...}, qwen: ...}.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-9-1: detect_resume_state"
+
+  - id: L-9-2
+    title: "Implement print_gate_result()"
+    type: subtask
+    parent_epic: M-9
+    priority: 29
+    description: >
+      Format and print MUST_WORK gate verdict to stdout.
+      Shows: PASS/FAIL header, delta values per benchmark, McNemar p-values, verdict string.
+      If FAIL: note EXPLORE routing and publishability as "pylint parity at B=1000".
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "L-9-2: print_gate_result"
+
+  # ─── SUBTASKS from Config Agent (priority 28-20) ──────────────────────────
+  - id: C-5-1
+    title: "Implement ReplicationConfig dataclass"
+    type: subtask
+    parent_epic: M-5
+    priority: 28
+    description: >
+      Define ReplicationConfig dataclass with fields:
+      model_id="Qwen/Qwen2.5-Coder-7B-Instruct", backend="hf",
+      temperature=0.0, max_tokens=1000, seed=42, output_tag="qwen".
+      Add to config.py or inline in run_experiment.py.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-5-1: ReplicationConfig"
+
+  - id: C-5-2
+    title: "Implement replication output naming convention"
+    type: subtask
+    parent_epic: M-5
+    priority: 27
+    description: >
+      Ensure all replication outputs use _qwen suffix consistently:
+      execution_humaneval_qwen.jsonl, execution_mbpp_qwen.jsonl,
+      round_results_humaneval_qwen.json, round_results_mbpp_qwen.json,
+      mcnemar_qwen_humaneval.json, mcnemar_qwen_mbpp.json.
+      Replication metrics stored under "replication" key in metrics.json.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-5-2: Replication YAML Schema"
+
+  - id: C-7-1
+    title: "Implement MetricsConfig dataclass"
+    type: subtask
+    parent_epic: M-7
+    priority: 26
+    description: >
+      Define MetricsConfig with: alpha=0.05, n_bootstrap=10000,
+      exact_mcnemar_threshold=25, ci_level=0.95, bootstrap_seed=42.
+      Used by statistical_tests.py as configuration source.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-7-1: MetricsConfig"
+
+  - id: C-7-2
+    title: "Validate metrics.json output schema"
+    type: subtask
+    parent_epic: M-7
+    priority: 25
+    description: >
+      After compute_metrics() runs, validate metrics.json contains all required fields:
+      pass@1_*, delta_*, mcnemar_p_*, gate.gate_passed, gate.reason, replication.*.
+      Write validation function that raises KeyError with field name if any required field missing.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-7-2: metrics.json Schema"
+
+  - id: C-8-1
+    title: "Implement VizConfig and shared rcParams"
+    type: subtask
+    parent_epic: M-8
+    priority: 24
+    description: >
+      Define FIGURE_RC dict with figsize=(10,6), dpi=150, font.size=11, axes.titlesize=13.
+      Define VizConfig dataclass with output_format="png", figures_dir="docs/youra_research/h-m1/figures/".
+      Apply mpl.rcParams.update(FIGURE_RC) at module import.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-8-1: VizConfig"
+
+  - id: C-8-2
+    title: "Implement figure-specific configuration dicts"
+    type: subtask
+    parent_epic: M-8
+    priority: 23
+    description: >
+      FIG1_CONFIG: delta bar chart with CI error bars and McNemar p-value annotation.
+        Colors: execution bars in blue (#4C72B0), pylint bars in green (#55A868).
+        Separate panels for Llama and Qwen (2×4 bar layout or 2 separate figures).
+      FIG2_CONFIG: per-round trajectory with solid (execution) vs dashed (pylint) lines.
+      FIG3_CONFIG: side-by-side replication comparison.
+      FIG4_CONFIG: token budget histogram (bins=25, alpha=0.75).
+      FIG5_CONFIG: error type bar chart with repair success rate overlay.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "C-8-2: Figure-Specific Configs"
+
+  # ─── FAILSAFE (priority 1) ─────────────────────────────────────────────────
+  - id: FAILSAFE-1
+    title: "Pipeline Continuation Checkpoint"
+    type: failsafe
+    priority: 1
+    description: >
+      Final validation checkpoint before marking Phase 3 complete.
+      Verify all required output files exist:
+        docs/youra_research/h-m1/03_prd.md
+        docs/youra_research/h-m1/03_architecture.md
+        docs/youra_research/h-m1/03_logic.md
+        docs/youra_research/h-m1/03_config.md
+        docs/youra_research/h-m1/03_tasks.yaml
+      Verify verification_state.yaml updated with implementation_planning.status=COMPLETED.
+      If any missing: halt Phase 4 and report missing files.
+    acceptance_criteria:
+      - "All 5 Phase 3 output files exist and are non-empty"
+      - "verification_state.yaml: sub_hypotheses.h-m1.implementation_planning.status = COMPLETED"

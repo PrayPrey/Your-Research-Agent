@@ -1,0 +1,304 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-25T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (independent-controller ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+  gap_title: "No Cross-Benchmark ECE Measurement Under Adversarial Perturbation"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 8
+  convergence_reason: "All 6 personas reached STRONG verdict; three testable predictions with quantitative success criteria agreed upon; mechanism, falsification conditions, and experimental design fully specified"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "ECE measures the gap between predicted confidence and actual accuracy, formalized by Guo et al. 2017"
+      status: "BUILD_ON"
+      evidence: "Guo et al. 2017 (arXiv 1706.04599) — ECE + temperature scaling, ~4000 citations"
+    - claim: "Modern neural networks are systematically overconfident despite high accuracy"
+      status: "BUILD_ON"
+      evidence: "Guo et al. 2017; Minderer et al. 2021 — established across image model families"
+    - claim: "Distribution shift degrades calibration even when accuracy remains stable"
+      status: "BUILD_ON"
+      evidence: "Minderer et al. 2021 (arXiv 2106.07998) — demonstrated on ImageNet-C and ObjectNet"
+    - claim: "Adversarial NLP benchmarks (AdvGLUE, ANLI) cause 15-30% accuracy drops in LLMs"
+      status: "BUILD_ON"
+      evidence: "Wang et al. 2021 (arXiv 2111.02840) AdvGLUE; Nie et al. 2020 (arXiv 1910.14599) ANLI"
+    - claim: "ECE on adversarial NLP benchmark splits for open-weight LLMs has never been measured"
+      status: "PROVE_NEW"
+      evidence: "Systematic gap identified in Phase 1 — no published study combines ECE with AdvGLUE/ANLI"
+    - claim: "ΔECE (perturbed ECE − clean ECE) as a deployment reliability signal is unvalidated"
+      status: "PROVE_NEW"
+      evidence: "No published AUROC validation of ΔECE against failure mode prediction"
+  scope_reduction_percentage: 67
+  phase2b_4_instructions: |
+    Section 0 established facts (BUILD_ON) can be cited as prior work without re-verification.
+    PROVE_NEW claims (ECE on adversarial NLP splits; ΔECE as reliability predictor) are the
+    core experimental contributions. Phase 2B should focus verification protocols on these two
+    novel claims. Temperature scaling (Guo 2017) is available as a post-hoc calibration baseline.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-DeltaECE-v1"
+  confidence_level: 0.80
+  core_hypothesis_statement: |
+    Under adversarial text perturbation on existing NLP benchmarks (AdvGLUE, ANLI, BIG-Bench Hard MC),
+    if open-weight LLMs (Llama-2-7B-base, Llama-2-7B-chat, Llama-2-13B-chat, Mistral-7B-instruct)
+    are evaluated using logit-based 15-bin Expected Calibration Error on multiple-choice task formats,
+    then ΔECE (ECE_adversarial − ECE_clean) will be positive (> 0.05) for ≥60% of model × task
+    combinations, because adversarial perturbation preserves ground-truth labels while changing
+    surface features in ways that trigger high model confidence on incorrect answers — exposing
+    systematic overconfidence invisible in clean-benchmark evaluation.
+  alternative_hypothesis_h0: |
+    There is no significant increase in ECE between adversarial and clean benchmark splits
+    (ΔECE ≤ 0 for ≥60% of model × task combinations), indicating LLMs appropriately reduce
+    confidence under adversarial inputs (well-calibrated under distribution shift).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Input perturbation condition"
+      type: "categorical"
+      operationalization: "Clean vs. adversarial benchmark split (AdvGLUE vs. GLUE; ANLI vs. MultiNLI; BBH-MC vs. BIG-Bench)"
+      levels: ["clean", "adversarial"]
+    - name: "Model family and variant"
+      type: "categorical"
+      operationalization: "Specific HuggingFace model checkpoint"
+      levels: ["Llama-2-7B-base", "Llama-2-7B-chat", "Llama-2-13B-chat", "Mistral-7B-instruct"]
+    - name: "Task type"
+      type: "categorical"
+      operationalization: "NLP benchmark task category"
+      levels: ["NLI (ANLI/MultiNLI)", "Adversarial classification (AdvGLUE/GLUE)", "Commonsense reasoning (BBH-MC)"]
+  dependent:
+    - name: "ΔECE (Delta Expected Calibration Error)"
+      type: "continuous"
+      operationalization: "ECE(adversarial split) − ECE(clean split); computed via 15-bin logit-based ECE; range [-1, 1]; positive = miscalibration increase"
+      primary: true
+    - name: "AUROC of entropy as failure predictor"
+      type: "continuous"
+      operationalization: "Area under ROC curve of entropy H(p) against ground-truth error indicator (wrong answer) per model × task; range [0.5, 1.0]"
+      primary: false
+    - name: "Accuracy delta (ΔAcc)"
+      type: "continuous"
+      operationalization: "Accuracy(adversarial) − Accuracy(clean); range [-1, 0]; control variable"
+      primary: false
+  controlled:
+    - name: "ECE computation method"
+      operationalization: "15-bin equal-width ECE on answer-token probability distribution; same implementation across all models and tasks"
+    - name: "Evaluation protocol"
+      operationalization: "lm-evaluation-harness with logit extraction; consistent prompt templates per task type"
+    - name: "Benchmark label quality"
+      operationalization: "AdvGLUE human-verified label preservation; ANLI model-in-the-loop adversarial construction; stratification by label preservation confidence"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: "Adversarial perturbation preserves semantic label while altering surface features (lexical substitutions, paraphrases, syntactic changes) that disrupt model input representations"
+      evidence: "AdvGLUE human-verified label preservation (Wang et al. 2021); ANLI construction protocol (Nie et al. 2020)"
+      falsifier: "If adversarial perturbations systematically alter ground truth labels (label noise), ΔECE reflects noise rather than miscalibration — testable via label-preservation stratified analysis"
+    - step: 2
+      description: "Perturbed inputs cause accuracy drops (model predicts wrong answers) while model confidence remains high — the model's softmax distribution does not appropriately flatten under uncertainty-inducing inputs"
+      evidence: "Analogous finding in vision: Minderer et al. 2021 shows distribution shift degrades calibration even with stable accuracy; AdvGLUE accuracy drops 15-30% (Wang et al. 2021) without any calibration measurement"
+      falsifier: "If models systematically lower confidence on perturbed inputs (ΔECE ≤ 0), the mechanism fails — models are adaptively uncertain, not overconfident"
+    - step: 3
+      description: "The gap between high confidence and low accuracy on adversarial examples manifests as elevated ECE, producing ΔECE > 0 — a measurable, reproducible signal of calibration failure under adversarial stress"
+      evidence: "ECE definition (Guo 2017): ECE = Σ |acc(b) − conf(b)| × |b|/n; when acc drops but conf stays high, ECE increases"
+      falsifier: "If ECE(adversarial) ≈ ECE(clean) despite accuracy drop, models adjust confidence proportionally — calibration mechanism is adaptive"
+  key_tension: "Whether model miscalibration under adversarial inputs is a fundamental property (systematic ΔECE > 0) or depends on alignment training (RLHF-aligned models may show lower ΔECE than base models)"
+  evidence_summary: |
+    The causal mechanism relies on three established findings: (1) adversarial perturbations
+    preserve labels while lowering accuracy [AdvGLUE, ANLI papers]; (2) distribution shift
+    degrades calibration in vision models [Minderer 2021]; (3) ECE mathematically captures
+    confidence-accuracy gap [Guo 2017]. The novel claim is that these three established facts
+    combine to produce measurable ΔECE in LLMs on adversarial NLP benchmarks — a prediction
+    that has not been tested.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Logit-based ECE on answer-token distributions for multiple-choice tasks is a valid calibration measure for LLMs"
+    supporting_evidence: "Standard practice in LLM evaluation (Kadavath 2022 uses P(True) as calibration signal; lm-evaluation-harness outputs logits for MC tasks)"
+    consequence_if_violated: "ECE measurements would not reflect true model calibration — results would be artifact of tokenization or prompt format rather than calibration"
+  - id: "A2"
+    assumption: "AdvGLUE and ANLI adversarial examples preserve ground-truth labels for the majority of instances"
+    supporting_evidence: "AdvGLUE: human-verified label preservation; ANLI: model-in-the-loop construction with human validation"
+    consequence_if_violated: "ΔECE increase may partially reflect label noise rather than miscalibration — addressed by label-preservation stratification"
+  - id: "A3"
+    assumption: "Clean benchmark counterparts (GLUE, MultiNLI) are appropriate baselines for adversarial calibration comparison"
+    supporting_evidence: "AdvGLUE is explicitly derived from GLUE; ANLI is explicitly designed as adversarial MultiNLI — same task, different perturbation"
+    consequence_if_violated: "ΔECE comparison would conflate task difficulty difference with calibration difference — controlled by restricting to same task categories"
+  - id: "A4"
+    assumption: "Public HuggingFace checkpoints for Llama-2-7B-base, Llama-2-7B-chat, Llama-2-13B-chat, Mistral-7B-instruct are representative of their respective model families"
+    supporting_evidence: "These are official Meta/Mistral AI releases; widely used as reference points in academic evaluation"
+    consequence_if_violated: "Results may not generalize to proprietary or fine-tuned model variants — explicitly scoped to open-weight models"
+  - id: "A5"
+    assumption: "15-bin equal-width ECE with logit-based confidence scores captures meaningful calibration signal across different task types"
+    supporting_evidence: "15-bin ECE is standard (Guo 2017); sensitivity analysis with different bin counts is a robustness check"
+    consequence_if_violated: "Results may depend on binning choice — mitigated by reporting both ECE and calibration reliability diagrams"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    Open-weight LLMs evaluated on multiple-choice NLP benchmark tasks using logit extraction.
+    Adversarial perturbation types in AdvGLUE (lexical substitution, paraphrase, syntactic) and ANLI
+    (model-in-the-loop adversarial NLI). Tasks with clear answer-token probability distributions
+    (binary or 3-class classification). Models accessible via HuggingFace Hub with logit output.
+  does_not_apply_to: |
+    Proprietary models without logit access (GPT-4, Claude-3) — verbal calibration elicitation
+    would require different protocol. Open-ended generation tasks where confidence is diffuse.
+    Domain-specific fine-tuned models (medical, legal) — scoped to general-purpose LLMs.
+    Calibration under training-time interventions (temperature scaling) — this study measures
+    intrinsic post-deployment calibration without post-hoc adjustment.
+  known_limitations: |
+    Multiple-choice ECE is a proxy for deployment calibration; real deployments involve free-text
+    generation. Benchmarks are English-only. Adversarial perturbations in AdvGLUE/ANLI may not
+    represent all real-world distribution shifts. Results on 4-bit quantized models may differ
+    from full-precision inference.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "ΔECE > 0.05 for ≥60% of model × task combinations across AdvGLUE, ANLI, and BBH-MC adversarial splits"
+    test_method: "Compute 15-bin logit-based ECE for each (model, task, split) combination; calculate ΔECE = ECE(adversarial) − ECE(clean); count proportion exceeding 0.05 threshold"
+    success_criterion: "≥60% of model × task combinations show ΔECE > 0.05; mean ΔECE across all combinations > 0"
+    falsification: "ΔECE ≤ 0 for majority of combinations, or mean ΔECE ≤ 0 — indicates models are well-calibrated under adversarial stress"
+  - id: "P2"
+    primary: false
+    statement: "Llama-2-7B-base shows significantly higher ΔECE than Llama-2-7B-chat, indicating RLHF alignment reduces calibration degradation under adversarial perturbation"
+    test_method: "Paired comparison of ΔECE distributions for Llama-2-7B-base vs. Llama-2-7B-chat across same task × split combinations; paired t-test"
+    success_criterion: "Llama-2-7B-base mean ΔECE significantly higher than Llama-2-7B-chat (p < 0.05, paired t-test)"
+    falsification: "No significant difference between base and chat variants — RLHF does not affect calibration robustness"
+  - id: "P3"
+    primary: false
+    statement: "Per-model mean ΔECE correlates positively with AUROC of entropy as failure predictor (Spearman r > 0.5)"
+    test_method: "For each model: compute mean ΔECE across all tasks; compute AUROC of entropy H(p) against per-example error indicator from benchmark labels; Spearman correlation across models"
+    success_criterion: "Spearman r > 0.5 between mean ΔECE and AUROC(entropy) across the 4 models"
+    falsification: "No correlation (r < 0.3) — ΔECE does not predict entropy-based failure detection quality"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "AdvGLUE + ANLI + BIG-Bench Hard (MC subset)"
+    type: "standard"
+    source: "HuggingFace datasets hub"
+    path: "tau/commonsense_qa (clean GLUE); AdvGLUE (adversarial GLUE); facebook/anli; lukaemon/bbh"
+    hypothesis_fit: "AdvGLUE and ANLI are the primary adversarial benchmarks identified in Gap 1; BBH adds commonsense domain coverage. Clean counterparts (GLUE, MultiNLI) provide ECE baseline for ΔECE computation."
+  model:
+    name: "Llama-2-7B-base, Llama-2-7B-chat, Llama-2-13B-chat, Mistral-7B-instruct"
+    type: "open-weight decoder-only transformer"
+    source: "meta-llama/Llama-2-7b-hf, meta-llama/Llama-2-7b-chat-hf, meta-llama/Llama-2-13b-chat-hf, mistralai/Mistral-7B-Instruct-v0.1 (HuggingFace Hub)"
+    hypothesis_fit: "Open-weight models allow logit extraction; base vs. chat variant comparison enables RLHF effect study (P2); Mistral-7B provides cross-architecture data point"
+  baselines:
+    - name: "Clean benchmark ECE"
+      method: "ECE computed on GLUE / MultiNLI / BIG-Bench (non-adversarial splits) — primary baseline for ΔECE computation"
+    - name: "Temperature-scaled calibration"
+      method: "Post-hoc temperature scaling (Guo 2017) applied to clean-split logits as calibration floor reference"
+    - name: "Random classifier ECE"
+      method: "ECE of uniform random classifier on each task — upper bound reference for worst-case calibration"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First systematic measurement of ECE on adversarial NLP benchmark splits for open-weight LLMs; first ΔECE computation across model families and task types"
+  key_innovation: "Intersection of two mature traditions (calibration measurement + adversarial NLP evaluation) that have never been combined — filling a direct measurement gap without requiring new benchmarks, data, or annotation"
+  differentiation:
+    - prior_work: "Guo 2017, Minderer 2021 (calibration measurement)"
+      difference: "Image domain only; no adversarial NLP perturbation; no LLMs"
+    - prior_work: "Kadavath 2022, Xiong 2023 (LLM calibration)"
+      difference: "Clean benchmark splits only; verbal elicitation (not logit-based); no adversarial conditions"
+    - prior_work: "Wang et al. 2021 AdvGLUE, Nie et al. 2020 ANLI (adversarial benchmarks)"
+      difference: "Accuracy-only evaluation; calibration not measured; the gap being filled"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "Clean-split ECE (Guo 2017 protocol on LLMs)"
+      performance: "ECE ~0.05-0.15 reported for LLMs on clean benchmarks (Kadavath 2022 for Claude/GPT-3)"
+      dataset: "TriviaQA, MMLU, BIG-Bench (clean)"
+      why_insufficient: "Clean-split ECE does not reveal calibration degradation under adversarial perturbation — the central research gap"
+    - method: "Accuracy-based robustness evaluation (AdvGLUE, ANLI)"
+      performance: "15-30% accuracy drop under adversarial perturbation (Wang et al. 2021)"
+      dataset: "AdvGLUE, ANLI"
+      why_insufficient: "Accuracy-only measurement cannot detect overconfidence — a model can have lower accuracy but still maintain high confidence (miscalibration)"
+    - method: "Verbal uncertainty elicitation (Kadavath 2022, Xiong 2023)"
+      performance: "Calibrated verbal probabilities for Claude/GPT-3/GPT-4 on clean tasks"
+      dataset: "TriviaQA, MMLU"
+      why_insufficient: "Verbal elicitation is task-specific and not equivalent to logit-based ECE; not applied to adversarial conditions"
+  best_baseline_performance: "Clean-split logit-based ECE is unknown for Llama-2/Mistral on AdvGLUE-clean counterparts — this study establishes the baseline"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "ECE can be reliably extracted from open-weight LLM logits on multiple-choice NLP tasks using lm-evaluation-harness; AdvGLUE and ANLI adversarial splits are available on HuggingFace"
+  sh2_mechanism: "ΔECE > 0 when adversarial perturbation causes accuracy drop without proportional confidence reduction — testable via 15-bin logit ECE comparison between adversarial and clean splits"
+  sh3_comparison: "Cross-family ΔECE comparison (Llama-2-7B-base vs. chat vs. Llama-2-13B-chat vs. Mistral-7B) deferred to main experimental run; AUROC(entropy) vs. ΔECE correlation deferred to analysis phase"
+  open_questions:
+    - "What is the appropriate bin count for ECE on tasks with small sample sizes (some AdvGLUE subtasks have ~1000 examples)?"
+    - "Does 4-bit quantization (BitsAndBytes) affect ECE measurement compared to full-precision inference?"
+    - "How should confidence be defined for tasks with >3 answer choices (some BBH subtasks have 4-5 options)?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All 4 perspective personas (Dr. Nova, Prof. Vera, Dr. Sage, Prof. Pax) gave STRONG verdicts; Dr. Ally synthesized hypothesis; Prof. Rex concerns addressed via label-preservation stratification, scope bounding, and checkpoint specification"
+  clarity_verified: true
+  remaining_objections:
+    - "Label noise confound in adversarial examples — mitigated by label-preservation stratification"
+    - "Multiple-choice ECE ≠ deployment ECE — addressed by explicit scope framing as 'benchmark calibration stress test'"
+    - "Checkpoint specificity — addressed by including both Llama-2-7B-base and -chat"
+
+discussion_context:
+  total_exchanges: 8
+  agent_participation:
+    dr_nova: 2
+    prof_vera: 2
+    dr_sage: 1
+    prof_pax: 1
+    dr_ally: 1
+    prof_rex: 1
+  paper_citations: 8
+  convergence_type: "qualitative"

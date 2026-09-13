@@ -1,0 +1,67 @@
+\section{Methodology}
+\label{sec:method}
+
+Our key insight is that annotation drift is detectable as a \emph{direction-level} change in stylistic preference coefficients across annotation strata --- not merely a magnitude shift. This motivates a design with three components: (1) a quality covariate that isolates stylistic preference from semantic quality updating; (2) round-stratified coefficient comparison with bootstrap confidence interval non-overlap testing; and (3) an AI-typicality geometric projection with discriminant validity control.
+
+\subsection{Problem Formulation}
+
+Let $D = \{(q_i, r_i^+, r_i^-, \ell_i, t_i)\}_{i=1}^N$ denote a preference dataset where $q_i$ is a prompt, $r_i^+$ and $r_i^-$ are the preferred and rejected responses, $\ell_i$ is the preference label, and $t_i \in \{1, 2, 3\}$ is the annotation round (stratum). We model the preference probability as:
+
+\begin{equation}
+P(\ell_i = 1 \mid x_i, t_i) = \sigma\!\left(\beta_Q^{(t)} \cdot Q_{\text{early}}(x_i) + \beta_L^{(t)} \cdot \Delta L_i + \beta_H^{(t)} \cdot \Delta H_i + \beta_S^{(t)} \cdot \Delta S_i\right)
+\end{equation}
+
+where $Q_{\text{early}}(x_i)$ is a frozen quality surrogate trained on round-1 labels, $\Delta L_i$, $\Delta H_i$, $\Delta S_i$ are stylistic feature differences between preferred and rejected responses, and all coefficients are estimated separately per stratum $t$.
+
+The \textbf{AAI drift signal} is defined as $(\Delta\beta_L, \Delta\beta_H, \Delta\beta_S)$ where $\Delta\beta_k = \beta_k^{(3)} - \beta_k^{(1)}$; a coefficient counts as \emph{directionally drifted} when the 95\% bootstrap confidence intervals for rounds 1 and 3 are non-overlapping.
+
+\subsection{Quality Covariate: $Q_\text{early}$}
+
+\textbf{$Q_\text{early}$} is a logistic regression model trained exclusively on round-1 preference labels, using non-stylistic features: response perplexity, semantic similarity to the prompt, and toxicity score. Once trained, $Q_\text{early}$ is frozen and its prediction is included as a covariate in all downstream round-stratified regressions.
+
+\textbf{Rationale:} If $\beta_Q^{(t)}$ remains stable across rounds while $\beta_L^{(t)}$ shifts, we can attribute the coefficient change to stylistic preference updating rather than quality recalibration. The stability criterion is $|\beta_Q| < 0.2$ (observed: $|\beta_Q| = 0.017$). $Q_\text{early}$ is calibrated via Platt scaling.
+
+\subsection{Stylistic Feature Extraction}
+
+We extract three stylistic features from the difference between preferred and rejected responses:
+
+\begin{table}[h]
+\centering
+\caption{Stylistic feature operationalizations.}
+\begin{tabular}{lll}
+\toprule
+Feature & Symbol & Operationalization \\
+\midrule
+Verbosity & $\Delta L_i$ & $n\_\text{words}(r_i^+) - n\_\text{words}(r_i^-)$ \\
+Hedging & $\Delta H_i$ & $\text{hedge\_count}(r_i^+) - \text{hedge\_count}(r_i^-)$ \\
+Structured reasoning & $\Delta S_i$ & $\text{struct\_count}(r_i^+) - \text{struct\_count}(r_i^-)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All features are standardized with a shared \texttt{StandardScaler} fit on round-1 training data and applied to later rounds without refitting. Variance Inflation Factor analysis confirms feature orthogonality: VIF $< 1.03$ for all three features.
+
+\subsection{Round-Stratified Coefficient Comparison (H-M2 Protocol)}
+
+For each annotation stratum $t \in \{1, 3\}$, we: (1) split into 75\%/25\% train/test; (2) fit a logistic regression preference predictor; (3) extract coefficients; (4) compute 2,000-iteration stratified bootstrap confidence intervals. A coefficient is classified as \emph{directionally drifted} if the 95\% CIs for rounds 1 and 3 are non-overlapping. The pre-registered gate requires $n\_\text{directional} \geq 2$ of 3 features.
+
+\textbf{Logistic regression configuration:} $C = 1.0$, solver = \texttt{lbfgs}, max\_iter = 1000, class\_weight = balanced, random\_state = 42.
+
+\subsection{AI-Typicality Geometric Projection (H-M1 Protocol)}
+
+\textbf{AI-typicality vector:} We compute the centroid difference between AI-generated and human-written responses in round-1 HH-RLHF, encoded via a frozen \texttt{all-MiniLM-L6-v2} sentence transformer (384 dimensions). This vector $\mathbf{v}_\text{AI}$ represents the stylistic direction from human-typical to AI-typical text.
+
+\textbf{Projection score:} For each annotation decision, we compute the cosine projection of the preference gradient onto $\mathbf{v}_\text{AI}$. We then regress projection scores on exposure tercile:
+
+\begin{equation}
+\text{projection\_score} \sim \beta_{\text{exposure}} \cdot \text{exposure\_tercile} + \epsilon
+\end{equation}
+
+\textbf{Discriminant validity:} A placebo permutation test (200 iterations, random unit vectors) confirms that the observed signal is specific to the AI-typicality direction.
+
+\subsection{Datasets}
+\label{sec:datasets}
+
+\textbf{Anthropic HH-RLHF}~\citep{Bai2022Training}: 160,800 preference comparisons; 3 equal index-based strata of 53,600 rows each. Note: index-based partitioning is a temporal proxy --- genuine annotation timestamps are absent from the public release (see Section~\ref{sec:discussion}).
+
+\textbf{OpenAI WebGPT}~\citep{Stiennon2020Learning}: 19,578 preference comparisons; between-group tercile design (worker IDs absent from public release).

@@ -1,0 +1,174 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  generated_at: "2026-08-18"
+  source_documents:
+    - 03_prd.md
+    - 03_architecture.md
+    - 03_logic.md
+    - 03_config.md
+
+tasks:
+  # Priority 100-95: Data Preparation
+  - id: T-0
+    title: Environment Setup
+    description: Install dependencies (transformers>=4.40.0, datasets>=2.18.0, torch>=2.0.0, scikit-learn>=1.3.0, matplotlib>=3.8.0)
+    priority: 100
+    type: setup
+    reference_files:
+      - file: 03_prd.md
+        section: "## Dependencies"
+
+  # Priority 94-90: Epic Implementation Tasks (from Architecture)
+  - id: A-1
+    title: Data Pipeline
+    description: Load TriviaQA, format prompts, generate answers, label exact-match correctness
+    priority: 94
+    type: data-pipeline
+    complexity: 10
+    reference_files:
+      - file: 03_architecture.md
+        section: "### Data (`data.py`)"
+      - file: 03_logic.md
+        section: "## A-1: Data Pipeline"
+      - file: 03_config.md
+        section: "## A-1: Data Pipeline Config"
+    subtasks:
+      - id: L-1-1
+        title: load_triviaqa
+        description: HF datasets.load_dataset("trivia_qa","rc"), slice train/val
+      - id: L-1-2
+        title: format_prompt + generate_answer
+        description: Chat template formatting, greedy model.generate(max_new_tokens=32)
+      - id: L-1-3
+        title: label_correctness
+        description: Normalize + exact-match against alias list
+      - id: L-1-4
+        title: build_labeled_dataset
+        description: Orchestrate loop, single-example generate for label correctness
+
+  - id: A-2
+    title: Hidden State Extraction
+    description: Load Llama-3-8B, register hook on layer 19, extract last-token states
+    priority: 93
+    type: model
+    complexity: 12
+    reference_files:
+      - file: 03_architecture.md
+        section: "### Model (`model.py`)"
+      - file: 03_logic.md
+        section: "## A-2: Hidden State Extraction"
+    subtasks:
+      - id: L-2-1
+        title: HiddenStateExtractor class
+        description: Hook registration, capture, remove
+      - id: L-2-2
+        title: Model/tokenizer loading
+        description: bfloat16, device_map="auto", left-padding config
+      - id: L-2-3
+        title: extract_hidden_states batching
+        description: Chunked forward passes, hidden state accumulation to CPU
+      - id: L-2-4
+        title: Persistence
+        description: Save (hidden_states, labels) tensors to disk (torch.save)
+
+  - id: A-3
+    title: Linear Probe + Training
+    description: Implement LinearProbe, train with Adam/BCE, 10 epochs
+    priority: 92
+    type: training
+    complexity: 7
+    reference_files:
+      - file: 03_architecture.md
+        section: "### Model (`model.py`)"
+      - file: 03_logic.md
+        section: "## A-3: Linear Probe + Training"
+    subtasks:
+      - id: L-3-1
+        title: LinearProbe module
+        description: nn.Linear(hidden_dim, 1) + sigmoid forward
+      - id: L-3-2
+        title: Adam/BCE setup
+        description: torch.optim.Adam(lr=1e-3), nn.BCELoss()
+      - id: L-3-3
+        title: Training loop
+        description: Mini-batch (batch_size=256) over 10 epochs
+      - id: L-3-4
+        title: Loss tracking
+        description: Append mean epoch loss to loss_per_epoch list
+
+  - id: A-4
+    title: Evaluation + Gate Check
+    description: Compute AUROC, compare to 0.60 gate and 0.50 baseline
+    priority: 91
+    type: evaluation
+    complexity: 5
+    reference_files:
+      - file: 03_architecture.md
+        section: "### Evaluate (`evaluate.py`)"
+      - file: 03_logic.md
+        section: "## A-4: Evaluation + Gate Check"
+    subtasks:
+      - id: L-4-1
+        title: evaluate_auroc
+        description: Val-set forward pass + sklearn AUROC
+      - id: L-4-2
+        title: Gate comparison
+        description: Compare against auroc_gate (0.60) and baseline (0.50)
+      - id: L-4-3
+        title: main() orchestration
+        description: Load saved hidden states, run eval, print gate decision
+
+  - id: A-5
+    title: Visualization
+    description: Gate bar chart, ROC curve, loss curve, PCA scatter
+    priority: 90
+    type: visualization
+    complexity: 6
+    reference_files:
+      - file: 03_architecture.md
+        section: "### Evaluate (`evaluate.py`)"
+      - file: 03_logic.md
+        section: "## A-5: Visualization"
+    subtasks:
+      - id: L-5-1
+        title: plot_gate_comparison
+        description: Bar chart probe AUROC vs 0.50 baseline
+      - id: L-5-2
+        title: plot_roc_curve
+        description: sklearn.metrics.roc_curve + AUROC annotation
+      - id: L-5-3
+        title: plot_loss_curve
+        description: Loss vs epoch line plot
+      - id: L-5-4
+        title: plot_hidden_state_pca
+        description: PCA-2D scatter colored by label
+
+  # Priority 1: Failsafe
+  - id: T-FAILSAFE
+    title: Pipeline Checkpoint
+    description: Mark Phase 4 complete if all tasks pass
+    priority: 1
+    type: checkpoint
+
+budget_summary:
+  epic_tasks: 5
+  setup_tasks: 1
+  checkpoint_tasks: 1
+  subtasks: 19
+  total: 7
+  tier_max: 15
+  within_budget: true
+
+execution_order:
+  - T-0
+  - A-1
+  - A-2
+  - A-3
+  - A-4
+  - A-5
+  - T-FAILSAFE

@@ -1,0 +1,282 @@
+data_preparation:
+- deliverables:
+  - data/ground_truth/schema_labels.csv
+  - data/ground_truth/dependencies.csv
+  description: Manually label 100 dataset pairs for schema compatibility, 100 dependency
+    edges for impact completeness
+  estimated_hours: 2
+  id: M-3-DATA-1
+  title: Ground Truth Dataset Collection
+environment_setup:
+- deliverables:
+  - requirements.txt
+  - .env.example
+  description: Install networkx, huggingface_hub, DeepDiff; configure HuggingFace/GitHub
+    API keys
+  estimated_hours: 0.5
+  id: M-3-ENV-1
+  title: Dependency Installation & API Keys
+epic_tasks:
+- acceptance_criteria:
+  - Fetch 50k dataset metadata from HuggingFace API
+  - Extract 100k load_dataset() patterns from GitHub
+  - Scrape 10k model-dataset citations from Papers with Code
+  - Handle API rate limits with exponential backoff
+  complexity: MEDIUM
+  deliverables:
+  - src/collectors/huggingface_collector.py
+  - src/collectors/github_collector.py
+  - src/collectors/pwc_collector.py
+  dependencies: []
+  description: Multi-source collector for HuggingFace/GitHub/Papers with Code usage
+    data
+  estimated_hours: 3
+  id: M-3-1
+  subtasks: []
+  title: Data Collection Infrastructure
+- acceptance_criteria:
+  - Construct graph with 50k nodes, 100k edges
+  - Detect and break cycles via SCC decomposition
+  - Serialize to JSON < 500 MB
+  - Graph construction completes in < 1 hour
+  complexity: MEDIUM
+  deliverables:
+  - src/graph/graph_builder.py
+  - src/graph/cycle_handler.py
+  - data/dependency_graph.json
+  dependencies:
+  - M-3-1
+  description: Build NetworkX DiGraph with cycle detection
+  estimated_hours: 4
+  id: M-3-2
+  subtasks:
+  - estimated_hours: 1.5
+    id: M-3-2-1
+    title: Multi-source edge aggregation
+  - estimated_hours: 1.5
+    id: M-3-2-2
+    title: Cycle detection and breaking
+  - estimated_hours: 1.0
+    id: M-3-2-3
+    title: JSON serialization with compression
+  title: Dependency Graph Construction
+- acceptance_criteria:
+  - Transitive closure via nx.descendants() < 10s
+  - Depth distribution computed via BFS
+  - Group entities by type (model/pipeline/script)
+  - Impact completeness ≥ 95% recall on ground truth
+  complexity: LOW
+  deliverables:
+  - src/analysis/impact_analyzer.py
+  dependencies:
+  - M-3-2
+  description: Compute descendants, depth distribution, type grouping
+  estimated_hours: 3
+  id: M-3-3
+  subtasks:
+  - estimated_hours: 1.0
+    id: M-3-3-1
+    title: BFS-based transitive closure
+  - estimated_hours: 1.0
+    id: M-3-3-2
+    title: Depth and type grouping
+  - estimated_hours: 1.0
+    id: M-3-3-3
+    title: Ground truth validation
+  title: Transitive Impact Analyzer
+- acceptance_criteria:
+  - Detect field removals (MAJOR), type changes (MINOR/MAJOR), renames (MINOR)
+  - Classify overall compatibility (COMPATIBLE/MINOR_BREAKING/MAJOR_BREAKING)
+  - Generate adapters for field renames and type coercions
+  - Schema diff accuracy ≥ 80% on ground truth
+  complexity: MEDIUM
+  deliverables:
+  - src/schema/schema_diff.py
+  - src/schema/adapter_generator.py
+  dependencies: []
+  description: Field-level diff, breaking change classification
+  estimated_hours: 4
+  id: M-3-4
+  subtasks:
+  - estimated_hours: 1.5
+    id: M-3-4-1
+    title: Field-level diff algorithm
+  - estimated_hours: 1.0
+    id: M-3-4-2
+    title: Type compatibility rules
+  - estimated_hours: 1.0
+    id: M-3-4-3
+    title: Adapter template generation
+  - estimated_hours: 0.5
+    id: M-3-4-4
+    title: Ground truth accuracy validation
+  title: Schema Compatibility Detector
+- acceptance_criteria:
+  - Generate structured JSON plan in < 5s
+  - Topological sort for leaf-first migration order
+  - Include impact radius, breaking changes, adapters, verification checklist
+  - Pre-compute plans for top 100 deprecated datasets
+  complexity: MEDIUM
+  deliverables:
+  - src/planner/migration_planner.py
+  - src/planner/plan_formatter.py
+  dependencies:
+  - M-3-3
+  - M-3-4
+  description: Orchestrate impact + schema + topological sort
+  estimated_hours: 3
+  id: M-3-5
+  subtasks:
+  - estimated_hours: 1.5
+    id: M-3-5-1
+    title: Plan orchestration logic
+  - estimated_hours: 1.0
+    id: M-3-5-2
+    title: Topological sort for migration order
+  - estimated_hours: 0.5
+    id: M-3-5-3
+    title: JSON formatter with syntax highlighting
+  title: Migration Plan Generator
+- acceptance_criteria:
+  - Deterministic hash-based assignment (seed=42)
+  - Stratify by dependency complexity (LOW/MEDIUM/HIGH)
+  - Balanced groups 200 users each (Control/Manual/Treatment)
+  complexity: LOW
+  deliverables:
+  - src/rct/user_group_assigner.py
+  dependencies: []
+  description: Hash-based randomization with stratification
+  estimated_hours: 2
+  id: M-3-6
+  subtasks: []
+  title: User Group Assignment (RCT)
+- acceptance_criteria:
+  - Hook into h-e1's instrumented_load_dataset()
+  - Check deprecation status, assign user group
+  - Display intervention per group (Control notice only, Manual + guide, Treatment
+    + plan)
+  - Log events deprecation_notice_shown, plan_viewed, migration_attempted
+  - Instrumentation overhead < 10%
+  complexity: HIGH
+  deliverables:
+  - src/integration/instrumented_loader_hook.py
+  - src/integration/event_logger.py
+  dependencies:
+  - M-3-5
+  - M-3-6
+  description: Hook into h-e1 loader, trigger plan generation, log events
+  estimated_hours: 4
+  id: M-3-7
+  subtasks:
+  - estimated_hours: 1.5
+    id: M-3-7-1
+    title: Loader hook integration
+  - estimated_hours: 1.0
+    id: M-3-7-2
+    title: Per-group intervention display
+  - estimated_hours: 1.0
+    id: M-3-7-3
+    title: Event logging with group metadata
+  - estimated_hours: 0.5
+    id: M-3-7-4
+    title: Performance overhead validation
+  title: Instrumentation Integration (h-e1 Hook)
+- acceptance_criteria:
+  - Track breaking change events (runtime errors during migration)
+  - Track adoption events (successor load within 30 days)
+  - Track bypass events (continued deprecated usage)
+  - Compute metrics per group breaking change rate, adoption rate
+  - Chi-squared tests p < 0.05 for group differences
+  - Validate SHOULD_WORK gate 40% breaking change reduction, 25% adoption increase
+  complexity: HIGH
+  deliverables:
+  - src/tracking/outcome_tracker.py
+  - src/tracking/metric_computer.py
+  - analysis/rct_analysis.ipynb
+  dependencies:
+  - M-3-7
+  description: Track breaking changes, adoption, bypass events; compute RCT metrics
+  estimated_hours: 5
+  id: M-3-8
+  subtasks:
+  - estimated_hours: 1.5
+    id: M-3-8-1
+    title: Event tracking pipeline
+  - estimated_hours: 1.5
+    id: M-3-8-2
+    title: Per-group metric computation
+  - estimated_hours: 1.0
+    id: M-3-8-3
+    title: Statistical significance tests
+  - estimated_hours: 1.0
+    id: M-3-8-4
+    title: Gate validation report
+  title: Outcome Tracking & Metrics
+execution_sequence:
+  order:
+  - M-3-ENV-1
+  - M-3-DATA-1
+  - M-3-1
+  - M-3-2
+  - M-3-3
+  - M-3-4
+  - M-3-5
+  - M-3-6
+  - M-3-7
+  - M-3-8
+metadata:
+  budget_hours: 30
+  estimated_hours: 28
+  hypothesis_id: h-m3
+  prerequisites:
+  - h-e1
+  subtask_count: 14
+  task_count: 8
+  tier: FULL
+risk_mitigation:
+- contingency: Extend collection period to 7 days, reduce max_repos to 5k
+  impact: Graph construction incomplete
+  mitigation: Cache metadata (24h TTL), exponential backoff, batch requests
+  risk: API rate limits exhaust during data collection
+- contingency: Accept degraded recall (≥ 85%), document limitation in validation report
+  impact: Impact completeness fails ≥ 95% recall target
+  mitigation: Combine HF + GitHub + PwC sources, lower min_confidence to 0.5
+  risk: Dependency graph too sparse (< 50% coverage)
+- contingency: Add user feedback loop, allow plan dismissal
+  impact: User distrust in migration plans, low plan view rate
+  mitigation: Validate on 100 ground truth pairs, tune edit_distance threshold
+  risk: Schema diff false positives (> 30%)
+- contingency: Increase timeout to 10s, cache all generated plans (LRU 1000 entries)
+  impact: Poor UX, high opt-out rate
+  mitigation: Pre-compute plans for top 100 deprecated datasets (covers 80% traffic)
+  risk: Plan generation latency > 5s
+success_criteria:
+  gate_type: SHOULD_WORK
+  metrics:
+  - baseline: 0.6
+    measurement: Chi-squared test, p < 0.05
+    name: Breaking Change Reduction
+    target: 0.4
+  - baseline: 0.4
+    measurement: Chi-squared test, p < 0.05
+    name: Adoption Rate Increase
+    target: 0.25
+  - measurement: Precision/Recall on ground truth dependencies
+    name: Impact Completeness
+    target: 0.95
+  - measurement: Accuracy on ground truth schema labels
+    name: Schema Diff Accuracy
+    target: 0.8
+validation_steps:
+- coverage: '> 80%'
+  step: Unit tests for all components
+- step: Integration test end-to-end plan generation
+  success_criteria: Generate plan for deprecated dataset in < 5s
+- step: Ground truth validation
+  success_criteria: Impact recall ≥ 95%, schema accuracy ≥ 80%
+- step: Performance test
+  success_criteria: Instrumentation overhead < 10%, transitive closure < 10s
+- step: Pilot study (50 users, 7 days)
+  success_criteria: No critical failures, plan view rate > 20%
+- step: Full RCT (600 users, 6 months)
+  success_criteria: Breaking change reduction ≥ 40%, adoption increase ≥ 25%

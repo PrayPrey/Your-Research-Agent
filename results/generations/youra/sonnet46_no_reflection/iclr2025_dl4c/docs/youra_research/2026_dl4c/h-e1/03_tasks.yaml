@@ -1,0 +1,300 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-05-19T08:00:00Z"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ─── DATA PREPARATION (priority 100-95) ───────────────────────────────────
+  - id: "task-001"
+    epic: "Data Preparation"
+    title: "Download and verify base model DeepSeek-Coder-7B-instruct-v1.5"
+    description: |
+      Download DeepSeek-Coder-7B-instruct-v1.5 from HuggingFace and verify loading.
+      Model ID: deepseek-ai/deepseek-coder-7b-instruct-v1.5
+      Verify: AutoModelForCausalLM.from_pretrained() succeeds with bfloat16 dtype.
+      Cache to HF_HOME for subsequent training runs.
+    feature_tag: "data-preparation"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Verify model loads without error
+      - Verify tokenizer loads and encodes sample Python code
+    reference_files:
+      architecture: "03_architecture.md#Module-Definitions"
+      logic: null
+      config: "03_config.md#ExperimentConfig"
+
+  # ─── ENVIRONMENT SETUP (priority 94) ──────────────────────────────────────
+  - id: "task-002"
+    epic: "Environment Setup"
+    title: "Install all Python dependencies"
+    description: |
+      Install all required packages with pinned versions:
+        torch>=2.0.0, transformers>=4.40.0, trl>=1.3.0,
+        evalplus>=0.3.0, zss>=1.4.0, datasets>=2.18.0,
+        scipy>=1.11.0, numpy>=1.24.0, matplotlib>=3.7.0,
+        peft>=0.10.0, accelerate>=0.28.0
+      Set CUDA_VISIBLE_DEVICES to lowest-memory GPU.
+      Verify: import trl; from trl import GRPOTrainer, DPOTrainer succeeds.
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - All imports succeed without error
+      - torch.cuda.is_available() returns True
+      - nvidia-smi shows selected GPU
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#Requirements"
+
+  # ─── EPIC IMPLEMENTATION TASKS (priority 93-50) ───────────────────────────
+  - id: "task-003"
+    epic: "E-1: Setup + Data Pipeline"
+    title: "Implement config.py and data.py"
+    description: |
+      Implement ExperimentConfig dataclass (config.py) and all data loading
+      functions (data.py):
+        - ExperimentConfig with all fields and defaults per 03_config.md
+        - get_config() factory function
+        - load_grpo_dataset(cfg) → Dataset (CodeAlpaca-20K with DeepSeek chat template)
+        - load_kl_prompts(cfg) → list[str] (fixed 100-prompt held-out set, seed=42)
+        - generate_dpo_pairs(cfg, model_id) → Dataset (execution-oracle preference pairs)
+        - load_humaneval_plus() → dict (164 problems)
+        - load_mbpp_plus() → dict (378 problems)
+      Output files: h-e1/code/config.py, h-e1/code/data.py
+    feature_tag: "data-pipeline"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - ExperimentConfig instantiates with defaults
+      - load_grpo_dataset returns Dataset with 'prompt' column
+      - load_kl_prompts returns exactly 100 strings
+      - load_humaneval_plus returns dict with 164 keys
+    reference_files:
+      architecture: "03_architecture.md#DataModule"
+      logic: "03_logic.md#E-1-Data-Pipeline"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "task-004"
+    epic: "E-2: Reward Functions + AST Metric"
+    title: "Implement rewards.py and ast_metric.py"
+    description: |
+      Implement execution reward functions (rewards.py):
+        - run_evalplus_tests(task_id, completion) → {passed: bool, error_type: str|None}
+        - execution_reward_binary(completions, prompts, task_ids, **kwargs) → list[float]
+        - execution_reward_error_type(completions, prompts, task_ids, **kwargs) → list[float]
+      Implement AST semantic edit distance (ast_metric.py):
+        - SEMANTIC_NODE_TYPES = frozenset of CF+DF node names
+        - ZSSNode wrapper class for ast.AST → zss interface
+        - extract_semantic_ast(code: str) → ZSSNode (raises ValueError on syntax error)
+        - compute_ast_semantic_edit_distance(code_a, code_b) → float
+        - batch_ast_edit_distances(reference_codes, candidate_codes) → dict[str, float]
+      Output files: h-e1/code/rewards.py, h-e1/code/ast_metric.py
+    feature_tag: "model"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - execution_reward_binary returns list of floats in {0.0, 1.0}
+      - extract_semantic_ast parses simple Python function without error
+      - compute_ast_semantic_edit_distance(code, code) == 0.0
+      - batch_ast_edit_distances returns dict with task_id keys
+    reference_files:
+      architecture: "03_architecture.md#RewardFunctions"
+      logic: "03_logic.md#E-2-Rewards-AST"
+      config: null
+
+  - id: "task-005"
+    epic: "E-5: KL Metric + Checkpoint Matching"
+    title: "Implement kl_metric.py"
+    description: |
+      Implement KL divergence computation and checkpoint matching (kl_metric.py):
+        - compute_kl_divergence(model, ref_model, prompts, tokenizer, n_samples=100) → float
+          Monte Carlo estimation: per-prompt, no batching (7B OOM risk)
+          KL = mean over prompts of: sum_v p_theta(v|ctx) * [log p_theta - log p_ref]
+        - load_checkpoint_kl_log(checkpoint_dir: str) → dict[int, float]
+          Parse kl_log.json from checkpoint dirs
+        - match_checkpoints(kl_logs, tolerance=0.05) → list[dict[str, int]]
+          Greedy matching across conditions within ±tolerance absolute KL
+      Output file: h-e1/code/kl_metric.py
+    feature_tag: "evaluation"
+    priority: 87
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - compute_kl_divergence returns non-negative float
+      - match_checkpoints returns list of dicts with condition keys
+      - load_checkpoint_kl_log returns {step: kl} dict
+    reference_files:
+      architecture: "03_architecture.md#KLMetric"
+      logic: "03_logic.md#E-5-KL-Metric"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "task-006"
+    epic: "E-3: GRPO Training"
+    title: "Implement train_grpo.py"
+    description: |
+      Implement GRPO training script (train_grpo.py):
+        - train_grpo(cfg, reward_variant: str, output_dir: str) → str
+          reward_variant in {"binary", "error_type"}
+          Initialize GRPOTrainer with reward_funcs=[selected_fn]
+          Add KL logging callback that writes kl_log.json at each checkpoint
+          Save checkpoints every cfg.grpo_save_steps steps
+          Returns path to final checkpoint directory
+        - CLI: python train_grpo.py --variant binary|error_type
+      Output file: h-e1/code/train_grpo.py
+    feature_tag: "training"
+    priority: 84
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      - GRPOConfig created with correct fields from ExperimentConfig
+      - reward_funcs wired correctly by variant name
+      - kl_log.json written to checkpoint dir
+    reference_files:
+      architecture: "03_architecture.md#TrainGRPO"
+      logic: "03_logic.md#E-3-GRPO-Training"
+      config: "03_config.md#GRPOConfig-Mapping"
+
+  - id: "task-007"
+    epic: "E-4: DPO Training"
+    title: "Implement train_dpo.py"
+    description: |
+      Implement DPO training script (train_dpo.py):
+        - train_dpo(cfg, output_dir: str) → str
+          Call generate_dpo_pairs() if cache not found (dpo_pairs_cache.json)
+          Dataset columns: {prompt, chosen, rejected}
+          Load frozen ref_model separately
+          Initialize DPOTrainer with DPOConfig
+          Save checkpoints every cfg.dpo_save_steps steps
+          Returns path to final checkpoint directory
+        - CLI: python train_dpo.py
+      Output file: h-e1/code/train_dpo.py
+    feature_tag: "training"
+    priority: 81
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      - DPOConfig created with correct beta, lr, batch_size from ExperimentConfig
+      - DPO pairs dataset has {prompt, chosen, rejected} columns
+      - Checkpoint saved at correct interval
+    reference_files:
+      architecture: "03_architecture.md#TrainDPO"
+      logic: "03_logic.md#E-4-DPO-Training"
+      config: "03_config.md#DPOConfig-Mapping"
+
+  - id: "task-008"
+    epic: "E-6: Evaluation + Bootstrap CI"
+    title: "Implement evaluate.py"
+    description: |
+      Implement full evaluation pipeline (evaluate.py):
+        - generate_solutions(model_path, problems, tokenizer_id, cfg) → dict[str, str]
+          Greedy decode (do_sample=False) for deterministic pass@1
+        - run_evalplus_evaluation(solutions_path, dataset) → dict[str, float]
+          Call evalplus CLI for HumanEval+ and MBPP+
+        - compute_semantic_edit_per_kl(ast_distances, kl_value) → float
+          Mean AST edit distance / KL value
+        - bootstrap_ci(grpo_efficiencies, dpo_efficiencies, n_samples=10000, ci=0.95) → dict
+          Returns {point_estimate, ci_lower, ci_upper, gate_pass: bool}
+          Gate passes if ci_lower > 0.20 (both bounds above magnitude threshold)
+        - run_full_evaluation(condition_checkpoints, cfg) → dict
+          Iterate KL-matched pairs, accumulate per-condition efficiency arrays
+      Output file: h-e1/code/evaluate.py
+    feature_tag: "evaluation"
+    priority: 78
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - bootstrap_ci gate_pass=True when differential clearly > 0.20
+      - bootstrap_ci gate_pass=False when differential near 0
+      - compute_semantic_edit_per_kl handles kl_value=0 gracefully
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#E-6-Evaluation-Bootstrap"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "task-009"
+    epic: "E-7: Orchestrator + Visualization"
+    title: "Implement run_experiment.py and visualize.py"
+    description: |
+      Implement top-level orchestrator (run_experiment.py):
+        - run_all_conditions(cfg) → dict
+          Sequential: SFT-only → SFT+DPO → SFT+GRPO-binary → SFT+GRPO-error-type
+        - save_results(results, output_dir) → None
+          Save results.json to output_dir
+        - CLI: python run_experiment.py
+      Implement figure generation (visualize.py):
+        - plot_gate_metric_comparison(results, cfg) → str [MANDATORY figure]
+          Bar chart: semantic-edit-per-KL for all 4 conditions + 95% CI error bars
+          Saved to cfg.figures_dir/gate_metric_comparison.png
+        - plot_kl_trajectories(kl_logs, cfg) → str
+        - plot_ast_vs_kl_scatter(results, cfg) → str
+        - plot_pass1_curves(results, cfg) → str
+        - generate_all_figures(results, kl_logs, cfg) → list[str]
+      Output files: h-e1/code/run_experiment.py, h-e1/code/visualize.py
+    feature_tag: "experiment"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - run_all_conditions returns dict with all 4 condition keys
+      - generate_all_figures returns list of 4 file paths
+      - All figure files saved to correct paths
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md#E-7-Orchestrator"
+      config: "03_config.md#ExperimentConfig"
+
+  # ─── FAILSAFE (priority 1) ─────────────────────────────────────────────────
+  - id: "task-010"
+    epic: "Pipeline Continuation"
+    title: "Failsafe: Verify gate condition and update verification_state.yaml"
+    description: |
+      After all experiment conditions complete and bootstrap CI is computed:
+        1. Read bootstrap_ci result from results.json
+        2. Check gate: ci_lower > 0 AND point_estimate >= 0.20
+        3. Update verification_state.yaml:
+           - h-e1.validation.status = COMPLETED
+           - h-e1.gate.satisfied = true/false
+           - h-e1.validation.key_findings = [bootstrap CI result summary]
+        4. If gate fails: set h-e1.status = FAILED, stop pipeline
+        5. If gate passes: set h-e1.status = COMPLETED
+      This task must run LAST regardless of previous task outcomes.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - verification_state.yaml updated correctly after gate evaluation
+      - Gate result stored with CI bounds and point estimate
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 7
+  subtasks: 0
+  failsafe: 1
+  total: 10

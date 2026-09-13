@@ -1,0 +1,288 @@
+analysis_prep:
+- architecture_ref: Appendix B (03_prd.md)
+  dependencies:
+  - EPIC-A1
+  description: Create analyze_convergence.py to compute epochs_to_90% from dynamics
+    JSON files
+  estimated_time: 1h
+  id: ANALYSIS-1
+  logic_ref: Algorithm A-3
+  title: Implement convergence analysis script
+  type: analysis
+  validation:
+  - Reads all 6 dynamics JSON files
+  - Computes convergence epochs correctly
+  - Outputs summary table
+- architecture_ref: Appendix C (03_prd.md)
+  dependencies:
+  - EPIC-A1
+  description: Create aggregate_variance.py to compute mean gradient variance (skip
+    warmup 20%)
+  estimated_time: 1h
+  id: ANALYSIS-2
+  title: Implement gradient variance aggregation script
+  type: analysis
+  validation:
+  - Aggregates post-warmup batches only
+  - Outputs mean variance per condition
+  - Computes reduction percentages
+- dependencies:
+  - ANALYSIS-1
+  - ANALYSIS-2
+  description: Create visualize.py to generate 3 mandatory figures (convergence curves,
+    gradient variance trajectories, gate metrics bar chart)
+  estimated_time: 2h
+  id: ANALYSIS-3
+  title: Implement visualization script
+  type: analysis
+  validation:
+  - 3 PNG files generated
+  - Figures match specification (axes, labels, thresholds)
+  - Saved to h-m2/analysis/
+data_preparation:
+- dependencies:
+  - ENV-2
+  description: Check /home/PrayPrey/.cache/huggingface/datasets/openai_humaneval exists
+    with 164 problems
+  estimated_time: 5min
+  id: DATA-1
+  title: Verify HumanEval dataset cache
+  type: data_prep
+  validation:
+  - Cache directory exists
+  - Dataset loads without download
+  - len(dataset) == 164
+- dependencies:
+  - ENV-2
+  description: Check CodeGen-350M-mono and StarCoder-1B cached in /home/PrayPrey/.cache/huggingface/hub/
+  estimated_time: 10min
+  id: DATA-2
+  title: Verify pretrained model caches
+  type: data_prep
+  validation:
+  - Both model directories exist
+  - Models load without download
+  - LoRA adapter init successful
+- dependencies:
+  - ENV-3
+  description: mkdir -p h-m2/{logs,checkpoints,analysis,configs,src}
+  estimated_time: 2min
+  id: DATA-3
+  title: Create h-m2 output directories
+  type: data_prep
+  validation:
+  - All 5 subdirectories exist
+  - Write permissions verified
+environment_setup:
+- dependencies: []
+  description: Check nvidia-smi for H100 NVL, verify CUDA 12.1, confirm 80GB VRAM
+  estimated_time: 5min
+  id: ENV-1
+  title: Verify GPU availability and CUDA setup
+  type: environment
+  validation:
+  - nvidia-smi shows H100 NVL
+  - CUDA version >= 12.1
+  - Available VRAM >= 70GB
+- dependencies: []
+  description: Check transformers==4.50.0, trl==0.15.1, peft==0.14.0, datasets==3.2.0,
+    torch==2.5.0 installed
+  estimated_time: 5min
+  id: ENV-2
+  title: Verify Python dependencies from h-e1
+  type: environment
+  validation:
+  - All packages importable
+  - Versions match requirements
+- dependencies: []
+  description: Check >= 20GB free space in /home/PrayPrey/YOURA_no_VSA_no_IC/sonnet45/TEST_dl4c/docs/youra_research/h-m2
+  estimated_time: 2min
+  id: ENV-3
+  title: Verify disk space for checkpoints and logs
+  type: environment
+  validation:
+  - df -h shows >= 20GB free
+  - Write test file successful
+final_validation:
+- dependencies:
+  - VAL-1
+  - VAL-2
+  - VAL-3
+  description: Verify all pre-training conditions from 03_prd.md Section 9
+  estimated_time: 15min
+  id: FINAL-1
+  title: Pre-experiment checklist
+  type: final_check
+  validation:
+  - GPU availability confirmed
+  - Disk space >= 20GB
+  - All 6 configs validated
+  - Dry run successful
+implementation:
+- architecture_ref: Section 3.1
+  complexity: 8
+  config_ref: Section 5.1
+  dependencies:
+  - DATA-3
+  description: Create dynamics_logger.py with DynamicsLogger class (batch logging,
+    epoch logging, JSON persistence, schema validation)
+  estimated_time: 2h
+  id: EPIC-A1
+  logic_ref: Algorithm A-4
+  subtasks:
+  - A1-1: DynamicsLogger class skeleton with __init__, data schema
+  - A1-2: log_batch() method with metrics validation
+  - A1-3: log_epoch() method with current_epoch flush
+  - A1-4: save() method with atomic JSON write + error handling
+  title: Implement DynamicsLogger module
+  type: epic
+  validation:
+  - Unit test: log_batch accumulates metrics
+  - Unit test: log_epoch triggers save
+  - Unit test: JSON schema matches spec
+  - Edge case: IOError handled gracefully
+- architecture_ref: Section 3.3
+  complexity: 6
+  dependencies:
+  - DATA-3
+  description: Add compute_gradient_variance() and compute_gradient_norm() functions
+    to train.py
+  estimated_time: 1.5h
+  id: EPIC-A2
+  logic_ref: Algorithm A-1
+  subtasks:
+  - A2-1: compute_gradient_variance(model) with param.grad.std() aggregation
+  - A2-2: compute_gradient_norm(model) with L2 norm computation
+  - A2-3: Handle None gradients (return -1.0 sentinel)
+  title: Implement gradient variance and norm computation
+  type: epic
+  validation:
+  - Unit test: synthetic tensors match manual calculation
+  - Unit test: None gradients return -1.0
+  - Unit test: LoRA-only parameters filtered correctly
+- architecture_ref: Section 3.2
+  complexity: 10
+  config_ref: Section 4
+  dependencies:
+  - DATA-3
+  description: Create rewards.py with compute_error_trace_reward(), stack depth parsing,
+    bucket mapping
+  estimated_time: 2.5h
+  id: EPIC-A3
+  logic_ref: Algorithm A-2
+  subtasks:
+  - A3-1: parse_stack_depth(traceback) with line count extraction
+  - A3-2: Bucket mapping with bisect.bisect_right() (10 buckets)
+  - A3-3: compute_error_trace_reward() with error_type (2.3b) + depth (3.3b) components
+  - A3-4: Integration test with sandbox ExecutionResult
+  title: Implement error+trace reward function
+  type: epic
+  validation:
+  - Unit test: all rewards in [0.0, 1.0]
+  - Unit test: traceback=None → depth=0
+  - Unit test: unknown error_type → error_reward=0.0
+  - Integration test: real HumanEval problem execution
+- architecture_ref: Section 3.3
+  complexity: 12
+  dependencies:
+  - EPIC-A1
+  - EPIC-A2
+  description: Create GRPOTrainerWithDynamics subclass in train.py with hooks in training_step()
+    and evaluation_loop()
+  estimated_time: 3h
+  id: EPIC-A4
+  logic_ref: Algorithm A-4
+  subtasks:
+  - A4-1: GRPOTrainerWithDynamics class skeleton with dynamics_logger parameter
+  - A4-2: Override training_step() to inject gradient variance logging after backward()
+  - A4-3: Override evaluation_loop() to add per-epoch HumanEval evaluation
+  - A4-4: 'Integration test: training loop with dynamics logging enabled'
+  title: Extend GRPOTrainer with dynamics logging hooks
+  type: epic
+  validation:
+  - Training completes without crashes
+  - Dynamics JSON updated after each epoch
+  - Gradient variance logged every batch
+  - Eval metrics logged every epoch
+- architecture_ref: Section 5
+  complexity: 7
+  config_ref: Section 3
+  dependencies:
+  - DATA-3
+  description: Generate binary_350m.yaml, binary_1b.yaml, error_type_350m.yaml, error_type_1b.yaml,
+    error_trace_350m.yaml, error_trace_1b.yaml
+  estimated_time: 1.5h
+  id: EPIC-A5
+  subtasks:
+  - A5-1: Config template with common fields (dataset, logging, GRPO hyperparams)
+  - A5-2: Generate 6 concrete configs with feedback_type and model_name variations
+  - A5-3: Config validation function (feedback_type ∈ {binary, error_type, error_trace})
+  title: Create 6 YAML configuration files
+  type: epic
+  validation:
+  - All 6 YAML files parseable
+  - feedback_type values correct
+  - Model names match HuggingFace IDs
+  - Logging paths unique per config
+- architecture_ref: Section 5
+  complexity: 9
+  dependencies:
+  - EPIC-A4
+  - EPIC-A5
+  description: Create run_experiment.py to execute 6 training runs sequentially with
+    config loading and checkpoint management
+  estimated_time: 2h
+  id: EPIC-A6
+  subtasks:
+  - A6-1: Config loader with YAML parsing and validation
+  - A6-2: 'Training loop: iterate over 6 configs, instantiate trainer, run training'
+  - A6-3: 'Checkpoint management: save epoch checkpoints, cleanup intermediate files'
+  title: Implement experiment orchestrator
+  type: epic
+  validation:
+  - Dry run: 1 config completes without errors
+  - Checkpoints saved to correct directories
+  - Dynamics JSON files created
+  - Error handling: training failure doesn't crash orchestrator
+metadata:
+  generated_at: '2026-08-19T18:00:00'
+  hypothesis_id: h-m2
+  tier: 1
+  total_budget: 16
+  total_tasks: 21
+validation_checks:
+- dependencies:
+  - EPIC-A1
+  - EPIC-A2
+  - EPIC-A3
+  description: Run pytest on dynamics_logger_test.py, rewards_test.py, gradient_metrics_test.py
+  estimated_time: 30min
+  id: VAL-1
+  title: Code validation - unit tests
+  type: validation
+  validation:
+  - All unit tests pass (100% coverage on new modules)
+  - No warnings or deprecations
+- dependencies:
+  - EPIC-A6
+  description: Train binary_350m for 1 epoch, verify JSON schema and metrics correctness
+  estimated_time: 1h
+  id: VAL-2
+  title: Integration validation - dry run
+  type: validation
+  validation:
+  - Training completes without crashes
+  - Dynamics JSON parseable
+  - Gradient variance in expected range (0.001-0.01)
+  - Eval loop completes in ~10 minutes
+- dependencies:
+  - EPIC-A5
+  description: Validate all 6 YAML configs against schema, check paths exist
+  estimated_time: 15min
+  id: VAL-3
+  title: Configuration validation
+  type: validation
+  validation:
+  - All configs pass validation
+  - Logging paths writable
+  - Model names resolve to cached models

@@ -1,0 +1,482 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-05-19T12:00:00Z"
+  source_documents:
+    - h-m2/03_prd.md
+    - h-m2/03_architecture.md
+    - h-m2/03_logic.md
+    - h-m2/03_config.md
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 19
+  failsafe: 1
+  total: 31
+  note: "31 tasks within FULL tier (30 max) — 1 over; failsafe included as critical checkpoint"
+
+tasks:
+  # ── Environment Setup ──────────────────────────────────────────────────────
+  - id: ENV-1
+    title: "Environment Setup & Dependencies"
+    type: setup
+    priority: 94
+    description: |
+      Install Python dependencies for H-M2 experiment.
+      Packages: lifelines==0.30.0, scipy>=1.10, pandas>=2.0, numpy>=1.24,
+      datasets>=2.0, matplotlib>=3.7, seaborn>=0.12, scikit-learn>=1.3
+      Verify H-M1 code path accessible: h-m1/code/
+    reference_files:
+      - path: "h-m2/03_prd.md"
+        section: "7. Dependencies"
+      - path: "h-m2/03_config.md"
+        section: "5. Environment / Dependency Spec"
+
+  # ── Epic Tasks ─────────────────────────────────────────────────────────────
+  - id: A-1
+    title: "Data Pipeline Setup — Reuse H-M1 Panel"
+    type: data-pipeline
+    priority: 93
+    complexity: 8
+    description: |
+      Implement h-m2/code/data_pipeline.py:
+      - load_hm1_panel(): sys.path inject h-m1/code, load H-M1 panel with compression_event flags
+      - filter_compressed_benchmarks(): filter to compression_event==1.0 and >=8 quarters
+      - extend_panel_with_hd(): dispatch hd_signals.compute_all_hd_signals()
+      Key: column is 'compression_event' (float 1.0), NOT 'compression_flag'
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-1: Data Pipeline Setup"
+      - path: "h-m2/03_prd.md"
+        section: "FR-1: Data Pipeline"
+      - path: "h-m2/03_config.md"
+        section: "6. Run Config (Flat Dict)"
+
+  - id: A-2
+    title: "H_d Signal Computation (CV/NLP/Tabular)"
+    type: model
+    priority: 92
+    complexity: 14
+    description: |
+      Implement h-m2/code/hd_signals.py:
+      - compute_robustness_gap_cv(): rolling std of score_var_top10 (4-quarter window)
+      - compute_contamination_nlp(): normalized abs deviation from baseline score
+      - compute_kendall_tau_tabular(): block-bootstrapped Kendall tau (100 iters, seed=42)
+      - compute_all_hd_signals(): dispatch per benchmark domain, merge hd_cv/hd_nlp/hd_tabular
+      DOMAIN_THRESHOLDS = {cv:0.5, nlp:0.3, tabular:0.90}
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-2: H_d Signal Computation"
+      - path: "h-m2/03_prd.md"
+        section: "FR-2: H_d Signal Computation per Domain"
+      - path: "h-m2/03_config.md"
+        section: "4. Domain Threshold Config"
+
+  - id: A-3
+    title: "Collapse Event Detection"
+    type: model
+    priority: 91
+    complexity: 12
+    description: |
+      Implement h-m2/code/collapse_detector.py:
+      - detect_collapse_events(): expanding Kendall tau > 0.90 for >=2 consecutive quarters
+      - apply_r1_mitigation(): if events < 20, lower tau to 0.85 and re-detect
+      Returns collapse_df: [benchmark_id, collapse_quarter]
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-3: Collapse Event Detection"
+      - path: "h-m2/03_prd.md"
+        section: "FR-3: Collapse Event Detection"
+
+  - id: A-4
+    title: "Temporal Analysis + Kaplan-Meier Lead Time"
+    type: model
+    priority: 90
+    complexity: 15
+    description: |
+      Implement h-m2/code/temporal_analysis.py:
+      - compute_signal_onset_times(): first quarter H_d exceeds threshold; lead_months = (collapse_q - onset_q).n * 3
+      - run_temporal_ordering_test(): KaplanMeierFitter fit, fraction_leading computation
+      - compute_onset_for_all_domains(): orchestrate cv/nlp/tabular onset computation
+      Primary gate metric: fraction_leading >= 0.60 in >= 2 domains
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-4: Temporal Analysis + KM"
+      - path: "h-m2/03_prd.md"
+        section: "FR-4: Signal Onset Time Computation"
+
+  - id: A-5
+    title: "Statistical Tests (Mann-Whitney U + AUC)"
+    type: evaluation
+    priority: 89
+    complexity: 12
+    description: |
+      Implement h-m2/code/statistical_tests.py:
+      - run_mann_whitney_test(): H_d magnitude compressed vs non-compressed (alternative='greater')
+      - compute_auc_comparison(): AUC of H_d(t-24mo) vs H_d(t) predicting collapse label
+      - run_all_statistical_tests(): run MW + AUC for cv/nlp/tabular
+      Secondary gate: mw_p_value < 0.05; supporting: auc_lead > 0.65
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-5: Statistical Tests"
+      - path: "h-m2/03_prd.md"
+        section: "FR-6: Mann-Whitney U Secondary Test"
+
+  - id: A-6
+    title: "Ablation Variants A1-A5"
+    type: evaluation
+    priority: 88
+    complexity: 13
+    description: |
+      Implement h-m2/code/ablation.py:
+      - ABLATION_VARIANTS dict: A1(24mo), A2(12mo), A3(0mo), A4(compression-filter), A5(all benchmarks)
+      - run_ablation_variant(): config-driven dispatch per variant
+      - run_all_ablations(): loop A1-A5, collect per-variant metrics
+      Key ablation question: A4 vs A5 — does compression filter increase fraction_leading?
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-6: Ablation Variants A1-A5"
+      - path: "h-m2/03_config.md"
+        section: "3. Ablation Variant Config"
+
+  - id: A-7
+    title: "Evaluate + Gate Check"
+    type: evaluation
+    priority: 87
+    complexity: 10
+    description: |
+      Implement h-m2/code/evaluate.py:
+      - verify_mechanism_activated(): 5-indicator check (onset_df populated, >=20 events, lead_time, KM, fraction)
+      - check_gate_condition(): SHOULD_WORK gate: fraction_leading >= 0.60 in >= 2 domains
+      - save_results(): persist to JSON + CSV
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-7: Evaluate + Gate Check"
+      - path: "h-m2/03_prd.md"
+        section: "FR-9: Mechanism Activation Verification"
+
+  - id: A-8
+    title: "Visualization — 5 Figures"
+    type: evaluation
+    priority: 86
+    complexity: 11
+    description: |
+      Implement h-m2/code/visualize.py:
+      - plot_gate_metrics(): MANDATORY bar chart fraction_leading per domain vs 0.60 threshold
+      - plot_km_curves(): KM survival curves per domain
+      - plot_signal_timeline(): aligned time series for MMLU/CIFAR-10/SQuAD
+      - plot_auc_comparison(): grouped bar auc_lead vs auc_concurrent
+      - plot_mann_whitney_boxplot(): H_d magnitude compressed vs non-compressed
+      - generate_all_figures(): orchestrator
+      Output dir: h-m2/figures/
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-8: Visualization"
+      - path: "h-m2/03_prd.md"
+        section: "FR-10: Visualization"
+
+  - id: A-9
+    title: "Entry Point + Config"
+    type: training
+    priority: 85
+    complexity: 9
+    description: |
+      Implement h-m2/code/run_experiment.py:
+      - CONFIG dict with all parameters (verified from h-m1/code/run_experiment.py)
+      - parse_args(): CLI flag overrides
+      - main(): 11-step orchestration:
+        1. seed + sys.path inject
+        2. load_hm1_panel()
+        3. extend_panel_with_hd()
+        4. detect_collapse_events() + apply_r1_mitigation()
+        5. filter compressed_ids
+        6. compute_onset_for_all_domains()
+        7. run_temporal_ordering_test() per domain
+        8. run_all_statistical_tests()
+        9. run_all_ablations()
+        10. verify_mechanism_activated() + check_gate_condition()
+        11. generate_all_figures() + save_results()
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-9: Entry Point + Config"
+      - path: "h-m2/03_config.md"
+        section: "6. Run Config (Flat Dict)"
+
+  - id: A-10
+    title: "Smoke Test"
+    type: evaluation
+    priority: 84
+    complexity: 7
+    description: |
+      Verify pipeline runs end-to-end on panel subset:
+      - Assert onset_df shape > 0
+      - Assert KM estimator fits without error
+      - Assert gate output dict contains 'fraction_leading'
+      - Assert all 5 figure files generated in h-m2/figures/
+      - Assert results.json created with required keys
+    reference_files:
+      - path: "h-m2/03_architecture.md"
+        section: "Epic Tasks"
+
+  # ── Logic Subtasks ─────────────────────────────────────────────────────────
+  - id: L-1-1
+    title: "H-M1 reuse + compression filter"
+    type: subtask
+    parent: A-1
+    priority: 49
+    description: "Implement load_hm1_panel() and filter_compressed_benchmarks() with sys.path injection and compression_event column"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-1: Data Pipeline Setup"
+
+  - id: L-1-2
+    title: "H_d column extension dispatch"
+    type: subtask
+    parent: A-1
+    priority: 48
+    description: "Implement extend_panel_with_hd() calling hd_signals.compute_all_hd_signals()"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-1: Data Pipeline Setup"
+
+  - id: L-2-1
+    title: "CV robustness gap signal"
+    type: subtask
+    parent: A-2
+    priority: 47
+    description: "compute_robustness_gap_cv(): rolling std of score_var_top10 over 4-quarter window"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-2: H_d Signal Computation"
+
+  - id: L-2-2
+    title: "NLP contamination proxy signal"
+    type: subtask
+    parent: A-2
+    priority: 46
+    description: "compute_contamination_nlp(): normalized abs deviation from baseline score"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-2: H_d Signal Computation"
+
+  - id: L-2-3
+    title: "Tabular block-bootstrap Kendall tau signal"
+    type: subtask
+    parent: A-2
+    priority: 45
+    description: "compute_kendall_tau_tabular(): block-bootstrapped Kendall tau (100 iters, seed=42, rng.choice)"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-2: H_d Signal Computation"
+
+  - id: L-2-4
+    title: "H_d signals dispatch loop"
+    type: subtask
+    parent: A-2
+    priority: 44
+    description: "compute_all_hd_signals(): loop benchmarks by domain, merge hd_cv/hd_nlp/hd_tabular back to panel"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-2: H_d Signal Computation"
+
+  - id: L-3-1
+    title: "Expanding Kendall tau collapse detection"
+    type: subtask
+    parent: A-3
+    priority: 43
+    description: "detect_collapse_events(): expanding apply kendalltau, consecutive flag via rolling(2).min()"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-3: Collapse Event Detection"
+
+  - id: L-3-2
+    title: "R1 mitigation — lower tau threshold"
+    type: subtask
+    parent: A-3
+    priority: 42
+    description: "apply_r1_mitigation(): if len(collapse_df) < 20, re-run detect_collapse_events with tau=0.85"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-3: Collapse Event Detection"
+
+  - id: L-4-1
+    title: "Signal onset times per domain"
+    type: subtask
+    parent: A-4
+    priority: 41
+    description: "compute_signal_onset_times(): first H_d threshold crossing per benchmark; returns onset_df[benchmark_id, lead_months, onset_observed, domain]"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-4: Temporal Analysis + KM"
+
+  - id: L-4-2
+    title: "Lead month delta via Period subtraction"
+    type: subtask
+    parent: A-4
+    priority: 40
+    description: "Lead time: (pd.Period(collapse_q, 'Q') - pd.Period(onset_q, 'Q')).n * 3 months"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-4: Temporal Analysis + KM"
+
+  - id: L-4-3
+    title: "Kaplan-Meier fit + fraction_leading"
+    type: subtask
+    parent: A-4
+    priority: 39
+    description: "run_temporal_ordering_test(): KaplanMeierFitter.fit(T, E), fraction_leading = (observed.lead_months >= 12).mean()"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-4: Temporal Analysis + KM"
+
+  - id: L-4-4
+    title: "Domain orchestration for all onset computations"
+    type: subtask
+    parent: A-4
+    priority: 38
+    description: "compute_onset_for_all_domains(): loop cv/nlp/tabular, skip if hd_col all-NaN"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-4: Temporal Analysis + KM"
+
+  - id: L-5-1
+    title: "Mann-Whitney U compressed vs non-compressed"
+    type: subtask
+    parent: A-5
+    priority: 37
+    description: "run_mann_whitney_test(): mannwhitneyu(compressed_hd, noncompressed_hd, alternative='greater')"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-5: Statistical Tests"
+
+  - id: L-5-2
+    title: "AUC lead vs concurrent comparison"
+    type: subtask
+    parent: A-5
+    priority: 36
+    description: "compute_auc_comparison(): per-benchmark mean H_d for lead (first-half quarters) vs concurrent; roc_auc_score"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-5: Statistical Tests"
+
+  - id: L-6-1
+    title: "Single ablation variant runner"
+    type: subtask
+    parent: A-6
+    priority: 35
+    description: "run_ablation_variant(): apply use_compression_filter, call compute_onset + run_temporal_ordering_test with lead_months override"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-6: Ablation Variants A1-A5"
+
+  - id: L-6-2
+    title: "All ablation variants loop"
+    type: subtask
+    parent: A-6
+    priority: 34
+    description: "run_all_ablations(): iterate ABLATION_VARIANTS dict keys A1-A5, collect results list"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-6: Ablation Variants A1-A5"
+
+  - id: L-7-1
+    title: "Mechanism activation check (5 indicators)"
+    type: subtask
+    parent: A-7
+    priority: 33
+    description: "verify_mechanism_activated(): check onset_df_populated, collapse_events_found>=20, lead_time_computed, km_fitted, fraction_computed"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-7: Evaluate + Gate Check"
+
+  - id: L-7-2
+    title: "SHOULD_WORK gate evaluation + result save"
+    type: subtask
+    parent: A-7
+    priority: 32
+    description: "check_gate_condition(): count domains with fraction_leading >= 0.60; save_results() to JSON + CSV"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-7: Evaluate + Gate Check"
+
+  - id: L-8-1
+    title: "Gate metrics + KM curve figures"
+    type: subtask
+    parent: A-8
+    priority: 31
+    description: "plot_gate_metrics() MANDATORY bar chart + plot_km_curves() survival curves per domain"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-8: Visualization"
+
+  - id: L-8-2
+    title: "Timeline + AUC comparison + MW boxplot figures"
+    type: subtask
+    parent: A-8
+    priority: 30
+    description: "plot_signal_timeline(), plot_auc_comparison(), plot_mann_whitney_boxplot() — autonomous figure selection"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-8: Visualization"
+
+  - id: L-9-1
+    title: "CONFIG dict + argparse"
+    type: subtask
+    parent: A-9
+    priority: 29
+    description: "CONFIG flat dict with OS-based absolute paths; parse_args() CLI overrides for seed, min_submissions, tau_threshold, output_dir"
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "6. Run Config (Flat Dict)"
+
+  - id: L-9-2
+    title: "main() 11-step orchestration"
+    type: subtask
+    parent: A-9
+    priority: 28
+    description: "main(): wire all modules in 11 steps from seed injection to save_results()"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-9: Entry Point + Config"
+
+  # ── Config Subtasks ────────────────────────────────────────────────────────
+  - id: C-1
+    title: "ExperimentConfig dataclass implementation"
+    type: subtask
+    parent: A-9
+    priority: 27
+    description: "Implement config.py with ExperimentConfig dataclass; all fields with defaults matching CONFIG dict"
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "1. ExperimentConfig Dataclass"
+
+  - id: C-2
+    title: "YAML config loader"
+    type: subtask
+    parent: A-9
+    priority: 26
+    description: "Implement load_config(yaml_path) utility returning ExperimentConfig from YAML override file"
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "2. YAML Config Schema"
+
+  # ── Failsafe ───────────────────────────────────────────────────────────────
+  - id: FAILSAFE-1
+    title: "Pipeline Continuation Checkpoint"
+    type: failsafe
+    priority: 1
+    description: |
+      Final checkpoint before Phase 4 completion. Verify:
+      1. run_experiment.py executes without error on test data
+      2. results.json exists with fraction_leading, mw_p_value, auc_lead keys
+      3. h-m2/figures/gate_metrics_fraction_leading.png exists (MANDATORY figure)
+      4. gate result (PASS/FAIL) documented in results.json
+      5. SHOULD_WORK gate outcome recorded for hypothesis loop
+    reference_files:
+      - path: "h-m2/03_prd.md"
+        section: "6. Success Criteria"

@@ -1,0 +1,10 @@
+# Research Idea
+
+## Title
+Discovering the Scaling-Interpretability Pareto Frontier in Scientific AI via Mutual Information Alignment
+
+## Motivation
+As AI models scale dramatically in scientific domains (molecular discovery, climate modeling, protein engineering), a critical tension emerges: larger models achieve better predictions but become less interpretable to scientists. This "black box" problem undermines scientific discovery, where understanding *why* a model makes predictions is as valuable as the predictions themselves. Current approaches either maximize accuracy (sacrificing interpretability) or enforce interpretability constraints (sacrificing performance), but no systematic framework exists to characterize and navigate this fundamental trade-off.
+
+## Main Idea
+We hypothesize that scaling increases model capacity at the cost of representation alignment with known scientific concepts, creating a quantifiable Pareto frontier between accuracy and interpretability. We operationalize interpretability as mutual information (MI) between model representations and domain ontologies (ChEBI, Gene Ontology, CMIP6 variables) using the CLUB estimator. The core methodology involves: (1) systematically varying architectures (10M-10B parameters) across four scientific benchmarks (MoleculeNet, ClimateLearn, ProteinGym, MatBench), (2) measuring both task accuracy and concept-alignment MI, and (3) employing surrogate-accelerated multi-objective optimization to efficiently discover the Pareto frontier. We predict hypervolume indicator >0.5 demonstrating genuine trade-offs, with surrogates achieving 90% coverage at 10% computational cost. This framework enables scientists to make informed choices along the accuracy-interpretability spectrum rather than accepting opaque predictions.

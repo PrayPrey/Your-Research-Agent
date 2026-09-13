@@ -1,0 +1,9 @@
+# CHEF: A Validated Composite Framework for AI-HCI System Evaluation
+
+## Motivation
+
+AI-HCI systems are currently evaluated using fragmented approaches—technical performance (accuracy, speed) measured separately from human-centered qualities (explainability, user experience). This fragmentation prevents systematic comparison of systems that trade off technical excellence for usability, hindering deployment decisions in critical domains like healthcare and finance. Existing multi-dimensional frameworks lack statistical validation and principled aggregation methods, forcing decision-makers to mentally integrate incompatible metrics. This research addresses the urgent need for a unified, scientifically rigorous evaluation framework that balances technical and human-centered quality.
+
+## Main Idea
+
+We propose CHEF (Comprehensive Human-centered Evaluation Framework), which integrates three validated dimensions—Technical Performance (T), Cognitive Alignment (C), and Experiential Quality (E)—into a composite score using clinical endpoint methodology. The core innovation is context-dependent weighting: stakeholders specify dimension priorities (e.g., healthcare emphasizes explainability; entertainment prioritizes user experience) through LLM-assisted elicitation. We hypothesize that (1) T-C-E dimensions are statistically independent (r<0.6), (2) CHEF scores predict 6-month deployment success (r>0.5), and (3) CHEF-guided decisions outperform fragmented evaluation by 15-25%. Validation involves 15-20 diverse AI-HCI systems, 450+ participants, and longitudinal outcome tracking. Expected impact: open-source toolkit, standardized reporting protocol, and evidence-based system selection for high-stakes domains.

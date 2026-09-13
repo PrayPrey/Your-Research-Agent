@@ -1,0 +1,60 @@
+
+\subsubsection{6.1 The Mechanistic Claim and the Null Result}
+
+The h-e1 and h-m1 results address different levels of the causal chain connecting reward granularity to training outcomes.
+
+\textbf{h-e1 establishes a mathematical property of the reward functions.} Ratio reward produces non-zero advantage variance in any GRPO group where at least one completion achieves partial credit (1 $\leq$ k < n) and no completion achieves full credit (k = n). Binary reward produces zero advantage variance in the same group. This guarantee holds for any model, dataset, and training configuration; it is a property of the reward functions and GRPO's advantage formula, not of the specific experimental setup.
+
+\textbf{h-m1 identifies a binding experimental prerequisite.} The null result is precise: reward\_mean = 0, clipped\_ratio = 1.0, and fraction\_partial = NaN at every logged step (h-m1/04\_validation.md §6, Reflection). These three metrics together confirm that the prerequisite condition --- at least one completion achieving partial credit (1 $\leq$ k < n) --- was not met at any point during training. Consequently, binary and ratio rewards were mathematically identical throughout, and no policy-level divergence was possible.
+
+This framing clarifies the relationship between the two phases: h-e1 proves the mechanism exists; h-m1 proves the mechanism was not active in the specific experimental setup tested.
+
+\subsubsection{6.2 Root Cause of the h-m1 Null Result}
+
+The most direct evidence for the root cause is clipped\_ratio = 1.0 throughout: all completions reached the 512-token generation limit. DeepSeek-Coder-6.7B-instruct requires longer sequences to produce syntactically complete Python functions for APPS competition-level problems. APPS problems (interview and competition difficulty levels) typically require 500--2,000+ token solutions \citep{Hendrycks2021APPS}. With max\_new\_tokens = 512, no completion produced a natural end-of-sequence token (mean\_terminated\_length = 0), so no completion was executed against any test case.
+
+Three competing explanations are considered (045\_validated\_hypothesis.md §4.2, Finding 1):
+
+\begin{enumerate}
+\item \textbf{Generation length insufficient (HIGH plausibility).} clipped\_ratio = 1.0 directly confirms all completions are truncated. Increasing max\_new\_tokens to 1,024--2,048 is expected to produce non-trivially complete solutions.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{APPS difficulty too high for 6.7B model (MEDIUM plausibility).} Even with longer generation, DeepSeek-Coder-6.7B may fail APPS competition problems. This model achieves approximately 52\% pass@1 on HumanEval but substantially lower rates on competition-level APPS.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Dataset filter removed accessible problems (LOW plausibility).} The $\geq 5$ test case filter used in h-e1 was not applied in h-m1 (which used $\geq 1$ test case). This is unlikely to be the primary cause given the universal generation truncation.
+\end{enumerate}
+
+The most parsimonious explanation is generation length. The 512-token limit was inherited from h-e1, which was designed for gradient norm measurement (a quick diagnostic), not for policy-level convergence.
+
+\subsubsection{6.3 Gate Criterion Discrepancy in h-e1}
+
+The h-e1 gate was defined as a bootstrap CI on gradient norm differences. The actual numerical CI (gate\_summary.json; h-e1/code/outputs/analyze.log) was: mean = $-0.0000$, CI = [$-0.0002$, +0.0001], gate\_satisfied = false. The validation report (h-e1/04\_validation.md §4) records gate\_satisfied = true on the basis that the mathematical proof constitutes stronger evidence than the numerical CI for the existence claim. Both characterizations are accurate: the CI-based criterion was not satisfied (the CI includes zero, consistent with both conditions being reward-equivalent in the background training run as well), while the mathematical proof definitively establishes that ratio reward produces different advantage variance from binary reward in groups with partial-pass completions.
+
+This discrepancy is noted to ensure accurate representation. The mechanistic claim --- that ratio reward produces non-zero advantage variance where binary reward produces zero --- is validated by mathematical proof and synthetic computation. The claim that this difference would manifest as detectable gradient norm differences in real GRPO training was not demonstrated, because the real training runs (both h-e1 background and h-m1) also suffered from 0\% partial-solve rate.
+
+\subsubsection{6.4 Implications for RLEF Practitioners}
+
+The h-m1 results imply a practical checklist for reward granularity experiments:
+
+\begin{enumerate}
+\item \textbf{Validate partial solve rate before training.} Compute reward\_mean and fraction\_partial on a small sample under the planned generation length. If both = 0, ratio and binary rewards are equivalent and training will not differentiate them regardless of reward function.
+\item \textbf{Monitor clipped\_ratio during training.} If clipped\_ratio $\rightarrow$ 1.0, no execution-based reward signal reaches the model under any formulation.
+\item \textbf{Select generation length for complete solutions.} For APPS problems, max\_new\_tokens $\geq$ 1,024 is indicated. For HumanEval or MBPP (where DeepSeek-Coder-6.7B achieves approximately 40--65\% base pass@1), 512 tokens may be sufficient.
+\item \textbf{Use ratio reward when fraction\_partial > 0.} The mechanistic guarantee is active only when partial-pass completions exist in training groups.
+\end{enumerate}
+
+\subsubsection{6.5 Limitations}
+
+\textbf{Policy-level claims are unverified.} The original hypothesis that ratio reward improves HumanEval pass@1 by $\geq 3pp$ was not evaluated. No HumanEval, MBPP, or APPS all-pass evaluation was conducted on either checkpoint, because neither condition produced non-zero training signal. No cross-benchmark generalization analysis was performed. These remain open empirical questions.
+
+\textbf{Single model and dataset.} All experiments used DeepSeek-Coder-6.7B-instruct on APPS. The mechanistic claim (h-e1) is model-agnostic, but the characterization of experimental prerequisites (h-m1) may differ for other models or datasets.
+
+\textbf{Hypotheses h-m2 and h-m3 not executed.} The planned hypotheses on training-evaluation reward alignment (h-m2) and cross-benchmark generalization (h-m3) were not started because h-m1 was prerequisite-gated. These remain entirely unaddressed empirically.
+
+\textbf{Similarity reward condition not implemented.} The original research question included a similarity (token-level F1) reward condition. This was not implemented or trained.
+
+\textbf{Mathematical proof not corroborated by real training gradient statistics.} The h-e1 background run gradient norm CI includes zero (gate\_summary.json). The proof is rigorous, but the magnitude of the gradient norm difference observable in real GRPO training --- absent the 0\% solve rate constraint --- is unknown.
+

@@ -1,0 +1,101 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Building on our observation that entropy and consistency may capture orthogonal failure modes, we design an experimental framework to test this hypothesis systematically. Our methodology enables fair comparison by computing both signals on identical model outputs.
+
+\subsection{Overview}
+
+We compute two uncertainty signals for each question-answer pair:
+
+\begin{enumerate}
+    \item \textbf{Token Entropy:} Mean entropy over generated tokens, capturing epistemic uncertainty in next-token prediction
+    \item \textbf{N-Sample Consistency:} Mean pairwise cosine similarity of response embeddings, capturing generation stability
+\end{enumerate}
+
+We then analyze: individual predictive validity (AUROC for hallucination detection), signal orthogonality (Pearson correlation), and complementary value on discordant cases.
+
+\subsection{Token Entropy Computation}
+
+\textbf{Rationale:} When a model lacks knowledge about the correct answer, its logit distribution over next tokens becomes diffuse (high entropy). Conversely, confident knowledge produces peaked distributions (low entropy).
+
+For a generated response with tokens $t_1, \ldots, t_n$, we compute token entropy as:
+\begin{equation}
+H(t_i) = -\sum_{v \in V} p(v | t_{<i}) \log p(v | t_{<i})
+\end{equation}
+where $V$ is the vocabulary and $p(v | t_{<i})$ is the softmax probability from the model's logits.
+
+\textbf{Aggregation:} We use mean entropy over response tokens:
+\begin{equation}
+H_{\text{response}} = \frac{1}{n} \sum_{i=1}^{n} H(t_i)
+\end{equation}
+
+Mean aggregation is robust to response length variations and captures overall uncertainty rather than worst-case token uncertainty.
+
+\textbf{Implementation Details:}
+\begin{itemize}
+    \item Greedy decoding with \texttt{output\_scores=True} to access logits
+    \item Numerical stability via \texttt{clamp(min=1e-10)} before log computation
+    \item Maximum response length: 100 tokens
+\end{itemize}
+
+\subsection{N-Sample Consistency Computation}
+
+\textbf{Rationale:} When a model's knowledge is unstable or fabricated, repeated sampling produces semantically divergent responses. Stable knowledge yields consistent answers across samples.
+
+For $N$ independently sampled responses to the same question, we:
+\begin{enumerate}
+    \item Generate $N$ responses with temperature sampling ($T=1.0$)
+    \item Encode each response using a sentence embedding model
+    \item Compute pairwise cosine similarity
+    \item Average to get consistency score
+\end{enumerate}
+
+\begin{equation}
+C = \frac{2}{N(N-1)} \sum_{i < j} \text{cos}(e_i, e_j)
+\end{equation}
+where $e_i$ is the embedding of response $i$.
+
+\textbf{Design Choices:}
+\begin{itemize}
+    \item \textbf{$N=5$ samples:} Balances computational cost with estimate stability (following SelfCheckGPT)
+    \item \textbf{Temperature=1.0:} Maximizes sampling diversity to reveal underlying instability
+    \item \textbf{Embedding model:} sentence-transformers/all-MiniLM-L6-v2 for computational efficiency
+\end{itemize}
+
+\subsection{Ground Truth Labels}
+
+We use TruthfulQA's generation split (817 questions) with factuality labels derived from BERTScore comparison between model response and reference answers:
+\begin{itemize}
+    \item \textbf{Correct:} BERTScore F1 $\geq 0.5$ with best\_answer
+    \item \textbf{Incorrect:} BERTScore F1 $< 0.5$ with best\_answer
+\end{itemize}
+
+This provides a binary classification target for AUROC computation.
+
+\subsection{Orthogonality Analysis}
+
+To test whether entropy and consistency capture different information:
+
+\textbf{Correlation Analysis:}
+\begin{itemize}
+    \item Compute Pearson $r$ between (entropy, 1-consistency) across all questions
+    \item Threshold: $r < 0.3$ indicates orthogonal signals ($< 9\%$ shared variance)
+\end{itemize}
+
+\textbf{Discordant Case Analysis:}
+\begin{itemize}
+    \item Identify questions where entropy rank differs from consistency rank by $>50$ percentile points
+    \item Compute AUROC for each method on its ``winning'' subset
+    \item Threshold: $>15\%$ discordant cases with winning-method AUROC $>0.6$
+\end{itemize}
+
+This analysis determines whether combining signals could provide complementary value beyond what either achieves alone.
+
+\subsection{Statistical Validation}
+
+\begin{itemize}
+    \item \textbf{Effect size:} Cohen's $d$ with pooled standard deviation
+    \item \textbf{Significance testing:} Mann-Whitney U test (one-sided) for group comparisons
+    \item \textbf{Confidence intervals:} 95\% CI via bootstrap (1000 iterations)
+    \item \textbf{AUROC:} Area under ROC curve with bootstrap confidence intervals
+\end{itemize}

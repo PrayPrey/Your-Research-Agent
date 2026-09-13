@@ -1,0 +1,41 @@
+
+\subsubsection{6.1 Summary of Findings}
+
+\textbf{Finding 1: Offline variance profiling is analytically valid.} The 4.$24\times$ mean variance advantage (p=2.$22\times 10^{-6})$ confirms that frozen-model pass rate profiling reliably identifies a statistically distinct problem subset. The selection method operates as designed.
+
+\textbf{Finding 2: The MBPP variance distribution is more degenerate than theoretical analyses assume.} The 91.7\% all-fail rate under constrained generation (k=4, max\_new\_tokens=128) substantially exceeds both the 69.25\% theoretical rate for G=4 \citep{Nie2026} and the heterogeneous difficulty distribution assumed by prior RLVR work. Generation parameter constraints critically shape the effective training data pool.
+
+\textbf{Finding 3: Cold-start is a necessary precondition.} More than 50,000 generation attempts producing zero reward is not a stochastic event --- it is deterministic given the current parameter configuration. The identity $\sigma =0$ when k=0 tells us no data selection method can help when the model generates no correct solutions.
+
+\subsubsection{6.2 Root Cause Analysis}
+
+Cold-start (zero reward across all 50,000+ generation attempts) admits several candidate explanations. These are enumerated and ranked by supporting evidence.
+
+\textbf{Candidate 1 (Most likely): Generation parameter mismatch.} Profiling used vLLM with max\_new\_tokens=128; training uses HF GRPOTrainer with max\_completion\_length=512. The 29 problems identified as high-variance (p\_i=0.25 at max\_new\_tokens=128) may require longer completions to produce correct solutions. Under training conditions, they may all collapse to p\_i=0. Evidence in favor: truncation ratio is severe (128 vs. 512 tokens); max\_new\_tokens is the single parameter most likely to prevent solution completion for many code problems. Evidence against: this cannot be confirmed without re-profiling under training-identical parameters.
+
+\textbf{Candidate 2 (Plausible): Prompt format mismatch.} The prompt format used during vLLM profiling may differ from the chat template applied by GRPOTrainer. A different instruction prefix or separator could change the model's generation behavior sufficiently to shift pass rates from 0.25 to 0.0. Evidence in favor: instruction-tuned models are sensitive to prompt format. Evidence against: both paths use the same base model and were configured to use the same prompt template, though this was not verified by logging decoded prompts.
+
+\textbf{Candidate 3 (Plausible): Fundamental capability gap.} DeepSeek-Coder-7B-Instruct may generate syntactically valid but semantically incorrect Python in this zero-shot GRPO setup at a rate insufficient for any of G=4 completions to pass, regardless of generation length. Evidence in favor: h-m3 extending to 200 steps with doubled LR produced no nonzero rewards, suggesting the failure is not simply a matter of more training. Evidence against: h-e1 profiling found p\_i=0.25 for 29 problems under max\_new\_tokens=128, suggesting the model does generate correct solutions under some conditions.
+
+\textbf{Candidate 4 (Less likely): Execution harness mismatch.} The subprocess execution harness (timeout, working directory, import availability) may differ between profiling and training reward evaluation. Evidence in favor: execution environment differences can silently flip pass/fail outcomes. Evidence against: both phases use the same reward function implementation; no execution errors were logged.
+
+\textbf{Resolution protocol (prescriptive, not yet empirically validated):} Re-profiling with training-identical parameters (same prompt format, max\_new\_tokens=max\_completion\_length=512, same execution harness) would directly distinguish Candidates 1 and 2 from Candidates 3 and 4. If the 29 currently-selected problems retain $p_i\geq 0.25$ after aligned re-profiling, cold-start is a training-phase issue. If they collapse to p\_i=0, Candidate 1 or 2 is confirmed. This protocol is proposed as future work; it was not executed in this study.
+
+Cold-start does not in itself invalidate offline variance profiling as a design --- it identifies a deployment precondition: profiling-training parameter alignment must be verified before training begins.
+
+\subsubsection{6.3 Limitations}
+
+\textbf{Limitation 1: Cold-start prevents empirical mechanism validation.} The gradient concentration claim (mechanism Step 3) and the HumanEval+ performance claim (Step 4) are contingent on nonzero reward signal. The selection method is validated analytically; training-phase benefit requires cold-start resolution. The proposed resolution protocol is prescriptive and has not been empirically executed.
+
+\textbf{Limitation 2: Profiling parameters differ from training parameters.} Profiling used k=4, max\_new\_tokens=128; training used max\_completion\_length=512. The mismatch arose from hardware constraints (sequential HF inference at k=8, max\_new\_tokens=512 required approximately 8 hours) and vLLM-TRL incompatibility (vLLM 0.11.0 + TRL 1.10). This is the most likely root cause of cold-start among the candidates enumerated above.
+
+\textbf{Limitation 3: Only 29/374 problems usable for variance selection.} The severely degenerate distribution narrows the selection pool. $k\geq 8$ with $\text{max\_new\_tokens}\geq 512$ would reveal richer intermediate-difficulty structure and a more heterogeneous variance distribution.
+
+\textbf{Limitation 4: Single-run training experiments, no multi-seed validation.} For the cold-start negative result, replication is unnecessary --- zero reward across 50,000+ attempts is not stochastic. For future positive-result claims, 3+ seeds are required.
+
+\textbf{Limitation 5: Root cause is inferred, not confirmed.} The resolution protocol in Section 6.2 remains unexecuted.
+
+\subsubsection{6.4 Implications}
+
+The experimental findings suggest that any RLEF data selection paper should report \texttt{frac\textbackslash \_reward\textbackslash \_zero\textbackslash \_std} trajectories as a baseline diagnostic to confirm training regime viability before claiming selection advantages. Practitioners deploying data selection for RLEF should verify pass@k > 0 on target problems under training-identical generation parameters before investing in offline or online selection infrastructure.
+

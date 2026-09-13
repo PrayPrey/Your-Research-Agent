@@ -1,0 +1,409 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  created_at: "2026-04-30T14:30:00Z"
+  description: "Predictive validity of epistemic composite (ECE+TruthfulQA%+Brier) for adversarial robustness"
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 10
+  logic_subtasks: 6
+  config_subtasks: 3
+  failsafe: 1
+  total: 21
+  budget_used: 21
+  budget_max: 30
+  within_budget: true
+
+tasks:
+  # ─────────────────────────────────────────────
+  # ENVIRONMENT SETUP (priority 94)
+  # ─────────────────────────────────────────────
+  - id: "ENV-1"
+    title: "Verify Python environment and dependencies"
+    type: setup
+    priority: 94
+    description: >
+      Verify all required packages are installed: pandas>=2.0.0, pingouin>=0.5.3,
+      scipy>=1.11.0, numpy>=1.24.0, scikit-learn>=1.3.0, matplotlib>=3.7.0,
+      seaborn>=0.12.0. Create h-m2/code/, h-m2/figures/, h-m2/results/ directories.
+      Verify h-e1/results/score_matrix.csv exists (required input).
+    reference_files:
+      - file: "03_prd.md"
+        section: "## Dependencies (Section 7)"
+      - file: "03_config.md"
+        section: "## Complete config.py (H-M2)"
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "h-m2/code/, h-m2/figures/, h-m2/results/ directories exist"
+      - "h-e1/results/score_matrix.csv exists and has 30 rows × 8 columns"
+
+  # ─────────────────────────────────────────────
+  # EPIC IMPLEMENTATION TASKS (priority 93–50)
+  # ─────────────────────────────────────────────
+  - id: "A-1"
+    title: "Project Setup: config.py and directory structure"
+    type: setup
+    priority: 93
+    complexity: 5
+    complexity_level: Low
+    description: >
+      Implement h-m2/code/config.py with all module-level constants (paths, gate
+      thresholds, column definitions, bootstrap settings, figure config).
+      Create requirements.txt. Verify directory structure.
+    reference_files:
+      - file: "03_config.md"
+        section: "## Complete config.py (H-M2)"
+      - file: "03_architecture.md"
+        section: "### Config (`h-m2/code/config.py`)"
+    acceptance_criteria:
+      - "config.py importable; all constants defined with correct types"
+      - "SCORE_MATRIX_PATH resolves to existing h-e1/results/score_matrix.csv"
+      - "All 6 FIGURE_NAMES defined"
+
+  - id: "A-2"
+    title: "Data Loader: load_score_matrix + validate_schema + add_top_quartile_label"
+    type: data-pipeline
+    priority: 92
+    complexity: 6
+    complexity_level: Low
+    description: >
+      Implement h-m2/code/data_loader.py. load_score_matrix: reads CSV, validates
+      30 rows × 8 required columns, raises FileNotFoundError/ValueError.
+      validate_schema: checks REQUIRED_COLS and no NaN in GATE_COLS.
+      add_top_quartile_label: adds top_quartile_advglue binary column at TOP_QUARTILE=0.75.
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### DataLoader (`h-m2/code/data_loader.py`)"
+      - file: "03_logic.md"
+        section: "## External Dependencies API (Base Hypothesis)"
+    acceptance_criteria:
+      - "load_score_matrix returns DataFrame with 30 rows and all REQUIRED_COLS"
+      - "add_top_quartile_label creates binary column with ~7-8 positives"
+      - "Raises ValueError on missing columns or NaN in GATE_COLS"
+
+  - id: "A-3"
+    title: "Partial Rho Analyzers: BCa bootstrap partial Spearman for AdvGLUE and ANLI"
+    type: analysis
+    priority: 91
+    complexity: 10
+    complexity_level: Medium
+    description: >
+      Implement _bca_bootstrap_partial (exact H-M1 parameter names: x, y, covar)
+      and compute_partial_rho_advglue returning full dict with rho_partial_advglue,
+      bca_ci_low/high, ci_excludes_zero, passes_threshold, rho_partial_anli,
+      anli_bca_ci_low/high. Uses pg.partial_corr + BCa (z0+jackknife acceleration).
+    reference_files:
+      - file: "03_logic.md"
+        section: "## A-3: Partial Rho Analyzers"
+      - file: "03_architecture.md"
+        section: "### Analyzers (`h-m2/code/analyzers.py`)"
+    subtasks:
+      - "L-3-1"
+      - "L-3-2"
+    acceptance_criteria:
+      - "_bca_bootstrap_partial uses parameter names x, y, covar (not x_col/covariate)"
+      - "ci_excludes_zero = (ci_lo > 0 or ci_hi < 0) handles negative correlations"
+      - "ANLI arm uses seed+1 for independent bootstrap"
+
+  - id: "A-4"
+    title: "LOO Logistic Regression: _run_loo_logistic + compute_loo_auc"
+    type: analysis
+    priority: 90
+    complexity: 11
+    complexity_level: Medium
+    description: >
+      Implement _run_loo_logistic (StandardScaler fit on train fold only — no leakage,
+      LogisticRegression C=1.0) and compute_loo_auc returning {auc, y_proba, y_true,
+      feature_cols}. Single-class guard raises ValueError before roc_auc_score call.
+    reference_files:
+      - file: "03_logic.md"
+        section: "## A-4: LOO Logistic Regression"
+      - file: "03_architecture.md"
+        section: "### Analyzers (`h-m2/code/analyzers.py`)"
+    subtasks:
+      - "L-4-1"
+      - "L-4-2"
+    acceptance_criteria:
+      - "StandardScaler fitted only on train fold in each LOO iteration (no data leakage)"
+      - "Raises ValueError if target has fewer than 2 classes"
+      - "Returns y_proba of shape (N,) matching y_true"
+
+  - id: "A-5"
+    title: "Delta AUC Bootstrap: compute_delta_auc_bootstrap + evaluate_gate"
+    type: analysis
+    priority: 89
+    complexity: 13
+    complexity_level: Medium
+    description: >
+      Implement compute_delta_auc_bootstrap: observed LOO-AUC for composite and
+      baseline, 10k percentile bootstrap resamples, nan-filtering for single-class
+      edge cases, 95% CI, ci_excludes_zero = ci_lo > 0.
+      evaluate_gate: PASS iff auc_composite>=0.70 AND delta_auc>=0.10 AND ci_lo>0.
+    reference_files:
+      - file: "03_logic.md"
+        section: "## A-5: Delta AUC Bootstrap"
+      - file: "03_config.md"
+        section: "## A-6: Visualizer — AUC Figures"
+    subtasks:
+      - "L-5-1"
+      - "L-5-2"
+    acceptance_criteria:
+      - "Bootstrap uses percentile (not BCa) as specified in PRD NFR-4"
+      - "Single-class bootstrap samples appended as np.nan and filtered before CI"
+      - "Warns if fewer than 90% of bootstrap samples are valid"
+      - "passes_delta_threshold requires BOTH delta_auc>=0.10 AND ci_lo>0"
+
+  - id: "A-6"
+    title: "Visualizer — AUC Figures: gate_metrics, roc_curves, advglue_distribution"
+    type: visualization
+    priority: 75
+    complexity: 9
+    complexity_level: Medium
+    description: >
+      Implement plot_auc_comparison_bar (LOO-AUC composite vs MMLU-only with CI error
+      bars, 0.70 threshold line, ΔR² annotation), plot_roc_curves (ROC overlay with
+      AUC annotations), plot_advglue_distribution (histogram with top-quartile line).
+      Save to h-m2/figures/ using FIGURE_NAMES config.
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### Visualizer (`h-m2/code/visualizer.py`)"
+      - file: "03_config.md"
+        section: "## A-6: Visualizer — AUC Figures"
+    subtasks:
+      - "C-6-1"
+    acceptance_criteria:
+      - "fig1_gate_metrics_comparison.png saved with CI error bars and threshold line"
+      - "fig2_roc_curves_comparison.png saved with AUC annotations for both predictors"
+      - "fig4_advglue_drop_distribution.png saved with top-quartile threshold"
+
+  - id: "A-7"
+    title: "Visualizer — Correlation + Feature Figures: partial_rho, feature_importance, scatter"
+    type: visualization
+    priority: 74
+    complexity: 10
+    complexity_level: Medium
+    description: >
+      Implement plot_partial_rho_comparison (partial rho bars with BCa CIs, H-M1 reference),
+      plot_feature_importance (standardized LOO logistic coefficients across folds),
+      plot_composite_scatter (PC1 proxy vs AdvGLUE_drop colored by model family).
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### Visualizer (`h-m2/code/visualizer.py`)"
+      - file: "03_config.md"
+        section: "## A-7: Visualizer — Corr+Feature Figures"
+    subtasks:
+      - "C-7-1"
+    acceptance_criteria:
+      - "fig3_partial_correlation_comparison.png saved with BCa CI bars"
+      - "fig5_feature_importance.png saved with coefficient stability across LOO folds"
+      - "fig6_epistemic_vs_adversarial_scatter.png saved with model family coloring"
+
+  - id: "A-8"
+    title: "Reporter: write_results_json + write_validation_md"
+    type: reporting
+    priority: 70
+    complexity: 7
+    complexity_level: Low
+    description: >
+      Implement reporter.py: write_results_json saves all gate metric dicts to
+      h-m2/results/hm2_results.json. write_validation_md generates h-m2/04_validation.md
+      with pass/fail status for each gate criterion and key metrics table.
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### Reporter (`h-m2/code/reporter.py`)"
+      - file: "03_prd.md"
+        section: "## Success Criteria"
+    acceptance_criteria:
+      - "hm2_results.json is valid JSON with all gate metric keys"
+      - "04_validation.md contains explicit PASS/PARTIAL/EXPLORE gate result"
+      - "All metric values (AUC, ΔR², partial rho) reported with CI bounds"
+
+  - id: "A-9"
+    title: "Orchestrator: run_experiment.py main() wiring all modules"
+    type: integration
+    priority: 65
+    complexity: 8
+    complexity_level: Low
+    description: >
+      Implement run_experiment.py main(): orchestrates load → validate →
+      partial_rho → loo_auc_composite → loo_auc_baseline → delta_bootstrap →
+      gate_eval → visualize (6 figs) → report. sys.exit(0) on gate pass, sys.exit(1)
+      on gate fail. Structured console output for all metrics.
+    reference_files:
+      - file: "03_architecture.md"
+        section: "### RunExperiment (`h-m2/code/run_experiment.py`)"
+      - file: "03_architecture.md"
+        section: "## Data Flow"
+    acceptance_criteria:
+      - "main() runs end-to-end without error on h-e1/results/score_matrix.csv"
+      - "sys.exit(0) on gate PASS, sys.exit(1) on gate fail/partial"
+      - "All 6 figures saved to h-m2/figures/"
+      - "h-m2/results/hm2_results.json and h-m2/04_validation.md written"
+
+  - id: "A-10"
+    title: "Tests: unit tests for data_loader, analyzers, reporter + smoke test"
+    type: testing
+    priority: 55
+    complexity: 9
+    complexity_level: Medium
+    description: >
+      Implement h-m2/tests/conftest.py with synthetic_score_matrix, results_dir,
+      figures_dir fixtures (TEST_N_MODELS=10, TEST_BOOTSTRAP_N=100).
+      Unit tests: test_data_loader.py, test_analyzers.py, test_reporter.py.
+      Smoke test: run_experiment.py on synthetic data completes without error.
+    reference_files:
+      - file: "03_config.md"
+        section: "## A-10: Tests"
+      - file: "03_logic.md"
+        section: "## Summary: Subtask Allocation"
+    subtasks:
+      - "C-10-1"
+    acceptance_criteria:
+      - "pytest passes for all unit tests"
+      - "Smoke test: main() runs on synthetic 10-row score matrix"
+      - "conftest.py fixtures cover all test functions"
+
+  # ─────────────────────────────────────────────
+  # LOGIC SUBTASKS (priority 49–30)
+  # ─────────────────────────────────────────────
+  - id: "L-3-1"
+    title: "_bca_bootstrap_partial: BCa CI with exact H-M1 parameter names"
+    type: subtask
+    parent_epic: "A-3"
+    priority: 45
+    description: >
+      Implement BCa bootstrap for partial Spearman. Parameter names must match H-M1
+      exactly: (df, x, y, covar, n_boot, seed, alpha=0.05). Inner _stat calls
+      pg.partial_corr(data=d, x=x, y=y, covar=covar, method="spearman").
+      BCa: z0 via bootstrap, acceleration a via jackknife. Returns (ci_lo, ci_hi).
+    reference_files:
+      - file: "03_logic.md"
+        section: "## A-3: Partial Rho Analyzers"
+
+  - id: "L-3-2"
+    title: "compute_partial_rho_advglue: return dict + ci_excludes_zero logic"
+    type: subtask
+    parent_epic: "A-3"
+    priority: 44
+    description: >
+      Call _bca_bootstrap_partial twice (AdvGLUE at seed, ANLI at seed+1).
+      ci_excludes_zero = (ci_lo > 0 or ci_hi < 0) handles negative correlations.
+      passes_threshold checks abs(rho) >= PARTIAL_RHO_THRESHOLD AND ci_excludes_zero.
+    reference_files:
+      - file: "03_logic.md"
+        section: "## A-3: Partial Rho Analyzers"
+
+  - id: "L-4-1"
+    title: "_run_loo_logistic: per-fold StandardScaler (no data leakage)"
+    type: subtask
+    parent_epic: "A-4"
+    priority: 43
+    description: >
+      StandardScaler must be fit on train fold only inside each LOO iteration.
+      LogisticRegression(C=LR_C, max_iter=LR_MAX_ITER, random_state=seed).
+      Returns y_proba of shape (N,).
+    reference_files:
+      - file: "03_logic.md"
+        section: "## A-4: LOO Logistic Regression"
+
+  - id: "L-4-2"
+    title: "compute_loo_auc: error handling + single-class guard"
+    type: subtask
+    parent_epic: "A-4"
+    priority: 42
+    description: >
+      Raises ValueError if len(np.unique(y)) < 2 before calling _run_loo_logistic.
+      Returns {auc, y_proba: ndarray(N,), y_true: ndarray(N,), feature_cols}.
+    reference_files:
+      - file: "03_logic.md"
+        section: "## A-4: LOO Logistic Regression"
+
+  - id: "L-5-1"
+    title: "compute_delta_auc_bootstrap: paired bootstrap internals"
+    type: subtask
+    parent_epic: "A-5"
+    priority: 41
+    description: >
+      Observed delta from full-data LOO. Bootstrap loop: resample row indices,
+      run compute_loo_auc for both composite and baseline, collect delta.
+      95% percentile CI from valid boot_deltas. ci_excludes_zero = ci_lo > 0.
+    reference_files:
+      - file: "03_logic.md"
+        section: "## A-5: Delta AUC Bootstrap"
+
+  - id: "L-5-2"
+    title: "compute_delta_auc_bootstrap: single-class edge cases + leakage guard"
+    type: subtask
+    parent_epic: "A-5"
+    priority: 40
+    description: >
+      Bootstrap samples with single-class y → append np.nan, filter before CI.
+      Warn if valid samples < 90% of n_boot. StandardScaler inside each LOO fold
+      (not pre-fitted on full bootstrap sample).
+    reference_files:
+      - file: "03_logic.md"
+        section: "## A-5: Delta AUC Bootstrap"
+
+  # ─────────────────────────────────────────────
+  # CONFIG SUBTASKS (priority 29–10)
+  # ─────────────────────────────────────────────
+  - id: "C-7-1"
+    title: "figure-config: FIGURE_NAMES dict + scatter/coefficient display constants"
+    type: subtask
+    parent_epic: "A-7"
+    priority: 25
+    description: >
+      Define FIGURE_NAMES dict with 6 entries (fig1–fig6 filenames).
+      SCATTER_ALPHA=0.75, SCATTER_SIZE=60, COEF_CI_ALPHA=0.05.
+    reference_files:
+      - file: "03_config.md"
+        section: "## A-7: Visualizer — Corr+Feature Figures"
+
+  - id: "C-6-1"
+    title: "auc-figure-config: gate threshold constants + ROC/bar chart display settings"
+    type: subtask
+    parent_epic: "A-6"
+    priority: 24
+    description: >
+      AUC_THRESHOLD=0.70, DELTA_AUC_THRESHOLD=0.10, ROC_LINEWIDTH=2.0,
+      ROC_DIAGONAL_STYLE="--", BAR_CAPSIZE=5, BAR_ALPHA=0.85.
+    reference_files:
+      - file: "03_config.md"
+        section: "## A-6: Visualizer — AUC Figures"
+
+  - id: "C-10-1"
+    title: "pytest-fixture-design: conftest.py with synthetic fixtures"
+    type: subtask
+    parent_epic: "A-10"
+    priority: 23
+    description: >
+      conftest.py: synthetic_score_matrix (TEST_N_MODELS=10, TEST_SEED=42),
+      results_dir(tmp_path), figures_dir(tmp_path). TEST_BOOTSTRAP_N=100 for speed.
+    reference_files:
+      - file: "03_config.md"
+        section: "## A-10: Tests"
+
+  # ─────────────────────────────────────────────
+  # FAILSAFE (priority 1)
+  # ─────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline continuation checkpoint"
+    type: failsafe
+    priority: 1
+    description: >
+      Ensure run_experiment.py exits with sys.exit(0) on gate PASS or sys.exit(1)
+      on PARTIAL/EXPLORE. Verify 04_validation.md is written regardless of gate result.
+      H-M2 proceeds to H-M3 in ALL cases (SHOULD_WORK gate).
+    reference_files:
+      - file: "03_prd.md"
+        section: "## Success Criteria"
+      - file: "03_architecture.md"
+        section: "## Gate Logic"
+    acceptance_criteria:
+      - "04_validation.md written with gate result (PASS/PARTIAL/EXPLORE)"
+      - "H-M3 can proceed regardless of H-M2 gate result"

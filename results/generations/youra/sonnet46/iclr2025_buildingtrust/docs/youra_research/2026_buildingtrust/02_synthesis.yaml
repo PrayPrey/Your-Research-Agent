@@ -1,0 +1,136 @@
+# 02_synthesis.yaml - Phase 2A Synthesis (v10.0.0 Free-Parse)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-03-14T23:05:00Z"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Alignment-Induced Calibration Distortion: Mechanistic Discrimination Across SFT, DPO, and PPO"
+  hypothesis_id: "H-AlignCalib-v1"
+  core_claim: |
+    Instruction-tuning alignment systematically increases the Brier reliability component of Expected
+    Calibration Error (ECE) in large language models, with magnitude ordered PPO >= DPO > SFT, reflecting
+    the degree of reward-optimization pressure. The mechanism is empirically discriminable among three
+    competing hypotheses: (H1) monotonic logit scale distortion, (H2) decision-boundary restructuring,
+    and (H3) framing susceptibility. All three are testable from existing lm-eval log-probability outputs
+    on MMLU using Pythia SFT/PPO/DPO checkpoints.
+  mechanism: |
+    Alignment training pushes logit distributions toward higher-confidence, reward-preferred outputs.
+    PPO's explicit reward maximization (with KL constraint to SFT) applies stronger pressure than
+    DPO's likelihood-ratio objective, which in turn applies more pressure than SFT alone. This pressure
+    manifests as one or more of: (1) monotonic logit temperature inflation (rank-preserving confidence
+    amplification), (2) preference-induced decision boundary shifts (argmax changes toward rewarded
+    response types), or (3) increased framing susceptibility (confidence allocation becomes sensitive
+    to alternative hypotheses / distractors). ATS's success [Xie et al. 2024] confirms the distortion
+    is encoded in the model's hidden states and is correctable, supporting a systematic rather than
+    random nature.
+  predictions:
+    - P1: "ΔECE > 0 for PPO and DPO on MMLU (bootstrap CI lower > 0); ordered PPO >= DPO > SFT in ΔReliability"
+    - P2: "Within shared-argmax items: aligned models show higher mean max-prob and higher Brier reliability than base (Cohen's d >= 0.1)"
+    - P3: "Logit rank correlation ρ >= 0.9 AND margin inflation PPO >= DPO > SFT (if H1 dominates)"
+
+variables_summary:
+  independent: "Alignment method (SFT, DPO, PPO); Model family (Pythia primary, LLaMA-2/Mistral/Falcon secondary); Benchmark type (MMLU, TruthfulQA, HellaSwag)"
+  dependent_primary: "ΔECE (aligned minus base) and ΔBrier reliability, computed from lm-eval log-prob continuation outputs"
+  controlled: "Base pretraining checkpoint (Pythia identical), evaluation format (log-prob continuation, not chat template), greedy decoding, fixed temperature=1.0"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in Expected Calibration Error or Brier reliability between
+    instruction-tuned aligned models and their base counterparts, and no consistent gradient ordering
+    PPO >= DPO > SFT in ΔReliability. Any observed ECE differences are within noise (bootstrap CI
+    includes 0) or attributable entirely to accuracy changes.
+  statistical_test: "Paired Wilcoxon signed-rank test on item-level calibration; bootstrap CI (n=1000) for ΔECE per model pair"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: >
+    Three-mechanism pre-registered design that converts ΔECE from a scalar finding into a mechanistic
+    diagnostic: logit rank correlation (ρ) + pre-softmax margin analysis + shared/changed prediction
+    Brier decomposition + Alignment x Distractor interaction. Alignment-method gradient (PPO >= DPO > SFT)
+    is a theoretically grounded prediction with first-principles justification.
+  differentiation_summary: |
+    Xie et al. 2024 confirmed RLHF degrades ECE for one model; Li et al. 2024 studied trustworthiness
+    without ECE; Chhikara 2025 used verbal confidence, not softmax ECE. This work is the first to:
+    (a) systematically compare ECE across alignment methods on a shared pretraining lineage,
+    (b) decompose the change into reliability vs. resolution,
+    (c) pre-register three mechanistic hypotheses with distinct falsifiers,
+    (d) use ATS as an explanatory tool rather than just a correction method.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "EleutherAI/pythia-1.4b (SFT, DPO, PPO variants)"
+    - "EleutherAI/pythia-2.8b (SFT, DPO, PPO variants)"
+    - "EleutherAI/pythia-6.9b (SFT, DPO, PPO variants)"
+    - "meta-llama/Llama-2-7b-hf, meta-llama/Llama-2-7b-chat-hf"
+    - "meta-llama/Llama-2-13b-hf, meta-llama/Llama-2-13b-chat-hf"
+    - "mistralai/Mistral-7B-v0.1, mistralai/Mistral-7B-Instruct-v0.1"
+    - "tiiuae/falcon-7b, tiiuae/falcon-7b-instruct (sensitivity check)"
+  datasets:
+    - "MMLU (cais/mmlu) — primary, 57 subjects"
+    - "TruthfulQA MC1 (truthful_qa) — factual knowledge"
+    - "HellaSwag (hellaswag) — commonsense reasoning"
+  baselines:
+    - "Paired base model ECE (within-pair comparison)"
+    - "ATS-corrected ECE (Xie et al. 2024 diagnostic)"
+
+measurement_plan:
+  data_collection:
+    - source: "lm-eval v0.4.11 with --log_samples flag; extracts per-item log-probs for all answer options"
+    - source: "Brier decomposition computed from lm-eval outputs using standard Murphy (1973) decomposition"
+    - source: "Pre-softmax logit margins computed from raw token log-prob outputs"
+  procedure:
+    - step: "Run lm-eval on all model variants (Pythia x3 sizes x3 alignment + LLaMA-2 x2 + Mistral + Falcon) on MMLU, TruthfulQA MC1, HellaSwag"
+    - step: "Compute ECE (15-bin equal-width) and Brier reliability/resolution from per-item softmax outputs"
+    - step: "Compute ΔECE and ΔReliability as aligned minus base for each model pair"
+    - step: "Partition MMLU items into shared-argmax and changed-argmax subsets; compute conditional reliability"
+    - step: "Compute Spearman ρ over 4-option log-prob vectors per item; compute pre-softmax margin (top-1 minus top-2)"
+    - step: "Optionally: run distractor-augmented MMLU items (H3 framing susceptibility test)"
+    - step: "Bootstrap CI (n=1000) for all ΔECE and ΔReliability estimates"
+  success_criteria:
+    - "P1: ΔECE bootstrap CI lower > 0 for PPO and DPO; ΔReliability_PPO >= ΔReliability_DPO > ΔReliability_SFT"
+    - "P2: Cohen's d >= 0.1 for within-shared-argmax reliability degradation in PPO"
+    - "P3 (H1): Mean ρ >= 0.9 AND margin increases PPO >= DPO > SFT"
+
+validation:
+  internal_validity:
+    - "Paired within-family design (same base checkpoint) eliminates pretraining confound"
+    - "Log-prob continuation scoring (not chat templates) eliminates format confound"
+    - "Brier decomposition separates reliability (overconfidence) from resolution (knowledge)"
+    - "Conditional reliability (shared argmax) separates confidence inflation from accuracy collapse"
+    - "Pre-softmax margin analysis prevents softmax normalization artifact"
+  external_validity:
+    - "Three model families (Pythia, LLaMA-2, Mistral) across 3 benchmarks provide generalizability"
+    - "Three Pythia model sizes (1.4B/2.8B/6.9B) test scale robustness"
+    - "Alignment-method gradient (PPO/DPO/SFT) tests whether effect is alignment-method-specific or general"
+
+discussion_synthesis:
+  key_insights:
+    - "The core finding that RLHF degrades calibration (Xie 2024) needs mechanistic explanation — three competing mechanisms identified"
+    - "Alignment-method heterogeneity across families (SFT-only Mistral/Falcon vs PPO LLaMA-2) is a natural experiment, not a confound"
+    - "ATS's hidden-state-based correction implies miscalibration is smooth and representationally encoded — supports H1 (scale distortion)"
+    - "Prof. Rex's critique about Chhikara conflating verbal vs softmax ECE was essential — clarified measurement objects"
+    - "The Pythia SFT → DPO → PPO ladder from Li et al. 2024 is the cleanest existing causal chain for alignment-calibration study"
+  breakthrough_moments:
+    - "Exchange 4 (Prof. Rex): Revealed Mistral/Falcon are SFT-only — reframed hypothesis from 'RLHF-specific' to 'alignment-general'"
+    - "Exchange 8 (Dr. Nova): Proposed distractor analysis as mechanistic probe and multi-hypothesis pre-registration"
+    - "Exchange 13 (Prof. Rex): Demanded shared/changed-prediction split — converted ΔECE from scalar to mechanistic test"
+    - "Exchange 15 (Prof. Vera): Formalized three competing hypotheses (H1/H2/H3) with explicit Achilles' heels"
+  resolved_tensions:
+    - "Chhikara verbal vs. softmax ECE conflation: resolved by clearly labeling measurement objects and using log-prob ECE as primary"
+    - "Accuracy confound: resolved by Brier decomposition and shared-argmax conditional reliability test"
+    - "Alignment method heterogeneity: resolved by reframing as natural experiment (PPO vs DPO vs SFT gradient prediction)"
+    - "Format confound: resolved by log-prob continuation scoring in lm-eval (format-agnostic)"

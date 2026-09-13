@@ -1,0 +1,8 @@
+# Title
+Adaptive Loss Landscape Preconditioning for Physics-Informed Neural Networks via Spectral Conditioning Theory
+
+# Motivation
+Physics-Informed Neural Networks (PINNs) frequently fail on convection-dominated and stiff PDEs due to ill-conditioned multi-objective loss landscapes where physics, data, and boundary terms have vastly different Hessian condition numbers. Current solutions rely on manual hyperparameter tuning or heuristic gradient balancing (e.g., GradNorm) without theoretical grounding. This research addresses the critical gap identified by Krishnapriyan et al. (2021) by integrating rigorous numerical preconditioning theory into PINN training, providing the first principled solution to conditioning-induced failures.
+
+# Main Idea
+We hypothesize that adaptive preconditioning via online spectral condition number estimation eliminates PINN training failures by automatically balancing ill-conditioned loss landscapes. The core mechanism: disparate PDE operator conditioning creates imbalanced loss Hessians (κ(H_physics) >> κ(H_data)), causing optimizers to neglect physics terms. Our method adaptively scales loss weights proportional to λ_i ∝ 1/√κ(H_i) using Hutchinson trace estimation and power iteration, with Lyapunov-stable control laws ensuring κ(L_total) ≤ C·max(κ(L_i)). We predict 2-10x convergence speedup on convection-dominated PDEs (Peclet number >10) with >5x condition number reduction and >30% error improvement over GradNorm baselines. Validation uses factorial experiments across four PDE types with rigorous statistical testing, offering 6-10% overhead for net 50-80% wall-clock time reduction while requiring no manual tuning.

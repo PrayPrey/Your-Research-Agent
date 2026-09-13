@@ -1,0 +1,8 @@
+# Title
+Gaze-to-Attention Collaborative Loop (G2ACL): Bidirectional Human-AI Alignment for Explainable Medical Diagnosis
+
+# Motivation
+Current AI diagnostic systems suffer from attention mismatch—radiologists focus on different image regions than the model, leading to misdiagnosis and distrust. Existing approaches use eye gaze only for training supervision or post-hoc validation, missing opportunities for real-time collaboration. Medical AI urgently needs interactive frameworks where human expertise and machine pattern recognition synergistically align during inference, not just after. This addresses the critical gap in explainable AI: transforming static attention mechanisms into dynamic human-AI partnerships with convergence guarantees.
+
+# Main Idea
+We propose G2ACL, a bidirectional framework where human gaze dynamically modulates deep learning attention weights during inference, while model uncertainty heat maps guide human gaze to ambiguous regions. The causal mechanism operates through iterative refinement: radiologist gaze adjusts transformer attention via learned mapping function θ, while entropy-based visual cues direct attention to high-uncertainty areas, creating a feedback loop that converges when KL divergence between gaze and attention distributions falls below 0.15. Lazy recomputation (caching non-gaze regions, updating only top-K attended areas) maintains <100ms latency. Testing on MIMIC-CXR with 10 radiologists, we predict +5% F1 improvement over static baselines, ≥80% convergence rate within 5 iterations, and IOU>0.70 spatial alignment—demonstrating that shared autonomy paradigms from assistive robotics can revolutionize explainable AI through verifiable human-machine reasoning collaboration.

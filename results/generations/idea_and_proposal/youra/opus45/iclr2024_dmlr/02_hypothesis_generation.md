@@ -1,0 +1,247 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-APIDS-v1
+**Confidence Level:** 0.83
+
+**Main Hypothesis:**
+Under foundation model pre-training conditions with web-crawled datasets, if we apply a hierarchical data selection framework combining perplexity-based noise filtering (Stage 1) with self-influence-based utility ranking (Stage 2) and adaptive threshold learning (Stage 3), then we will achieve superior sample efficiency (>90% baseline performance at 50% data retention) compared to single-metric approaches, because perplexity captures data typicality (cheap global signal) while self-influence captures data utility (expensive local signal), and their complementary information reduces selection errors that single metrics cannot avoid (No Free Lunch theorem).
+
+**Alternative Hypothesis (H0):**
+There is no significant difference in sample efficiency between APIDS (hybrid perplexity + self-influence selection) and single-metric approaches (perplexity-only or influence-only). Any observed improvements are attributable to random variation, hyperparameter tuning effects, or dataset-specific artifacts rather than the complementary information captured by the hybrid approach.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| perplexity_score | Independent | Log-likelihood under small reference LM (GPT-2 125M), computed per-document, O(n) complexity | Continuous; lower = more typical |
+| self_influence_score | Independent | Gradient contribution to own training loss via TRAK/DataInf, computed on filtered subset only | Continuous; higher = more influential |
+| adaptive_threshold | Independent | Percentile cutoffs learned via Bayesian optimization on held-out validation set | [0.05, 0.50] for perplexity; [0.10, 0.90] for influence |
+| downstream_performance | Dependent | Average accuracy across DataComp 38-task evaluation suite | 0-100% accuracy |
+| sample_efficiency | Dependent | Performance at X% data retention (X = 50%, 25%, 10%) | Ratio: performance / full_data_performance |
+| model_architecture | Controlled | Fixed ViT-B/32 for vision-language or GPT-2 scale for LLM experiments | Fixed per experiment |
+| training_protocol | Controlled | DataComp standard training recipe with fixed hyperparameters | Fixed seeds, learning rate, batch size |
+| perplexity_influence_correlation | Confounding | Spearman correlation ρ between metrics | If ρ > 0.8, hybrid provides no benefit |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+Stage 1: Perplexity Filtering
+    ↓ (removes high-perplexity outliers)
+Stage 2: Self-Influence Ranking
+    ↓ (ranks remaining data by utility)
+Stage 3: Adaptive Selection
+    ↓ (applies learned thresholds)
+OUTCOME: Improved sample efficiency
+```
+
+**Step 1 → Step 2:** High perplexity → likely noise/outlier → removal improves data quality floor
+- Mechanism: Perplexity outliers often contain formatting errors, repeated text, or non-natural language
+- Cost: O(n), cheap global filter
+- Evidence: Prior-based filtering (Seo et al. 2025) achieves highest performance with 1000x less time than PPL
+
+**Step 2 → Step 3:** Self-influence on filtered data → utility ranking → identifies high-value examples
+- Mechanism: Gradient contribution to own training loss identifies samples that teach useful representations
+- Cost: O(n²) but only on ~70% filtered subset
+- Evidence: Koh & Liang 2017 demonstrate influence traces predictions to training data causally
+
+**Step 3 → Outcome:** Adaptive thresholds → optimized selection boundary → maximizes utility per compute
+- Mechanism: Bayesian optimization on held-out set learns task-appropriate cutoffs
+- Evidence: Huan et al. 2024 show information-based criteria optimize nonlinear model data acquisition
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Ayed & Hayou 2023 | Single score methods fail at high compression; need hybrid | Strong |
+| Step 2 → Step 3 | Koh & Liang 2017 (3,345 citations) | Influence functions trace predictions to training data | Strong |
+| Step 3 → Outcome | Huan et al. 2024 (79 citations) | Bayesian OED maximizes information gain per measurement | Medium |
+
+**Key Tension:**
+- **Tension:** "No Free Lunch" theorems (Ayed & Hayou 2023) suggest no single data pruning metric universally outperforms, but this hypothesis claims hybrid outperforms singles
+- **Resolution:** APIDS succeeds specifically when perplexity and influence are complementary (ρ < 0.8). The validation step explicitly checks this condition before applying hybrid selection. If metrics are highly correlated, APIDS falls back to single-metric selection.
+
+### 1.4 Key Assumptions
+
+1. **Orthogonality Assumption:** Perplexity and self-influence capture orthogonal aspects of data quality (typicality vs utility)
+   - Evidence: Perplexity measures P(x) under reference model; influence measures ∂L/∂x contribution
+   - Consequence if violated: If ρ(perplexity, influence) > 0.8, hybrid adds compute cost without benefit → fallback to single metric
+
+2. **Task-Agnostic Utility:** Self-influence is a valid task-agnostic proxy for training data utility
+   - Evidence: Koh & Liang 2017 show influence predicts model behavior across tasks
+   - Consequence if violated: Selection optimizes for narrow capabilities, hurts generalization → need task-diverse validation set
+
+3. **Efficient Threshold Learning:** Adaptive thresholds can be efficiently learned on small validation set without overfitting
+   - Evidence: Bayesian optimization converges in ~50-100 evaluations (Huan et al. 2024)
+   - Consequence if violated: Thresholds overfit to validation distribution → use cross-validation or holdout
+
+4. **Scale Invariance:** Scaling behavior of APIDS holds from 160M to 7B parameters
+   - Evidence: DataComp-LM demonstrates consistent filtering benefits across 4 orders of magnitude compute
+   - Consequence if violated: Method only works at small scale → validate at multiple model sizes
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- Pre-training data selection for language models (LLMs) and vision-language models (VLMs)
+- Web-crawled datasets with heterogeneous quality (CommonCrawl, LAION, etc.)
+- Settings where compute budget allows influence estimation on filtered subset (~30-50% of data)
+- Model scales from 160M to 7B parameters (validated range)
+
+**Where Hypothesis Does NOT Apply:**
+- Downstream fine-tuning (influence is task-specific there; perplexity baseline less relevant)
+- Streaming/online settings (requires batch processing for influence computation)
+- Curated high-quality datasets (perplexity filtering has limited value)
+- Very small datasets (<100K samples) where influence variance is high
+
+**Known Limitations:**
+- Requires held-out validation set for threshold learning (~1-5% of data)
+- Self-influence computation adds ~30% overhead vs perplexity-only
+- May miss task-specific high-value data that has high perplexity (domain-specific technical content)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Sample Efficiency vs Baselines)**:
+APIDS will achieve >90% of full-data downstream performance when trained on 50% of selected data, while perplexity-only selection achieves <85% and random selection achieves <80%.
+
+*Measurement*:
+- Primary metric: Average accuracy on DataComp 38-task evaluation suite
+- Sample efficiency: Performance_50% / Performance_100%
+- Statistical test: Paired t-test, n ≥ 20 runs, p < 0.05
+
+*Basis*:
+- Recent work (CLIPLoss, NormSim) achieves 5.3% improvement on ImageNet over baseline CLIPScore
+- DataComp-LM achieves 6.6pp MMLU improvement through filtering
+- Target: 2-5% improvement over perplexity-only baseline
+
+*Success Criteria for Phase 2B*:
+- Primary: Sample efficiency ratio > 0.90 at 50% retention (p < 0.05)
+- Falsification: Sample efficiency ≤ 0.85 OR no significant difference from perplexity-only
+
+**Secondary Predictions:**
+
+**P2 (Complementarity Validation)**:
+When perplexity-influence correlation is low (ρ < 0.5), APIDS improvement over single-metric selection will be >3%; when correlation is high (ρ > 0.8), improvement will be <1%.
+
+**P3 (Computational Efficiency)**:
+APIDS total compute cost will be <1.5x perplexity-only (despite influence computation) because influence is only computed on filtered subset (~50-70% of data).
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any occur:
+
+1. **Primary Failure**: Sample efficiency at 50% retention ≤ 0.85 with p > 0.05
+   (= no meaningful improvement over baselines)
+
+2. **Complementarity Failure**: APIDS shows no advantage over single metrics regardless of correlation level
+   (= hybrid adds no value)
+
+3. **Compute Failure**: Total compute exceeds 2x perplexity-only
+   (= efficiency gains negated by overhead)
+
+4. **Scale Failure**: Improvement observed at 160M but disappears at 1B+ scale
+   (= method doesn't generalize)
+
+### 1.7 SOTA Baseline (Performance Context)
+
+| Method | Dataset | Performance | Year |
+|--------|---------|-------------|------|
+| CLIPScore baseline | DataComp-medium | 38-task avg baseline | 2023 |
+| CLIPLoss + NormSim | DataComp-medium | +5.3% on ImageNet-1k, +2.8% on 38 tasks | 2024 |
+| DFN + HYPE | DataComp-medium | +0.9% over CLIPLoss (SOTA) | 2024 |
+| Model-based filtering | DCLM-7B | 64% MMLU 5-shot | 2024 |
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Expected effect size (Cohen's d): 0.6-0.8 (moderate-large)
+- Required runs: n ≥ 20 independent training runs
+- Statistical power: 0.8
+
+**Test Specification:**
+- Method: Paired t-test (same random seeds across conditions)
+- Significance level: α = 0.05 (one-tailed for improvement hypothesis)
+- Multiple comparison correction: Bonferroni for 3 primary comparisons
+
+**Report Format:**
+- Mean ± Std Dev for each condition
+- 95% Confidence Interval for differences
+- Effect size (Cohen's d)
+- p-value with exact value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does the perplexity-influence complementarity phenomenon exist in web-crawled pre-training data? Specifically, is the Spearman correlation ρ(perplexity, self-influence) < 0.8 across representative data samples?"
+- Maps to: Validation step prerequisite
+- Verification type: Empirical measurement
+- Critical: MUST PASS for APIDS to be applicable
+
+**SH2 (Mechanism):**
+"Does the proposed 3-stage mechanism (filter → rank → select) causally produce improved sample efficiency?"
+
+Phase 2B will decompose into N=3 sub-hypotheses:
+- **H-M1:** Perplexity filtering removes low-quality data (Step 1 → Step 2)
+- **H-M2:** Self-influence ranking identifies high-utility data on filtered subset (Step 2 → Step 3)
+- **H-M3:** Adaptive thresholds outperform fixed percentile cutoffs (Step 3 → Outcome)
+
+**SH3 (Comparison):**
+"Does APIDS outperform single-metric baselines (perplexity-only, influence-only, random) on sample efficiency metrics across model scales (160M, 1B, 7B)?"
+- Maps to: Primary prediction P1
+- Verification type: Comparative empirical
+- Critical: Determines practical value of the method
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-APIDS-v1
+- [x] Confidence level specified: 0.83
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (N=3 steps, evidence table included)
+- [x] Causal chain length (N=3) determined and stored
+- [x] Key tension identified ("No Free Lunch" vs hybrid advantage) and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (P1 primary, P2, P3 secondary)
+- [x] Falsification criteria are defined with quantitative thresholds
+- [x] Baselines identified: perplexity-only, influence-only, random, SOTA model-based filtering
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:** What is the actual compute overhead of self-influence estimation on DataComp-scale data? Need profiling at target scales (160M→7B).
+
+2. **Reference Model Selection:** Which reference model should be used for perplexity computation? GPT-2 125M vs domain-specific models may affect filtering quality.
+
+3. **Validation Set Design:** How much data should be held out for threshold learning (1% vs 5%)? What diversity requirements ensure representative threshold learning?
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

@@ -1,0 +1,59 @@
+{
+  "Experiment_description": "Initial implementation and evaluation of Predictive KV Oracle (PKO) framework on synthetic attention data. Multiple nodes tested different implementations of an MLP-based importance predictor that takes early-layer representations and positional encodings to predict token importance scores (simulating late-layer attention weights). The implementations varied in synthetic data generation, loss functions (KL divergence vs MSE), and model configurations. All nodes evaluated prediction quality using Spearman's rank correlation between predicted and actual importance scores.",
+  "Significance": "These experiments validate the core hypothesis that token importance for later transformer layers can be predicted from early-layer representations. This is foundational for proactive KV cache management, which could enable significant memory savings in long-context transformers by evicting unimportant KV entries before they accumulate. The observed Spearman correlations (0.57-0.875) demonstrate feasibility, while the consistent failure to capture sharp importance spikes identifies a critical limitation that must be addressed for practical deployment.",
+  "Description": "The PKO framework consists of: (1) Synthetic data generation mimicking transformer attention patterns with position-based and content-based importance signals, including recency bias, special token importance, and occasional high-salience 'spike' tokens; (2) A lightweight MLP predictor taking early-layer hidden states and positional encodings as input; (3) Training with MSE or KL divergence loss against ground-truth importance scores; (4) Evaluation using Spearman's rank correlation. Training was conducted for 50 epochs with train/validation splits. Different nodes explored variations in the synthetic data generation process, resulting in substantially different performance levels (\u03c1\u22480.57 vs \u03c1\u22480.87). All implementations showed rapid learning in early epochs (8-15), followed by plateau, with minimal overfitting.",
+  "List_of_included_plots": [
+    {
+      "path": "experiments_opus45/2026-05-18_23-11-49_predictive_kv_oracle_attempt_0/logs/0-run/experiment_results/experiment_d5c7358196424c09bfa15ea1fb1fcf77_proc_117251/synthetic_kv_spearman_progression.png",
+      "description": "Validation Spearman over epochs on the synthetic KV dataset rises rapidly from ~0.28 to ~0.8 within ~8\u201310 epochs, then slowly improves and plateaus around ~0.87\u20130.88 by ~30+ epochs.",
+      "analysis": "Demonstrates the learnability of the importance prediction task. The rapid early gains indicate the model captures the dominant structure quickly, while the plateau suggests a performance ceiling with current features/architecture. The smooth curve with no degradation confirms stable training. Early stopping around 30 epochs would capture near-peak performance with reduced compute."
+    },
+    {
+      "path": "experiments_opus45/2026-05-18_23-11-49_predictive_kv_oracle_attempt_0/logs/0-run/experiment_results/experiment_d5c7358196424c09bfa15ea1fb1fcf77_proc_117251/pko_correlation_scatter.png",
+      "description": "Overall scatter of predicted vs. actual token importance shows a strong monotonic relationship (reported overall Spearman 0.876).",
+      "analysis": "Reveals two critical calibration issues: (1) saturation at predicted\u22481.0 forming a horizontal band for high-actual tokens, and (2) underprediction of some high-importance tokens (actual 0.6-0.9 mapped to predicted 0.15-0.45). The first issue is relatively benign (over-keeping), but the second is dangerous for proactive pruning as it could evict truly important tokens. This motivates loss functions emphasizing the high-importance tail."
+    },
+    {
+      "path": "experiments_opus45/2026-05-18_23-11-49_predictive_kv_oracle_attempt_0/logs/0-run/experiment_results/experiment_d5c7358196424c09bfa15ea1fb1fcf77_proc_117251/pko_prediction_samples.png",
+      "description": "Per-sample token-importance traces (Samples 1/11/21/31) show predicted curves tracking the low-frequency trend of actual importance well, with per-sample Spearman ~0.86\u20130.91.",
+      "analysis": "The predictor successfully captures broad positional structure (rises/falls over positions) but consistently smooths sharp spikes in actual importance. This is the key failure mode: rare high-salience tokens ('needles') may be missed. For aggressive compression (e.g., 10% retention), this could significantly hurt downstream quality. Suggests need for hybrid approaches combining smooth prediction with spike detection."
+    },
+    {
+      "path": "experiments_opus45/2026-05-18_23-11-49_predictive_kv_oracle_attempt_0/logs/0-run/experiment_results/experiment_e7cc68904d754375ba40cf93ce99daf7_proc_117247/synthetic_kv_cache_spearman_over_epochs.png",
+      "description": "Validation Spearman correlation over epochs with best=0.5717 at epoch 16.",
+      "analysis": "This lower-performing implementation (\u03c1\u22480.57 vs \u03c1\u22480.87) illustrates the sensitivity to implementation choices. The curve peaks at epoch 16 then slightly declines, suggesting mild overfitting. The substantial performance gap compared to other nodes indicates that synthetic data generation and/or loss function choices significantly impact predictability, highlighting the importance of careful experimental design."
+    },
+    {
+      "path": "experiments_opus45/2026-05-18_23-11-49_predictive_kv_oracle_attempt_0/logs/0-run/experiment_results/experiment_e7cc68904d754375ba40cf93ce99daf7_proc_117247/synthetic_kv_cache_correlation_distribution.png",
+      "description": "Histogram of per-sample Spearman correlation on the synthetic KV cache dataset with mean\u22480.569 and range ~0.41\u20130.69.",
+      "analysis": "Shows substantial per-sample variability in prediction quality. The spread indicates that some sequences are inherently harder to predict than others, likely those with more abrupt importance changes or sparse key tokens. For robust cache management, this variability suggests the need for uncertainty-aware policies that allocate more budget when predictions are uncertain."
+    }
+  ],
+  "Key_numerical_results": [
+    {
+      "result": 0.8755,
+      "description": "Best validation Spearman correlation achieved across all implementations (nodes d5c7358, 8ff5b23, 394e67b)",
+      "analysis": "Demonstrates strong feasibility of predicting token importance from early-layer representations. A Spearman correlation of 0.875 indicates that the relative ranking of token importance is largely preserved, which is exactly what matters for top-k retention decisions in KV cache management."
+    },
+    {
+      "result": 0.5717,
+      "description": "Best validation Spearman correlation for the lower-performing implementation (node e7cc689)",
+      "analysis": "The 0.30 gap in Spearman correlation between implementations (0.57 vs 0.87) reveals high sensitivity to design choices in synthetic data generation and/or loss functions. This suggests that careful alignment between the synthetic importance patterns and the predictor's feature space is critical for success."
+    },
+    {
+      "result": 0.0078,
+      "description": "Final validation MSE loss for the best-performing implementations",
+      "analysis": "Low MSE indicates good regression fit, but the continued decrease in MSE while Spearman plateaus suggests the objective is not perfectly aligned with ranking quality. This motivates exploring ranking-specific losses (pairwise, listwise) for better downstream pruning decisions."
+    },
+    {
+      "result": 0.86,
+      "description": "Typical per-sample Spearman correlation range lower bound for best implementations (0.86-0.91)",
+      "analysis": "Even in the best implementations, per-sample correlations vary from ~0.86 to ~0.91, indicating sequence-dependent prediction difficulty. Harder sequences likely contain more abrupt importance changes that the smooth predictor cannot capture."
+    },
+    {
+      "result": 16,
+      "description": "Optimal early-stopping epoch for the lower-performing implementation",
+      "analysis": "The peak at epoch 16 followed by slight decline indicates mild overfitting. Combined with the plateau observed in better implementations around 30 epochs, this suggests training beyond 30-50 epochs provides diminishing returns."
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# Title
+Physics-Guided Meta-Adaptive RNA Structure Prediction: Separating Universal Thermodynamics from Family-Specific Patterns for Few-Shot Generalization
+
+# Motivation
+Current AI methods for RNA tertiary structure prediction fail on novel RNA families, requiring thousands of training examples and multiple sequence alignments per family. This limits prediction of newly discovered natural RNAs and synthetic therapeutic molecules (aptamers, ribozymes) lacking evolutionary homologs. The core problem: end-to-end deep learning models rely on pattern-matching rather than universal physical principles, causing poor out-of-distribution generalization. We need methods that combine universal RNA folding physics with efficient adaptation to family-specific structural patterns.
+
+# Main Idea
+We propose PhyMet-RNA, a dual-component architecture explicitly separating physics-grounded invariant encoding from meta-learned family-adaptive modules. The physics component uses differentiable RNA thermodynamics (Turner model + pseudoknot extensions + tertiary contact potentials) to encode universal folding energetics applicable to all RNA families. The meta-learning component employs orthogonal decomposition trained via episodic sampling across diverse families, enabling rapid few-shot adaptation (1-10 examples) to novel family-specific patterns. A learnable weighting parameter dynamically balances physics constraints versus learned patterns, preventing physics bypass while providing data-driven fallback when physics models are insufficient.
+
+**Testing approach**: Evaluate on RNA3DB structurally-dissimilar test families, comparing against DeepFoldRNA/NuFold/RhoFold+ baselines. Target: TM-score ≥0.80 (vs. baseline ~0.76) with 10-shot adaptation matching baseline performance requiring 100+ examples—achieving 10× data efficiency while eliminating MSA requirements for therapeutic RNA design applications.

@@ -1,0 +1,9 @@
+﻿# Title: Adaptive Federated Learning for Privacy-Preserving Disease Surveillance in Low-Resource Settings
+
+## Motivation
+A critical lesson from COVID-19 was the failure to establish rapid, global disease surveillance systems that could share insights across borders while respecting data sovereignty and privacy constraints. Low- and middle-income countries (LMICs) often lack infrastructure for centralized data collection, yet possess valuable local health data. Current machine learning approaches require data centralization, creating barriers to international collaboration and raising privacy concerns. Bridging this gap could enable proactive pandemic preparedness while addressing health inequalities.
+
+## Main Idea
+We propose developing an adaptive federated learning framework specifically designed for heterogeneous global health data. The methodology involves: (1) designing communication-efficient federated algorithms that function under intermittent connectivity and bandwidth constraints common in LMICs; (2) incorporating semi-mechanistic disease transmission priors into the federated objective to improve model interpretability for policymakers; (3) developing domain adaptation techniques to handle distribution shifts across regions with different demographics, healthcare systems, and reporting practices.
+
+The framework will be validated on retrospective multi-country infectious disease data, measuring both predictive accuracy and communication costs. Expected outcomes include a deployable system for real-time outbreak detection that preserves local data ownership. The potential impact is enabling equitable participation of resource-limited regions in global health intelligence networks, directly addressing infrastructure inequalities while maintaining policy-relevant interpretability.

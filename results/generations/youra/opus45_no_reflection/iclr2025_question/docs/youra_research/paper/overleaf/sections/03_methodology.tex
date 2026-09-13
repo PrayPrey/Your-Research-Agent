@@ -1,0 +1,42 @@
+\section{Methodology}
+
+We present a simple approach: extract hidden states from transformer middle layers during answer generation, then train a linear probe to predict factual correctness. Each design choice follows from our core insight that middle-layer representations encode knowledge confidence distinct from output-level confidence.
+
+\subsection{Problem Setup}
+
+Given a question $q$ and model-generated answer $a$, we seek a function $f: (q, a) \rightarrow [0, 1]$ predicting correctness probability. Ground-truth labels $y \in \{0, 1\}$ come from exact-match evaluation against reference answers.
+
+\subsection{Hidden State Extraction}
+
+\textbf{Model.} We use Llama-3-8B-Instruct (32 layers, 4096 hidden dimensions) as a representative modern instruction-tuned LLM with accessible hidden states.
+
+\textbf{Forward pass with hooks.} During generation, we register PyTorch forward hooks on transformer layer outputs. For a target layer $\ell$, we capture the hidden state $h_\ell \in \mathbb{R}^{T \times d}$ where $T$ is sequence length and $d = 4096$ is hidden dimension. Hooks extract states without modifying the forward pass---we verify 100\% output identity and $<$5\% runtime overhead.
+
+\textbf{Aggregation.} We extract the hidden state at the last generated token position, $h_\ell^{\text{last}} \in \mathbb{R}^d$. This position aggregates context from the full question-answer sequence through causal attention.
+
+\textbf{Layer selection.} We target middle layers (50--60\% depth). For Llama-3-8B's 32 layers, this corresponds to layers 15--19. We empirically validate this choice through systematic layer sweep (Section~\ref{sec:experiments}).
+
+\subsection{Probe Architecture}
+
+\textbf{Linear probe.} We train a logistic regression classifier:
+\begin{equation}
+P(\text{correct} | h_\ell^{\text{last}}) = \sigma(w^\top h_\ell^{\text{last}} + b)
+\end{equation}
+where $w \in \mathbb{R}^d$, $b \in \mathbb{R}$, and $\sigma$ is the sigmoid function.
+
+\textbf{Why linear?} Three reasons justify this choice:
+\begin{enumerate}
+    \item \emph{Interpretability}: Linear probes reveal which hidden dimensions encode correctness.
+    \item \emph{Literature precedent}: \citet{kossen2024semantic} find MLP probes add $<$1 percentage point over linear.
+    \item \emph{Generalization}: Simpler probes are less prone to overfitting to training distribution artifacts.
+\end{enumerate}
+
+\textbf{Training details.} We use sklearn's LogisticRegression with L2 regularization ($C = 10^{-3}$), balanced class weights, and LBFGS solver. Training converges in $\sim$60 iterations on 9,500 samples.
+
+\subsection{Baseline Methods}
+
+\textbf{Token entropy.} Average entropy of next-token distributions during generation.
+
+\textbf{Sequence NLL.} Negative log-likelihood of the generated sequence.
+
+Both baselines measure output-level confidence. High entropy or NLL indicates model uncertainty, which correlates negatively with correctness.

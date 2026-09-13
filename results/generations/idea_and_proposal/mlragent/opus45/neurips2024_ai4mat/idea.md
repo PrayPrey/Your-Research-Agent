@@ -1,0 +1,9 @@
+﻿# Research Idea: Multi-Fidelity Imputation Networks for Incomplete Materials Databases
+
+## Motivation
+A critical barrier to AI-driven materials discovery is the pervasive incompleteness of materials databases. Unlike drug discovery where molecular properties can be computationally enumerated, materials datasets suffer from sparse experimental measurements across different characterization modalities (XRD, TEM, spectroscopy, mechanical testing). Most entries have only 10-30% of properties measured, and data quality varies drastically between high-fidelity experimental results and low-fidelity computational predictions. Current ML models either discard incomplete samples or use naive imputation, limiting scalability and accuracy. This directly addresses "Why Isn't it Real Yet?"—we cannot train foundation models without addressing fundamental data completeness issues.
+
+## Main Idea
+We propose **MatImpute**, a multi-fidelity graph neural network that jointly learns property correlations and fidelity-aware uncertainty for materials data imputation. The architecture encodes materials as graphs with nodes representing both measured and missing properties, connected by physics-informed edges (e.g., band gap ↔ conductivity). A hierarchical attention mechanism weighs contributions from different fidelity sources (DFT vs. experiment) during message passing. Training uses a masked property prediction objective on existing databases (Materials Project, AFLOW, ICSD). 
+
+**Expected outcomes:** (1) A pre-trained imputation model enabling 3-5× larger effective training sets for downstream tasks; (2) Calibrated uncertainty estimates distinguishing imputed vs. measured values; (3) Identification of high-value missing measurements to guide experimental prioritization. This infrastructure could catalyze the "GPT moment" for materials AI.

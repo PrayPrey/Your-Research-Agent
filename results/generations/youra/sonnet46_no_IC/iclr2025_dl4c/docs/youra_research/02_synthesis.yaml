@@ -1,0 +1,116 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-04T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Exec-FilteredSFT: Execution-Filtered SFT Data from Raw Corpus Improves Code LLM Performance at Equal Token Budget"
+  hypothesis_id: "H-ExecFilteredSFT-v1"
+  core_claim: |
+    Under equal token budget from The Stack Python corpus (SFT stage), training on
+    execution-filtered data (compile-only or doctest-passing) outperforms training on
+    unfiltered data of equal token count on HumanEval pass@1 and MBPP pass@1 with
+    Qwen2.5-Coder-1.5B (primary) and 7B (secondary).
+  mechanism: |
+    Execution filtering retains syntactically and/or functionally consistent training examples,
+    reducing model exposure to malformed patterns and improving distributional alignment with
+    benchmark-style correct code. The specific pathway (noise reduction, distribution shift,
+    or coverage concentration) is mechanism-agnostic at Phase 2A — Phase 2B will design
+    intermediate metrics (n-gram overlap, learning curves) to distinguish these.
+  predictions:
+    - P1: "compile+test-filtered SFT outperforms unfiltered SFT on HumanEval pass@1 by ≥2pp absolute (paired bootstrap p<0.05) with Qwen2.5-Coder-1.5B"
+    - P2: "Filtering strictness ordering holds: compile+test ≥ compile-only ≥ unfiltered on HumanEval pass@1"
+    - P3: "Stratum confound check: compile-only-doctest-subset ≈ compile-only-full-stack within 1pp (doctest stratum not systematically better)"
+
+variables_summary:
+  independent: "Execution filter condition: unfiltered (random subsample) / compile-only (syntax gate) / doctest-passing (functional gate)"
+  dependent_primary: "HumanEval pass@1 — fraction of 164 problems solved in one generation"
+  controlled: "Token budget N, base model checkpoint, training hyperparameters, data source (The Stack Python), evaluation harness"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in HumanEval pass@1 or MBPP pass@1 between SFT on
+    execution-filtered data and SFT on unfiltered data of equal token count from The Stack
+    Python, when controlling for base model, training hyperparameters, and token budget.
+  statistical_test: "Paired bootstrap resampling (n=1000) on pass@1 differences across conditions"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Three-condition ablation (unfiltered/compile-only/doctest-passing) from single corpus at equal token budget with P3 stratum confound check — first controlled execution-filtered SFT study on raw corpus data"
+  differentiation_summary: |
+    phi-1 used GPT-4 (not execution-based); EffiCoder filtered instruction data at inference time (not raw corpus at training time);
+    StarCoder/cristinaimprota used heuristic filters (not execution gates); OpenCodeInstruct used instruction format (not raw Stack Python).
+    No prior work: (a) applies execution filtering to raw SFT corpus, (b) controls equal token budget, (c) compares compile-only vs. compile+test within single corpus, (d) includes stratum confound check.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "Qwen2.5-Coder-1.5B (primary)"
+    - "Qwen2.5-Coder-7B (secondary)"
+  datasets:
+    - "The Stack Python (bigcode/the-stack-dedup)"
+    - "HumanEval (164 problems, openai/human-eval)"
+    - "MBPP (standard split, via lm-evaluation-harness)"
+  baselines:
+    - "Unfiltered SFT (random subsample to N tokens)"
+    - "Compile-only filtered SFT"
+    - "Compile-only-doctest-subset SFT (P3 confound check)"
+
+measurement_plan:
+  data_collection:
+    - source: "The Stack Python (bigcode/the-stack-dedup) — download Python subset, apply filtering pipeline"
+    - source: "HumanEval benchmark (openai/human-eval) — 164 Python problems with unit tests"
+    - source: "MBPP benchmark (via lm-evaluation-harness) — standard split"
+  procedure:
+    - step: "Pilot: scan 10k Stack Python files for doctest prevalence; abort compile+test condition if <3%"
+    - step: "Apply compile() gate to Stack Python; collect compile-only pool"
+    - step: "Apply doctest extraction + execution to compile-only pool; collect doctest-passing pool"
+    - step: "Subsample each pool to N tokens (random seed fixed); generate training splits"
+    - step: "SFT Qwen2.5-Coder-1.5B on each of 4 conditions (unfiltered, compile-only, doctest-passing, compile-only-doctest-subset)"
+    - step: "Evaluate each checkpoint on HumanEval pass@1 and MBPP pass@1 via lm-evaluation-harness"
+    - step: "Run paired bootstrap (n=1000) for P1 significance test"
+  success_criteria:
+    - "P1: ΔHumanEval(compile+test - unfiltered) ≥ 2pp AND p < 0.05"
+    - "P2: compile+test ≥ compile-only ≥ unfiltered on HumanEval pass@1"
+    - "P3: |compile-only-doctest-subset - compile-only-full| ≤ 1pp on HumanEval"
+
+validation:
+  internal_validity:
+    - "Equal token budget across all conditions (controlled explicitly)"
+    - "Same base model checkpoint for all conditions"
+    - "Identical training hyperparameters"
+    - "P3 stratum confound check isolates execution filtering signal from documentation culture bias"
+  external_validity:
+    - "7B model secondary experiment tests whether 1.5B result generalizes across model sizes"
+    - "Both HumanEval and MBPP measured (diversity of evaluation prevents benchmark-specific overfitting)"
+    - "The Stack Python is canonical open-source corpus (generalizes to other labs' pipeline)"
+
+discussion_synthesis:
+  key_insights:
+    - "Prof. Rex's exec() attack revealed that `exec()` on function definitions catches negligible errors beyond `compile()` — doctest extraction is the correct compile+test solution"
+    - "Dr. Sage identified the corpus confound: compile+test from a different corpus (OpenCodeInstruct) vs. compile-only from Stack Python would confound filtering level with corpus format"
+    - "Prof. Pax confirmed all conditions are in-process (compile(), doctest module) — avoids H-E1's subprocess isolation failure"
+    - "Mechanism-agnostic framing (Prof. Rex's refinement) makes hypothesis more robust by not committing to unverifiable mechanism at Phase 2A"
+  breakthrough_moments:
+    - "Exchange 5 (Dr. Ally): Three-tier exec filter from single corpus solves the corpus confound without subprocess — key design insight"
+    - "Exchange 6 (Prof. Rex): exec() on function definitions ≈ compile() — forced doctest solution"
+    - "Exchange 7 (Dr. Nova): Doctest extraction from The Stack Python as functional execution gate — creative resolution of Prof. Rex's attack"
+    - "Exchange 12 (Prof. Rex): Mechanism-agnostic framing accepted — hypothesis strengthened by not over-committing"
+  resolved_tensions:
+    - "Single-corpus vs. multi-corpus: resolved by doctest extraction from The Stack Python (single corpus, three conditions)"
+    - "exec() gate validity: resolved by switching to doctest module (genuine functional testing)"
+    - "Mechanism commitment: resolved by mechanism-agnostic framing with Phase 2B intermediate metrics planned"
+    - "Stratum selection bias: resolved by P3 confound check design"

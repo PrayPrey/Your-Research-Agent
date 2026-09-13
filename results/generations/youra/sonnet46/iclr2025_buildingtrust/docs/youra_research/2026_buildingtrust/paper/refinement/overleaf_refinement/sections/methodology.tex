@@ -1,0 +1,85 @@
+
+\subsubsection{3.1 Pre-Registered Mechanism Discrimination Framework}
+
+Three mechanistic hypotheses were formalized before experiments were conducted:
+
+\begin{itemize}
+\item \textbf{H1 (Monotonic Scale Inflation):} Spearman rank correlation (rho) between base and aligned 4-option log-probability vectors >= 0.90 across MMLU items.
+\item \textbf{H2 (Decision-Boundary Restructuring):} rho < 0.85 for at least one alignment type, with substantial argmax redistribution.
+\item \textbf{H3 (Framing Susceptibility):} $\Delta ECE$ on TruthfulQA >= $\Delta ECE$ on MMLU.
+\end{itemize}
+
+Pre-specified falsifiers:
+\begin{itemize}
+\item H1 is falsified if rho < 0.80 for PPO alignments.
+\item H2 is indicated as dominant if rho < 0.85 for the majority of alignment-size pairs.
+\item H3 is falsified if $\Delta ECE_TruthfulQA$ < $\Delta ECE_MMLU$ for all alignment types.
+\end{itemize}
+
+\subsubsection{3.2 Model Family}
+
+The Pythia alignment ladder was used: base models EleutherAI/pythia-{1.4b, 2.8b, 6.9b} with corresponding SFT, DPO, and PPO variants. This family provides identical pretraining data, architecture, and tokenizer across all alignment variants, enabling causal attribution of calibration differences to the alignment procedure.
+
+The primary aligned checkpoints (RLHFlow variants from Li et al., 2024) required authenticated HuggingFace access. Publicly available fallback checkpoints were used instead: lomahony/pythia-{size}-helpful-sft (SFT), Leogrin/eleuther-pythia{size}-hh-dpo (DPO), and usvsnsp/pythia-{size}-ppo (PPO). These share the same base model and approximate training regime. The H2 mechanism finding (Spearman rho) is expected to be robust to this substitution, while the DPO vs. PPO ordering should be interpreted as a checkpoint-level observation pending replication with matched checkpoints.
+
+This yields 12 models: 3 base models and 9 aligned variants (3 alignment methods x 3 sizes).
+
+\subsubsection{3.3 Evaluation Protocol}
+
+All models were evaluated using lm-eval-harness v0.4.11 with identical settings:
+\begin{itemize}
+\item \textbf{MMLU} (cais/mmlu, full test set, 14,042 items, 57 subjects, 4-shot)
+\item \textbf{TruthfulQA MC1} (817 items, 0-shot) -- used exclusively for the H3 diagnostic
+\item Greedy decoding, temperature = 1.0
+\item Log-probability continuation scoring (not chat-template)
+\end{itemize}
+
+The log-probability continuation format was applied identically to all 12 models, including chat-tuned variants, to avoid format-confound artifacts.
+
+\subsubsection{3.4 Calibration Measurement}
+
+From lm-eval log\_samples output, 4-option log-probability vectors were extracted for each MMLU item and each model. The following metrics were computed:
+
+\textbf{ECE (15-bin equal-width):} Standard Expected Calibration Error following Guo et al. (2017).
+
+\textbf{Brier Score Decomposition \citep{murphy1973scalar}:}
+\begin{itemize}
+\item Reliability: the overconfidence term. Higher values indicate greater overconfidence.
+\item Resolution: discriminability. Higher values indicate better calibration.
+\item Uncertainty: data difficulty, constant across models.
+\end{itemize}
+
+The primary metric is $\Delta Brier$ Reliability = Reliability\_aligned - Reliability\_base. $\Delta ECE$ is reported as a secondary directional check. Bootstrap 95\% confidence intervals were computed with n = 1,000 samples and seed = 42.
+
+\subsubsection{3.5 Mechanism Discrimination Measurements}
+
+\textbf{H1/H2 discrimination (Spearman rho):} For each MMLU item, the Spearman rank correlation between the base model's 4-option log-probability vector and the aligned model's vector was computed. The mean rho per alignment-size pair (9 pairs) was compared against the H1 threshold (>= 0.90) and H2 diagnostic (< 0.85).
+
+\textbf{Argmax partition:} MMLU items were partitioned into shared-argmax (base and aligned agree on top option) and changed-argmax (argmax differs).
+
+\textbf{Pre-softmax margin analysis:} Per-item margin = max(log-prob) - second\_max(log-prob) before softmax normalization. This tests whether confidence inflation operates at the logit level. The margin analysis and Spearman rho analysis are computed from the same per-item log-probability vectors and are therefore not independent data streams.
+
+\textbf{H3 diagnostic:} $\Delta ECE_TruthfulQA$ and $\Delta ECE_MMLU$ were compared for each alignment type. A ratio < 1.0 for all alignment types is inconsistent with H3. A methodological caveat applies: MMLU uses 4-shot evaluation while TruthfulQA MC1 uses 0-shot, which may contribute to the observed pattern independently of framing susceptibility.
+
+\subsubsection{3.6 Hypothesis-Gate Structure}
+
+Experiments were structured as a causal chain with explicit gate conditions:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Hypothesis & Gate Type & Criterion & Result \\
+\midrule
+H-E1 (Existence) & MUST\_WORK & $\Delta Reliability$ > 0 with CI lower > 0 for PPO or DPO in >= 2/3 sizes & PASS \\
+H-M1 (Baseline) & MUST\_WORK & ECE\_base < 0.15 for all 3 sizes & PASS \\
+H-M2 (Margins) & SHOULD\_WORK & $\Delta margin_PPO$ > 0 with CI lower > 0 in >= 2/3 sizes & PASS \\
+H-M3 (Mechanism) & SHOULD\_WORK & Spearman rho >= 0.90 for all 9 pairs (H1 confirmation) & FAIL \\
+H-M4 (ATS correction) & SHOULD\_WORK & Not executed & N/A \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The H-M3 gate was designed so that failure constitutes a scientifically informative negative result (H2 dominance) rather than an experiment failure.

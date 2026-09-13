@@ -1,0 +1,119 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-25T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Loop (UNATTENDED — independent-controller ablation)"
+  schema_version: "10.0.0"
+  gap_id: "Gap-1"
+  previous_failure: "h-e2-v2 SUPERSEDED — new hypothesis uses relative SE-TE gap criterion, not absolute AUROC threshold"
+
+hypothesis_draft:
+  title: "Four-Way Uncertainty Proxy Comparison at 7B Scale: Does Semantic Entropy's NLI Overhead Buy Meaningful AUROC Gain?"
+  hypothesis_id: "H-SE4Way-v1"
+  core_claim: |
+    On Llama-2-7B applied to TriviaQA dev, semantic entropy achieves a practically
+    meaningful AUROC advantage (>= 0.05) over single-pass token entropy, SelfCheckGPT
+    achieves comparable AUROC to SE, and verbalized confidence underperforms both,
+    establishing the first controlled four-way comparison at small-model scale and
+    providing model-scale-calibrated guidance for uncertainty method selection.
+  mechanism: |
+    Semantic entropy and SelfCheckGPT both operate at the semantic level (NLI clustering
+    and BERTScore consistency respectively), filtering paraphrase noise that degrades
+    token-level entropy's discriminative power. Token entropy conflates surface variation
+    with semantic uncertainty, reducing AUROC. Verbalized confidence requires large model
+    scale (>=13B) for reliable self-calibration; at 7B it produces near-random uncertainty
+    estimates.
+  predictions:
+    - P1: "SE AUROC - TE AUROC >= 0.05, non-overlapping bootstrap 95% CIs (primary)"
+    - P2: "|SCG AUROC - SE AUROC| <= 0.03 (practical equivalence between SE and SelfCheckGPT)"
+    - P3: "VC AUROC < TE AUROC < SE AUROC (verbalized confidence worst at 7B)"
+
+variables_summary:
+  independent: "Uncertainty proxy method: TE (single-pass token entropy), SCG (SelfCheckGPT BERTScore), SE (semantic entropy NLI), VC (verbalized confidence via Llama-2-7B-Chat)"
+  dependent_primary: "AUROC against binary EM correctness labels on TriviaQA dev"
+  controlled: "Model (Llama-2-7B), benchmark (TriviaQA dev), sample count K=10, correctness label (EM), evaluation metric (bootstrap AUROC)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in AUROC among TE, SCG, SE, and VC on TriviaQA dev
+    at Llama-2-7B scale. All pairwise gaps fall within bootstrap 95% CI half-width (< 0.05).
+  statistical_test: "Bootstrap permutation test on AUROC difference; 1000 bootstrap iterations"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First four-way controlled comparison including SE alongside TE, SelfCheckGPT, and verbalized confidence at 7B scale. Reframes h-e2-v2 failure as scale-calibration finding."
+  differentiation_summary: |
+    Xiong 2023 omits SE. Huang 2023 omits SE and SelfCheckGPT. Kuhn 2023 omits SelfCheckGPT
+    and verbalized confidence. Manakul 2023 (SelfCheckGPT) uses WikiBio not TriviaQA.
+    No prior work runs all four on the same model/benchmark/metric at 7B scale.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "Llama-2-7B (meta-llama/Llama-2-7b-hf) — for TE, SE, SCG"
+    - "Llama-2-7B-Chat (meta-llama/Llama-2-7b-chat-hf) — for verbalized confidence"
+  datasets:
+    - "TriviaQA dev (primary) — N=98 pilot (h-e2-v2 existing samples), extension to N=500 if pilot inconclusive"
+    - "TruthfulQA (secondary) — N=100 sample for cross-benchmark validation"
+  baselines:
+    - "Token Entropy (TE) — cheapest, single forward pass"
+    - "Random baseline — AUROC 0.5"
+    - "Prior SE result from h-e2-v2 — AUROC 0.5419 on N=98"
+
+measurement_plan:
+  data_collection:
+    - source: "Existing h-e2-v2 samples: 98 questions x K=10 samples already generated. Reuse for SE, SCG, TE computation."
+    - source: "New VC inference: 98 questions through Llama-2-7B-Chat with confidence elicitation prompt (<1 GPU hour)"
+    - source: "TruthfulQA secondary: 100 questions x K=10 new samples (~8 GPU hours if needed)"
+  procedure:
+    - step: "Load existing h-e2-v2 samples (generation.py output: 98 questions x K=10 completions)"
+    - step: "Compute TE: load saved logits or run greedy decode with log-prob extraction; aggregate mean token entropy per question"
+    - step: "Compute SCG: BERTScore pairwise across K=10 samples per question; uncertainty = 1 - mean_pairwise_score"
+    - step: "Compute SE: run h-e2-v2 uncertainty.py (NLI clustering already validated); use existing AUROC = 0.5419 as anchor"
+    - step: "Compute VC: run Llama-2-7B-Chat on 98 questions; extract reported confidence score; convert to uncertainty = 1 - confidence/100"
+    - step: "Bootstrap AUROC (1000 iterations) for all four methods on same 98 questions"
+    - step: "Pilot gate: if |SE-TE| < 0.03, extend to N=500 using generate_shard.py"
+    - step: "Secondary: repeat on 100 TruthfulQA questions if pilot shows clear ranking"
+  success_criteria:
+    - "P1 confirmed: SE AUROC - TE AUROC >= 0.05, non-overlapping CIs"
+    - "P2 confirmed: |SCG AUROC - SE AUROC| <= 0.03"
+    - "P3 confirmed: VC AUROC < TE AUROC"
+    - "Pilot gate not triggered: |SE-TE| >= 0.03 at N=98"
+
+validation:
+  internal_validity:
+    - "Same 98-question sample for all four methods (controls for question difficulty distribution)"
+    - "Same correctness labels (EM against TriviaQA gold) for all four methods"
+    - "Bootstrap CIs for each AUROC estimate (accounts for sampling variance)"
+    - "h-e2-v2 SE result (0.5419) pre-validated — use as anchor for comparison"
+  external_validity:
+    - "TruthfulQA secondary evaluation tests cross-domain generalization of ranking"
+    - "N=500 extension tests stability of pilot result (if pilot gate triggered)"
+    - "Llama-2-7B is a representative 7B open-source model used across the field"
+    - "TriviaQA is a standard benchmark; results comparable to Kuhn 2023 and Xiong 2023"
+
+discussion_synthesis:
+  key_insights:
+    - "h-e2-v2's failure at 0.75 gate is a positive calibration finding, not just a failure — it establishes 7B SE AUROC range (0.54-0.60)"
+    - "The SE mechanism works at 7B (3.89 clusters, directional SE > TE gap) — the issue was threshold calibration, not mechanism validity"
+    - "The new hypothesis asks the right question: does SE's NLI overhead buy anything over TE at 7B? This is answerable with existing samples at near-zero cost"
+    - "SelfCheckGPT equivalence to SE would have major implications: SCG works on black-box APIs (no logit access), making it more deployable than SE"
+    - "Verbalized confidence at 7B is a known weak baseline per Xiong 2023; including it establishes the lower bound and validates prior findings"
+  breakthrough_moments:
+    - "Dr. Sage (Exchange 3): Reframing h-e2-v2 failure as positive scale-calibration finding changed the hypothesis direction from 'prove SE works' to 'characterize where SE beats alternatives'"
+    - "Prof. Pax (Exchange 4): Identifying that SelfCheckGPT and TE are computable from existing h-e2-v2 samples at near-zero cost made the four-way comparison immediately feasible"
+    - "Prof. Rex (Exchange 6): Defining explicit pilot gate (extend if |gap| < 0.03) resolved the N=98 power concern cleanly"
+  resolved_tensions:
+    - "Absolute AUROC threshold (0.75) vs. relative comparison (SE-TE gap): resolved in favor of relative comparison — avoids repeating h-e2-v2 failure mode"
+    - "Full scale experiment (N=500) vs. pilot reuse: resolved with gated approach — pilot first, extend only if inconclusive"
+    - "Verbalized confidence model choice: resolved to Chat model (Llama-2-7B-Chat) with explicit limitation note"

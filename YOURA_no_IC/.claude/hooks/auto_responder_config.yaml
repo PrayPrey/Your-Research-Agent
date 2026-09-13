@@ -1,0 +1,217 @@
+# =============================================================================
+# YouRA Auto-Responder Configuration
+# =============================================================================
+# This configuration file controls the auto-responder behavior for the YouRA
+# research pipeline. All settings are user-configurable.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# MASTER SWITCH
+# -----------------------------------------------------------------------------
+# Set to false to completely disable the auto-responder
+# NOTE: Must be true for pipeline auto-continuation after Phase 2A and beyond.
+# Re-enable when starting a new pipeline run.
+enabled: false
+# -----------------------------------------------------------------------------
+# RESPONDER MODE (Independent-Controller Ablation)
+# -----------------------------------------------------------------------------
+# "llm"   : original behavior — 2nd-stage Stop decision made by the external
+#           LLM (GPT-5.2 via OpenRouter): PHASE_COMPLETE / MUST_STOP / resume.
+# "fixed" : ablation — NO external LLM. The 2nd-stage decision is deterministic:
+#           phase_output_verifier checks pass → approve stop; fail → block stop
+#           with a FIXED resume prompt listing the failed checks.
+#           (MUST_STOP is never produced in fixed mode; timeouts and the
+#           per-phase rate limit are the only backstops.)
+# Individual phase configs (phase*_auto_config.yaml) may override with their
+# own responder_mode key.
+responder_mode: "fixed"
+
+# -----------------------------------------------------------------------------
+# CLAUDE MODEL SELECTION
+# -----------------------------------------------------------------------------
+# Model used by Claude CLI (run_phase*.py launchers).
+# Options: "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"
+# Set to null or "" to use Claude CLI's default model.
+claude_model: "claude-sonnet-4-5"
+
+# -----------------------------------------------------------------------------
+# CLAUDE EFFORT LEVEL (Thinking Control)
+# -----------------------------------------------------------------------------
+# Controls extended thinking in Claude CLI.
+# Options: "low" (no thinking), "medium" (reduced), "high" (default), "max" (maximum)
+# Set to "" or remove to use Claude's default.
+claude_effort: "low"
+
+# -----------------------------------------------------------------------------
+# PROMPTS DIRECTORY
+# -----------------------------------------------------------------------------
+# Central location for all phase responder prompt files.
+# Each phase uses: {prompts_dir}/{phase}_responder.md
+# Individual phase configs can still override with their own prompt_file.
+prompts_dir: "/path/to/your/YouRA/YOURA_no_IC/.claude/prompts"
+# -----------------------------------------------------------------------------
+# LLM SETTINGS (OpenRouter)
+# -----------------------------------------------------------------------------
+# The LLM is used for:
+# 1. MUST_STOP detection (analyzing conversation for critical errors)
+# 2. Resume Context generation (creating instructions for pipeline continuation)
+#
+# If enabled: false, the hook will ALLOW STOP (safe fallback, no LLM analysis)
+openrouter:
+  enabled: false
+  # Model to use for analysis (OpenRouter model ID)
+  # Recommended: anthropic/claude-3.5-sonnet (good balance of speed/quality)
+  # Alternatives: anthropic/claude-3-haiku (faster), openai/gpt-4-turbo (alternative)
+  model: "openai/gpt-5.2"
+
+  # API key environment variable name (loaded from .env file)
+  # NOTE: Put the actual key in .env file, NOT here!
+  api_key_env: "OPENROUTER_API_KEY"
+
+  # Request timeout in seconds
+  timeout_seconds: 240
+
+  # Maximum tokens for LLM response
+  max_tokens: 7000
+
+# -----------------------------------------------------------------------------
+# CONTEXT SETTINGS
+# -----------------------------------------------------------------------------
+# Controls how much conversation context is sent to the LLM
+context:
+  # Last N characters of conversation to extract
+  # Larger = more context for LLM but higher cost
+  focus_chars: 5000
+
+# -----------------------------------------------------------------------------
+# ARTIFACT VERIFICATION
+# -----------------------------------------------------------------------------
+# Uses pipeline_artifact_verifier.py for filesystem-level checks.
+# Verifies hypothesis folders contain actual implementation artifacts,
+# validates gate_results against whitelist, tracks changes via snapshots.
+artifact_verification:
+  # Enable/disable artifact verification
+  enabled: false
+  # --- Legacy fields (kept for backwards compatibility) ---
+  required_files:
+    - "02c_experiment_brief.md"
+    - "03_tasks.yaml"
+    - "04_checkpoint.yaml"
+    - "04_validation.md"
+  require_code_files: true
+  code_extensions:
+    - ".py"
+    - ".ipynb"
+
+  # --- Phase-specific artifact definitions (used by pipeline_artifact_verifier.py) ---
+  phase_artifacts:
+    phase_2c:
+      required_files:
+        - "02c_experiment_brief.md"
+    phase_3:
+      required_files:
+        - "03_prd.md"
+        - "03_architecture.md"
+        - "03_logic.md"
+        - "03_config.md"
+    phase_4_docs:
+      required_files:
+        - "04_validation.md"
+        - "04_checkpoint.yaml"
+    phase_4_experiment:
+      required_files:
+        - "experiment_results.json"
+      required_dirs:
+        - "code/"
+      code_file_check: true
+
+  # Valid gate_result values (whitelist — anything else is INVALID)
+  valid_gate_results:
+    - "PASS"
+    - "PARTIAL"
+    - "FAIL"
+
+  # Experiment quality checks (Phase 4)
+  experiment_quality:
+    min_log_lines: 20
+    forbidden_log_patterns:
+      - "command not found"
+      - "No module named"
+    require_non_null_metrics: true
+
+  # Snapshot file path (relative to hooks directory)
+  snapshot_file: ".artifact_snapshot.json"
+
+# -----------------------------------------------------------------------------
+# YOURA PIPELINE SETTINGS
+# -----------------------------------------------------------------------------
+# Paths and patterns for YouRA pipeline state detection
+youra:
+  # Pattern to find research folders (glob pattern)
+  research_folder_pattern: "docs/youra_research/*/"
+
+  # State file name (inside research folder)
+  state_file: "verification_state.yaml"
+
+  # Checkpoint file pattern (inside hypothesis folder)
+  checkpoint_file: "04_checkpoint.yaml"
+
+  # Hypothesis folder pattern
+  hypothesis_folder_pattern: "h-*/"
+
+# -----------------------------------------------------------------------------
+# PIPELINE REFLECTION SETTINGS
+# -----------------------------------------------------------------------------
+# Controls how many times the hypothesis loop can re-route (reflect) when a
+# MUST_WORK hypothesis fails. After this limit, the pipeline proceeds to
+# Part 2 (Phase 4.5 → 6 → 6.5) with whatever results are available.
+# -1 = unlimited, 0 = no reflection allowed
+pipeline_reflection:
+  max_reflections: 10
+
+# -----------------------------------------------------------------------------
+# PIPELINE RETRY SETTINGS
+# -----------------------------------------------------------------------------
+# Controls how many times run_phase*.py and run_early_pipeline.py
+# will retry a phase when output verification fails.
+# 0 = no retry (run once only), N = retry up to N times after first run
+# NOTE (ablation): reduced from 20 → 3. Without the external-LLM MUST_STOP
+# safety valve, retries + timeouts are the only termination backstops, so a
+# large retry budget risks runaway cost on a genuinely stuck phase.
+pipeline_retry:
+  max_retries: 3
+
+# -----------------------------------------------------------------------------
+# LOOP PREVENTION
+# -----------------------------------------------------------------------------
+# Prevents infinite loops when LLM API fails repeatedly
+loop_prevention:
+  # Maximum consecutive API failures before disabling hook
+  max_retries: 5
+
+  # Time window for retry counting (seconds)
+  # Retries reset after this period of no failures
+  time_window_seconds: 15
+
+# -----------------------------------------------------------------------------
+# OUTPUT SETTINGS
+# -----------------------------------------------------------------------------
+output:
+  # Template for the reason field sent to Claude
+  reason_template: "[AUTO-RESPONDER] {response}"
+
+  # Path to save conversation log (for debugging)
+  conversation_log_file: "conversation_log.txt"
+
+# -----------------------------------------------------------------------------
+# DEBUG SETTINGS
+# -----------------------------------------------------------------------------
+debug:
+  # Enable verbose logging
+  verbose: true
+
+  # Log file path (relative to hooks folder)
+  log_file: "auto_responder.log"
+
+  # Save LLM prompts and responses to log
+  log_llm_interactions: true

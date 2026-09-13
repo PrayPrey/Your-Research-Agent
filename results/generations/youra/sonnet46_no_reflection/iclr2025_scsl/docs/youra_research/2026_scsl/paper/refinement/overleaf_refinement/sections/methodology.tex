@@ -1,0 +1,65 @@
+
+\subsubsection{3.1 Overview}
+
+The experimental design holds all factors constant — model architecture, pretrained initialization, optimizer, training hyperparameters, clustering algorithm, probe epoch, and clustering hyperparameters — and varies only the dataset. The two datasets differ in the nature of the spurious attribute: scene-level background (Waterbirds) versus fine-grained hair color texture (CelebA). Any difference in clustering performance is therefore attributable to dataset-level factors, with spurious attribute type as the primary candidate.
+
+The pipeline follows established methodology: train ERM with a pretrained backbone, extract penultimate-layer embeddings at epoch 5, apply k-means clustering, and evaluate cluster-to-group alignment using AMI and worst-cluster purity against ground-truth group labels.
+
+\subsubsection{3.2 Spurious Direction Discovery Pipeline}
+
+\textbf{Step 1 — ERM Training.} A ResNet-50 model with ImageNet-pretrained weights (torchvision.models.ResNet50_Weights.IMAGENET1K_V1) is fine-tuned on each dataset using standard ERM with cross-entropy loss and SGD. Training proceeds for 5 epochs, after which the model checkpoint is saved. The choice of epoch 5 follows the simplicity bias literature \citep{Shahetal2020}, which predicts that high signal-to-noise ratio spurious features are acquired in the early phase of training.
+
+\textbf{Step 2 — Embedding Extraction.} Penultimate-layer representations are extracted for all training samples at the epoch-5 checkpoint. The penultimate layer is the global average pooling output of ResNet-50, producing a 2048-dimensional vector per sample. No dimensionality reduction is applied before clustering.
+
+\textbf{Step 3 — k-Means Clustering.} k-means with k=2, n_init=10, and random seed 42 is applied to the raw 2048-dimensional embeddings. The choice of k=2 matches the binary spurious attribute structure and follows the methodology of published annotation-free detection methods.
+
+\textbf{Step 4 — Evaluation.} Cluster assignments are compared against ground-truth group labels, which are used only for evaluation and not during training or clustering:
+
+\begin{itemize}
+\item \textbf{AMI (Adjusted Mutual Information):} Measures information-theoretic agreement between cluster assignments and group labels, adjusted for chance. AMI=0 corresponds to random performance; AMI=1 corresponds to perfect alignment. Success threshold: AMI ≥ 0.5.
+\item \textbf{Worst-Cluster Purity:} The minimum fraction of the dominant group within any single cluster across all k clusters. Success threshold: purity ≥ 0.75.
+\item \textbf{Random baseline:} AMI and purity computed from uniformly random cluster assignments (preserving cluster sizes) to establish chance-level performance.
+\end{itemize}
+
+\subsubsection{3.3 Datasets}
+
+\textbf{Waterbirds} \citep{Sagawaetal2020} consists of 4,795 training samples with a 95\% spurious correlation between bird type (landbird/waterbird) and background habitat (land/water). The spurious attribute is the scene-level background, which constitutes a global, spatially distributed visual feature. ImageNet contains scene-level and habitat-level semantic categories; scene/background representation is considered high-alignment with the ImageNet pretraining prior.
+
+\textbf{CelebA} \citep{Liuetal2015} consists of 162,770 training samples. The task is binary hair color prediction (blonde versus non-blonde), with biological sex as the confounding spurious variable. The spurious attribute is hair color, a fine-grained local texture feature. Hair color is not a primary semantic category in ImageNet; this attribute is considered low-alignment with the ImageNet pretraining prior.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llllll}
+\toprule
+Dataset & Train N & Spurious attribute & Confounding variable & Feature type & Hypothesized ImageNet alignment \\
+\midrule
+Waterbirds & 4,795 & Background habitat & — & Global scene-level & High \\
+CelebA & 162,770 & Hair color (texture) & Biological sex & Local texture & Low \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{3.4 Implementation Details}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+Hyperparameter & Waterbirds & CelebA \\
+\midrule
+Architecture & ResNet-50 (ImageNet pretrained) & ResNet-50 (ImageNet pretrained) \\
+Optimizer & SGD, momentum=0.9 & SGD, momentum=0.9 \\
+Learning rate & 1e-3 & 1e-3 \\
+Weight decay & 1e-3 & 1e-4 \\
+Batch size & 32 & 128 \\
+Probe epoch & 5 & 5 \\
+k (clustering) & 2 & 2 \\
+n_init & 10 & 10 \\
+Random seed (clustering) & 42 & 42 \\
+Training seed & 1 & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Training hyperparameters for Waterbirds follow the GroupDRO/DFR repository [Kirichenko et al., 2022; Sagawa et al., 2020]. CelebA uses a batch size of 128 consistent with that dataset's scale. No per-dataset tuning of the clustering parameters or probe epoch is performed.
+

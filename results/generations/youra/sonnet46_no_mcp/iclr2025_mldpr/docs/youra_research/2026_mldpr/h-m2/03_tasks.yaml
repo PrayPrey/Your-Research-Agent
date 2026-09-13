@@ -1,0 +1,601 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m2"
+  hypothesis_type: "MECHANISM"
+  gate_type: "SHOULD_WORK"
+  tier: "FULL"
+  total_budget: 30
+  base_hypothesis: "h-m1"
+  created_at: "2026-05-04"
+  description: "Accessible FAIR Dimension -> 12-Month Run Count (OpenML)"
+
+budget_summary:
+  epic_tasks: 10
+  subtasks: 20
+  failsafe: 1
+  total: 30
+  total_with_failsafe: 31
+  within_budget: true
+  excluded_subtasks: []
+
+tasks:
+  # ── Environment Setup ──────────────────────────────────────────────────
+  - id: "A-1"
+    title: "Environment Setup"
+    type: "setup"
+    priority: 94
+    complexity: 6
+    description: >
+      Configure requirements.txt, directory scaffold, and copy/symlink reused
+      h-m1 modules (ingest.py, matching.py, serialize.py) into h-m2/code/src/.
+      Verify all imports resolve correctly.
+    reference_files:
+      - file: "03_prd.md"
+        section: "7. Dependencies"
+      - file: "03_config.md"
+        section: "A-10: End-to-End Experiment Run — Full config.py"
+    acceptance_criteria:
+      - "requirements.txt lists: scipy, statsmodels, scikit-learn, openml, numpy, pandas, matplotlib, seaborn, PyYAML"
+      - "h-m2/code/src/ contains ingest.py, matching.py (copied from h-m1)"
+      - "python -c 'import scipy, statsmodels, sklearn, openml' runs without error"
+      - "Directory structure matches 03_prd.md Section 8"
+
+  # ── Data Pipeline ──────────────────────────────────────────────────────
+  - id: "A-2"
+    title: "Data Ingestion Pipeline"
+    type: "data-pipeline"
+    priority: 93
+    complexity: 10
+    description: >
+      Reuse h-m1 ingest.py to load OpenML post-2018 tabular cohort and run
+      timestamps. Build merged cohort with 12-month run window caching.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-1: Data Ingestion"
+      - file: "03_config.md"
+        section: "A-2: Data Ingestion Pipeline"
+      - file: "03_logic.md"
+        section: "External Dependencies API"
+    acceptance_criteria:
+      - "load_he1_scores() returns DataFrame with fair_F, fair_A, fair_I, fair_R columns"
+      - "fetch_run_timestamps() returns run timestamps for all dataset_ids"
+      - "Merged cohort has ~5000 datasets after filter"
+      - "Cache written to results/cache/"
+
+  - id: "C-2-1"
+    title: "IngestReuse: load_he1_scores + fetch_run_timestamps"
+    type: "subtask"
+    parent: "A-2"
+    priority: 49
+    complexity: 5
+    description: >
+      Configure H_E1_SCORES_CSV path in config.py; reuse h-m1 ingest.py
+      load_he1_scores and fetch_run_timestamps with OBSERVATION_WINDOW_DAYS=365.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-2: Data Ingestion Pipeline — Configuration"
+      - file: "03_logic.md"
+        section: "External Dependencies API"
+    acceptance_criteria:
+      - "H_E1_SCORES_CSV path resolves to h-e1/code/results/fair_scores.csv"
+      - "fetch_run_timestamps called with OBSERVATION_WINDOW_DAYS=365"
+
+  - id: "C-2-2"
+    title: "IngestReuse: build_merged_cohort"
+    type: "subtask"
+    parent: "A-2"
+    priority: 48
+    complexity: 5
+    description: >
+      Call build_merged_cohort with MIN_RUN_COUNT=10 gate; validate
+      FAIR_SUB_CRITERIA_COLS present; confirm ~5000 cohort size.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-2: Data Ingestion Pipeline — Configuration"
+    acceptance_criteria:
+      - "Merged cohort has fair_F, fair_A, fair_I, fair_R columns"
+      - "Rows with run_count < 10 filtered out"
+
+  # ── AccessiblePrep Module ───────────────────────────────────────────────
+  - id: "A-3"
+    title: "AccessiblePrep Module"
+    type: "model"
+    priority: 92
+    complexity: 12
+    description: >
+      Implement src/accessible_prep.py with compute_12m_run_counts,
+      compute_accessible_score (median split), build_analysis_df, and
+      validate_preconditions. Adapted from h-m1 survival_prep.py.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-2: 12-Month Run Count Computation"
+      - file: "03_prd.md"
+        section: "FR-3: Accessible Sub-Criteria Extraction"
+      - file: "03_logic.md"
+        section: "A-3: AccessiblePrep Module"
+    acceptance_criteria:
+      - "compute_12m_run_counts adds run_count_12m column to datasets_df"
+      - "compute_accessible_score merges fair_A and sets high_accessible 0/1 at median"
+      - "build_analysis_df chains all prep steps"
+      - "validate_preconditions raises ValueError when groups too small"
+
+  - id: "L-3-1"
+    title: "compute_12m_run_counts implementation"
+    type: "subtask"
+    parent: "A-3"
+    priority: 47
+    complexity: 6
+    description: >
+      Implement window-based run aggregation: for each dataset, count runs
+      within [upload_date, upload_date + 365 days].
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-3: AccessiblePrep Module — Pseudo-code"
+    acceptance_criteria:
+      - "Returns datasets_df with run_count_12m column"
+      - "Runs outside window excluded"
+      - "window_days parameter configurable (default 365)"
+
+  - id: "L-3-2"
+    title: "compute_accessible_score + build_analysis_df + validate_preconditions"
+    type: "subtask"
+    parent: "A-3"
+    priority: 46
+    complexity: 6
+    description: >
+      Merge fair_A sub-score from h-e1 results, compute median split into
+      high_accessible (0/1), chain full pipeline in build_analysis_df, assert
+      group sizes meet min_pairs threshold.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-3: AccessiblePrep Module — Pseudo-code"
+    acceptance_criteria:
+      - "high_accessible == 1 for fair_A >= median, 0 otherwise"
+      - "ValueError raised when n_high or n_low < min_pairs"
+
+  # ── Matching Pipeline ───────────────────────────────────────────────────
+  - id: "A-4"
+    title: "Matching Pipeline Integration"
+    type: "model"
+    priority: 91
+    complexity: 11
+    description: >
+      Implement src/matching_accessible.py wrapping h-m1 PS functions
+      (fit_propensity_model, nearest_neighbor_match, compute_smd) with
+      treatment_col='high_accessible'. MUST NOT call run_matching() directly
+      as it hardcodes treatment_col='high_findable'.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-4: Propensity Score Matching"
+      - file: "03_logic.md"
+        section: "A-4: Matching Pipeline Integration"
+      - file: "03_architecture.md"
+        section: "Matching Adaptation Note"
+    acceptance_criteria:
+      - "run_accessible_matching uses treatment_col='high_accessible'"
+      - "SMD validated: smd_max < 0.1 for balance_ok=True"
+      - "Returns (matched_df, smd_df, matching_meta) tuple"
+      - "matching_meta contains n_matched_pairs, smd_max, caliper_used, balance_ok"
+
+  - id: "L-4-1"
+    title: "run_accessible_matching implementation"
+    type: "subtask"
+    parent: "A-4"
+    priority: 45
+    complexity: 6
+    description: >
+      Wrap h-m1 fit_propensity_model, nearest_neighbor_match, compute_smd
+      with treatment_col='high_accessible'. Compute logit caliper.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-4: Matching Pipeline Integration — Pseudo-code"
+    acceptance_criteria:
+      - "Calls fit_propensity_model with treatment_col='high_accessible'"
+      - "Caliper computed as caliper_factor * logit_ps.std()"
+
+  - id: "L-4-2"
+    title: "matching_meta validation"
+    type: "subtask"
+    parent: "A-4"
+    priority: 44
+    complexity: 5
+    description: >
+      Log balance_ok status; raise warning (not error) if SMD > threshold
+      since SHOULD_WORK gate allows continuation.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-4: Matching Pipeline Integration — Subtasks"
+    acceptance_criteria:
+      - "Logs warning when smd_max >= 0.1"
+      - "Does not raise exception on SMD imbalance (SHOULD_WORK gate)"
+
+  # ── MWU Analysis Module ─────────────────────────────────────────────────
+  - id: "A-5"
+    title: "MWU Analysis Module"
+    type: "model"
+    priority: 90
+    complexity: 14
+    description: >
+      Implement src/mwu_analysis.py with run_mwu_unadjusted, run_mwu_matched
+      (scipy), run_ols_standardized (statsmodels+sklearn), run_mechanism_check,
+      and compute_effect_size_r.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-5: Baseline Analysis"
+      - file: "03_prd.md"
+        section: "FR-6: Proposed Analysis — Matched Mann-Whitney U"
+      - file: "03_prd.md"
+        section: "FR-7: OLS Regression with Standardized Coefficients"
+      - file: "03_logic.md"
+        section: "A-5: MWU Analysis Module"
+    acceptance_criteria:
+      - "run_mwu_unadjusted returns mwu_stat, p_value, n_high, n_low, high_mean, low_mean"
+      - "run_mwu_matched returns effect_size_r and direction_pass additionally"
+      - "run_ols_standardized returns accessible_beta after z-scoring predictors and log1p(DV)"
+      - "run_mechanism_check raises AssertionError when n_matched_pairs < 30"
+
+  - id: "L-5-1"
+    title: "compute_effect_size_r"
+    type: "subtask"
+    parent: "A-5"
+    priority: 43
+    complexity: 3
+    description: >
+      Implement rank-biserial r = 1 - (2*U)/(n1*n2). Range [-1, 1].
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: MWU Analysis Module — Pseudo-code"
+    acceptance_criteria:
+      - "Returns float in [-1, 1]"
+      - "r=1.0 when U=0 (perfect separation)"
+
+  - id: "L-5-2"
+    title: "run_mwu_unadjusted + run_mwu_matched"
+    type: "subtask"
+    parent: "A-5"
+    priority: 42
+    complexity: 4
+    description: >
+      Implement both MWU tests using scipy.stats.mannwhitneyu with
+      alternative='greater' for matched test (directional hypothesis).
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: MWU Analysis Module — Pseudo-code"
+    acceptance_criteria:
+      - "Unadjusted MWU uses two-sided test (baseline)"
+      - "Matched MWU uses alternative='greater' (directional)"
+      - "direction_pass = high_mean > low_mean"
+
+  - id: "L-5-3"
+    title: "run_ols_standardized"
+    type: "subtask"
+    parent: "A-5"
+    priority: 41
+    complexity: 4
+    description: >
+      Log-transform DV with log1p, z-score all F-UJI predictors, fit OLS
+      via statsmodels formula API, extract accessible_beta.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: MWU Analysis Module — Pseudo-code"
+    acceptance_criteria:
+      - "DV = log1p(run_count_12m)"
+      - "Each predictor standardized: (x - mean) / std"
+      - "Returns accessible_beta = params['fair_A_z']"
+      - "Returns r_squared from fitted model"
+
+  - id: "L-5-4"
+    title: "run_mechanism_check"
+    type: "subtask"
+    parent: "A-5"
+    priority: 40
+    complexity: 3
+    description: >
+      Assertion-based mechanism validation: n_matched_pairs >= 30,
+      smd_max < 0.1, high_mean >= 0. Prints mechanism log message.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-11: Mechanism Verification"
+      - file: "03_logic.md"
+        section: "A-5: MWU Analysis Module — Pseudo-code"
+    acceptance_criteria:
+      - "AssertionError with descriptive message when any check fails"
+      - "Prints [MECHANISM CHECK] log line on success"
+
+  # ── Ablation Experiments ─────────────────────────────────────────────────
+  - id: "A-6"
+    title: "Ablation Experiments"
+    type: "evaluation"
+    priority: 89
+    complexity: 13
+    description: >
+      Implement Ablation A (aggregate threshold vs median Accessible split),
+      Ablation B (6-month vs 12-month window), Ablation C (caliper sensitivity).
+      Integrate ablation dispatch in run_experiment.py.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-8: Ablation A"
+      - file: "03_prd.md"
+        section: "FR-9: Ablation B"
+      - file: "03_prd.md"
+        section: "FR-10: Ablation C"
+      - file: "03_logic.md"
+        section: "A-6: Ablation Experiments"
+      - file: "03_config.md"
+        section: "A-10: End-to-End — config.yaml ablations section"
+    acceptance_criteria:
+      - "Ablation A: replaces median Accessible split with F-UJI >= 0.5 threshold"
+      - "Ablation B: reruns with WINDOW_SHORT_DAYS=182"
+      - "Ablation C: run_ablation_caliper sweeps [0.2, 0.8] caliper values"
+      - "All ablation results saved to results/ablations/"
+
+  - id: "L-6-1"
+    title: "run_ablation_caliper"
+    type: "subtask"
+    parent: "A-6"
+    priority: 39
+    complexity: 7
+    description: >
+      Sweep caliper_factor values [0.1, 0.2, 0.3, 0.8]; run matching + MWU
+      for each; return DataFrame of results.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: Ablation Experiments — API Signatures"
+    acceptance_criteria:
+      - "Returns DataFrame[caliper_factor, n_matched_pairs, smd_max, p_value, effect_size_r]"
+      - "Results saved for fig6_window_sensitivity"
+
+  - id: "L-6-2"
+    title: "run_ablation_ratio"
+    type: "subtask"
+    parent: "A-6"
+    priority: 38
+    complexity: 6
+    description: >
+      Sweep matching ratios [1, 2, 3]; run matching + MWU for each ratio;
+      return DataFrame of results.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: Ablation Experiments — API Signatures"
+    acceptance_criteria:
+      - "Returns DataFrame[ratio, n_matched_pairs, smd_max, p_value, effect_size_r]"
+
+  # ── Visualization Module ─────────────────────────────────────────────────
+  - id: "A-7"
+    title: "Visualization Module"
+    type: "evaluation"
+    priority: 88
+    complexity: 12
+    description: >
+      Implement src/visualize.py with 6 required figures: gate_metrics,
+      boxplot_12m_counts, ps_distribution, love_plot, ols_coefficients,
+      window_sensitivity. Save to figures/ directory.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-12: Visualization"
+      - file: "03_config.md"
+        section: "A-7: Visualization Module"
+    acceptance_criteria:
+      - "All 6 figure files created in figures/"
+      - "fig1_gate_metrics.png shows p-value vs 0.05 threshold and beta vs 0.10"
+      - "fig4_love_plot.png shows SMD before/after matching for all covariates"
+      - "fig5_ols_coefficients.png shows standardized beta forest plot with CI"
+
+  - id: "C-7-1"
+    title: "VizConfig: gate_metrics + boxplot figures"
+    type: "subtask"
+    parent: "A-7"
+    priority: 37
+    complexity: 6
+    description: >
+      Configure fig1_gate_metrics (p-value vs 0.05, beta vs 0.10 threshold
+      bars) and fig2_boxplot_12m_counts using FIG_PALETTE and FIG_DPI.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-7: Visualization Module — Configuration"
+    acceptance_criteria:
+      - "FIG_PALETTE high=#2196F3, low=#F44336 applied"
+      - "fig1 shows threshold lines at p=0.05 and beta=0.10"
+
+  - id: "C-7-2"
+    title: "VizConfig: OLS forest + window sensitivity figures"
+    type: "subtask"
+    parent: "A-7"
+    priority: 36
+    complexity: 6
+    description: >
+      Configure fig5_ols_coefficients (FIG_SIZE_FOREST, standardized beta
+      bars with error bars) and fig6_window_sensitivity (p_6m vs p_12m).
+    reference_files:
+      - file: "03_config.md"
+        section: "A-7: Visualization Module — Configuration"
+    acceptance_criteria:
+      - "fig5 uses FIG_SIZE_FOREST=(8,6)"
+      - "fig6 compares 6-month and 12-month window p-values"
+
+  # ── Serialize + Gate Result ─────────────────────────────────────────────
+  - id: "A-8"
+    title: "Serialize + Gate Result"
+    type: "evaluation"
+    priority: 87
+    complexity: 9
+    description: >
+      Implement h-m2 serialize.py schema with build_results_dict, save_results,
+      save_gate_result. Apply MWU_ALPHA=0.05 and ACCESSIBLE_BETA_GATE=0.10
+      gates. Write gate_result.json with SHOULD_WORK schema.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-13: Results Serialization"
+      - file: "03_config.md"
+        section: "A-8: Serialize + Gate Result"
+    acceptance_criteria:
+      - "results/gate_result.json contains: gate_passed, gate_type='SHOULD_WORK', primary_pass, direction_pass, secondary_pass"
+      - "gate_passed = primary_pass AND direction_pass"
+      - "results.json contains primary_mwu, unadjusted_mwu, ols_results, matching_meta keys"
+
+  - id: "C-8-1"
+    title: "SerializeSchema: build_results_dict"
+    type: "subtask"
+    parent: "A-8"
+    priority: 35
+    complexity: 5
+    description: >
+      Define h-m2 canonical results schema with keys: primary_mwu,
+      unadjusted_mwu, ols_results, matching_meta, ablations.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-8: Serialize + Gate Result — Gate result YAML schema"
+    acceptance_criteria:
+      - "All required keys present in build_results_dict output"
+
+  - id: "C-8-2"
+    title: "GateResult: save_gate_result"
+    type: "subtask"
+    parent: "A-8"
+    priority: 34
+    complexity: 4
+    description: >
+      Apply gate thresholds MWU_ALPHA=0.05 and ACCESSIBLE_BETA_GATE=0.10;
+      write gate_result.json with gate_passed, gate_type, direction_pass,
+      secondary_pass.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-8: Serialize + Gate Result — Configuration"
+    acceptance_criteria:
+      - "gate_type always 'SHOULD_WORK'"
+      - "gate_passed = primary_pass AND direction_pass (not secondary_pass)"
+      - "secondary_pass recorded but does not block gate"
+
+  # ── Unit Tests ──────────────────────────────────────────────────────────
+  - id: "A-9"
+    title: "Unit Tests"
+    type: "evaluation"
+    priority: 86
+    complexity: 13
+    description: >
+      Implement test_accessible_prep.py (>=10 tests), test_mwu_analysis.py
+      (>=10 tests), and test_integration.py smoke test (>=5 tests, n=200
+      synthetic cohort). All tests must pass before production run.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-14: Unit Tests"
+      - file: "03_logic.md"
+        section: "A-9: Unit Tests"
+    acceptance_criteria:
+      - "pytest passes all tests with 0 failures"
+      - "test_accessible_prep.py covers compute_12m_run_counts, median split, validate_preconditions"
+      - "test_mwu_analysis.py covers effect size bounds, direction_pass, mechanism check failure"
+      - "Smoke test with n=200 synthetic cohort completes without error"
+
+  - id: "L-9-1"
+    title: "tests/test_accessible_prep.py"
+    type: "subtask"
+    parent: "A-9"
+    priority: 33
+    complexity: 7
+    description: >
+      Unit tests for accessible_prep module: test_compute_12m_run_counts_basic,
+      test_compute_accessible_score_median_split, test_validate_preconditions_raises,
+      and at least 7 additional edge case tests.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-9: Unit Tests — API Signatures"
+    acceptance_criteria:
+      - ">=10 test functions"
+      - "test_validate_preconditions_raises verifies ValueError"
+
+  - id: "L-9-2"
+    title: "tests/test_mwu_analysis.py"
+    type: "subtask"
+    parent: "A-9"
+    priority: 32
+    complexity: 6
+    description: >
+      Unit tests for mwu_analysis module: test_compute_effect_size_r_bounds,
+      test_run_mwu_unadjusted_returns_keys, test_run_mwu_matched_direction_pass,
+      test_run_mechanism_check_fails_on_few_pairs, and additional tests.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-9: Unit Tests — API Signatures"
+    acceptance_criteria:
+      - ">=10 test functions"
+      - "test_run_mechanism_check_fails_on_few_pairs verifies AssertionError"
+
+  # ── End-to-End Experiment Run ───────────────────────────────────────────
+  - id: "A-10"
+    title: "End-to-End Experiment Run"
+    type: "training"
+    priority: 85
+    complexity: 10
+    description: >
+      Implement run_experiment.py entry point. Run smoke test (n=200 synthetic,
+      --dry-run flag) then production run (full cohort). Evaluate gate conditions.
+      Validate all 6 figures generated.
+    reference_files:
+      - file: "03_prd.md"
+        section: "4.2 Evaluation Split"
+      - file: "03_config.md"
+        section: "A-10: End-to-End Experiment Run"
+      - file: "03_logic.md"
+        section: "A-5: MWU Analysis Module"
+    acceptance_criteria:
+      - "python run_experiment.py --dry-run completes without error"
+      - "gate_result.json written with gate_type='SHOULD_WORK'"
+      - "All 6 figure files present in figures/"
+      - "Production run uses CALIPER_FACTOR=0.2, MIN_MATCHED_PAIRS=500"
+
+  - id: "C-10-1"
+    title: "SmokeTest: synthetic cohort n=200"
+    type: "subtask"
+    parent: "A-10"
+    priority: 31
+    complexity: 5
+    description: >
+      Run full pipeline with --dry-run flag using CALIPER_RELAXED_FACTOR=0.8,
+      MIN_MATCHED_PAIRS_SMOKE=30, synthetic_seed=42. Assert no exceptions and
+      gate_result.json written.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-10: End-to-End — Subtasks"
+    acceptance_criteria:
+      - "No exceptions raised"
+      - "gate_result.json written with valid schema"
+      - "n_matched_pairs >= 30 in smoke test"
+
+  - id: "C-10-2"
+    title: "ProductionRun: full cohort + gate evaluation"
+    type: "subtask"
+    parent: "A-10"
+    priority: 30
+    complexity: 5
+    description: >
+      Run with CALIPER_FACTOR=0.2, MIN_MATCHED_PAIRS=500; verify MWU p-value
+      against MWU_ALPHA=0.05; validate 6 figure files exist in FIGURES_DIR.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-10: End-to-End — Subtasks"
+    acceptance_criteria:
+      - "n_matched_pairs >= 500"
+      - "gate_result.json contains gate_passed boolean"
+      - "6 PNG files in figures/"
+
+  # ── Failsafe ────────────────────────────────────────────────────────────
+  - id: "FAILSAFE"
+    title: "Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    complexity: 0
+    description: >
+      SHOULD_WORK gate failsafe: if MWU p >= 0.05 or accessible_beta <= 0.10,
+      document as non-significant Accessible dimension and continue pipeline
+      to h-m3. Record failure context in gate_result.json.
+    reference_files:
+      - file: "03_prd.md"
+        section: "6. Success Criteria"
+      - file: "02c_experiment_brief.md"
+        section: "Failure Detection"
+    acceptance_criteria:
+      - "gate_result.json always written regardless of pass/fail"
+      - "gate_type='SHOULD_WORK' recorded"
+      - "Pipeline proceeds to h-m3 regardless of gate result"

@@ -1,0 +1,9 @@
+﻿# Title: Physics-Informed Active Learning for Multi-Fidelity Materials Discovery
+
+## Motivation
+Materials design requires expensive simulations and experiments across multiple fidelity levels—from fast but approximate DFT calculations to costly high-accuracy quantum methods and physical synthesis. Current active learning approaches treat fidelity selection and sample selection as separate problems, failing to leverage known physical constraints (conservation laws, symmetries, thermodynamic bounds) that could dramatically reduce the search space. This disconnect leads to inefficient exploration and wasted computational/experimental resources in real-world materials discovery pipelines.
+
+## Main Idea
+We propose a unified framework that jointly optimizes what material candidates to evaluate and at which fidelity level, while incorporating physics-based constraints as inductive biases. Our approach consists of three components: (1) a multi-fidelity Gaussian process surrogate with physics-informed kernels that encode known material property relationships (e.g., convexity of formation energies, Vegard's law for alloys); (2) a constrained acquisition function that automatically balances information gain against fidelity costs while respecting physical feasibility constraints; (3) a transfer mechanism that propagates learned correlations between fidelity levels using domain knowledge.
+
+Expected outcomes include 3-5× reduction in high-fidelity evaluations needed to identify optimal candidates compared to standard multi-fidelity Bayesian optimization. We will validate on battery electrolyte and catalyst design benchmarks, demonstrating practical impact for accelerating materials discovery while maintaining theoretical grounding in information-theoretic active learning.

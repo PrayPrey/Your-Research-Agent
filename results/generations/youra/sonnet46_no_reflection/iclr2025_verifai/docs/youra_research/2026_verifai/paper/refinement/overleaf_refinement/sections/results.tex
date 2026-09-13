@@ -1,0 +1,131 @@
+
+\subsubsection{5.1 Main Results: Locality Score Comparison}
+
+All locality scores for all three conditions were uniformly 0.0000 on both evaluation datasets. The H-E1 MUST_WORK gate failed.
+
+\textbf{Table 1: Locality Scores — H-E1 Experiment}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+Condition & miniF2F Hard Subset LS & Vericoding Hard Subset LS \\
+\midrule
+A: Step-local Grounded & 0.0000 & 0.0000 \\
+B: Step-local Ungrounded & 0.0000 & 0.0000 \\
+P: Permuted Control & 0.0000 & 0.0000 \\
+t-statistic (A vs. P) & 0.0000 & 0.0000 \\
+p-value (one-sided) & 1.0000 & 1.0000 \\
+Gate Pass (H-E1) & False & False \\
+Secondary (LS_A > LS_B) & False & False \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Note on Vericoding results:} Vericoding was not retrieved; 0 problems were loaded. The Vericoding rows originate from the same synthetic data fallback that produced the miniF2F null results. No actual Vericoding problems were processed.
+
+These results are not a scientific finding about the oracle mechanism. They are a synthetic artifact caused by the infrastructure failure described in Section 5.2.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/locality_score_comparison.png}
+\caption{Locality score comparison across conditions on miniF2F and Vericoding hard subsets. All conditions yield LS=0.0 due to synthetic data fallback.}
+\label{fig:locality_score_comparison}
+\end{figure}
+
+\textit{Figure 1: Locality score comparison across three DPO conditions (A: grounded, B: ungrounded, P: permuted) on miniF2F and Vericoding hard subsets. All conditions yield LS=0.0 due to synthetic data substitution (LeanDojo absent).}
+
+\subsubsection{5.2 Infrastructure Failure Diagnosis}
+
+The H-E1 gate failure is attributable to a missing Lean4 toolchain rather than to a true null oracle effect.
+
+\textbf{Root cause:} The Lean4 toolchain (\texttt{elan}, Lean4 compiler core) was not installed on the H100 cluster. \texttt{import lean_dojo} raised an \texttt{ImportError} in the production code path.
+
+\textbf{Failure propagation:}
+
+\begin{enumerate}
+\item \texttt{leandojo_tracing.py}: \texttt{LeanGitRepo(url, commit)} succeeds as a git operation, masking the absent Lean4 runtime.
+\item \texttt{trace(repo)} fails internally; the exception is caught and a fallback is triggered.
+\item \texttt{_generate_synthetic_triples()} is invoked, returning hardcoded error strings (e.g., \texttt{"type mismatch"}, \texttt{"tactic failed"}) as compiler error messages, with synthetic state IDs.
+\item \texttt{dpo_pairs.py}: DPO pairs are constructed from synthetic triples. The 100\% state alignment rate reflects alignment of synthetic IDs, not real LeanDojo proof states.
+\item \texttt{locality_score.py}: Probability mass shifts are computed over synthetic tactic representations. The formula executes without error but operates on meaningless inputs.
+\item \texttt{statistical_tests.py}: Gate evaluation records FAIL with p=1.0 — the only output that accurately reflects the experimental situation.
+\end{enumerate}
+
+The experiment log (recorded at 2026-05-20 10:01:34) confirms: 488 miniF2F problems were loaded from HuggingFace, 0 Vericoding problems were loaded (data path not found), and the cold-start SFT evaluation was initiated but not completed within the logged window.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/probability_mass_distribution.png}
+\caption{Post-DPO probability mass distribution across tactic categories per condition and dataset (synthetic artifact).}
+\label{fig:probability_mass_distribution}
+\end{figure}
+
+\textit{Figure 2: Post-DPO probability mass distribution across tactic categories (type_error, undefined_name, tactic_failure) per condition and dataset. All distributions are synthetic artifacts from hardcoded error strings.}
+
+\subsubsection{5.3 Infrastructure Components Validated}
+
+Despite the data failure, the training infrastructure was validated on synthetic inputs:
+
+\textbf{Table 2: DPO Training Configuration — Validation Status}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+Component & Configured Value & Validation Status \\
+\midrule
+Model & ByteDance-Seed/BFS-Prover-V2-7B & Loaded correctly \\
+DPO β & 10.0 & Matches BFS-Prover paper \\
+Learning rate & 5e-6 → 5e-7 (linear decay) & Matches BFS-Prover paper \\
+Epochs & 1 & Correct \\
+State alignment rate & 100\% (on synthetic IDs) & Protocol correct; data synthetic \\
+Tactic taxonomy & Pre-specified (type_error, undefined_name, tactic_failure) & Immutable; pre-specified \\
+Loss: average_log_prob & False (sum log-probs) & Matches eric-mitchell/DPO \\
+Concatenated forward pass & Chosen + rejected in single pass & Implemented correctly \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{What was not validated:} real LeanDojo proof state extraction, real Lean4 compiler error messages as DPO negatives, and locality score computation on real probability distributions over tactic tokens.
+
+\subsubsection{5.4 Post-Hoc Code Review}
+
+Automated code review of \texttt{leandojo_tracing.py} confirmed that no real LeanDojo invocations occurred. The synthetic fallback was localized to the \texttt{_generate_synthetic_triples()} function. In the final version of the code (after the Phase 4 run), \texttt{leandojo_tracing.py} raises a \texttt{RuntimeError} rather than falling back to synthetic data when \texttt{import lean_dojo} fails, and similarly raises \texttt{RuntimeError} when \texttt{extract_state_triples} returns no triples. This post-run fix removes the silent fallback from the production code path.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/locality_score_per_state.png}
+\caption{Locality score per proof state across hard subset instances (synthetic artifact showing uniformly zero scores).}
+\label{fig:locality_score_per_state}
+\end{figure}
+
+\textit{Figure 3: Locality score per proof state across hard-subset instances, showing uniformly zero scores due to synthetic data generation rather than real LeanDojo extraction.}
+
+\subsubsection{5.5 Convergent Evidence from Prior Systems}
+
+The three prior systems that motivated the oracle hypothesis provide indirect evidence consistent with the oracle framing, but do not test it:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+System & Result & Mechanism implied \\
+\midrule
+BFS-Prover [Xin et al., 2025] & 72.95\% miniF2F with Lean4 DPO & Step-local grounded feedback → performance improvement \\
+PropertyGPT [Liu et al., 2024] & 87\% vs. 63\% compilation success & Structured static analysis feedback → inference improvement \\
+Proof of Thought [Ganguly et al., 2024] & 14.6\% → 0\% compilation errors & Structured Z3 feedback → error elimination \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+None of these systems isolates oracle from regularizer function. The convergent direction is consistent with the oracle hypothesis but does not confirm it. The H-E1 experiment, once executed with real LeanDojo data, would provide the first controlled test.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/error_category_breakdown.png}
+\caption{Locality score breakdown by LeanDojo error category for each DPO condition (synthetic artifact).}
+\label{fig:error_category_breakdown}
+\end{figure}
+
+\textit{Figure 4: Locality score breakdown by LeanDojo error category (type_error, undefined_name, tactic_failure) per DPO condition. All values are zero due to synthetic data. No real error categorization occurred.}

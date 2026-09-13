@@ -1,0 +1,198 @@
+# Hypothesis Verification Loop Workflow
+name: hypothesis-loop
+architecture: "orchestration"
+description: "Execute hypothesis verification loop. Runs Phase 2C → 3 → 4 for each sub-hypothesis. Phase 5 is invoked separately."
+author: "Anonymous"
+phase_output: "Validated sub-hypotheses ready for Phase 5"
+
+# Critical variables from config (BMAD v6 Standard)
+config_source: "{project-root}/bmad-custom-src/custom/modules/youra-research/module.yaml"
+output_folder: "{config_source}:output_folder"
+user_name: "{config_source}:user_name"
+communication_language: "{config_source}:communication_language"
+date: system-generated
+
+# YouRA Module Specific Variables
+research_output_path: "{config_source}:research_output_path"
+research_folder: "{research_output_path}/youra_research"
+verification_state_file: "{research_folder}/verification_state.yaml"
+
+# Module path and component files
+installed_path: "{project-root}/bmad-custom-src/custom/modules/youra-research/workflows/hypothesis-loop"
+instructions: "{installed_path}/instructions.md"
+
+# Workflow paths for invoke-workflow
+workflow_base_path: "{project-root}/bmad-custom-src/custom/modules/youra-research/workflows"
+phase2c_workflow: "{workflow_base_path}/phase2c-experiment-design/workflow.yaml"
+phase3_workflow: "{workflow_base_path}/phase3-implementation-planning/workflow.yaml"
+phase4_workflow: "{workflow_base_path}/phase4-coding/workflow.yaml"
+phase5_workflow: "{workflow_base_path}/phase5-baseline-repo-comparison/workflow.yaml"
+
+# Input configuration
+# execution_mode: Passed from caller or parsed from arguments
+# - "auto": Execute all READY hypotheses automatically (UNATTENDED mode)
+# - "step": Confirm after each hypothesis
+# - "single": Execute only the next READY hypothesis
+execution_mode: "{{user_input}}" # --mode=auto, --mode=step, --mode=single
+
+standalone: true # Can run independently after Phase 2B
+
+# Execution Mode Configuration
+execution_modes:
+  auto:
+    description: "Execute all READY hypotheses automatically"
+    skip_confirmations: true
+    stop_on_must_pass_failure: true
+
+  step:
+    description: "Confirm after each hypothesis completion"
+    skip_confirmations: false
+    ask_after_each: true
+
+  single:
+    description: "Execute only the next READY hypothesis"
+    skip_confirmations: true
+    exit_after_first: true
+
+# ============================================================================
+# PIPELINE POSITION & CONNECTIONS
+# ============================================================================
+#
+# ⚠️ ARCHON TASK CLARIFICATION:
+# Each phase below (2C, 3, 4) corresponds to INDIVIDUAL Archon Tasks.
+# This workflow ORCHESTRATES execution order, but does NOT define Archon Tasks.
+# Actual Archon Task definitions: helpers/archon_pipeline_creation.md
+# ============================================================================
+pipeline:
+  position: "Hypothesis Loop (Phase 2C → 3 → 4) × N"
+  sequence: "Phase 0 → Phase 1 → Phase 2A-Dialogue → Phase 2B → **(Phase 2C → Phase 3 → Phase 4) × N** → [Phase 5 separate]"
+  # - full-pipeline: Step 7.5 invokes Phase 5 after hypothesis-loop returns
+  # - standalone: User runs /phase5-baseline-repo-comparison separately
+
+  requires:
+    - "Phase 2B completion (verification_state.yaml)"
+
+  # Phases executed for EACH sub-hypothesis (H-E1, H-M1, H-M2, etc.)
+  # NOTE: Each phase = individual Archon Task (NOT grouped)
+  phases_per_sub_hypothesis:
+    - name: "Phase 2C"
+      workflow: "{phase2c_workflow}"
+      output: "{hypothesis_folder}/02c_experiment_brief.md"
+      description: "Experiment design"
+
+    - name: "Phase 3"
+      workflow: "{phase3_workflow}"
+      outputs:
+        - "{hypothesis_folder}/03_prd.md"
+        - "{hypothesis_folder}/03_architecture.md"
+        - "{hypothesis_folder}/03_logic.md"
+        - "{hypothesis_folder}/03_config.md"
+      description: "Implementation planning"
+
+    - name: "Phase 4"
+      workflow: "{phase4_workflow}"
+      outputs:
+        - "{hypothesis_folder}/04_validation.md"
+        - "{hypothesis_folder}/code/"
+      description: "Coding and validation (MUST_WORK gate)"
+
+  # See: full-pipeline-unattended/instructions.md Step 7.5
+  # Or: /phase5-baseline-repo-comparison for standalone execution
+  phase5_note: "Phase 5 is invoked separately after hypothesis-loop completes"
+
+# Gate System Configuration
+gate_system:
+  types:
+    MUST_WORK:
+      on_failure: "STOP"
+      description: "Critical prerequisite - workflow stops on failure"
+      block_dependents: true
+
+    SHOULD_WORK:
+      on_failure: "CONTINUE"
+      description: "Important but not critical - continue with limitations"
+      record_limitation: true
+
+    DETERMINES_SUCCESS:
+      on_failure: "CONTINUE"
+      description: "Final hypothesis - determines overall pipeline success"
+      affects_final_status: true
+
+  validation_logic:
+    prerequisite_check: "All prerequisites must be COMPLETED"
+    must_work_check: "gate.satisfied must be true for MUST_WORK prerequisites"
+    should_work_check: "Load limitations from 04_validation.md on failure"
+
+# State Tracking Integration
+state_tracking:
+  file: "{verification_state_file}"
+
+  on_hypothesis_start:
+    - "Validate prerequisites"
+    - "Check gate satisfaction"
+    - "Update hypothesis.status = IN_PROGRESS"
+
+  on_phase_complete:
+    - "Update phase status (experiment_design, implementation_planning, validation)"
+    - "Save verification_state.yaml"
+
+  on_hypothesis_complete:
+    - "Process validation result (PASS/PARTIAL/FAIL)"
+    - "Update gate.satisfied based on result"
+    - "Update hypothesis.status = COMPLETED or FAILED"
+    - "Update dependent hypotheses status to READY if applicable"
+    - "Check for workflow STOP conditions"
+
+# MCP Server Requirements
+mcp_servers:
+  required:
+    - name: "Archon"
+      purpose: "Pipeline task tracking, knowledge base"
+      mandatory: true
+
+    - name: "Serena"
+      purpose: "Code analysis, session memory"
+      mandatory: true
+
+  validation: "Archon and Serena MUST be available."
+
+# Error Handling
+error_handling:
+  phase_failure:
+    action: "attempt_recovery"
+    max_retries: 1
+    on_final_failure: "record_and_continue"
+
+  must_pass_failure:
+    action: "STOP"
+    update_workflow_status: "STOPPED"
+    block_dependent_hypotheses: true
+
+  should_pass_failure:
+    action: "CONTINUE"
+    record_limitation: true
+    load_context_from: "04_validation.md"
+
+# Quality Validation
+quality_criteria:
+  # Per sub-hypothesis checks
+  phase2c_complete:
+    check: "{hypothesis_folder}/02c_experiment_brief.md exists"
+    fail_action: "Retry Phase 2C"
+    scope: "sub_hypothesis"
+
+  phase3_complete:
+    check: "{hypothesis_folder}/03_prd.md, 03_architecture.md, 03_logic.md, 03_config.md exist"
+    fail_action: "Retry Phase 3"
+    scope: "sub_hypothesis"
+
+  phase4_complete:
+    check: "{hypothesis_folder}/04_validation.md and code/ exist"
+    fail_action: "Retry Phase 4"
+    scope: "sub_hypothesis"
+
+  # Phase 5 quality check is in full-pipeline-unattended or phase5-baseline-repo-comparison
+
+  gate_processed:
+    check: "Validation result processed and state updated"
+    fail_action: "Re-process gate"

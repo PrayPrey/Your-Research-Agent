@@ -1,0 +1,35 @@
+# Discussion
+
+## Key Findings Interpretation
+
+Validation demonstrates infrastructure layer (measurement + mechanisms) works at proof-of-concept scale. All five sub-hypotheses passed gates, confirming that automated health metrics can detect deprecation candidates (88.3% precision), context-aware graphs can provide task-specific recommendations (100% accuracy on synthetic patterns), and load-time instrumentation can track adoption events with minimal overhead (<5%). Three-component synergy validated: health metrics surface candidates automatically, context graphs personalize recommendations, instrumentation enables outcome measurement.
+
+Results exceed targets across all metrics (precision 88.3% vs 60% target, overhead 0.21% vs 10% target), but perfect scores (100% recall, 100% context accuracy) likely optimistic due to synthetic/simulated data. Real-world accuracy expected to regress to 70-95% based on pattern cleanliness assumptions. PoC scale (100-500 samples) validates mechanistic feasibility but not production-scale performance (60k+ datasets).
+
+## Limitations
+
+**PoC Scale vs Production:** Experiments validated mechanisms on 100-1000 samples; production deployment (60k HuggingFace datasets) may reveal scalability issues. NetworkX graph queries scale to thousands of nodes, but 60k-node performance untested. Acceptable trade-off: mechanistic validation scopes to feasibility demonstration, not deployment readiness.
+
+**Mock/Simulated Data vs Real API:** h-m2, h-m3, h-m4 used mock data; h-m1 used simulated HuggingFace metadata. Isolates mechanism validation from external dependencies (API rate limits, authentication), but generalization to real API data unvalidated. Patterns derived from software package manager literature ensure realism, but real-world edge cases (e.g., dataset cards without citations, ambiguous task contexts) untested.
+
+**Efficacy Untested:** Phase 5 baseline comparison skipped; P2 prediction (≥50% adoption lift vs informal mechanisms) remains untested. Results validate mechanistic layer (does it work?) but not efficacy layer (how well?). Requires controlled experiment with treatment/control groups to measure adoption lift. Acceptable for infrastructure research: demonstration precedes deployment-scale efficacy measurement.
+
+**Synthetic Patterns:** h-m2 context inference validated on clean synthetic patterns (exact-match task labels, well-formed dataset cards). Real-world usage may include ambiguous contexts (multi-task datasets, missing task annotations), causing accuracy to regress below 100%. Override mechanism (27.95% rate) provides safety valve but doesn't eliminate misclassification risk.
+
+## Broader Impact
+
+**Positive:** Formal deprecation mechanisms improve dataset quality signals for practitioners, reduce maintainer burden (automated candidate detection vs manual triage), and enable reproducibility (users notified of deprecated datasets at load time). Telemetry infrastructure enables longitudinal studies of deprecation efficacy (A/B testing interventions).
+
+**Negative:** Load-time telemetry raises privacy concerns (mitigated via SHA256 hashing with no user PII, opt-in consent). Automated deprecation warnings could disrupt workflows if false-positive rate high (mitigated via 88.3% precision, user override mechanism). Successor recommendations may introduce bias if context inference systematically fails for underrepresented tasks (requires fairness audits on production data).
+
+**Equitable:** Infrastructure benefits all HuggingFace users equally; no differential impact by demographic. Deployment requires equitable access to instrumented loaders (maintained as open-source, not platform-gated).
+
+## Generalizability
+
+Design patterns (health metrics, context graphs, load-time instrumentation) applicable beyond HuggingFace: OpenML, Kaggle, Papers with Code, UCI Machine Learning Repository all share common infrastructure patterns (programmatic loaders, metadata APIs, version tracking). Context inference patterns (dataset card citation analysis, import history introspection) transfer to platforms with structured metadata. Cross-platform validation future work.
+
+Health metric weights (velocity=2.0, emergence=1.5, issue_ratio=1.0) tuned for HuggingFace usage distributions; require recalibration for platforms with different download patterns (e.g., Kaggle competitions vs academic datasets). Threshold (≥2.5) provides precision-recall tradeoff; production deployment benefits from platform-specific tuning.
+
+## Theoretical Contribution
+
+Reframes datasets as dependencies with lifecycle management needs distinct from both static files (require deprecation mechanisms) and software packages (require task-aware succession, usage-based health signals). Three-failure-mode decomposition (detection, recommendation, measurement) organizes infrastructure requirements; sub-hypothesis decomposition methodology applicable to other ML infrastructure validation (model registries, experiment tracking, deployment pipelines).

@@ -1,0 +1,329 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** C:\Users\OWNER\Desktop\ResearchAgents_Integrated_0\ResearchAgents_5_4_0_YouRA_new_Yoon_experiment_sonnet45\tasks_youra_result_sh\iclr2025_mlgenx\02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-BioRLHF-01
+**Confidence Level:** 0.88
+
+**Main Hypothesis:**
+Under genomics foundation model fine-tuning conditions with LINCS L1000 perturbation data, if reinforcement learning from biological feedback (RLHF) with ensemble reward models (5 Bradley-Terry models trained on pairwise experimental outcome comparisons + empirically validated biological constraint metrics) is applied to scGPT via PPO policy optimization with KL regularization, then perturbation prediction accuracy and biological validity scores will exceed supervised fine-tuning (SFT) adapter baselines by statistically significant margins (≥5% accuracy gain, p<0.05) because reward-based policy optimization aligns model predictions with experimental outcomes and biological constraints through iterative learning from success/failure signals.
+
+**Alternative Hypothesis (H0):**
+There is no significant difference in perturbation prediction accuracy or biological validity between RLHF-based fine-tuning and supervised fine-tuning (SFT) adapter methods for genomics foundation models. Any observed differences are due to random variation or confounding factors (e.g., hyperparameter tuning, dataset selection) rather than the RLHF mechanism itself.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| **Fine-tuning method** | Independent | RLHF (PPO with ensemble biological reward model) vs SFT (adapter-based fine-tuning from Maleki et al. 2024) | {RLHF, SFT} |
+| **Reward function components** | Independent | Ensemble of 5 Bradley-Terry models trained on LINCS pairwise comparisons + validated biological metrics (QED/docking/SAScore if r>0.5 in pilot study) | Continuous reward score R(perturbation) ∈ [0,1] |
+| **Perturbation prediction accuracy** | Dependent | Percentage of correct predictions on LINCS L1000 held-out test set (130K samples), measured as Pearson correlation between predicted and actual gene expression profiles | Target: 70-85% (domain standard for perturbation prediction) |
+| **Biological validity scores** | Dependent | Composite metric: QED (drug-likeness, 0-1), AutoDock Vina (binding affinity, kcal/mol), SAScore (synthetic accessibility, 1-10) | QED >0.6, Binding affinity <-7 kcal/mol, SAScore <6 |
+| **Experimental success rate** | Dependent | Percentage of predictions validated in lab or high-fidelity physics-based simulation (minimum 200 perturbations tested) | Target: >60% experimental validation success |
+| **Base foundation model** | Controlled | scGPT pretrained on 33M single-cell RNA-seq profiles (Cui et al. 2024) | Fixed: scGPT-v1 checkpoint |
+| **Dataset** | Controlled | LINCS L1000 (1.3M perturbation profiles, cancer cell lines, small-molecule compounds) | Training: 1.17M, Validation: 65K, Test: 130K |
+| **Hyperparameters** | Controlled | PPO learning rate, KL coefficient β, batch size, number of PPO epochs | Learning rate=1e-5, β∈{0.01,0.02,0.05} (tuned on validation), batch=32 |
+
+### 1.3 Causal Mechanism
+
+**5-Step Causal Chain (Dynamic N=5 based on complexity assessment):**
+
+**Step 1 → Step 2: Pairwise Comparison Dataset Construction**
+- **Mechanism**: LINCS L1000 efficacy z-scores are thresholded (top 20% z>1.28 = success, bottom 20% z<-1.28 = failure) to construct ~250K balanced pairwise comparisons (successful perturbation, failed perturbation) for reward model training.
+- **Evidence**: Bang et al. (2024) successfully used LINCS L1000 for transfer learning to drug response prediction; LINCS contains documented efficacy outcomes for 1.3M profiles.
+- **Falsification Point**: If z-score thresholds do not correlate with actual experimental outcomes (empirical validation shows r<0.3), pairwise labels would be noisy and reward model training would fail.
+
+**Step 2 → Step 3: Biological Reward Model Training**
+- **Mechanism**: Ensemble of 5 Bradley-Terry models is trained on pairwise comparisons to learn reward function R(perturbation) that predicts biological validity. Pilot study validates QED/docking/SAScore correlation with experimental success (include in reward only if r>0.5).
+- **Evidence**: LaMBO (Stanton et al. 2022) demonstrates latent space optimization with learned objectives in biological sequence design; ensemble methods reduce overfitting (Archon cases on LoRA adapter training).
+- **Falsification Point**: If ensemble fails to converge or has high variance across models (std>0.3), reward signal would be unreliable for policy optimization.
+
+**Step 3 → Step 4: PPO Policy Optimization**
+- **Mechanism**: scGPT transformer weights are updated via Proximal Policy Optimization (PPO) to maximize expected reward E[R(perturbation)] through policy gradient updates. PPO samples perturbations from current policy, evaluates rewards, computes advantage estimates, and updates policy to increase probability of high-reward perturbations.
+- **Evidence**: scGPT (Cui et al. 2024) demonstrates fine-tuning works for perturbation prediction (778 citations); PPO algorithm is proven for policy optimization in RL with continuous action spaces.
+- **Falsification Point**: If PPO hyperparameters are poorly tuned (learning rate too high causing instability, or too low causing no learning) or scGPT architecture is incompatible with RL optimization (gradient vanishing), policy would not improve from rewards.
+
+**Step 4 → Step 5: KL Regularization Prevents Catastrophic Forgetting**
+- **Mechanism**: KL-divergence penalty between current policy π and pretrained policy π₀ is added to optimization objective (KL[π||π₀] weighted by coefficient β). This constrains policy updates to stay close to pretrained model, preserving foundation model's general biological knowledge while allowing learning from rewards.
+- **Evidence**: RLHF for LLMs (InstructGPT paradigm) maintains base model capabilities via KL regularization; Maleki et al. (2024) shows adapters preserve foundation model knowledge with <1% parameter updates.
+- **Falsification Point**: If β is too low (<0.005), catastrophic forgetting occurs (performance on original scGPT tasks degrades >20%); if β is too high (>0.1), no learning from rewards (policy stuck at pretrained distribution, mode collapse).
+
+**Step 5 → Outcome: Improved Accuracy and Biological Validity**
+- **Mechanism**: Optimized policy generates perturbation predictions that are aligned with both experimental success patterns (learned from LINCS outcomes) and biological constraints (learned from QED/docking if validated), resulting in higher accuracy on held-out test set and higher experimental validation success rate compared to SFT baseline.
+- **Evidence**: Transfer learning from LINCS to drug response achieves SOTA results (Bang et al. 2024); biological validity metrics (QED/docking) are established predictors of experimental outcomes in drug discovery.
+- **Falsification Point**: If biological constraint metrics have low correlation with experimental success (r<0.5 in pilot study), predicted improvements in biological validity would not translate to real-world validation success.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Bang et al. 2024 (Scholar) | LINCS L1000 transfer learning achieves SOTA drug response prediction | Strong |
+| Step 1 → Step 2 | LINCS L1000 database documentation | 1.3M perturbation profiles with documented efficacy outcomes | Strong |
+| Step 2 → Step 3 | LaMBO (Stanton et al. 2022, 127 citations) | Learned objectives enable latent space optimization for biological sequences | Strong |
+| Step 2 → Step 3 | Archon case: LoRA adapter training | Ensemble methods reduce adapter overfitting in fine-tuning | Medium |
+| Step 3 → Step 4 | scGPT (Cui et al. 2024, 778 citations) | Fine-tuning scGPT achieves SOTA on perturbation prediction tasks | Strong |
+| Step 3 → Step 4 | PPO algorithm (Schulman et al.) | PPO proven for policy optimization with continuous actions | Strong |
+| Step 4 → Step 5 | InstructGPT RLHF paradigm (OpenAI) | KL regularization maintains base model capabilities during RL | Strong |
+| Step 4 → Step 5 | Maleki et al. 2024 (8 citations) | Adapters preserve foundation model knowledge with minimal parameters | Medium |
+| Step 5 → Outcome | Bang et al. 2024 transfer learning | Transfer learning from LINCS achieves SOTA performance | Strong |
+| Step 5 → Outcome | Drug discovery literature (QED/docking metrics) | Biological validity metrics predict experimental success | Medium |
+
+**Key Tension:**
+- **Tension**: LaMBO (Stanton et al. 2022) achieves biological sequence optimization through Bayesian Optimization in latent space, not reinforcement learning with reward models. This suggests BO may be a simpler, equally effective alternative to RLHF for genomics.
+- **Resolution**: This verification plan tests whether RL's iterative policy optimization with learned reward models provides advantages over BO's explore-exploit tradeoff. Specifically, we hypothesize that RLHF enables closed-loop learning from experimental feedback (reward model updates with new data), whereas BO requires retraining from scratch. Phase 2B Sub-Hypothesis SH2 will test the RL mechanism's contribution by comparing RLHF vs BO vs SFT baselines.
+
+### 1.4 Key Assumptions
+
+1. **Experimental outcomes can be framed as preference signals analogous to human preferences in LLM RLHF**
+   - **Supporting Evidence**: InstructGPT RLHF paradigm (OpenAI), pairwise comparison methodology from robotics reward shaping
+   - **Consequence if Violated**: If experimental outcomes are too noisy or multi-modal (e.g., compound has high efficacy but high toxicity, making "preference" ambiguous), reward model would learn contradictory signals and fail to provide consistent guidance for policy optimization. **Mitigation**: Define clear success criteria combining efficacy AND toxicity (composite reward).
+
+2. **Ensemble reward models (5 Bradley-Terry models) can learn generalizable biological validity from pairwise comparisons**
+   - **Supporting Evidence**: LaMBO demonstrates latent space optimization with learned objectives; ensemble methods reduce overfitting (Archon cases)
+   - **Consequence if Violated**: If pairwise comparison data is too sparse or ensemble models have high variance (disagreement >30%), reward signal would be unreliable and policy optimization would be unstable (high variance gradients). **Mitigation**: Pilot study validates ensemble convergence before full RLHF training.
+
+3. **PPO policy optimization with KL regularization (β=0.01-0.05) won't catastrophically forget pretrained knowledge**
+   - **Supporting Evidence**: RLHF for LLMs maintains base capabilities via KL regularization; Maleki et al. 2024 shows adapters preserve foundation model knowledge
+   - **Consequence if Violated**: If KL regularization is insufficient, model would overfit to reward signal and lose general biological knowledge from pretraining (e.g., performance on cell type annotation degrades >10%). **Mitigation**: Validation set monitors pretrained task performance throughout RL training; early stopping if degradation detected.
+
+4. **Biological constraint metrics (QED, docking, SAScore) correlate moderately-to-strongly (r>0.5) with real experimental success**
+   - **Supporting Evidence**: Pilot validation study required on 1000 LINCS samples before inclusion in reward function
+   - **Consequence if Violated**: If pilot study shows r<0.5 for all metrics, computational biological constraints provide no signal for experimental success. **Mitigation**: Drop biological metrics from reward, rely purely on experimental outcome pairwise comparisons (still valid RLHF, just less guidance during training).
+
+5. **LINCS L1000 perturbation outcomes are sufficiently reliable to serve as training signal**
+   - **Supporting Evidence**: Bang et al. 2024 uses LINCS for transfer learning with SOTA results; LINCS is widely used in drug discovery research
+   - **Consequence if Violated**: If LINCS data has systematic errors or batch effects, reward model would learn spurious correlations. **Mitigation**: Use multi-batch LINCS data and validate reward model predictions on external perturbation datasets (e.g., GDSC drug response data).
+
+### 1.5 Scope & Boundaries
+
+**Applies to:**
+- **Perturbation Type**: Small-molecule chemical perturbations (LINCS L1000 scope), not genetic perturbations (CRISPR/shRNA) or protein/antibody therapies
+- **Cell Type**: Cancer cell lines (LINCS primary focus: A549 lung cancer, MCF7 breast cancer, PC3 prostate cancer, etc.)
+- **Foundation Model**: scGPT-style transformer models pretrained on single-cell RNA-seq data (generalizes to similar architectures but not to sequence-based models like DNABERT)
+- **Data Regime**: Sufficient pairwise comparison data (>100K pairs) available for reward model training
+- **Computational Resources**: 8-GPU cluster access for 2-3 weeks (140 GPU-hours total)
+
+**Does NOT apply to:**
+- **CRISPR/Genetic Perturbations**: Different mechanism (gene knockout vs small-molecule binding), LINCS does not contain CRISPR data, reward model would need retraining on Perturb-seq datasets
+- **Non-Cancer Cell Types**: Reward model trained on cancer cell lines may not generalize to healthy tissue, immune cells, or stem cells without domain adaptation
+- **Protein Design**: Different sequence space (amino acids vs molecules), requires different foundation models (e.g., ESM, ProtGPT)
+- **Zero-Shot Generalization to Unseen Compounds**: Reward model trained on LINCS compounds may not generalize to structurally novel drug candidates outside training distribution (requires active learning loop with experimental validation)
+- **Real-Time Clinical Applications**: Experimental validation loop has weeks-to-months latency, not suitable for real-time patient treatment decisions
+
+**Known Limitations:**
+1. **Feedback Latency**: Real lab experiments take weeks-months for validation. Mitigated by starting with dense LINCS data (1.3M profiles) before closed-loop experimental updates.
+2. **Generalization**: Reward model trained on LINCS (cancer cells, small molecules) may not generalize to other perturbation types or cell types without retraining.
+3. **Computational Cost**: 140 GPU-hours is feasible but non-trivial (requires 8-GPU cluster, ~2-3 weeks). Smaller labs may need cloud compute or model compression.
+4. **Reward Correlation Uncertainty**: If pilot study shows biological metrics (QED/docking/SAScore) have r<0.5 with experimental success, must rely on experimental outcomes only (reduces guidance during training, potentially slower convergence).
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Perturbation Prediction Accuracy vs SFT Baseline):**
+RLHF-optimized scGPT will achieve perturbation prediction accuracy **> 5% higher than SFT adapter baseline** (Maleki et al. 2024) on LINCS L1000 held-out test set with **p < 0.05 statistical significance**.
+
+*Measurement*:
+- **Metric**: Pearson correlation between predicted and actual gene expression profiles on 130K held-out test perturbations
+- **Statistical Test**: Paired t-test (same random seeds for RLHF and SFT runs), one-tailed, α=0.05
+- **Sample Size**: Minimum n ≥ 20 independent runs (different random seeds) for adequate statistical power
+- **Report Format**: Mean accuracy difference ± Std Dev, 95% Confidence Interval, Cohen's d effect size, p-value
+
+*Basis*:
+- Domain standard for meaningful improvement in genomics ML: 3-10% accuracy gain
+- SFT adapter baseline (Maleki et al. 2024) achieves SOTA zero-shot perturbation prediction
+- RLHF target represents ≥5% absolute improvement (e.g., 75% → 80% correlation)
+
+*Success Criteria for Phase 2B*:
+- **Primary**: Mean accuracy gain > 5% with p < 0.05 (one-tailed paired t-test)
+- **Falsification**: Accuracy ≤ SFT baseline -2% (statistically worse) triggers hypothesis rejection
+
+**Secondary Predictions:**
+
+**P2 (Biological Validity Improvement):**
+RLHF-optimized predictions will achieve **≥10% higher biological validity scores** (composite metric: QED >0.6, binding affinity <-7 kcal/mol, SAScore <6) compared to SFT baseline predictions on the same 130K test set.
+
+*Measurement*: Percentage of predictions meeting all three biological validity criteria (QED AND binding affinity AND SAScore thresholds)
+
+*Basis*: Reward function explicitly optimizes for biological constraints, whereas SFT only learns from supervised labels.
+
+**P3 (Experimental Validation Success Rate):**
+When 200 perturbations (100 from RLHF, 100 from SFT) are tested in lab or high-fidelity simulation, RLHF predictions will have **≥10% higher experimental success rate** than SFT predictions.
+
+*Measurement*: Percentage of predictions that achieve efficacy >1.5x control AND toxicity <20% in validation experiments
+
+*Basis*: Reward model alignment with experimental outcomes should translate to higher real-world validation success.
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any of the following occur:
+
+1. **Primary Failure**: Perturbation prediction accuracy ≤ SFT baseline -2% (statistically significantly worse than current best method, p<0.05)
+
+2. **Mechanism Failure**: Reward model does not learn from pairwise comparisons (validation AUC <0.65, random chance is 0.5) OR PPO policy does not improve from initial checkpoint (reward plateaus for >50% of training)
+
+3. **Baseline Failure**: RLHF performance is worse than trivial baseline (mean gene expression predictor) by >10%
+
+4. **Catastrophic Forgetting**: Performance on original scGPT pretraining tasks (cell type annotation, batch integration) degrades by >10% after RLHF training
+
+5. **No Advantage Across All Metrics**: RLHF fails to outperform SFT on accuracy AND biological validity AND experimental success rate (no advantage on any dimension suggests RLHF adds complexity without benefit)
+
+### 1.7 SOTA Baseline (Optional - If SOTA Comparison Mode)
+
+**N/A** - This hypothesis targets methodological comparison (RLHF vs SFT adapters) rather than SOTA leaderboard competition. Baseline is Maleki et al. 2024 adapters achieving zero-shot perturbation prediction SOTA.
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- **Effect Size**: Cohen's d = (5% improvement) / (assumed std dev ~2%) ≈ 2.5 (large effect)
+- **Required Runs**: n ≥ 20 independent runs (different random seeds) for statistical power 0.8
+- **Rationale**: Large effect size (5% improvement in domain with ~2% typical variance) allows moderate sample size; 20 runs balance computational cost (20 × 140 GPU-hours = 2800 total GPU-hours across all runs, parallelizable on cluster) with statistical rigor
+
+**Test Specification:**
+- **Method**: Paired t-test comparing RLHF vs SFT accuracy on same random seeds (controls for initialization variance)
+- **Significance Level**: α = 0.05 (one-tailed test, directional hypothesis that RLHF > SFT)
+- **Report Format**:
+  - Mean accuracy difference: (RLHF - SFT) ± Std Dev
+  - 95% Confidence Interval for difference
+  - Cohen's d effect size (standardized mean difference)
+  - p-value from paired t-test
+  - Individual run results table for transparency
+
+**Validation Protocol:**
+- **Cross-Validation**: 5-fold cross-validation on LINCS training set (1.17M profiles) to tune hyperparameters (KL coefficient β, PPO learning rate)
+- **Held-Out Test Set**: Final evaluation on completely held-out 130K test perturbations (never seen during training or hyperparameter tuning)
+- **External Validation**: Secondary evaluation on GDSC drug response dataset (different data source) to assess generalization
+
+**Reproducibility Measures:**
+- Fixed random seeds documented for all runs
+- Hyperparameters logged via MLflow or Weights & Biases
+- Code release with instructions for replication
+- Pre-commit hooks for deterministic PyTorch/CUDA operations
+
+
+---
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence - Reward Model Validity):**
+**Sub-Hypothesis**: Ensemble biological reward models trained on LINCS pairwise comparisons can accurately predict experimental success (validation AUC >0.75) and biological validity (correlation r>0.5 with QED/docking/SAScore if empirically validated).
+
+**Verification Approach**: Pilot study on 1000 LINCS samples to validate reward model predictions against experimental outcomes. Train 5-fold ensemble, measure AUC on held-out validation set, compute correlation between predicted rewards and biological validity metrics.
+
+**Success Criteria**: Ensemble validation AUC >0.75, inter-model agreement >70%, empirical correlation r>0.5 for at least one biological metric (QED/docking/SAScore).
+
+---
+
+**SH2 (Mechanism - RL Policy Optimization Contribution):**
+**Sub-Hypothesis**: PPO policy optimization with KL regularization (β=0.01-0.05) improves perturbation prediction accuracy beyond SFT baseline while preserving pretrained foundation model knowledge (performance degradation on original tasks <5%).
+
+**Verification Approach**: Compare RLHF vs SFT vs BO (LaMBO-style) on same scGPT base model. Measure accuracy on LINCS test set + performance on original scGPT tasks (cell type annotation, batch integration) before/after RL training. Ablation study: vary KL coefficient β to find optimal balance.
+
+**Success Criteria**: RLHF accuracy >SFT +5% AND >BO +2%, pretrained task performance degradation <5%, optimal β identified via validation set.
+
+---
+
+**SH3 (Comparison - RLHF vs SFT Baselines):**
+**Sub-Hypothesis**: RLHF-optimized scGPT achieves ≥5% higher accuracy, ≥10% higher biological validity, and ≥10% higher experimental success rate compared to SFT adapter baseline (Maleki et al. 2024) with statistical significance (p<0.05).
+
+**Verification Approach**: Head-to-head comparison on 130K LINCS held-out test set (accuracy), biological validity metric computation (QED/docking/SAScore), and experimental validation on 200 perturbations (100 RLHF, 100 SFT).
+
+**Success Criteria**: All three metrics show RLHF advantage: accuracy difference >5% (paired t-test p<0.05), biological validity >10% more predictions meeting thresholds, experimental success rate >10% higher (chi-square test p<0.05).
+
+---
+
+### Readiness Checklist
+
+**Data Availability:**
+- ✅ LINCS L1000 dataset accessible (1.3M perturbation profiles, public NIH database)
+- ✅ scGPT pretrained model checkpoint available (bowang-lab/scGPT GitHub)
+- ✅ Biological validity tools available (QED library, AutoDock Vina, SAScore scripts)
+- ⏳ Experimental validation capacity (requires lab partnership or high-fidelity simulation access)
+
+**Computational Resources:**
+- ✅ 8-GPU cluster identified for RL training (140 GPU-hours feasible in 2-3 weeks)
+- ✅ PPO implementation available (stable-baselines3, Ray RLlib)
+- ✅ Distributed training infrastructure for parallelizing 20 runs
+
+**Methodological Prerequisites:**
+- ✅ RLHF methodology well-documented (InstructGPT papers, OpenAI blog posts)
+- ✅ Bradley-Terry reward model implementations available (PyTorch libraries)
+- ⏳ Pilot study required to validate biological metric correlation (r>0.5 threshold)
+
+**Team Expertise:**
+- ✅ RL expertise needed (PPO implementation, hyperparameter tuning)
+- ✅ Genomics domain knowledge needed (LINCS data interpretation, biological validity assessment)
+- ⏳ Lab partnership for experimental validation (or access to high-fidelity simulations)
+
+**Phase 2B Decomposition Readiness:**
+- ✅ Main hypothesis decomposed into 3 testable sub-hypotheses (SH1 reward validity, SH2 RL mechanism, SH3 RLHF vs SFT)
+- ✅ Each sub-hypothesis has verification approach + success criteria
+- ✅ Dependencies identified (SH1 pilot study → SH2 RL training → SH3 comparison)
+- ✅ Falsification conditions specified for each sub-hypothesis
+
+**Overall Readiness**: **READY for Phase 2B** with 2 prerequisites:
+1. Pilot study to validate biological metric correlation (1-2 weeks, low risk)
+2. Experimental validation capacity secured (lab partnership or simulation access)
+
+---
+
+### Open Questions
+
+**For Phase 2B Verification Planning:**
+
+1. **Experimental Validation Logistics**:
+   - **Q**: Should we use real lab experiments (gold standard but 4-8 week latency) or high-fidelity physics-based simulations (faster but approximation)?
+   - **Impact**: Determines timeline for SH3 experimental validation (real lab: 2-3 months, simulation: 2-4 weeks)
+   - **Recommendation**: Start with simulation for rapid iteration, validate top-performing perturbations in real lab for final publication
+
+2. **Reward Model Architecture**:
+   - **Q**: Should Bradley-Terry models use neural network parameterization or linear features?
+   - **Impact**: Neural networks more expressive but risk overfitting on sparse pairwise data; linear models more interpretable
+   - **Recommendation**: Pilot study compares both architectures, select based on validation AUC and generalization
+
+3. **Baseline Comparison Scope**:
+   - **Q**: Should we compare against LaMBO (Bayesian Optimization) in addition to SFT adapters?
+   - **Impact**: Adds computational cost (~140 GPU-hours for LaMBO training) but strengthens comparison (RL vs BO vs SFT)
+   - **Recommendation**: Include LaMBO as secondary baseline for comprehensive comparison (addresses "Key Tension" from Section 1.3)
+
+4. **Generalization Beyond LINCS**:
+   - **Q**: Should Phase 2B include out-of-distribution generalization tests (e.g., CRISPR perturbations, non-cancer cell types)?
+   - **Impact**: Demonstrates (or limits) generalization claims but adds scope beyond primary hypothesis
+   - **Recommendation**: Defer to follow-up work; Phase 2B focuses on LINCS scope as specified in Section 1.5
+
+5. **Statistical Power for Experimental Validation**:
+   - **Q**: Is 200 perturbations (100 RLHF, 100 SFT) sufficient statistical power for ≥10% success rate difference?
+   - **Impact**: Power analysis: assuming 60% baseline success, 70% RLHF success, n=100 per group gives power ~0.75 (acceptable but could be higher)
+   - **Recommendation**: Increase to 150 per group (300 total) if budget allows, for power ~0.9
+
+**Clarifications Needed Before Phase 2B:**
+- Lab partnership status (real experiments vs simulation decision)
+- Budget confirmation for 300 experimental validations (if increased from 200)
+- LaMBO baseline inclusion decision (adds ~140 GPU-hours)
+
+**No Blocking Issues**: All open questions have feasible resolution paths, none prevent Phase 2B planning.
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-06*
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work

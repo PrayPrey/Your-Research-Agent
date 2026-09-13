@@ -1,0 +1,8 @@
+## Title
+Developmental-Stage-Aware Transformers: Encoding Piagetian Constraints for Child-Centered Intelligent Tutoring
+
+## Motivation
+Current AI tutoring systems adapt to children based solely on performance metrics, ignoring fundamental developmental psychology insights about how children's cognitive capabilities evolve with age. This creates a critical gap: systems may present content that is developmentally inappropriate regardless of performance, leading to suboptimal learning and unnecessary cognitive burden. While AI tutoring can achieve strong effects (ES=0.92), typical systems only reach 0.15-0.30 SD gains. Children aged 7-14 span distinct Piagetian stages with different reasoning capacities and working memory limits—constraints that current architectures fail to structurally encode.
+
+## Main Idea
+We propose the Developmental-Stage-Aware Transformer (DSAT), which architecturally integrates developmental psychology theory rather than applying post-hoc adaptations. The core mechanism involves: (1) soft-gated transformer layers that activate computations matching the child's Piagetian stage, (2) dynamic context windows sized to age-normed working memory capacity (4-7 items based on Cowan norms), and (3) real-time cognitive load estimation for difficulty adjustment. We hypothesize this architectural integration will achieve learning gains >0.35 SD and ≥15% cognitive load reduction compared to performance-only ITS. Validation involves a three-condition study (DSAT vs. performance-based ITS vs. age-conditioned baseline) with children aged 7-14 in STEM learning tasks, measuring pre-post gains and NASA-TLX cognitive load. This approach could establish a new paradigm for developmentally-appropriate AI education systems.

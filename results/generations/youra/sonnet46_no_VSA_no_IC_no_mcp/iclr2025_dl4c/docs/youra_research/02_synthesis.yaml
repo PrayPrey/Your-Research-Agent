@@ -1,0 +1,131 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-26T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent-Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Difficulty-Scaled RLEF: Execution Feedback Advantage Grows with Benchmark Difficulty"
+  hypothesis_id: "H-DifficultyScaledRLEF-v1"
+  core_claim: |
+    Under controlled fine-tuning conditions (DeepSeek-Coder-7B base, APPS training data,
+    bigcode-harness correctness-only evaluation), RLEF with fraction-of-tests-passing reward
+    achieves a progressively larger performance advantage over SFT as benchmark difficulty
+    increases from HumanEval (easy) through MBPP to LiveCodeBench Easy/Medium/Hard,
+    because execution feedback enables non-zero gradient from partial-success solutions
+    where SFT has zero signal.
+  mechanism: |
+    At easy benchmarks (HumanEval/MBPP), APPS training data covers problem types well;
+    SFT has adequate correct-solution examples; RLEF adds marginal benefit.
+    At hard benchmarks (LiveCodeBench-Hard), APPS correct-solution coverage is sparse;
+    SFT receives near-zero gradient on hard problems; RLEF's fraction reward assigns
+    non-zero gradient from partially-correct solutions (e.g., 3/5 tests passing).
+    This partial-success gradient allows RLEF to iteratively improve toward full solutions
+    via policy optimization — a path unavailable to SFT's all-or-nothing objective.
+    Binary reward is intermediate: provides some signal beyond SFT but loses the
+    incremental structure that fraction reward preserves.
+  predictions:
+    - P1: "Δ(Fraction-RLEF, SFT) at LiveCodeBench ≥ 1.5× Δ at HumanEval (primary, p<0.05)"
+    - P2: "Δ(Fraction-RLEF, SFT) > Δ(Binary-RLEF, SFT) at hard benchmarks; not at easy benchmarks"
+    - P3: "Non-zero reward fraction during RLEF training correlates positively with APPS problem difficulty"
+    - P4: "Directional pattern (gap widens with difficulty) holds for DeepSeek-Coder-1.3B sanity check"
+
+variables_summary:
+  independent: "Training Method (SFT / RLEF-Binary / RLEF-Fraction) × Benchmark Difficulty (HumanEval / MBPP / LiveCodeBench-Easy/Medium/Hard)"
+  dependent_primary: "pass@1 per benchmark; Δ(RLEF, SFT) = RLEF pass@1 - SFT pass@1 at each benchmark"
+  controlled: "Base model (DeepSeek-Coder-7B), training data (APPS), eval protocol (bigcode-harness correctness-only, LiveCodeBench 2024-Q4 snapshot), matched gradient steps"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in Δ(RLEF, SFT) across benchmark difficulty levels.
+    Formally: Δ_LiveCodeBench / Δ_HumanEval ≤ 1.5 (null: gap does not widen meaningfully).
+  statistical_test: "Bootstrap two-sample test on Δ ratios; Bonferroni correction for multiple benchmark comparisons"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Difficulty-stratified controlled comparison of RLEF vs SFT; first reproducible open-source characterization of the difficulty-scaling relationship; embedded reward formulation ablation (binary vs fraction) in same framework"
+  differentiation_summary: |
+    Prior work (CodeRL, PPOCoder, RLTF) each evaluates RLEF vs SFT on subsets of benchmarks
+    using different base models, training data, and protocols — making cross-study comparison
+    impossible. RLEF-2024 (Gehring et al.) provides strongest evidence for difficulty-scaling
+    but uses a non-reproducible Meta internal model. Our study provides the first reproducible,
+    controlled, multi-benchmark study using public infrastructure (DeepSeek-Coder-7B, TRL, APPS,
+    bigcode-harness). The mechanistic proxy test (P3: non-zero reward fraction by difficulty)
+    is a novel empirical handle on the proposed causal mechanism.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "DeepSeek-Coder-7B-base (primary)"
+    - "DeepSeek-Coder-1.3B-base (sanity check, P4)"
+  datasets:
+    - "APPS (training: ~5000 problems with unit tests)"
+    - "HumanEval (evaluation: 164 problems)"
+    - "MBPP (evaluation: 374 problems)"
+    - "LiveCodeBench 2024-Q4 snapshot (evaluation: Easy/Medium/Hard splits)"
+  baselines:
+    - "SFT on APPS (DeepSeek-Coder-7B)"
+    - "RLEF-Binary on APPS (GRPO, binary reward)"
+    - "RLEF-Fraction on APPS (GRPO, fraction-of-tests reward)"
+
+measurement_plan:
+  data_collection:
+    - source: "TRL GRPO training logs — non-zero reward fraction per batch, stratified by APPS difficulty bucket (P3)"
+    - source: "bigcode-evaluation-harness pass@1 and pass@10 on all evaluation benchmarks for all 3 trained models"
+    - source: "APPS and LiveCodeBench problem-type distribution statistics (supplementary; Prof. Rex's recommendation)"
+  procedure:
+    - step: "1. Check SFT ceiling: run DeepSeek-Coder-7B zero-shot on HumanEval; if ≥90%, switch primary to 1.3B"
+    - step: "2. SFT fine-tuning: APPS train split, cross-entropy, matched gradient steps"
+    - step: "3. RLEF-Binary fine-tuning: GRPO from same base, binary reward via APPS test executor (sandboxed)"
+    - step: "4. RLEF-Fraction fine-tuning: GRPO from same base, fraction-of-tests reward via APPS test executor"
+    - step: "5. Evaluation: bigcode-harness correctness-only on HumanEval, MBPP, LiveCodeBench-Q4 snapshot"
+    - step: "6. Compute Δ ratios with bootstrap 95% CIs; Bonferroni correction"
+    - step: "7. 1.3B sanity check: repeat steps 2-6 with DeepSeek-Coder-1.3B"
+  success_criteria:
+    - "P1 confirmed: Δ_LiveCodeBench/Δ_HumanEval ≥ 1.5, p < 0.05"
+    - "P2 confirmed: significant interaction effect (reward type × difficulty) with fraction > binary at hard"
+    - "P3 confirmed: monotonic positive correlation between APPS problem difficulty and non-zero RLEF reward fraction"
+    - "P4 confirmed: directional pattern holds at 1.3B (Δ ratio ≥ 1.0)"
+
+validation:
+  internal_validity:
+    - "Same base model checkpoint for all 3 training methods eliminates model-variation confound"
+    - "Same APPS training data (same random split) eliminates data confound"
+    - "Matched gradient steps eliminates compute confound"
+    - "Correctness-only evaluation eliminates time-limit confound (Prof. Pax's concern)"
+    - "LiveCodeBench 2024-Q4 snapshot eliminates temporal contamination confound"
+  external_validity:
+    - "Results may not generalize beyond 7B-scale models (explicitly scoped; 1.3B sanity check added)"
+    - "Results may not generalize to non-Python or non-function-level coding tasks"
+    - "APPS training coverage of LiveCodeBench-Hard may be limited (difficulty extrapolation concern)"
+    - "Reproducibility depends on exact package versions (TRL, bigcode-harness) — pin versions in code release"
+
+discussion_synthesis:
+  key_insights:
+    - "The difficulty-scaling relationship reframes RLEF not as 'universally better than SFT' but as 'increasingly better as difficulty increases' — a more precise and testable claim"
+    - "Binary reward is an intermediate case: better than SFT but worse than fraction reward at high difficulty; the discussion revealed this is testable as a reward-difficulty interaction"
+    - "The partial-success learning signal mechanism (P3) provides a novel empirical handle: training monitoring data can directly validate the mechanistic explanation without additional experiments"
+    - "The 'SFT signal void at hard difficulty' concept is the central causal claim — its empirical test (APPS Hard coverage analysis + SFT ceiling check) is a prerequisite step"
+  breakthrough_moments:
+    - "Exchange 1 (Dr. Nova): reframe from 'does RLEF work?' to 'at what difficulty does execution feedback become irreplaceable?' — this unlocked the difficulty-scaling hypothesis"
+    - "Exchange 4 (Prof. Pax): scope to correctness-only evaluation (no time limits) — critical scope reduction that makes the experiment clean and feasible"
+    - "Exchange 5 (Dr. Ally): embed reward formulation ablation into same framework — one experiment answers both Gap 1 and Gap 2"
+    - "Exchange 6 (Prof. Rex): distinguish 'difficulty generalization' from 'difficulty extrapolation' — deepened the mechanism understanding"
+    - "Exchange 7 (Dr. Nova): solve SFT ceiling concern by adding 1.3B secondary model — elegant dual solution to two concerns"
+  resolved_tensions:
+    - "SFT ceiling at DeepSeek-Coder-7B: resolved by adding 1.3B secondary model with guaranteed headroom"
+    - "Time-limit confound at hard benchmarks: resolved by scoping to correctness-only evaluation"
+    - "Generalization vs extrapolation distinction: resolved by reframing mechanism as partial-success gradient (works for both)"
+    - "N=1 model size concern: resolved by adding 1.3B sanity check as P4"

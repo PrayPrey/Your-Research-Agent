@@ -1,0 +1,111 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-19T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "GAP-001"
+
+hypothesis_draft:
+  title: "Feedback Granularity Efficiency Frontier for Small Code LLMs"
+  hypothesis_id: "H-FeedbackEfficiency-v1"
+  core_claim: |
+    For small language models (350M-1B parameters), execution feedback granularity exhibits
+    diminishing returns on code generation alignment. Lightweight feedback signals (binary pass/fail
+    or error-type vocabulary) achieve ≥80% of the performance gains from richer feedback
+    (error messages + stack traces) while using 2-10× fewer information bits per training example.
+  mechanism: |
+    Small models have limited representational capacity. High-dimensional feedback (variable-level
+    traces, full stack dumps) exceeds their ability to extract actionable gradients, resulting in
+    noise-dominated learning. Low-dimensional feedback (binary outcomes, error types) provides
+    concentrated supervision signals that small models can effectively utilize. The optimal
+    granularity is determined by the efficiency frontier (performance gain per bit of supervision),
+    modulated by benchmark test coverage quality.
+  predictions:
+    - P1: "Binary feedback achieves ≥8 pp absolute AND ≥80% relative retention on HumanEval"
+    - P2: "Efficiency ranking: Binary (8 pp/bit) > Error-type (5 pp/bit) > Error+trace (2.5 pp/bit)"
+    - P3: "Test coverage explains ≥60% variance in feedback-type advantage (r ≥ 0.77)"
+
+variables_summary:
+  independent: "Feedback Granularity (binary, error-type, error+trace), Model Size (350M, 1B), Benchmark Type (HumanEval, MBPP)"
+  dependent_primary: "Pass@1 Improvement (pp over SFT baseline)"
+  controlled: "Training compute (3-5 GPU-hrs), Error distribution (natural), Evaluation harness (BigCode), Base model checkpoint"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in pass@1 performance between models trained with
+    binary feedback versus error-type feedback versus error+stack-trace feedback,
+    controlling for training compute and model capacity.
+  statistical_test: "Two-sample t-test for pairwise comparisons (binary vs error-type, error-type vs error+trace). Bonferroni correction for multiple comparisons (α = 0.05 / 3 = 0.0167)."
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Establishes execution feedback granularity as efficiency optimization (gain-per-bit) rather than capability maximization. Dual-threshold evaluation (absolute + relative gain) prevents weak results."
+  differentiation_summary: |
+    - CodeRL+: Explores RICHER feedback (variable traces) for larger models. We explore MINIMAL sufficient feedback for small models.
+    - CoCoS: Uses opaque accumulated trajectory rewards. We explicitly ablate granularity levels and measure efficiency.
+    - Feedback Over Form: Compares feedback vs NO feedback. We assume feedback is valuable, ask WHICH granularity is optimal.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models: ["CodeGen-350M-mono", "StarCoder-1B"]
+  datasets: ["HumanEval (164 problems)", "MBPP (974 problems)"]
+  baselines: ["SFT (no execution feedback)", "Error-Type Feedback", "Error+Trace Feedback"]
+
+measurement_plan:
+  data_collection:
+    - source: "Baseline model generations (CodeGen-350M SFT) on HumanEval + MBPP"
+      method: "Generate 1000 samples, execute tests, log outcomes (pass/fail, error type, stack trace)"
+      purpose: "Establish natural error distribution and frequency×impact taxonomy"
+    - source: "Test coverage measurement via coverage.py on reference solutions"
+      method: "Run HumanEval and MBPP reference solutions with coverage tooling, extract branch/statement coverage per problem"
+      purpose: "Test P3 (coverage causation hypothesis)"
+  procedure:
+    - step: "Frequency×Impact Analysis: Rank error types by (frequency × flip-rate). Select top-5 for error-type feedback condition."
+    - step: "Information Budget Calculation: Binary = 1 bit/prob, Error-type = log₂(5) ≈ 2.3 bits, Error+trace = 2.3 + log₂(10) ≈ 5.6 bits"
+    - step: "Model Training: 10 runs (R1-R10 from experimental design table). 350M: 3 hrs/run. 1B: 5 hrs/run. Total 40 GPU-hrs."
+    - step: "Evaluation: BigCode harness, pass@1 and pass@10 metrics. Compute efficiency = (pass@1 - SFT) / bits-per-problem"
+    - step: "Statistical Testing: Pairwise t-tests (binary vs error-type, error-type vs trace), Bonferroni correction (α = 0.0167)"
+  success_criteria:
+    - "P1 met: Binary achieves ≥48% absolute (SFT=40% baseline) AND ≥80% relative retention"
+    - "P2 met: Efficiency ranking monotonically decreases (binary > error-type > trace)"
+    - "P3 met: Coverage correlation r ≥ 0.77 with feedback-type advantage"
+
+validation:
+  internal_validity:
+    - "Controlled information budget (bits-per-problem) isolates granularity from total information"
+    - "Natural error distributions preserve deployment realism (no synthetic balancing)"
+    - "Deterministic evaluation harness (BigCode) eliminates flakiness"
+    - "Same base checkpoint across conditions (avoids pretraining confounds)"
+  external_validity:
+    - "Two benchmarks (HumanEval + MBPP) with different characteristics test generalization"
+    - "Two model sizes (350M, 1B) validate non-linear capacity-feedback relationship"
+    - "Findings applicable to single-GPU research settings (democratization claim)"
+    - "Limitation: Python-only domains, may not generalize to SQL/Shell/other languages"
+
+discussion_synthesis:
+  key_insights:
+    - "Execution feedback granularity has diminishing returns for small models — efficiency (gain-per-bit) decreases with richer signals"
+    - "Benchmark test coverage quality may moderate feedback requirements — comprehensive tests enable binary sufficiency, weak coverage benefits from error-type semantics"
+    - "Information-theoretic efficiency metric provides new evaluation lens beyond raw performance (complements pass@k reporting)"
+    - "Dual-threshold approach (absolute + relative) prevents weak-but-technically-sufficient claims (e.g., '80% of 2 pp = 1.6 pp')"
+  breakthrough_moments:
+    - "Prof. Rex's stress test demanding dual thresholds elevated hypothesis rigor from 'relative retention' to 'absolute + relative'"
+    - "Prof. Pax's information density concern shifted design from artificial 1-bit ceiling to natural efficiency metric (gain-per-bit)"
+    - "Dr. Sage's 'democratization vs incremental tuning' framing clarified impact claim: enabling single-GPU researchers vs marginal performance gains"
+    - "Dr. Ally's synthesis integrating all concerns into revised experimental design (40 GPU-hrs, natural distributions, coverage measurement)"
+  resolved_tensions:
+    - "Minimalist vs Maximalist feedback: Resolved via efficiency frontier — both exist on same tradeoff curve, minimalist wins for small models"
+    - "Controlled information budget vs deployment realism: Resolved by dropping artificial ceiling, using natural distributions + efficiency metric"
+    - "Testability vs scope: Resolved by constraining to 2 feedback types initially (binary, error-type), deferring trace to follow-up"
+    - "Coverage causation vs correlation: Resolved by adding coverage measurement (R11) to test hypothesis directly, not assume"

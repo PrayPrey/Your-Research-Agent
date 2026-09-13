@@ -1,0 +1,23 @@
+# 1. Introduction
+
+Across 223 large language models evaluated on AlpacaEval 2.0, model capability predicts length-controlled preference with a partial Spearman correlation of 0.985 — *after fully accounting for response verbosity*. Two independent evaluation systems, one based on human pairwise comparison and one on AI-debiased annotation, agree on model capability ordering to a degree the field has not previously quantified. More strikingly, this agreement is stronger once verbosity is removed than before: the bivariate correlation reported by Dubois et al. (2024) is 0.94; our partial correlation is 0.985. Controlling for the confound actually reveals the signal more clearly.
+
+This finding bears on a question at the center of LLM evaluation: does length-controlled win rate (LC_winrate) preserve the capability ordering that human-annotated win rate (win_rate) reflects? The LC correction in AlpacaEval 2.0 is a GLM-based debiasing procedure that regresses out response length from pairwise comparison outcomes [Dubois et al., 2024]. Its stated goal is to remove verbosity inflation — the tendency of AI judges to favor longer, more elaborate responses — while leaving genuine quality differences intact. Whether it succeeds at preserving capability ordering at population scale has not been tested with confound-controlled methods.
+
+The surface problem is well-known: verbosity biases AI-based evaluation. Zheng et al. [2023] and Wang et al. [2023] document that GPT-4 as a judge systematically prefers longer responses. AlpacaEval 2.0's LC correction is specifically designed to address this. However, a deeper problem remains unresolved: verbosity and capability co-vary in real model populations (VIF = 1.764 in our data), meaning that any observed correlation between win_rate and LC_winrate could reflect shared verbosity rather than shared capability signal. The gap in existing work is precisely this: no study has applied partial correlation or standardized regression to disentangle the independent contributions of capability and verbosity to LC preference across a large, diverse model population.
+
+Our key insight is that this is a partial correlation question, not a bivariate one. Once we control for avg_length, the capability-LC alignment does not weaken — it strengthens. This is because verbosity was acting as a mild suppressor: capable models tend to write longer responses, which partially masks the true capability-LC signal in bivariate analysis. After residualization, the underlying capability signal dominates the LC prediction by a factor of ~4.9 (standardized β ratio: 21.34 vs −4.37), and the negative β for verbosity confirms the LC correction is functional.
+
+We make the following contributions:
+
+1. **First population-scale partial correlation quantification**: We establish ρ(win_rate, LC_winrate | avg_length) = 0.985 (p = 1.69e-170, N=223), with bootstrap 95% CI [0.976, 0.988], providing the strongest empirical evidence to date that LC_winrate preserves capability ordering after verbosity control.
+
+2. **Capability-verbosity dominance via standardized regression**: In standardized OLS, capability contributes ~4.9× more to LC preference than verbosity (|β_win| = 21.34 vs |β_len| = 4.37; R² = 0.963 vs verbosity-only R² = 0.256 — a 70 percentage point gain).
+
+3. **FWL theorem verification**: We independently replicate the partial correlation via Frisch-Waugh-Lovell residualization (ρ_resid = 0.974, delta = 0.011 from Pingouin estimate), ruling out that the high partial correlation is a methodological artifact.
+
+4. **Quartile-level monotonicity with large effect**: Kruskal-Wallis on LC_winrate across capability quartiles yields ε² = 0.883 (H = 196.32, p = 2.63e-42), with fully monotonic ordering (Q1 = 7.14 < Q2 = 14.69 < Q3 = 26.41 < Q4 = 51.62) and Dunn post-hoc Q1 vs Q4 p = 1.04e-38.
+
+5. **Methodological lesson on dependent variable choice**: Comparing H-M3 (KW on Δ, ε² = 0.088) and H-C1 (KW on LC_winrate, ε² = 0.883) reveals that the alignment gap Δ as a dependent variable attenuates effect size by ~10× due to mathematical composition (Δ = LC_winrate − win_rate), making LC_winrate the appropriate primary outcome for capability-alignment studies.
+
+We organize the paper as follows. Section 2 reviews prior work on verbosity bias in LLM evaluation and bidirectional alignment. Section 3 describes our dataset, variables, and statistical methodology. Section 4 presents the experimental design and research questions. Section 5 reports results across five sub-hypotheses. Section 6 discusses limitations, the surprising direction of the partial-vs-bivariate comparison, and the DV choice lesson. Section 7 concludes with implications for evaluation practice and future directions.

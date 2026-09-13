@@ -1,0 +1,31 @@
+
+Our work builds on recent advances in lightweight memory profiling while introducing a focus on sampling timing optimization. We position our contribution relative to three research streams: CPU-based OOM prediction systems, memory component factorization methods, and practical profiling tools.
+
+\subsubsection{Lightweight Memory Profiling}
+
+VeritasEst (2025) established the foundation for pre-execution OOM prediction through CPU-based allocator simulation. Their key insight---that 2 iterations suffice for optimizer state stabilization---enables profiling without full dataset access. By simulating PyTorch's Best-Fit with Coalescing (BFC) allocator, VeritasEst captures segment-level memory fragmentation that tensor-level accounting misses. Across 3,360 validation runs covering 16 CNN architectures, 5 optimizers, and 42 batch size configurations, they achieved 5.46\% median relative error. This represents 84\% error reduction compared to naive tensor summation methods.
+
+VeritasEst's 2-iteration protocol samples memory after the first forward pass and again after the second full training iteration. The rationale: the first iteration allocates model parameters and forward activations, while the second iteration stabilizes optimizer states. Their validation demonstrated this approach generalizes across standard CNN workloads.
+
+However, VeritasEst's sampling strategy introduces a timing gap. Their protocol measures memory before calling \texttt{optimizer.step()}, capturing gradients computed during backward propagation but missing workspace allocations that occur during the optimizer update itself. For Adam-family optimizers, which allocate m\_t and v\_t momentum buffers sized at $2\times$ parameter memory, this timing window represents the peak memory allocation moment. Our post-optimizer sampling addresses this gap: by measuring after \texttt{optimizer.step()} completes, we capture workspace allocations that pre-optimizer sampling misses. This timing optimization---not a change in iteration count---explains our 52\% error reduction (2.6\% versus 5.46\% median error). We view our contribution as complementary to VeritasEst's insight about 2-iteration sufficiency for state stabilization, optimizing sampling timing within their framework.
+
+\subsubsection{Memory Component Factorization}
+
+Kang et al. (2025) approached memory prediction through architectural decomposition, factorizing GPU memory into model parameters (M\_param), gradients (M\_grad), optimizer states (M\_opt), and activations (M\_act). Their training-behavior-conditional estimation achieved 8.7\% mean absolute percentage error on LLaVA-1.5 (7B parameters), demonstrating that component-level modeling captures multimodal architecture patterns. The factorization explicitly accounts for heterogeneous modules where activation memory scales differently with input shapes.
+
+While Kang et al. provide a framework for decomposing memory sources, their work focuses on what to measure rather than when to measure it. The factorization assumes measurements occur at architecturally meaningful boundaries---after forward passes for M\_act, after backward passes for M\_grad---but does not address timing within those boundaries. Critically, their approach is not validated at the allocator segment level. PyTorch's BFC allocator introduces fragmentation and caching behavior that causes actual GPU memory usage to diverge from tensor-level sums. Our work focuses on the orthogonal dimension: sampling timing to capture allocator-level segments at the moment when workspace buffers are allocated.
+
+\subsubsection{Practical Profiling Tools}
+
+Production profiling tools provide complementary capabilities focused on instrumentation rather than prediction. PyTorch's \texttt{pytorch\textbackslash \_memlab} (1,078 GitHub stars) implements line-profiler-style CUDA memory tracking, instrumenting individual operations to identify memory bottlenecks during training. This approach enables fine-grained debugging but requires running full training iterations to collect profiles. The tool excels at post-hoc analysis after OOM failures occur, while our work targets pre-execution prediction before expensive training begins.
+
+LLMem (30 GitHub stars) estimates memory requirements for large language model fine-tuning by modeling distributed training methods. Their estimates guide infrastructure planning: given a model size and training configuration, how many GPUs are needed? This complements our lightweight profiling goal---validating whether a specific model/dataset combination fits within existing GPU constraints using minimal sampling.
+
+Recent systems like xMem (2 GitHub stars) and RTX-OOM-Guard extend CPU-based prediction to include fragmentation modeling and proactive defragmentation. These tools build on allocator simulation but do not address the sampling timing question we identify. Their prediction accuracy remains bounded by pre-optimizer sampling strategies.
+
+\subsubsection{Positioning and Contributions}
+
+Our work differs from prior approaches in scope and focus. VeritasEst demonstrated 2-iteration sufficiency for state stabilization; we optimize sampling timing within those iterations to capture workspace allocations. Kang et al. factorize memory components architecturally; we identify the temporal boundary where workspace buffers appear in allocator segments. Practical tools instrument full training runs; we enable lightweight prediction with 3-iteration sampling.
+
+The key insight differentiating our work is the identification of optimizer workspace allocation timing as a first-order determinant of profiling accuracy, comparable in importance to iteration count. Prior work treated \texttt{optimizer.step()} as known overhead; we demonstrate it represents the peak memory moment for Adam-family optimizers and that sampling timing relative to this operation explains persistent prediction errors. This reframing suggests future profiling systems should be co-designed with optimizer characteristics rather than treating memory profiling as optimizer-agnostic.
+

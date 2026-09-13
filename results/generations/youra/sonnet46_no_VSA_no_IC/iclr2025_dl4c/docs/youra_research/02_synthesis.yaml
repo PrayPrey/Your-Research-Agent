@@ -1,0 +1,124 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-21T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-2"
+
+hypothesis_draft:
+  title: "Variance-Guided Offline Frozen-Model Profiling for Binary Execution Reward RLEF Data Selection"
+  hypothesis_id: "H-VarianceGuidedRLEF-v1"
+  core_claim: |
+    Under short RLEF (20–50 GRPO steps, use_vllm=False, G=4), selecting top-50 MBPP training
+    problems by frozen-model binary execution reward variance p_i*(1-p_i) (k=8 completions from
+    frozen DeepSeek-Coder-7B-Instruct) achieves higher HumanEval+ pass@1 improvement per gradient
+    step than random-50 subset RLEF, because variance profiling concentrates GRPO gradient steps
+    on nonzero-signal problems while random selection includes ~69% zero-gradient groups.
+  mechanism: |
+    The GRPO group gradient magnitude is exactly σ = √(k(G-k))/G, which is zero when all G
+    completions are correct (k=G) or all fail (k=0). Per-problem binary reward variance p*(1-p)
+    is a monotone proxy for this: maximum at p=0.5 (k=G/2), zero at p=0 or p=1. Offline frozen-model
+    profiling computes p_i = correct(k=8)/8 for each MBPP problem, approximating the true pass rate.
+    Top-50 selection by p_i*(1-p_i) preferentially includes problems where k ∈ {1,2,3} of G=4
+    GRPO completions succeed, ensuring nonzero gradient throughout the 50-step training budget.
+    Random selection includes the full distribution of p_i values, expected to have ~69% zero-gradient
+    groups (per Gradient Starvation paper empirical result at G=4), wasting ~69% of gradient steps.
+  predictions:
+    - P1: "Variance-50 achieves ≥ 2pp HumanEval+ pass@1 improvement and ≥ 1pp gap over random-50 at 50 GRPO steps"
+    - P2: "Variance-50 exhibits lower mean TRL frac_reward_zero_std than random-50 at all training checkpoints"
+    - P3: "Variance-50 achieves ≥ 80% of full-374 HumanEval+ improvement, conditional on both conditions achieving ≥ 2pp"
+
+variables_summary:
+  independent: "Data selection method: variance-50 (top-50 MBPP by p*(1-p)) vs random-50 (uniform random N=50) vs full-374 (all MBPP training problems)"
+  dependent_primary: "HumanEval+ pass@1 improvement over no-RLEF baseline at 50 GRPO steps, measured by EvalPlus correctness scoring (absolute percentage points)"
+  controlled: "DeepSeek-Coder-7B-Instruct base model; G=4, use_vllm=False, generation_batch_size=4, 50 steps; binary_execution_reward; EvalPlus evaluation"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in HumanEval+ pass@1 improvement between variance-selected
+    and random-selected RLEF subsets of equal size (N=50) at 50 GRPO steps.
+    H0: variance_50_improvement = random_50_improvement (±measurement noise)
+  statistical_test: "Direct comparison of EvalPlus pass@1 improvement at step 50 for variance-50 vs random-50; secondary mechanistic test via TRL frac_reward_zero_std comparison"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First offline frozen-model variance profiling approach for binary execution reward RLEF data selection in code generation — distinct from all existing online selection methods (VIGOR, Sun et al., Prompt Replay, LZE)"
+  differentiation_summary: |
+    All prior RLEF data selection work (VIGOR, Sun et al. 2025, Prompt Replay, LZE, LearnAlign) requires
+    an active training loop to compute the selection signal — they are online methods. This research uses
+    a single pre-training profiling pass on a frozen model (k=8 completions per MBPP problem, ~19 min at
+    generation_batch_size=4) to estimate per-problem variance, then trains exclusively on the selected
+    subset. The "profile once, train anywhere" pattern is new for RLEF and enables resumable, reproducible
+    experiments that are not possible with online selection. Additionally, all prior selection papers target
+    math reasoning with scalar rewards; this is the first application to binary execution reward code
+    generation on MBPP/HumanEval+.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "DeepSeek-Coder-7B-Instruct (primary)"
+    - "Code-LLaMA-7B-Instruct (stretch goal only, not required for primary hypothesis)"
+  datasets:
+    - "MBPP training split (374 problems) — data selection pool"
+    - "HumanEval+ (164 problems) — evaluation only via EvalPlus"
+  baselines:
+    - "Random-50 RLEF (primary comparison)"
+    - "Full-374 RLEF (efficiency comparison)"
+    - "No-RLEF baseline (pre-training DeepSeek-Coder-7B-Instruct)"
+
+measurement_plan:
+  data_collection:
+    - source: "TRL GRPO trainer training logs: frac_reward_zero_std per step for variance-50 and random-50"
+    - source: "EvalPlus correctness evaluation on HumanEval+ at checkpoints step 10, 20, 50 for all 3 conditions"
+    - source: "Profiling output: per-problem p_i and variance_i = p_i*(1-p_i) for all 374 MBPP problems"
+    - source: "Profiling output: top-50 selected problem IDs by variance + random-50 selected IDs (fixed seed)"
+  procedure:
+    - step: "Run frozen-model profiling: k=8 completions per MBPP problem on DeepSeek-Coder-7B-Instruct (no gradient); compute p_i = correct(k)/k and variance_i = p_i*(1-p_i) for all 374 problems"
+    - step: "Select top-50 by variance_i (variance-50 condition); sample random-50 with fixed seed; prepare full-374 dataset"
+    - step: "Run variance-50 GRPO training for 50 steps; log frac_reward_zero_std per step; EvalPlus eval at steps 10, 20, 50"
+    - step: "Run random-50 GRPO training for 50 steps; log frac_reward_zero_std per step; EvalPlus eval at steps 10, 20, 50"
+    - step: "Run full-374 GRPO training for 50 steps; EvalPlus eval at steps 10, 20, 50 (frac_reward_zero_std optional)"
+    - step: "Compute: pass@1 improvement = EvalPlus(step_50) - EvalPlus(step_0) for each condition; compare P1, P2, P3"
+  success_criteria:
+    - "P1: variance_50_improvement ≥ 2.0pp AND (variance_50_improvement - random_50_improvement) ≥ 1.0pp"
+    - "P2: mean_frac_zero_std(variance-50) < mean_frac_zero_std(random-50) at steps 10, 20, and 50"
+    - "P3: (variance_50_improvement / full_374_improvement) ≥ 0.80, conditional on both ≥ 2pp"
+
+validation:
+  internal_validity:
+    - "Random-50 provides within-experiment control for selection method effect"
+    - "Full-374 provides performance ceiling for efficiency claim"
+    - "Multi-checkpoint evaluation (steps 10, 20, 50) controls for single-eval noise"
+    - "Fixed random seed for random-50 selection ensures reproducibility"
+    - "P2 mechanistic prediction (frac_reward_zero_std) provides independent mechanism validation independent of pass@1 outcome"
+  external_validity:
+    - "MBPP and HumanEval+ are standard code generation benchmarks widely used in RLEF research"
+    - "EvalPlus correctness-based evaluation is the accepted standard for HumanEval+ evaluation"
+    - "DeepSeek-Coder-7B-Instruct is a representative 7B code LLM widely used in the research community"
+    - "Finding positive/negative under h-e1 constraints (use_vllm=False) applies to any environment with these constraints"
+
+discussion_synthesis:
+  key_insights:
+    - "The offline vs online distinction is the core novelty — all prior selection work requires active training loops; frozen-model profiling enables pre-training data curation"
+    - "The mathematical foundation (σ = √(k(G-k))/G) makes p*(1-p) variance an exact proxy for GRPO gradient magnitude — this is not a heuristic but a formal connection"
+    - "Multi-checkpoint learning curve analysis (steps 10, 20, 50) enables secondary contribution: characterizing learning zone exhaustion dynamics for variance-selected vs random RLEF"
+    - "The experiment produces publishable findings under any outcome — positive, partial, or null results all answer open questions"
+  breakthrough_moments:
+    - "Exchange 4 (Prof. Pax): Recognized that the primary claim should be 'filtering near-zero-variance problems' not 'variance predicts full training trajectory' — this scoping makes the hypothesis scientifically precise"
+    - "Exchange 6 (Prof. Rex): Identified the HumanEval+ measurement noise issue (3.9pp SE) and proposed multi-checkpoint evaluation as mitigation — essential for P1 validity"
+    - "Exchange 8 (Prof. Vera): Formalized the three-hypothesis structure (H1 effectiveness, H2 mechanism, H3 efficiency) — clarified that each is independently falsifiable"
+  resolved_tensions:
+    - "Tension: 'variance selection vs difficulty selection confound' — Resolved by: include p_i distribution reporting as part of the experiment; frac_reward_zero_std provides mechanism-level evidence independent of this confound"
+    - "Tension: 'frozen model proxy degradation' — Resolved by: explicitly scope to SHORT RLEF (20–50 steps) as the regime where the proxy is most valid; treat degradation as a measurable phenomenon via frac_reward_zero_std curves"
+    - "Tension: '80% efficiency claim unfalsifiability' — Resolved by: pre-specify minimum effect size ≥ 2pp; P3 declared untestable (not failed) if condition not met"

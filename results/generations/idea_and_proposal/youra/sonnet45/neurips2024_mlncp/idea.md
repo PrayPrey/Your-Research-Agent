@@ -1,0 +1,7 @@
+# Hybrid Analog-Digital Deep Equilibrium Models for Energy-Efficient AI
+
+## Motivation
+Deep Equilibrium Models (DEQs) offer competitive accuracy with implicit depth but face prohibitive energy costs during iterative fixed-point solving. As AI compute demand explodes, traditional digital hardware approaches fundamental efficiency limits. Analog in-memory computing (IMC) promises 100× energy gains but suffers from noise and precision constraints that typically break convergence guarantees. This creates a critical gap: how to harness analog efficiency for iterative algorithms requiring stable convergence.
+
+## Main Idea
+We propose a hybrid analog-digital architecture where FeFET-based analog IMC (5-bit precision) executes matrix-vector operations in DEQ fixed-point iterations, while digital controllers maintain convergence guarantees. The core innovation exploits a three-step causal mechanism: (1) analog crossbars perform parallel O(1) matrix operations eliminating data movement, (2) bounded analog noise (variance < σ_min(J)/√n) acts as beneficial stochastic perturbation rather than degradation, and (3) voltage-encoded adaptive momentum accelerates convergence 10×. We test whether this achieves 100× energy reduction (to <0.01 J/inference) while maintaining accuracy within 5% of digital baselines on ImageNet. Falsification criteria include energy gains <10×, accuracy loss >7%, or noise-induced divergence >10% of trials. Success enables sustainable large-scale AI deployment.

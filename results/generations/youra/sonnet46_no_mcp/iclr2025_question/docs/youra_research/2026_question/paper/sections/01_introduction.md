@@ -1,0 +1,35 @@
+# Introduction
+
+We deployed three state-of-the-art uncertainty quantification (UQ) methods — semantic entropy, token entropy, and SelfCheckGPT-BERTScore — to detect hallucinations on HaluEval-QA, and found not that one method won, but that all three failed: AUROC values ranged from 0.356 to 0.500, and the method designed to perform best (semantic entropy) produced an entirely constant signal across 2,000 examples, indistinguishable from random guessing.
+
+This outcome demands explanation. The failure is not random noise — it is mechanistically grounded. Semantic entropy, which achieves AUROC ≈ 0.78 on TriviaQA [Kuhn et al., 2023], collapses to a degenerate constant on HaluEval-QA because its core NLI clustering mechanism fails: 72.8% of examples receive the maximum semantic cluster count (5/5), meaning the NLI model treats every stochastic response as semantically distinct from every other — erasing the signal that semantic entropy is designed to extract. SelfCheckGPT-BERTScore, expected to be an intermediate discriminator, achieves AUROC = 0.356 — significantly *below* random chance — suggesting a sign reversal in the correlation between response consistency and HaluEval-QA hallucination labels. Token entropy performs near-randomly (AUROC = 0.4829). These are not weak results: they are null results with identifiable causes.
+
+## The Problem
+
+LLMs hallucinate — they generate fluent, confident-sounding but factually incorrect responses — at rates that vary unpredictably across domains and tasks [Li et al., 2023]. UQ-based hallucination detectors offer a practical mitigation strategy: leverage internal model signals (token probability distributions, sampling consistency, semantic clustering) to flag uncertain outputs without requiring additional training, human annotation, or external knowledge bases [Kuhn et al., 2023; Manakul et al., 2023].
+
+These methods have shown genuine promise. Semantic entropy achieves strong AUROC on TriviaQA and Natural Questions [Kuhn et al., 2023]. SelfCheckGPT achieves high AUC-PR on WikiBio biography generation [Manakul et al., 2023]. Token entropy is a simple but widespread baseline [Kadavath et al., 2022]. A practitioner deploying LLaMA-2-7B-chat for factual QA would naturally reach for one of these methods — and the natural choice, semantic entropy, would provide zero discriminative power on HaluEval-QA.
+
+The deeper problem is that these methods have been validated in *siloed* settings: different benchmarks, different LLMs, different experimental protocols. Semantic entropy and SelfCheckGPT have never been directly compared on the same benchmark under matched conditions. The critical question — which method to trust for a specific deployment scenario — is unanswered because the controlled comparison has not been performed.
+
+The gap is specific: no published study applies token entropy, semantic entropy, and SelfCheckGPT to the same short factual QA benchmark (HaluEval-QA) with the same LLM under matched inference budgets, and no study has empirically quantified the boundary conditions of the NLI clustering mechanism that semantic entropy depends on. The assumption that results on TriviaQA/NQ transfer to HaluEval-QA short factual QA responses has been silently embedded in the literature without verification.
+
+## Key Insight
+
+The core finding of this work is a domain-specificity failure: the deberta-large-mnli NLI model — trained on MNLI sentence pairs from news and fiction text — applies an entailment threshold that is miscalibrated for 1–2 sentence short factual QA responses. On TriviaQA, where responses are longer and more syntactically diverse, NLI clustering correctly groups semantically equivalent responses, filtering surface-form noise and producing a meaningful uncertainty signal. On HaluEval-QA, where responses are short and factual ("The United States" / "America" / "the US"), the NLI model classifies surface-distinct but semantically equivalent responses as non-equivalent — assigning each stochastic sample to its own cluster in 72.8% of cases — collapsing semantic entropy to a constant maximum-entropy value across all 2,000 examples.
+
+This is not a fundamental limitation of the semantic entropy framework; it is a limitation of using a general-purpose NLI model outside its calibration domain. The finding quantifies a precise boundary condition: aggregation_rate = 0.272 (95% CI [0.253, 0.292]) on HaluEval-QA, well below the ≥0.50 threshold required for non-degenerate semantic entropy.
+
+## Contributions
+
+Building on this mechanistic diagnosis, we make the following contributions:
+
+1. **Controlled cross-signal comparison framework.** We provide the first controlled comparison of token entropy, semantic entropy (lorenzkuhn/semantic_uncertainty), and SelfCheckGPT-BERTScore on HaluEval-QA with LLaMA-2-7B-chat under matched conditions: same 2,000-example stratified dataset, same inference budget (N=5 stochastic samples), same AUROC + bootstrap CI evaluation protocol. The experimental infrastructure is fully reproducible (code, data, and results released).
+
+2. **Empirical quantification of NLI clustering failure on short factual QA.** We measure NLI aggregation_rate = 0.272 (95% CI [0.253, 0.292]) on HaluEval-QA, demonstrating that deberta-large-mnli fails to semantically aggregate short factual QA responses and establishing a concrete domain boundary for semantic entropy applicability. To our knowledge, this is the first direct measurement of NLI aggregation behavior on a short factual QA benchmark.
+
+3. **SelfCheckGPT polarity inversion finding.** We document a below-random AUROC (0.3562, 95% CI [0.332, 0.380]) for SelfCheckGPT-BERTScore on HaluEval-QA, and propose a label polarity inversion hypothesis: HaluEval-QA's ChatGPT-generated hallucinations are designed to be confidently stated, causing the model to produce *consistent* responses for hallucinated examples — inverting the consistency–hallucination correlation that SelfCheckGPT relies on.
+
+4. **Null result with mechanism analysis.** Rather than reporting near-random AUROC values as unexplained failures, we decompose each failure mode into a testable mechanism claim. We experimentally verify two: the NLI aggregation failure (H-M2) and the degenerate semantic entropy propagation (H-M1, H-E1). The polarity inversion hypothesis (H-E1 SelfCheckGPT) is documented as a testable follow-on experiment.
+
+The rest of this paper is organized as follows: Section 2 reviews relevant prior work on semantic entropy, SelfCheckGPT, and the HaluEval benchmark, explaining why controlled cross-method comparison is a gap in the existing literature. Section 3 describes our experimental methodology, including the UQ signal pipelines, dataset, model, and evaluation protocol. Section 4 details the experimental setup and sub-hypothesis design. Section 5 presents results, organized around the mechanism failure story rather than a conventional accuracy table. Section 6 discusses implications and limitations. Section 7 concludes with a vision for NLI-calibrated semantic entropy.

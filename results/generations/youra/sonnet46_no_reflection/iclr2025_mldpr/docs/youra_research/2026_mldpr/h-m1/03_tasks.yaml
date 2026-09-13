@@ -1,0 +1,454 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  created_at: "2026-05-19T07:40:00Z"
+  phase: "Phase 3 - Implementation Planning"
+  description: "BCBHS: Submission Count → Score Compression Causal Mechanism"
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 9
+  subtasks: 20
+  failsafe: 1
+  total: 31
+  note: "31 tasks documented; environment setup + 9 epics + 20 logic subtasks + failsafe. Phase 4 coder prioritizes epic tasks; subtasks are implementation guides."
+
+tasks:
+  # ── Environment Setup (priority 94) ──────────────────────────────────────
+  - id: "ENV-1"
+    title: "Environment Setup"
+    type: "setup"
+    priority: 94
+    description: |
+      Install all Python dependencies for H-M1 experiment.
+      packages: datasets>=2.0.0, statsmodels>=0.14.0, scipy>=1.9.0,
+                numpy>=1.21.0, pandas>=1.3.0, matplotlib>=3.4.0, seaborn>=0.11.0
+      Note: No GPU required. Pure statistical analysis pipeline.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "## 7. Dependencies"
+    acceptance_criteria:
+      - "pip install completes without errors"
+      - "import statsmodels.tsa.stattools; import scipy.stats; import datasets all succeed"
+
+  # ── Epic Tasks (priority 93-50) ───────────────────────────────────────────
+  - id: "A-1"
+    title: "Setup & Data Pipeline"
+    type: "data-pipeline"
+    priority: 93
+    description: |
+      Implement data_pipeline.py with load_pwc_raw(), compute_quarterly_panel(), load_panel().
+      Load pwc-archive/evaluation-tables from HuggingFace; build (benchmark_id, quarter) panel
+      with columns: [benchmark_id, task, dataset, quarter, submission_count, cumulative_count, score_var_top10].
+      Filter: ≥20 submissions, ≥8 quarterly time points, 2018-2025.
+      Reuse H-E1 loading pattern; extend with quarterly aggregation.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "### FR-1: Data Pipeline"
+      - path: "h-m1/03_architecture.md"
+        section: "### DataPipeline"
+      - path: "h-m1/03_logic.md"
+        section: "## A-1: Data Pipeline"
+    complexity: 10
+    acceptance_criteria:
+      - "load_panel() returns (pwc_raw, panel_df) with correct schema"
+      - "panel_df has ≥200 rows (benchmark × quarter)"
+      - "cumulative_count is monotonically increasing per benchmark_id"
+
+  - id: "A-2"
+    title: "Sigma Estimation"
+    type: "data-pipeline"
+    priority: 88
+    description: |
+      Implement sigma_estimation.py with estimate_sigma_measurement() and get_sigma_map().
+      Compute per-benchmark σ_measurement from repeated model submissions (same model, same benchmark, different dates).
+      Fallback: benchmarks with no repeated submissions use cross-benchmark median σ.
+      Returns: Series indexed by (task, dataset) named 'sigma_meas', no NaNs.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "### FR-2: σ_measurement Estimation"
+      - path: "h-m1/03_logic.md"
+        section: "## A-2: Sigma Estimation"
+    complexity: 8
+    acceptance_criteria:
+      - "get_sigma_map() returns Series with no NaN values"
+      - "Fallback to median for benchmarks with single submissions"
+
+  - id: "A-3"
+    title: "Compression Detector"
+    type: "data-pipeline"
+    priority: 85
+    description: |
+      Implement compression_detector.py with flag_compression() and summarize_compression().
+      Merge sigma_map into panel_df; add 'compressed' bool (score_var_top10 < 1.5 * sigma_meas).
+      Apply rolling(2).min() per benchmark_id to get 'compression_event' (1 if ≥2 consecutive quarters compressed).
+      Expected: 30-80 compression events across panel.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "### FR-3: Compression Detection"
+      - path: "h-m1/03_logic.md"
+        section: "## A-3: Compression Detector"
+      - path: "h-m1/03_config.md"
+        section: "compression_threshold"
+    complexity: 9
+    acceptance_criteria:
+      - "panel_df has 'compressed' and 'compression_event' columns"
+      - "compression_event is 1.0 only when ≥2 consecutive compressed quarters"
+      - "summarize_compression() reports ≥30 compression events"
+
+  - id: "A-4"
+    title: "Spearman Baseline"
+    type: "model"
+    priority: 82
+    description: |
+      Implement spearman_baseline.py with compute_spearman_baseline().
+      Compute Spearman ρ between cumulative_count and compression_event across all (benchmark, quarter) rows.
+      Drop NaN rows before test. Return {'rho': float, 'p_value': float, 'n_obs': int}.
+      Gate target: ρ > 0.4, p < 0.05.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "### FR-4: Baseline Model"
+      - path: "h-m1/03_logic.md"
+        section: "## A-4: Spearman Baseline"
+    complexity: 6
+    acceptance_criteria:
+      - "Returns dict with 'rho', 'p_value', 'n_obs' keys"
+      - "n_obs > 0; no error on valid panel_df"
+
+  - id: "A-5"
+    title: "Granger Causality Core"
+    type: "model"
+    priority: 80
+    description: |
+      Implement granger_causality.py: check_stationarity(), make_stationary(), test_granger_causality().
+      Per-benchmark Granger test: cumulative_count → score_var_top10.
+      Algorithm:
+        1. ts = panel[['score_var_top10','cumulative_count']].dropna()
+        2. if len(ts) < max_lag + 5: return None
+        3. For each col: if ADF p >= 0.05 (non-stationary), apply first-order difference
+        4. ts = ts.dropna(); re-check length
+        5. gc_res = grangercausalitytests(ts, maxlag=4, verbose=False)
+        6. Return {lag: gc_res[lag][0]['ssr_ftest'][1] for lag in 1..4}
+      Primary test at lag=2. Returns None for benchmarks with insufficient data.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "### FR-5: Proposed Model"
+      - path: "h-m1/03_logic.md"
+        section: "## A-5: Granger Causality Core"
+      - path: "h-m1/03_config.md"
+        section: "granger_max_lag"
+    complexity: 14
+    acceptance_criteria:
+      - "check_stationarity() returns bool (ADF p < 0.05)"
+      - "make_stationary() applies differencing until stationary or max_diff"
+      - "test_granger_causality() returns {1: float, 2: float, 3: float, 4: float} or None"
+      - "Input column order: ['score_var_top10', 'cumulative_count'] (caused first)"
+
+  - id: "A-6"
+    title: "Reverse Causality & Panel Aggregation"
+    type: "model"
+    priority: 75
+    description: |
+      Add to granger_causality.py: test_reverse_causality(), run_granger_panel(), aggregate_granger_panel().
+      test_reverse_causality: swaps column order to test compression_event → cumulative_count.
+      run_granger_panel: loops over all benchmark_ids, calls both forward + reverse per benchmark.
+      aggregate_granger_panel: filters valid results, computes n_significant_lag2, pct_significant_lag2, min_p_lag2.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "### FR-6: Panel-Level Granger"
+      - path: "h-m1/03_logic.md"
+        section: "## A-6: Reverse Causality"
+    complexity: 12
+    acceptance_criteria:
+      - "run_granger_panel() returns (forward_results, reverse_results) dicts"
+      - "Each dict keyed by benchmark_id; values are {lag: p_value} or None"
+      - "aggregate_granger_panel() returns dict with n_benchmarks_tested ≥ 30"
+
+  - id: "A-7"
+    title: "Evaluate & Gate"
+    type: "evaluation"
+    priority: 70
+    description: |
+      Implement evaluate.py: verify_mechanism_activated(), check_gate_condition(), save_results().
+      verify_mechanism_activated checks 6 indicators: panel_constructed (≥200 rows),
+        sufficient_benchmarks (≥30 valid Granger), spearman_computed, granger_computed,
+        spearman_significant (ρ>0.4 AND p<0.05), granger_significant_lag2 (any benchmark p<0.05 at lag=2).
+      check_gate_condition: PASS if spearman_significant OR granger_significant_lag2.
+      NOTE: Do NOT import from H-E1 evaluate.py — signatures are different.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "### FR-8: Mechanism Activation"
+      - path: "h-m1/03_logic.md"
+        section: "## A-7: Evaluate & Gate"
+    complexity: 9
+    acceptance_criteria:
+      - "verify_mechanism_activated() returns (bool, dict) with 6 indicator keys"
+      - "check_gate_condition() implements OR logic (primary OR secondary)"
+      - "save_results() serializes to JSON with numpy type handling"
+
+  - id: "A-8"
+    title: "Visualization"
+    type: "evaluation"
+    priority: 65
+    description: |
+      Implement visualize.py with all 6 figure functions + generate_all_figures().
+      Required (mandatory): plot_gate_metrics() — bar chart of target vs actual for Spearman ρ and Granger p at lag=2.
+      Additional: plot_scatter_submission_compression(), plot_lag_profile(),
+                  plot_timeseries_overlay(), plot_compression_distribution(), plot_reverse_causality().
+      All figures saved to output_dir (default: h-m1/figures/).
+      create output_dir if not exists.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "### FR-9: Visualization"
+      - path: "h-m1/03_logic.md"
+        section: "## A-8: Visualization"
+    complexity: 10
+    acceptance_criteria:
+      - "gate_metrics.png saved to output_dir"
+      - "All 6 figures saved without error"
+      - "generate_all_figures() calls all 6 plot functions"
+
+  - id: "A-9"
+    title: "Entry Point & Integration"
+    type: "training"
+    priority: 60
+    description: |
+      Implement run_experiment.py with CONFIG dict, parse_args(), main().
+      CONFIG: seed=42, min_submissions=20, min_quarters=8, compression_threshold=1.5,
+              min_consecutive=2, granger_max_lag=4, spearman_rho_target=0.4,
+              granger_p_target=0.05, output_dir='h-m1/figures/', results_json, results_csv.
+      main() orchestrates all 10 steps sequentially; saves CSV + JSON results; prints GATE: PASS/FAIL.
+    reference_files:
+      - path: "h-m1/03_config.md"
+        section: "## H-M1 Configuration"
+      - path: "h-m1/03_logic.md"
+        section: "## A-9: Entry Point"
+      - path: "h-m1/03_architecture.md"
+        section: "### RunExperiment"
+    complexity: 8
+    acceptance_criteria:
+      - "python run_experiment.py completes without error (smoke test)"
+      - "results.json and results.csv created"
+      - "GATE: PASS or GATE: FAIL printed to stdout"
+
+  # ── Logic Subtasks (priority 49-2) ────────────────────────────────────────
+  - id: "L-1-1"
+    title: "load_pwc_raw implementation"
+    type: "subtask"
+    parent_epic: "A-1"
+    priority: 49
+    description: "HuggingFace load_dataset('pwc-archive/evaluation-tables', split='train') + column normalization + domain mapping via DOMAIN_MAP"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-1: Data Pipeline"
+
+  - id: "L-1-2"
+    title: "compute_quarterly_panel implementation"
+    type: "subtask"
+    parent_epic: "A-1"
+    priority: 48
+    description: "Groupby (task,dataset) + quarter aggregation (submission_count=nunique(model), score_var_top10=top10 var) + cumsum + filter min_submissions/min_quarters"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "### Pseudo-code (compute_quarterly_panel)"
+
+  - id: "L-1-3"
+    title: "load_panel + schema validation"
+    type: "subtask"
+    parent_epic: "A-1"
+    priority: 47
+    description: "Top-level orchestration: load_pwc_raw() + compute_quarterly_panel(); assert required columns present; return (pwc_raw, panel_df)"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-1: Data Pipeline"
+
+  - id: "L-2-1"
+    title: "estimate_sigma_measurement"
+    type: "subtask"
+    parent_epic: "A-2"
+    priority: 46
+    description: "groupby(task,dataset,model)['score'].std() then groupby(task,dataset).mean(); NaN benchmarks get cross-benchmark median"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-2: Sigma Estimation"
+
+  - id: "L-2-2"
+    title: "get_sigma_map wrapper"
+    type: "subtask"
+    parent_epic: "A-2"
+    priority: 45
+    description: "Alias for estimate_sigma_measurement with guaranteed no-NaN output via fillna(median)"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-2: Sigma Estimation"
+
+  - id: "L-3-1"
+    title: "flag_compression implementation"
+    type: "subtask"
+    parent_epic: "A-3"
+    priority: 44
+    description: "Merge sigma_map; compressed = score_var_top10 < 1.5*sigma_meas; rolling(2).min() per benchmark_id for compression_event"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "### Pseudo-code (flag_compression)"
+
+  - id: "L-3-2"
+    title: "summarize_compression"
+    type: "subtask"
+    parent_epic: "A-3"
+    priority: 43
+    description: "Count n_compression_events, n_qualifying_benchmarks, pct_compressed from flagged panel_df"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-3: Compression Detector"
+
+  - id: "L-4-1"
+    title: "compute_spearman_baseline"
+    type: "subtask"
+    parent_epic: "A-4"
+    priority: 42
+    description: "Drop NaN rows; spearmanr(cumulative_count, compression_event); return {'rho', 'p_value', 'n_obs'}"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-4: Spearman Baseline"
+
+  - id: "L-5-1"
+    title: "check_stationarity (ADF wrapper)"
+    type: "subtask"
+    parent_epic: "A-5"
+    priority: 41
+    description: "adfuller(series) wrapper; returns True if ADF p < 0.05 (stationary)"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-5: Granger Causality Core"
+
+  - id: "L-5-2"
+    title: "make_stationary (differencing)"
+    type: "subtask"
+    parent_epic: "A-5"
+    priority: 40
+    description: "Iterative first-order differencing until ADF p < 0.05 or max_diff=2; fallback: log-transform then difference"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-5: Granger Causality Core"
+
+  - id: "L-5-3"
+    title: "test_granger_causality (full pipeline)"
+    type: "subtask"
+    parent_epic: "A-5"
+    priority: 39
+    description: "ADF pre-check → differencing → grangercausalitytests(ts[['score_var_top10','cumulative_count']], maxlag=4) → extract ssr_ftest p-values"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "### Pseudo-code (test_granger_causality)"
+
+  - id: "L-5-4"
+    title: "Granger result parsing"
+    type: "subtask"
+    parent_epic: "A-5"
+    priority: 38
+    description: "Extract ssr_ftest p-values from statsmodels output: gc_res[lag][0]['ssr_ftest'][1] for lag in 1..max_lag; handle None for insufficient data"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-5: Granger Causality Core"
+
+  - id: "L-6-1"
+    title: "test_reverse_causality"
+    type: "subtask"
+    parent_epic: "A-6"
+    priority: 37
+    description: "Mirror of test_granger_causality with swapped column order: ts[['cumulative_count','compression_event']]"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-6: Reverse Causality"
+
+  - id: "L-6-2"
+    title: "run_granger_panel"
+    type: "subtask"
+    parent_epic: "A-6"
+    priority: 36
+    description: "Loop over benchmark_ids; call test_granger_causality + test_reverse_causality per benchmark; return (forward_results, reverse_results) dicts"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "### Pseudo-code (run_granger_panel)"
+
+  - id: "L-6-3"
+    title: "aggregate_granger_panel"
+    type: "subtask"
+    parent_epic: "A-6"
+    priority: 35
+    description: "Filter valid results (not None); compute n_significant_lag2 (p<0.05 at lag=2), pct_significant_lag2, min_p_lag2, median_p_lag2"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-6: Reverse Causality"
+
+  - id: "L-7-1"
+    title: "verify_mechanism_activated"
+    type: "subtask"
+    parent_epic: "A-7"
+    priority: 34
+    description: "Check 6 indicators: panel_constructed(≥200), sufficient_benchmarks(≥30), spearman_computed, granger_computed, spearman_significant(ρ>0.4 AND p<0.05), granger_significant_lag2"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-7: Evaluate & Gate"
+
+  - id: "L-7-2"
+    title: "check_gate_condition + save_results"
+    type: "subtask"
+    parent_epic: "A-7"
+    priority: 33
+    description: "Gate: PASS if spearman_significant OR granger_significant_lag2; save_results serializes to JSON with numpy int/float handling"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-7: Evaluate & Gate"
+
+  - id: "L-8-1"
+    title: "gate_metrics + scatter + lag_profile figures"
+    type: "subtask"
+    parent_epic: "A-8"
+    priority: 32
+    description: "Implement plot_gate_metrics (mandatory bar chart), plot_scatter_submission_compression (domain-colored scatter), plot_lag_profile (p-values at lags 1-4)"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-8: Visualization"
+
+  - id: "L-8-2"
+    title: "timeseries + compression_dist + reverse + generate_all"
+    type: "subtask"
+    parent_epic: "A-8"
+    priority: 31
+    description: "Implement plot_timeseries_overlay (dual panel), plot_compression_distribution (histogram), plot_reverse_causality (forward vs reverse bar), generate_all_figures (orchestrator)"
+    reference_files:
+      - path: "h-m1/03_logic.md"
+        section: "## A-8: Visualization"
+
+  - id: "L-9-1"
+    title: "parse_args + main orchestration"
+    type: "subtask"
+    parent_epic: "A-9"
+    priority: 30
+    description: "CONFIG dict + argparse (mirrors H-E1 pattern); main() 10-step orchestration; CSV output; print GATE: PASS/FAIL"
+    reference_files:
+      - path: "h-m1/03_config.md"
+        section: "## Argparse Integration"
+      - path: "h-m1/03_logic.md"
+        section: "### Pseudo-code (main)"
+
+  # ── Failsafe (priority 1) ─────────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: |
+      Smoke test + results verification before Phase 4 completion.
+      Verify: (1) python run_experiment.py exits 0; (2) results.json exists;
+      (3) gate result logged; (4) ≥1 figure in h-m1/figures/.
+      If any check fails, debug and re-run before marking Phase 4 complete.
+    reference_files:
+      - path: "h-m1/03_prd.md"
+        section: "### 6.3 PoC Pass Condition"

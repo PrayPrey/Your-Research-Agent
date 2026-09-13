@@ -1,0 +1,579 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-p2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-08-05T19:10:00Z"
+  base_hypothesis: h-m3
+  checkpoint_path: /home/PrayPrey/YouRA_no_IC_sonnet46/TEST_scsl/docs/youra_research/_archive/20260805T130336_routing_recovery/h-e1/checkpoints
+  hm3_results_path: /home/PrayPrey/YouRA_no_IC_sonnet46/TEST_scsl/docs/youra_research/h-m3/results.json
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 18
+  failsafe: 1
+  total: 30
+
+tasks:
+  # ── Environment Setup ────────────────────────────────────────────────────────
+  - id: S-0
+    type: setup
+    title: "Verify environment and create h-p2 directories"
+    description: |
+      Verify all required packages installed: torch, torchvision, wilds, sklearn, scipy,
+      numpy, matplotlib, json, yaml. Verify h-m3/results.json exists with all_probe_results
+      containing 9 checkpoint entries. Create h-p2/code/ and h-p2/figures/ directories.
+      SAM WGA correction: use 0.74 (not 0.78 from h-m3 config.py).
+    priority: 94
+    complexity: null
+    reference_files:
+      - path: h-p2/03_prd.md
+        section: "7. Dependencies"
+      - path: h-p2/03_architecture.md
+        section: "File Structure"
+    acceptance_criteria:
+      - "python -c 'import torch, torchvision, wilds, sklearn, scipy, numpy, matplotlib' exits 0"
+      - "h-m3/results.json exists and is valid JSON"
+      - "h-p2/code/ and h-p2/figures/ directories created"
+      - "config.py created with WGA_VALUES sam_seed*=0.74 (not 0.78)"
+
+  # ── Epic Tasks ───────────────────────────────────────────────────────────────
+  - id: A-1
+    type: implementation
+    title: "Setup project structure and config.py"
+    description: |
+      Create h-p2/code/config.py with all constants: paths (H_M3_RESULTS_JSON, CHECKPOINT_ARCHIVE,
+      WILDS_CACHE, FIGURES_DIR, RESULTS_JSON, VERIFICATION_STATE), WGA_VALUES dict (sam_seed*=0.74
+      per Izmailov 2022 Table 1, NOT 0.78), bootstrap params (N=1000, RNG=42, CI_LEVEL=0.95),
+      verdict thresholds (CONFIRMED_R=-0.5, SUGGESTIVE_R=-0.3), probe params (inherited from h-m3).
+    priority: 93
+    complexity: 5
+    reference_files:
+      - path: h-p2/03_architecture.md
+        section: "Modules - Config"
+      - path: h-p2/03_config.md
+        section: "A-3: 9-Point Dataset Assembly"
+    acceptance_criteria:
+      - "h-p2/code/config.py exists and is importable"
+      - "WGA_VALUES['sam_seed1'] == 0.74 (not 0.78)"
+      - "All path constants point to valid locations"
+
+  - id: A-2
+    type: implementation
+    title: "Load H-M3 probe results"
+    description: |
+      Implement load_probe_accs_from_hm3() to read h-m3/results.json and extract all 9 probe
+      accuracies. Expected keys: erm_seed{1,2,3}, sam_seed{1,2,3}, groupdro_seed{1,2,3} under
+      'all_probe_results'. If key missing, trigger extract_sam_probes_fallback(). Validate all 9
+      values are in [0.0, 1.0].
+    priority: 92
+    complexity: 5
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "External Dependencies API"
+      - path: h-p2/03_architecture.md
+        section: "Modules - CorrelationExperiment"
+    acceptance_criteria:
+      - "load_probe_accs_from_hm3() returns dict with 9 entries"
+      - "All values in [0.0, 1.0]"
+      - "Fallback triggered if SAM keys missing"
+
+  - id: A-3
+    type: implementation
+    title: "Assemble 9-point (probe_acc, WGA) dataset"
+    description: |
+      Implement assemble_dataset() that pairs probe accuracies with WGA ground truth from config.
+      Order: ERM×3 (seeds 1,2,3), SAM×3 (seeds 1,2,3), GroupDRO×3 (seeds 1,2,3).
+      Returns (probe_accs, wga_values, labels) where shapes are (9,), (9,), list[str].
+      Include SAM fallback path (re-extract features if not in h-m3/results.json).
+    priority: 91
+    complexity: 7
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "Pseudo-code: Full Experiment Flow"
+      - path: h-p2/03_prd.md
+        section: "WGA Ground Truth"
+    acceptance_criteria:
+      - "probe_accs.shape == (9,)"
+      - "wga_values.shape == (9,)"
+      - "wga_values for SAM entries == 0.74"
+      - "Order is ERM×3, SAM×3, GroupDRO×3"
+
+  - id: A-3-L1
+    type: subtask
+    parent: A-3
+    title: "Implement ordered array assembly with WGA pairing"
+    description: |
+      Build ordered_keys list, pair with WGA_VALUES from config, return numpy arrays.
+    priority: 49
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "Pseudo-code: Full Experiment Flow"
+    acceptance_criteria:
+      - "Arrays are correctly ordered ERM/SAM/GroupDRO"
+
+  - id: A-3-L2
+    type: subtask
+    parent: A-3
+    title: "Implement SAM feature re-extraction fallback"
+    description: |
+      If SAM probe accs missing from h-m3/results.json: load SAM×3 checkpoints via h-m3
+      load_resnet50(), extract features with extract_layer4_features(), fit probe on train,
+      score on test (N=5794). Return dict {sam_seed1: acc, sam_seed2: acc, sam_seed3: acc}.
+    priority: 48
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "External Dependencies API"
+      - path: h-p2/03_prd.md
+        section: "FR-1: Checkpoint Loading"
+    acceptance_criteria:
+      - "Fallback correctly loads SAM checkpoints from archive"
+      - "Probe scored on test set (N=5794), NOT train set"
+
+  - id: A-4
+    type: implementation
+    title: "Compute Pearson r + one-sided p-value"
+    description: |
+      Implement compute_pearsonr(probe_accs, wga_values) using scipy.stats.pearsonr with
+      alternative='less' (H1: r < 0). Returns (r, p_value). Also implement classify_verdict()
+      using thresholds: CONFIRMED if r<-0.5 AND ci_high<0; SUGGESTIVE if r<-0.3 AND ci_low<0;
+      else REJECTED.
+    priority: 90
+    complexity: 6
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-5: Bootstrap CI"
+      - path: h-p2/03_prd.md
+        section: "FR-3: Pearson r + One-Sided p-value"
+    acceptance_criteria:
+      - "pearsonr called with alternative='less'"
+      - "classify_verdict returns one of CONFIRMED/SUGGESTIVE/REJECTED"
+      - "With r=-0.626: CONFIRMED if ci_high<0, else SUGGESTIVE"
+
+  - id: A-4-C1
+    type: subtask
+    parent: A-4
+    title: "Implement pearsonr_stat helper for bootstrap"
+    description: |
+      def pearsonr_stat(x, y, axis=-1): returns pearsonr(x, y, axis=axis)[0].
+      Required by scipy.stats.bootstrap as the statistic function.
+    priority: 47
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-5.1: pearsonr_stat helper"
+    acceptance_criteria:
+      - "Function signature matches scipy.stats.bootstrap requirements"
+
+  - id: A-4-C2
+    type: subtask
+    parent: A-4
+    title: "Implement verdict classification"
+    description: |
+      classify_verdict(r, p, ci_low, ci_high) -> str.
+      CONFIRMED: r < -0.5 AND ci_high < 0.
+      SUGGESTIVE: r < -0.3 AND ci_low < 0.
+      REJECTED: otherwise.
+    priority: 46
+    complexity: null
+    reference_files:
+      - path: h-p2/03_prd.md
+        section: "FR-5: Verdict Classification"
+    acceptance_criteria:
+      - "All three verdict cases handled"
+      - "Uses config thresholds CONFIRMED_R=-0.5, SUGGESTIVE_R=-0.3"
+
+  - id: A-5
+    type: implementation
+    title: "Bootstrap 95% CI (BCa with percentile fallback)"
+    description: |
+      Implement compute_bootstrap_ci() using scipy.stats.bootstrap with paired=True, n_resamples=1000,
+      confidence_level=0.95. Try BCa first; catch ValueError/FloatingPointError/NaN and fall back
+      to percentile. Log warning on fallback. Record ci_method ('BCa' or 'percentile') in results.
+      Also extract boot_distribution for visualization.
+    priority: 89
+    complexity: 9
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-5: Bootstrap CI (4 subtasks)"
+      - path: h-p2/03_prd.md
+        section: "FR-4: Bootstrapped 95% CI"
+    acceptance_criteria:
+      - "BCa attempted first"
+      - "NaN detection triggers percentile fallback"
+      - "ci_method field recorded"
+      - "boot_distribution shape (1000,) returned"
+      - "rng=42 fixed for reproducibility"
+
+  - id: A-5-L1
+    type: subtask
+    parent: A-5
+    title: "Implement BCa bootstrap attempt"
+    description: |
+      Call scipy.stats.bootstrap with method='BCa'. Check for NaN in ci_low/ci_high.
+      Raise ValueError if NaN detected (triggers fallback in caller).
+    priority: 45
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-5.2: BCa bootstrap attempt"
+    acceptance_criteria:
+      - "NaN check implemented"
+      - "Raises ValueError on NaN"
+
+  - id: A-5-L2
+    type: subtask
+    parent: A-5
+    title: "Implement percentile fallback"
+    description: |
+      Call scipy.stats.bootstrap with method='percentile' as fallback when BCa fails.
+      Log warning message.
+    priority: 44
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-5.3: Percentile fallback"
+    acceptance_criteria:
+      - "method='percentile' used"
+      - "Warning logged"
+
+  - id: A-5-L3
+    type: subtask
+    parent: A-5
+    title: "Extract bootstrap distribution array"
+    description: |
+      After computing CI, extract boot_result.bootstrap_distribution (shape (1000,)) for
+      visualization in Figure 2.
+    priority: 43
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-5.4: Main correlation + verdict function"
+    acceptance_criteria:
+      - "boot_distribution shape (1000,) returned in results dict"
+
+  - id: A-5-L4
+    type: subtask
+    parent: A-5
+    title: "Integrate into compute_correlation_with_bootstrap()"
+    description: |
+      Assemble all subtasks into the main function: pearsonr → BCa attempt → fallback →
+      boot_distribution → verdict → return dict with r, p_value, ci_low, ci_high, ci_method,
+      verdict, boot_distribution.
+    priority: 42
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-5.4: Main correlation + verdict function"
+    acceptance_criteria:
+      - "Returns complete dict with all required keys"
+      - "Deterministic with rng=42"
+
+  - id: A-6
+    type: implementation
+    title: "Run ablation variants (n=9, n=6, n=3)"
+    description: |
+      Implement run_ablation_variants() for 3 variants:
+      1. full_n9: all 9 checkpoints (ERM+SAM+GroupDRO)
+      2. erm_groupdro_n6: exclude SAM (6 checkpoints)
+      3. method_means_n3: collapse seeds to 3 method-level means
+      For each variant: compute Pearson r + one-sided p-value + verdict (no bootstrap for ablations).
+      Store in dict keyed by variant name.
+    priority: 88
+    complexity: 7
+    reference_files:
+      - path: h-p2/03_prd.md
+        section: "FR-6: Ablation Variants"
+      - path: h-p2/03_logic.md
+        section: "A-9: Figures 3+4"
+    acceptance_criteria:
+      - "3 variants computed"
+      - "erm_groupdro_n6 excludes SAM indices"
+      - "method_means_n3 collapses 3 seeds to 1 mean per method"
+
+  - id: A-6-C1
+    type: subtask
+    parent: A-6
+    title: "Implement ERM+GroupDRO-only (n=6) ablation"
+    description: |
+      Filter probe_accs/wga_values to exclude SAM entries (indices 3,4,5).
+      Run pearsonr with alternative='less'. Report r, p, verdict.
+    priority: 41
+    complexity: null
+    reference_files:
+      - path: h-p2/03_prd.md
+        section: "FR-6: Ablation Variants"
+    acceptance_criteria:
+      - "Exactly 6 data points (ERM×3 + GroupDRO×3)"
+      - "SAM excluded"
+
+  - id: A-6-C2
+    type: subtask
+    parent: A-6
+    title: "Implement per-method means (n=3) ablation"
+    description: |
+      Collapse probe_accs by method: mean of ERM seeds, mean of SAM seeds, mean of GroupDRO seeds.
+      WGA: mean of method WGA values (uniform per Izmailov 2022 → same value).
+      Run pearsonr on 3 points. Report r, p, verdict.
+    priority: 40
+    complexity: null
+    reference_files:
+      - path: h-p2/03_prd.md
+        section: "FR-6: Ablation Variants"
+    acceptance_criteria:
+      - "Exactly 3 data points (one per method)"
+      - "Probe_acc is mean of 3 seeds"
+
+  - id: A-7
+    type: implementation
+    title: "Figure 1: Scatter plot (probe_acc vs WGA)"
+    description: |
+      Implement plot_scatter_probe_vs_wga(): scatter plot of 9 checkpoints with probe_acc on x-axis
+      and WGA on y-axis. Color by method (ERM=blue, SAM=orange, GroupDRO=green). Include OLS
+      regression line. Annotate r and p-value. Save to h-p2/figures/scatter_probe_vs_wga.png.
+    priority: 87
+    complexity: 8
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-7: Figure 1 — Scatter + Regression (3 subtasks)"
+      - path: h-p2/03_prd.md
+        section: "FR-7: Visualization"
+    acceptance_criteria:
+      - "All 9 checkpoints plotted"
+      - "Color-coded by method"
+      - "Regression line included"
+      - "r and p-value annotated"
+      - "Saved to h-p2/figures/scatter_probe_vs_wga.png"
+
+  - id: A-7-L1
+    type: subtask
+    parent: A-7
+    title: "Group data by method for color-coded scatter"
+    description: |
+      _prep_scatter_data(): group probe_accs/wga_values by method label.
+      Returns dict per method with probe and wga lists.
+    priority: 39
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-7.1: Data prep for scatter"
+    acceptance_criteria:
+      - "3 method groups with 3 points each"
+
+  - id: A-7-L2
+    type: subtask
+    parent: A-7
+    title: "Compute OLS regression line"
+    description: |
+      _compute_regression_line(): use np.polyfit(probe_accs, wga_values, 1) to get slope/intercept.
+      Generate x_line from min to max probe_acc range + margin.
+    priority: 38
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-7.2: Regression line computation"
+    acceptance_criteria:
+      - "Regression line spans full probe_acc range"
+
+  - id: A-7-L3
+    type: subtask
+    parent: A-7
+    title: "Add annotation and save figure"
+    description: |
+      Add r and p-value annotation box to scatter plot. Set axis labels and title.
+      Apply tight_layout() and save to PNG at 150 dpi.
+    priority: 37
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-7.3: Full scatter plot + annotation + save"
+    acceptance_criteria:
+      - "Annotation box visible with r and p values"
+      - "File saved at dpi=150"
+
+  - id: A-8
+    type: implementation
+    title: "Figure 2: Bootstrap distribution histogram"
+    description: |
+      Implement plot_bootstrap_distribution(): histogram of 1000 bootstrap r values.
+      Mark 95% CI bounds as dashed red vertical lines. Mark r=0 (null) as black line.
+      Annotate CI bounds in legend. Save to h-p2/figures/bootstrap_distribution.png.
+    priority: 86
+    complexity: 7
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-8: Figure 2 — Bootstrap Distribution (2 subtasks)"
+      - path: h-p2/03_prd.md
+        section: "FR-7: Visualization"
+    acceptance_criteria:
+      - "Histogram of boot_distribution plotted (shape 1000,)"
+      - "CI bounds marked with dashed lines"
+      - "r=0 null line visible"
+      - "Saved to h-p2/figures/bootstrap_distribution.png"
+
+  - id: A-8-L1
+    type: subtask
+    parent: A-8
+    title: "Prepare histogram data and CI bound markers"
+    description: |
+      Compute histogram bins for boot_distribution. Prepare ci_low, ci_high values for
+      vertical lines. Include ci_method in legend label.
+    priority: 36
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-8.1: Histogram computation"
+    acceptance_criteria:
+      - "40 bins used"
+      - "CI method (BCa/percentile) shown in legend"
+
+  - id: A-8-L2
+    type: subtask
+    parent: A-8
+    title: "Render and save bootstrap distribution figure"
+    description: |
+      Plot histogram, add vertical lines for CI bounds and r=0. Set axis labels, title, legend.
+      Save to PNG.
+    priority: 35
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-8.2: Bootstrap distribution plot + save"
+    acceptance_criteria:
+      - "Figure saved to h-p2/figures/bootstrap_distribution.png"
+
+  - id: A-9
+    type: implementation
+    title: "Figures 3+4: Method comparison + ablation sensitivity"
+    description: |
+      Figure 3 (method_comparison_bar.png): side-by-side bar chart of mean probe_acc and WGA per
+      method (ERM, SAM, GroupDRO) with seed-level error bars.
+      Figure 4 (ablation_sensitivity.png): bar chart of Pearson r for full-9, ERM+GroupDRO-6, and
+      method-means-3 variants. Color bars by verdict threshold.
+    priority: 85
+    complexity: 7
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-9: Figures 3+4 — Method Comparison + Ablation (2 subtasks)"
+      - path: h-p2/03_prd.md
+        section: "FR-7: Visualization"
+    acceptance_criteria:
+      - "h-p2/figures/method_comparison_bar.png exists"
+      - "h-p2/figures/ablation_sensitivity.png exists"
+      - "3 methods shown in comparison chart"
+      - "3 ablation variants shown in sensitivity chart"
+
+  - id: A-9-L1
+    type: subtask
+    parent: A-9
+    title: "Implement method comparison bar chart (Figure 3)"
+    description: |
+      plot_method_comparison(): 2-panel figure (probe_acc | WGA) per method with seed error bars.
+      Color by method. Save to method_comparison_bar.png.
+    priority: 34
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-9.1: Method comparison bar chart"
+    acceptance_criteria:
+      - "Two subplots: left=probe_acc, right=WGA"
+      - "Error bars show seed-level std"
+
+  - id: A-9-L2
+    type: subtask
+    parent: A-9
+    title: "Implement ablation sensitivity bar chart (Figure 4)"
+    description: |
+      plot_ablation_sensitivity(): bar chart showing r for full-9, erm_groupdro-6, method_means-3.
+      Color bars by verdict (green=CONFIRMED, orange=SUGGESTIVE, red=REJECTED).
+      Add threshold lines at r=-0.5 and r=-0.3. Save to ablation_sensitivity.png.
+    priority: 33
+    complexity: null
+    reference_files:
+      - path: h-p2/03_logic.md
+        section: "A-9.2: Ablation sensitivity bar chart"
+    acceptance_criteria:
+      - "3 variants on x-axis"
+      - "Threshold lines at r=-0.5 and r=-0.3"
+
+  - id: A-10
+    type: implementation
+    title: "Results serialization and verification_state update"
+    description: |
+      Implement save_results(): write h-p2/results.json with probe_accuracies (9 entries),
+      wga_values, correlation stats (r, p_value, ci_low, ci_high, ci_method, verdict),
+      and ablation results dict.
+      Implement update_verification_state(): update h-p2 gate result and verdict in
+      docs/youra_research/verification_state.yaml using PyYAML.
+    priority: 84
+    complexity: 6
+    reference_files:
+      - path: h-p2/03_prd.md
+        section: "FR-8: Results Serialization"
+      - path: h-p2/03_architecture.md
+        section: "Modules - CorrelationExperiment"
+    acceptance_criteria:
+      - "h-p2/results.json created with all required fields"
+      - "verification_state.yaml gate.satisfied updated"
+      - "JSON is valid and parseable"
+
+  - id: A-10-C1
+    type: subtask
+    parent: A-10
+    title: "Implement results.json serialization"
+    description: |
+      Write results.json per PRD FR-8 schema: hypothesis_id, probe_accuracies dict (9 entries),
+      wga_values dict (9 entries), correlation dict (r, p_value, ci_low, ci_high, ci_method,
+      verdict), ablations dict (erm_groupdro_n6, method_means_n3).
+    priority: 32
+    complexity: null
+    reference_files:
+      - path: h-p2/03_prd.md
+        section: "FR-8: Results Serialization"
+    acceptance_criteria:
+      - "All 9 probe_accuracies present"
+      - "All correlation fields non-null after run"
+      - "Ablations dict has 2 entries"
+
+  - id: A-10-C2
+    type: subtask
+    parent: A-10
+    title: "Update verification_state.yaml with gate result"
+    description: |
+      Load verification_state.yaml with PyYAML. Update sub_hypotheses.h-p2.gate.satisfied
+      and gate.result based on verdict. Update validation.status to COMPLETED.
+      Dump back to file preserving structure.
+    priority: 31
+    complexity: null
+    reference_files:
+      - path: h-p2/03_architecture.md
+        section: "Modules - CorrelationExperiment"
+    acceptance_criteria:
+      - "gate.result set to PASS/FAIL based on verdict"
+      - "validation.status = COMPLETED"
+      - "YAML file valid after update"
+
+  # ── Failsafe ─────────────────────────────────────────────────────────────────
+  - id: F-1
+    type: failsafe
+    title: "Phase 4 completion checkpoint"
+    description: |
+      Final checkpoint: verify all outputs exist (results.json, 4 figures, verification_state
+      updated with gate result). Print summary of hypothesis gate verdict and correlation stats.
+      If any output missing: report specific missing file and exit with non-zero code.
+    priority: 1
+    complexity: null
+    reference_files:
+      - path: h-p2/03_prd.md
+        section: "10. Acceptance Criteria"
+    acceptance_criteria:
+      - "h-p2/results.json exists and is valid JSON"
+      - "4 figures exist in h-p2/figures/"
+      - "verification_state.yaml updated"
+      - "Gate verdict printed: CONFIRMED/SUGGESTIVE/REJECTED"

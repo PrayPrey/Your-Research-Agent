@@ -1,0 +1,462 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  base_hypothesis: h-m1
+  created_at: "2026-03-14T20:00:00.000000+00:00"
+  phase: "Phase 3"
+  description: "Corpus Entropy → Model Logit Margin Internalization (Pythia-1B training + probe)"
+
+tasks:
+  # ── Data Preparation ──────────────────────────────────────────────────────
+  - id: D-1
+    type: data-preparation
+    title: "Prepare C7 shuffled-demographic negative control corpus"
+    description: >
+      Generate C7 negative control: load C3 .bin/.idx from h-e1/code/data/filtered/,
+      identify demographic token IDs via AutoTokenizer, globally permute demographic tokens
+      across all documents, write permuted corpus to h-m2/data/tokenized/config_C7/.
+    priority: 100
+    complexity: null
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "4.3 Manual Download Requirements"
+      - file: "h-m2/03_logic.md"
+        section: "L-2-1: DataPrep.generate_c7_negative_control"
+      - file: "h-m2/03_architecture.md"
+        section: "A-2: C7 Negative Control Generation"
+
+  # ── Environment Setup ──────────────────────────────────────────────────────
+  - id: E-1
+    type: setup
+    title: "Set up conda environment and install dependencies"
+    description: >
+      Create conda env youra-h-m2. Install: torch>=2.0, transformers>=4.38,
+      datasets>=2.16, accelerate>=0.25, scipy>=1.11, statsmodels>=0.14,
+      numpy>=1.24, matplotlib>=3.8, seaborn>=0.13, pyyaml, tqdm, pytest.
+      Clone and install EleutherAI/gpt-neox and EleutherAI/lm-evaluation-harness from source.
+      Run nvidia-smi to identify empty GPU; set CUDA_VISIBLE_DEVICES.
+    priority: 94
+    complexity: null
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "7.1 Python Packages"
+      - file: "h-m2/03_prd.md"
+        section: "7.2 External Repositories"
+
+  # ── Epic Implementation Tasks ──────────────────────────────────────────────
+  - id: A-1
+    type: implementation
+    title: "Project Setup & Config (HM2Config)"
+    description: >
+      Implement HM2Config dataclass with all fields: paths, training hyperparameters
+      (lr=2e-5, batch=256, iters_full=190735, iters_quick=95368, seed=42),
+      probe config (n_templates=50, n_occ_pairs=20), statistical thresholds
+      (alpha=0.01, neg_ctrl_threshold=0.01). Implement load_config(). Create
+      directory layout and probe_templates.json with 50+ templates per demographic axis
+      and 20 WinoBias occupation pairs.
+    priority: 93
+    complexity: 6
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "HM2Config (code/config.py)"
+      - file: "h-m2/03_config.md"
+        section: "HM2Config dataclass"
+
+  - id: A-2
+    type: implementation
+    title: "C7 Negative Control Generation (DataPrep)"
+    description: >
+      Implement DataPrep class. generate_c7_negative_control(): load C3 .bin as
+      numpy memmap (uint16), find demographic token positions via np.isin, globally
+      permute values with np.random.default_rng(42).permutation, copy .idx from C3,
+      write to h-m2/data/tokenized/config_C7/. get_demographic_token_ids(): tokenize
+      ~30 gendered words, deduplicate IDs.
+    priority: 92
+    complexity: 14
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-2-1: DataPrep.generate_c7_negative_control"
+      - file: "h-m2/03_architecture.md"
+        section: "DataPrep (code/data_prep.py)"
+
+  - id: A-3
+    type: implementation
+    title: "gpt-neox YAML Config Generation"
+    description: >
+      Implement build_gptneox_yaml_config() and build_all_yaml_configs() in DataPrep.
+      Write 8 YAML configs (C0-C7) for Pythia-1B: train-data-paths pointing to
+      h-m2/data/tokenized/config_C{N}/, global-batch-size=256, lr=2e-5, cosine schedule,
+      1% warmup, train-iters=190735 (full) or 95368 (quick), bf16/fp16 mixed precision,
+      gradient-checkpointing, seed=42.
+    priority: 91
+    complexity: 8
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "gpt-neox YAML template"
+      - file: "h-m2/03_architecture.md"
+        section: "A-3: gpt-neox YAML Config Generation"
+
+  - id: A-4
+    type: training
+    title: "Training Orchestration (TrainingOrchestrator)"
+    description: >
+      Implement TrainingOrchestrator: build_launch_command() for deepy.py subprocess,
+      run_training() with CUDA_VISIBLE_DEVICES env var, returncode check, logging.
+      checkpoint_exists() and get_missing_checkpoints() for resume support.
+      Run nvidia-smi before each training run; set CUDA_VISIBLE_DEVICES to empty GPU.
+    priority: 90
+    complexity: 10
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-4-1: TrainingOrchestrator.run_training"
+      - file: "h-m2/03_architecture.md"
+        section: "TrainingOrchestrator (code/train.py)"
+
+  - id: A-5
+    type: evaluation
+    title: "Logit Margin Probe Pipeline (LogitProbe)"
+    description: >
+      Implement LogitProbe: load_model() loading GPTNeoXForCausalLM from checkpoint
+      with dtype=bfloat16. compute_logit_margin(): extract last-position logit delta
+      (logits[0,-1,cid] - logits[0,-1,iid]). compute_mean_logit_margin(): aggregate
+      over 50+ templates × 20 occ pairs with sanity bound filter. run_probe_for_config():
+      per-config probe run with GPU memory cleanup. run_all_configs(): iterate C0-C7,
+      collect mean_logit_margin scalars. run_winobias_eval() via lm_eval subprocess.
+    priority: 89
+    complexity: 17
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-5-1: LogitProbe.compute_logit_margin"
+      - file: "h-m2/03_logic.md"
+        section: "L-5-2: LogitProbe.compute_mean_logit_margin"
+      - file: "h-m2/03_logic.md"
+        section: "L-5-3: LogitProbe.load_model"
+      - file: "h-m2/03_logic.md"
+        section: "L-5-4: LogitProbe.run_all_configs"
+      - file: "h-m2/03_architecture.md"
+        section: "LogitProbe (code/probe.py)"
+
+  - id: A-6
+    type: evaluation
+    title: "WinoBias Evaluation (lm-eval subprocess)"
+    description: >
+      Implement run_winobias_eval() in LogitProbe: launch lm_eval subprocess with
+      --tasks winobias for each of 8 configs, parse output JSON, extract
+      pro-stereotypical and anti-stereotypical accuracy, compute accuracy gap.
+      Store per-config WinoBias results to h-m2/results/C{N}_winobias.json.
+    priority: 88
+    complexity: 10
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "FR-5: Secondary Evaluation (WinoBias)"
+      - file: "h-m2/03_architecture.md"
+        section: "A-6: WinoBias Evaluation"
+
+  - id: A-7
+    type: analysis
+    title: "Statistical Tests (Spearman gate + log-linear OLS)"
+    description: >
+      Implement StatisticalTests for H-M2: spearman_correlation(corpus_entropy_values,
+      model_logit_margins), bootstrap_spearman_ci, log_linear_ols (logit_margin ~
+      log(H_entropy) via statsmodels OLS), negative_control_delta (|C7-C0| ≤ 0.01),
+      winobias_spearman (secondary), evaluate_gate (rho>0 AND p<0.01), run_all_tests.
+      Note: H-M2 alpha_level=0.01 (stricter than H-M1's 0.05).
+    priority: 87
+    complexity: 13
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-7-1: StatisticalTests"
+      - file: "h-m2/03_architecture.md"
+        section: "StatisticalTests (code/statistical_tests.py)"
+
+  - id: A-8
+    type: training
+    title: "Pythia-160M Scale Consistency Check"
+    description: >
+      Train Pythia-160M on C1, C3, C5 only (3 runs). Use same gpt-neox framework with
+      pythia-160m config (hidden_size=768, 12 layers, 12 heads). Run same logit probe
+      pipeline. Verify directional consistency: margin(C5) > margin(C3) > margin(C1).
+      This is the Risk R1 mitigation check — validates signal at smaller scale first.
+    priority: 86
+    complexity: 14
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-8-1: Scale Check (Pythia-160M)"
+      - file: "h-m2/03_prd.md"
+        section: "FR-6: Slope Consistency Check (Pythia-160M)"
+
+  - id: A-9
+    type: visualization
+    title: "Visualization (5 figures)"
+    description: >
+      Implement Visualizer with 5 figures: (1) scatter H(occ|demo) vs. logit margin
+      with log-linear fit + Spearman ρ annotation; (2) bar chart margin per config
+      sorted by entropy; (3) negative control grouped bar C3/C7/C0 with delta;
+      (4) per-axis heatmap logit_margin × (demographic_axis × config);
+      (5) WinoBias accuracy gap line chart C0-C6. Save all to h-m2/figures/.
+    priority: 85
+    complexity: 9
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "FR-7: Visualization"
+      - file: "h-m2/03_architecture.md"
+        section: "Visualizer (code/visualize.py)"
+
+  - id: A-10
+    type: reporting
+    title: "Mechanism Verification & Reporting"
+    description: >
+      Implement verify_mechanism_activated() checking 7 indicators: checkpoints_exist,
+      logit_margins_computed (|margin|<10), ordering_matches_hm1 (C5>C1), spearman_positive,
+      spearman_significant (p<0.01), negative_control_ok, mechanism_activated.
+      write_results_json() to h-m2/results/results.json.
+      write_validation_md() to h-m2/04_validation.md with all metrics and gate result.
+    priority: 84
+    complexity: 8
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "RunExperiment (code/run_experiment.py)"
+      - file: "h-m2/02c_experiment_brief.md"
+        section: "Mechanism Activation Indicators"
+
+  - id: A-11
+    type: testing
+    title: "Unit & Integration Tests"
+    description: >
+      Implement pytest suite: test_probe.py with mock GPTNeoXForCausalLM testing
+      compute_logit_margin (expected margin 1.5 from dummy logits), sanity bound filter,
+      multi-token edge case. test_statistical_tests.py testing Spearman gate pass/fail,
+      negative_control_delta threshold, OLS log-linear fit. conftest.py with mock_model
+      fixture. Integration smoke test with --dry-run flag.
+    priority: 83
+    complexity: 10
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-11-1: Test Structure"
+      - file: "h-m2/03_architecture.md"
+        section: "A-11: Unit & Integration Tests"
+
+  # ── Subtasks (Logic Agent: High-complexity modules) ────────────────────────
+  - id: L-5-1
+    type: subtask
+    title: "LogitProbe: compute_logit_margin tensor shape implementation"
+    description: >
+      Implement exact last-position logit extraction: outputs.logits[0, -1, :] shape (50304,).
+      Handle multi-token words (use first token ID only). Apply sanity bound assertion.
+    priority: 49
+    complexity: null
+    parent_epic: A-5
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-5-1: LogitProbe.compute_logit_margin"
+
+  - id: L-5-2
+    type: subtask
+    title: "LogitProbe: compute_mean_logit_margin aggregation"
+    description: >
+      Aggregate margins over 50+ templates × 20 occupation pairs. Filter outliers via
+      sanity bound. Return mean float, handle empty-after-filter with nan.
+    priority: 48
+    complexity: null
+    parent_epic: A-5
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-5-2: LogitProbe.compute_mean_logit_margin"
+
+  - id: L-5-3
+    type: subtask
+    title: "LogitProbe: GPU memory management between configs"
+    description: >
+      After each config's probe run: del model, torch.cuda.empty_cache().
+      Verify checkpoint path exists before loading; skip with warning if missing.
+    priority: 47
+    complexity: null
+    parent_epic: A-5
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-5-4: LogitProbe.run_all_configs"
+
+  - id: L-5-4
+    type: subtask
+    title: "LogitProbe: WinoBias lm_eval subprocess + JSON parsing"
+    description: >
+      Build lm_eval command, run via subprocess.run, parse output JSON for
+      pro/anti-stereotypical accuracy, compute accuracy gap per config.
+    priority: 46
+    complexity: null
+    parent_epic: A-5
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "FR-5: Secondary Evaluation"
+
+  - id: L-2-1
+    type: subtask
+    title: "DataPrep: .bin/.idx memmap permutation algorithm"
+    description: >
+      np.memmap load with dtype=uint16, np.isin demographic position finding,
+      np.random.default_rng(seed).permutation for global shuffle, .tofile write,
+      .idx copy from source via shutil.
+    priority: 45
+    complexity: null
+    parent_epic: A-2
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-2-1: DataPrep.generate_c7_negative_control"
+
+  - id: L-2-2
+    type: subtask
+    title: "DataPrep: demographic token ID extraction"
+    description: >
+      Tokenize ~30 gendered words (pronouns, titles, gendered nouns) with
+      add_special_tokens=False, collect all token IDs, deduplicate with set().
+    priority: 44
+    complexity: null
+    parent_epic: A-2
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-2-2: DataPrep.get_demographic_token_ids"
+
+  - id: L-2-3
+    type: subtask
+    title: "DataPrep: gpt-neox YAML config builder"
+    description: >
+      Implement build_gptneox_yaml_config() writing complete gpt-neox YAML with
+      all required fields: train-data-paths, model-parallel-size=1, pipe-parallel-size=1,
+      global-batch-size, micro-batch-size-per-gpu, train-iters, lr, warmup,
+      bf16/fp16, gradient-checkpointing, save/load paths.
+    priority: 43
+    complexity: null
+    parent_epic: A-2
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "gpt-neox YAML template"
+
+  - id: L-8-1
+    type: subtask
+    title: "Pythia-160M: config adaptation and checkpoint paths"
+    description: >
+      Adapt HM2Config for 160M: hidden_size=768, num_layers=12, num_heads=12.
+      Checkpoint path pattern: h-m2/checkpoints/config_{CID}_160m/.
+      Run build_all_yaml_configs() with model_size=160m for C1, C3, C5 only.
+    priority: 42
+    complexity: null
+    parent_epic: A-8
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-8-1: Scale Check (Pythia-160M)"
+
+  - id: L-8-2
+    type: subtask
+    title: "Pythia-160M: directional consistency verification"
+    description: >
+      After probe on C1/C3/C5 checkpoints, verify margin(C5) > margin(C3) > margin(C1).
+      Log result as Risk R1 mitigation check. Include in validation report.
+    priority: 41
+    complexity: null
+    parent_epic: A-8
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-8-1: Scale Check (Pythia-160M)"
+
+  - id: L-8-3
+    type: subtask
+    title: "Pythia-160M: early run for gate signal"
+    description: >
+      Run 160M on 50B tokens (quick run) before full 1B training. If directional signal
+      confirmed, proceed with full 1B training. Document quick-run strategy in validation report.
+    priority: 40
+    complexity: null
+    parent_epic: A-8
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "9.1 Quick-Run Strategy (PoC Gating)"
+
+  - id: L-7-1
+    type: subtask
+    title: "StatisticalTests: log-linear OLS with log-transformed X"
+    description: >
+      Fit statsmodels OLS: y=model_logit_margins, X=np.log(corpus_entropy_values).
+      Add constant. Report coef, intercept, r_squared, pvalue. Validate R²>0.3 as
+      secondary criterion for log-linear functional form.
+    priority: 39
+    complexity: null
+    parent_epic: A-7
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-7-1: StatisticalTests"
+
+  - id: L-7-2
+    type: subtask
+    title: "StatisticalTests: negative control delta + bootstrap CI"
+    description: >
+      negative_control_delta(): |margin(C7) - margin(C0)| with threshold check (≤0.01).
+      bootstrap_spearman_ci(): scipy.stats.bootstrap on (entropy_values, margin_values)
+      with n_resamples=1000, paired=True.
+    priority: 38
+    complexity: null
+    parent_epic: A-7
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-7-1: StatisticalTests"
+
+  - id: L-4-1
+    type: subtask
+    title: "TrainingOrchestrator: subprocess error handling + resume"
+    description: >
+      In run_training(): check result.returncode, log error if non-zero. Before each
+      training run: call checkpoint_exists() to skip if already done. Implement
+      get_missing_checkpoints() to support resume from interrupted runs.
+    priority: 37
+    complexity: null
+    parent_epic: A-4
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-4-1: TrainingOrchestrator.run_training"
+
+  - id: L-11-1
+    type: subtask
+    title: "Test fixtures: mock GPTNeoXForCausalLM for unit tests"
+    description: >
+      conftest.py: mock_model fixture using MagicMock with fixed logits tensor
+      (1, 5, 50304) where logits[0,-1,1234]=2.0 and logits[0,-1,5678]=0.5.
+      mock_tokenizer returning token IDs 1234/5678 for congruent/incongruent words.
+      Expected margin = 1.5 for deterministic test assertions.
+    priority: 36
+    complexity: null
+    parent_epic: A-11
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "L-11-1: Test Structure"
+
+  # ── Failsafe ──────────────────────────────────────────────────────────────
+  - id: F-1
+    type: failsafe
+    title: "Pipeline continuation checkpoint"
+    description: >
+      Before writing 04_validation.md, verify all required outputs exist:
+      8 checkpoint dirs, results.json with all metrics, figures/ with 5 plots.
+      If gate fails (rho ≤ 0 or p ≥ 0.01): log EXPLORE routing, document per-axis
+      correlations for diagnostic analysis. Write validation report regardless of
+      gate result. Update verification_state.yaml via Phase 4 completion logic.
+    priority: 1
+    complexity: null
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "6. Success Criteria (Gate Conditions)"
+      - file: "h-m2/02c_experiment_brief.md"
+        section: "PoC Success Check"
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 11
+  subtasks: 14
+  failsafe: 1
+  total: 28
+  budget_max: 30
+  within_budget: true
+  tier: FULL

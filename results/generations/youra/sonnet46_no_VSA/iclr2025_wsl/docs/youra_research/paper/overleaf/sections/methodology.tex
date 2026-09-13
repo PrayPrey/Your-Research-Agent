@@ -1,0 +1,105 @@
+\section{Methodology}
+\label{sec:method}
+
+Our key insight --- that architectural permutation-invariance causally determines weight encoder utility through the chain \emph{architecture $\to$ OrbitVar $\to$ MSE$_\text{perm}$ $\to$ R$^2$} --- motivates a measurement-first methodology.
+
+\subsection{Notation and Problem Setup}
+
+Let $\mathcal{V} = \{v_1, \ldots, v_N\}$ be a model zoo of $N$ neural networks, where each $v_i \in \mathbb{R}^d$ is a flattened weight vector. For each network, let $y_i \in \mathbb{R}$ be a scalar performance label (test accuracy). A weight encoder $e: \mathbb{R}^d \to \mathbb{R}^k$ maps weight vectors to fixed-size representations; a downstream predictor $f: \mathbb{R}^k \to \mathbb{R}$ predicts performance from representations.
+
+The \textbf{permutation group} for a $K$-layer CNN with channel widths $c_1, \ldots, c_K$ is the direct product $S_{c_1} \times \cdots \times S_{c_K}$, acting via \emph{coupled} row-column permutations: permuting the output channels of layer $\ell$ simultaneously permutes the input channels of layer $\ell+1$, preserving functional equivalence \cite{Navon2023Equivariant}. We denote the orbit of network $v$ under this group as $\mathcal{O}(v) = \{\pi \cdot v : \pi \in S_{c_1} \times \cdots \times S_{c_K}\}$.
+
+\textbf{OrbitVar} of an encoder $e$ on network $v$ is defined as:
+\[
+\text{OrbitVar}(v) = \text{Var}_{\pi \sim \text{Uniform}(\text{orbit})} \left[ e(\pi \cdot v) \right]
+\]
+averaged over the embedding dimension. The population-level OrbitVar is $\mathbb{E}_v[\text{OrbitVar}(v)]$.
+
+\textbf{MSE$_\text{perm}$} is the component of the total prediction MSE attributable to permutation-induced variance:
+\[
+\text{MSE}_\text{perm} = \mathbb{E}_v \left[ \mathbb{E}_{\pi,\pi'} \left[ \frac{(f(e(\pi \cdot v)) - f(e(\pi' \cdot v)))^2}{2} \right] \right]
+\]
+where $\pi, \pi'$ are independent random permutations. $\text{MSE}_\text{res} = \text{MSE}_\text{total} - \text{MSE}_\text{perm}$ is the residual component.
+
+\subsection{Encoder Designs}
+
+We evaluate four encoders spanning the invariance spectrum, implementing the ladder C0 $\le$ C1 $<$ C2 $\le$ C3:
+
+\textbf{C0 --- Per-Layer Statistics (Approximately Invariant).} The $\hat{W}_L$ encoder from \citet{Unterthiner2020Predicting} computes per-layer summary statistics: mean, variance, and spectral norm of each weight matrix. We use C0 as the reference baseline.
+
+\textbf{C1 --- CISE (Non-Invariant).} The channel-index sinusoidal encoder applies per-channel learned projections with sinusoidal positional encodings indexed by channel position. For layer $\ell$ with weights $W^{(\ell)} \in \mathbb{R}^{C_\text{out} \times C_\text{in} \times k \times k}$:
+\[
+e_\text{C1}(W^{(\ell)})_c = \phi(W^{(\ell)}_c) + \text{PE}(c)
+\]
+where $\phi$ is a learned MLP and $\text{PE}(c)$ encodes channel index $c$ via sinusoidal functions. Since $\text{PE}(c) \ne \text{PE}(\pi(c))$ for permutation $\pi$, CISE has OrbitVar $> 0$ by design.
+
+\textbf{C2 --- DeepSets (Exactly Invariant).} We implement doubly-invariant DeepSets \cite{Zaheer2017Deep} for each convolutional layer:
+\[
+e_\text{C2}(W^{(\ell)}) = \rho\!\left(\sum_{c=1}^{C_\text{out}} \phi(W^{(\ell)}_c)\right)
+\]
+where $\phi: \mathbb{R}^{C_\text{in} \times k \times k} \to \mathbb{R}^h$ is a learned MLP (hidden\_dim=64) and $\rho: \mathbb{R}^h \to \mathbb{R}^{\text{embed\_dim}}$ is another MLP (embed\_dim=128). Sum pooling over $C_\text{out}$ ensures invariance to output channel order. By Deep Sets Theorem 2, this guarantees OrbitVar(C2) $= 0$ exactly.
+
+\textbf{C3 --- NFN (Near-Invariant).} We use Neural Functional Networks \cite{Zhou2023Permutation} via the official \texttt{nfn} library. The encoder applies two NF-Linear layers (NPLinear) with ReLU activations, followed by HNPPool for invariant aggregation:
+\[
+e_\text{C3} = \text{Linear} \circ \text{HNPPool} \circ \text{ReLU} \circ \text{NPLinear} \circ \text{ReLU} \circ \text{NPLinear}
+\]
+
+\subsection{Functional Permutation Implementation}
+
+\textbf{Critical design decision:} We implement $S_n^3$ functional permutations as \emph{coupled} row-column actions, following DWSNet Eq.~5 \cite{Navon2023Equivariant}. For a 3-conv CNN with channel widths $(c_1=8, c_2=6, c_3=4)$:
+
+\begin{itemize}
+\item Layer 1 (conv1): Permute output channels (rows of $W^{(1)}$) with $\pi_1$
+\item Layer 2 (conv2): Permute input channels (columns) with $\pi_1$, output channels (rows) with $\pi_2$
+\item Layer 3 (conv3): Permute input channels with $\pi_2$, output channels with $\pi_3$
+\item BatchNorm: Permute parameters consistently with corresponding conv
+\end{itemize}
+
+\textbf{Functional audit:} For $K_\text{audit}=5$ randomly drawn permutations and $n_\text{checks}=5$ random inputs $x \in [0,1]^{3 \times 32 \times 32}$, we compute $\|f_v(x) - f_{\pi \cdot v}(x)\|_\infty$ and require this to be $\le 1 \times 10^{-6}$. In our experiments, max\_diff $= 1.91 \times 10^{-6} \le$ float32 precision.
+
+\subsection{OrbitVar Measurement Protocol}
+
+For each encoder and each model $v_i$, we draw $K=50$ functional permutations (seed=1) and compute:
+\[
+\text{OrbitVar}(v_i) = \text{mean}_\text{dim}\!\left(\text{Var}_{k=1}^K \left[ e(\pi_k \cdot v_i) \right]\right)
+\]
+We use float64 precision to avoid numerical cancellation in the variance computation, and report mean and max over $N=100$ models.
+
+\subsection{MSE Bias-Variance Decomposition}
+
+For the C1 (CISE) encoder, we decompose prediction error over orbits. Given LightGBM predictor $f$ trained on C1 embeddings:
+
+For each model $v_i$, we compute predictions $f(e(\pi_k \cdot v_i))$ for $K=50$ permutations, yielding per-model prediction variance $\text{PredVar}(v_i)$.
+
+$\text{MSE}_\text{perm}$ for the full dataset is:
+\[
+\text{MSE}_\text{perm} = \frac{1}{N} \sum_i \text{PredVar}(v_i)
+\]
+
+$\text{MSE}_\text{total}$ is the out-of-fold OOF MSE from 5-fold cross-validation.
+
+\textbf{Orbit-averaged diagnostic:} We also compute $R^2(\text{C1}_\text{avg})$ --- the $R^2$ when predicting using $f(\text{mean}_{k=1}^K e(\pi_k \cdot v_i))$ as the input.
+
+\subsection{Downstream Prediction}
+
+We use LightGBM with 5-fold cross-validation, following \citet{Unterthiner2020Predicting}: n\_estimators=500, learning\_rate=0.05, random\_seed=42. Embeddings from each encoder are used directly as features; no dimensionality reduction or normalization is applied. We report $R^2$ on a held-out testset (100-model split).
+
+\textbf{Linear head ablation:} We additionally fit Ridge regression on C2 embeddings to test linear separability of the DeepSets representation.
+
+\subsection{Experimental Design Summary}
+
+\begin{table}[h]
+\centering
+\caption{Sub-hypotheses and gate conditions.}
+\label{tab:gates}
+\begin{tabular}{lll}
+\toprule
+Hypothesis & Tests & Gate \\
+\midrule
+h-e1 & OrbitVar(C2) $< 10^{-6}$, OrbitVar(C3) $< 10^{-6}$ & MUST\_WORK \\
+h-m1 & OOM gap C1/C2 $\ge 4$, Wilcoxon $p < 0.001$ & MUST\_WORK \\
+h-m2 & $\text{MSE}_\text{perm}^\text{C1}/\text{MSE}_\text{total} \ge 0.10$ & MUST\_WORK \\
+h-m3 & $R^2(\text{C2}) > R^2(\text{C1})$; closure $\le 0.10$ & SHOULD\_WORK \\
+\bottomrule
+\end{tabular}
+\end{table}

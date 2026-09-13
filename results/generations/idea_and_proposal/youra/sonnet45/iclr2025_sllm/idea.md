@@ -1,0 +1,8 @@
+# Title
+Feature-Guided Routing in Mixture-of-Experts via Sparse Autoencoders for Interpretable Expert Specialization
+
+# Motivation
+Large language models with Mixture-of-Experts (MoE) architectures achieve efficiency through sparse expert activation, but routing decisions remain opaque black boxes. This limits trust, debugging, and scientific understanding of expert specialization. Existing interpretability methods analyze models post-hoc, while routing mechanisms optimize only for task performance. We address this gap by integrating sparse autoencoder (SAE) features directly into routing decisions, creating interpretable expert assignments without sacrificing performance.
+
+# Main Idea
+We propose co-training SAEs with MoE layers using a learned feature-expert affinity matrix that maps interpretable sparse features to expert selection scores. The causal mechanism operates through three steps: (1) SAE TopK sparsity extracts salient interpretable features from activations, (2) these features multiply with the affinity matrix to generate expert scores, and (3) dual-objective training (reconstruction + routing alignment + task loss) with loss-free expert bias ensures both interpretability and load balance. We test this on transformer LLMs by measuring whether feature-guided routing achieves ≥95% of learned routing performance while providing interpretable expert assignments (Jaccard similarity ≥0.6, human ratings ≥3.5/5). Falsification occurs if performance drops below 90% or feature-expert mappings become arbitrary (Jaccard <0.3). This bridges sparsity-for-efficiency and sparsity-for-interpretability, enabling transparent expert specialization analysis.

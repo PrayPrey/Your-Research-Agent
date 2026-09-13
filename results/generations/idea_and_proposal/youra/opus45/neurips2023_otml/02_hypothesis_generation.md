@@ -1,0 +1,194 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-DICNO-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under conditions of smooth source and target distributions with C^{1,α} Hölder continuous densities, if a Derivative-Informed Convex Neural Operator (DICNO) jointly learns Monge transport maps and their Hessians under Monge-Ampère PDE constraints, then the total approximation error decreases at polynomial rate in sample size n with explicit three-way decomposition (ε_approx + ε_stat + ε_PDE), because the derivative-informed training enforces PDE residual minimization while ICNN architecture guarantees convexity of the learned potential.
+
+**Alternative Hypothesis (H0):**
+There is no systematic relationship between derivative-informed training under Monge-Ampère constraints and finite-sample approximation rates; the error decomposition does not provide tighter bounds than standard neural OT methods without PDE enforcement.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| n | Independent | Number of training samples from source/target distributions | 10² - 10⁶ samples |
+| k | Independent | Number of Hutchinson random vectors for Hessian estimation | O(log d) ≈ 5-15 vectors |
+| d | Controlled | Input dimension, fixed for theoretical analysis | d ≤ 100 |
+| L, W | Controlled | ICNN architecture depth L and width W | L ∈ [3,10], W ≥ poly(d) |
+| L2_transport_error | Dependent | \|\|T_θ(x) - T*(x)\|\|₂ averaged over test samples | Target: O(n^{-α}) for α > 0 |
+| MA_residual | Dependent | \|\|det(D²φ_θ) - f/g\|\|₂ Monge-Ampère equation residual | Target: correlates with transport error |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=4 steps):**
+
+```
+Step 1: ICNN Convexity Constraint
+    ↓ (Brenier theorem guarantee)
+Step 2: Valid Brenier Map + Derivative-Informed Loss
+    ↓ (Joint function + Hessian training)
+Step 3: Hessian Accuracy + MA Constraint
+    ↓ (PDE residual minimization)
+Step 4: Bounded ε_PDE + Sufficient Samples
+    ↓ (Three-way error decomposition)
+Outcome: Polynomial Finite-Sample Rate
+```
+
+**Step 1 → Step 2:** ICNN architecture with non-negative weights and ReLU activations ensures φ_θ is convex. By Brenier's theorem, ∇φ_θ is automatically a valid transport map pushing μ to ν.
+
+**Step 2 → Step 3:** Derivative-informed training (inspired by DIFNO) minimizes both map MSE \|\|T_θ - T*\|\|² and Hessian MSE \|\|D²φ_θ - D²φ*\|\|_F². This enforces the Monge-Ampère structure det(D²φ) = f/g.
+
+**Step 3 → Step 4:** With accurate Hessian estimation via Hutchinson estimator (k random vectors), the PDE residual ε_PDE = \|\|det(D²φ_θ) - f/g\|\| is bounded. Combined with neural approximation error ε_approx and statistical estimation error ε_stat, the total error decomposes explicitly.
+
+**Step 4 → Outcome:** The three-way decomposition ε_total ≤ ε_approx(L,W) + ε_stat(n) + ε_PDE(k,n) enables deriving polynomial finite-sample rates with explicit dependence on architecture and sample size.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Hoedt & Klambauer 2023 | Principled ICNN initialization enables training without skip connections | Strong |
+| Step 2 → Step 3 | DIFNO (Yao 2025) | Universal approximation of FNOs AND Fréchet derivatives for PDE-constrained optimization | Strong |
+| Step 3 → Step 4 | Wang & Goldfeld 2024 | Minimax-optimal parametric rates for neural EOT estimation | Strong |
+| Step 4 → Outcome | Caboussat 2025 | Convex PINN for Monge-Ampère shows empirical accuracy (gap: no sample theory) | Medium |
+
+**Key Tension:**
+- **Tension:** DIFNO (Yao 2025) proves derivative approximation for semi-linear PDEs, but Monge-Ampère is fully nonlinear. Caboussat 2025 shows empirical success but provides no finite-sample analysis.
+- **Resolution:** This hypothesis tests whether the DIFNO paradigm transfers to the fully nonlinear Monge-Ampère case when combined with ICNN convexity constraints.
+
+### 1.4 Key Assumptions
+
+| # | Assumption | Supporting Evidence | Consequence if Violated |
+|---|------------|--------------------|-----------------------|
+| A1 | Source and target distributions have C^{1,α} Hölder continuous densities with bounded support | Standard regularity assumption in OT theory | Brenier map may not exist or may be discontinuous; theory inapplicable |
+| A2 | True Brenier map T* exists and is sufficiently smooth (C² or better) | Caffarelli regularity theory | Cannot measure approximation error against ground truth |
+| A3 | ICNN architecture has sufficient capacity: width W ≥ poly(d) | Universal approximation theorems | Approximation error ε_approx dominates; polynomial rates fail |
+| A4 | Monge-Ampère PDE admits unique solution in the class of convex potentials | Well-posedness theory | Multiple solutions or no solution; optimization ill-posed |
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- Continuous probability distributions with smooth, bounded densities
+- Moderate dimensions d ≤ 100
+- Squared-Euclidean cost function c(x,y) = \|\|x-y\|\|²
+- Applications: image translation, domain adaptation, density estimation with provable guarantees
+
+**Where Hypothesis Does NOT Apply:**
+- Discrete distributions, highly irregular/singular densities, d >> 100, non-Euclidean costs
+
+**Known Limitations:**
+1. Hutchinson estimator introduces variance term (mitigated by k = O(log d))
+2. C^{1,α} smoothness excludes some pathological distributions
+3. Exact rate constants require rigorous proof
+4. Computational cost scales with k × d
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Finite-Sample Rate):**
+If n training samples are used, then L2 transport error decreases at polynomial rate n^{-α} for some α > 0.
+
+*Measurement:* Track L2 error vs n on log-log plot; fit power law
+*Success Criteria:* α ≥ 0.3 (primary), α ≥ 0.5 (stretch)
+*Falsification:* α ≤ 0.1 or no clear power-law relationship
+
+**Secondary Predictions:**
+
+**P2 (Architecture Scaling):**
+If ICNN width W increases, then approximation error ε_approx decreases monotonically until capacity saturation.
+
+**P3 (Hutchinson Variance):**
+If k increases, then Hessian estimate variance decreases at rate O(1/k).
+
+**Falsification Criteria:**
+
+1. **Rate Failure:** L2 error does not decrease with n, or decreases slower than O(n^{-0.1})
+2. **Mechanism Failure:** PDE residual does NOT correlate with transport error (r² < 0.5)
+3. **Comparative Failure:** DICNO performs worse than standard ICNN OT on all benchmarks
+4. **Numerical Failure:** Training diverges or ICNN loses convexity for majority of runs
+
+### 1.7 SOTA Baseline
+
+| Method | Finite-Sample Rate | PDE Constraint | Convexity | Reference |
+|--------|-------------------|----------------|-----------|-----------|
+| Neural EOT | O(n^{-1/2}) | None | None | Wang 2024 |
+| Monge Gap | Not analyzed | Soft | None | Uscidda 2023 |
+| Convex PINN | Not analyzed | Hard | Yes | Caboussat 2025 |
+| **DICNO** | **To establish** | **Hard** | **Yes** | **Proposed** |
+
+### 1.8 Statistical Verification Design
+
+**Sample Size:** n_exp ≥ 8 sample sizes spanning 2 orders of magnitude, ≥ 5 runs per n
+**Test:** Linear regression on log(error) vs log(n), α = 0.05 (one-tailed)
+**Benchmarks:** Gaussian→Gaussian (ground truth), Synthetic 2D (visual), MNIST↔USPS (application)
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does DICNO achieve measurably lower L2 transport error than random baseline when trained on n samples?"
+- Maps to: P1 (Primary prediction)
+- Critical: MUST PASS
+
+**SH2 (Mechanism):**
+"Is the three-way error decomposition the actual cause of improved sample efficiency?"
+- Maps to: Causal mechanism (N=4 steps → 4 sub-hypotheses H-M1 to H-M4)
+- Verification: Ablation studies
+
+**SH3 (Comparison):**
+"Does DICNO outperform Neural EOT, Monge Gap, and standard ICNN in finite-sample efficiency?"
+- Maps to: P2, P3
+- Verification: Comparative empirical
+
+**Total sub-hypotheses:** 2 + 4 = 6
+
+### Readiness Checklist
+
+- [x] "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID: H-DICNO-v1
+- [x] Confidence: 0.82
+- [x] H0 defined
+- [x] Variables operationalized
+- [x] Causal mechanism with evidence (N=4)
+- [x] Key tension + resolution
+- [x] Assumptions with consequences (4)
+- [x] Testable predictions (3)
+- [x] Falsification criteria (4)
+- [x] Baselines identified (4)
+- [x] SH1/SH2/SH3 defined
+
+### Open Questions
+
+1. **Compute:** GPU memory/time for DICNO with Hutchinson Hessian at d=100?
+2. **Constants:** Are polynomial rate constants practical or pessimistic?
+3. **Benchmarks:** Prioritize synthetic (ground truth) or real-world (impact) first?
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

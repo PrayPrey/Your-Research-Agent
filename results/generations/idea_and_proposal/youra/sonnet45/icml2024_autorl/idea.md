@@ -1,0 +1,10 @@
+# Title
+Closed-Loop Feedback Between AutoML and LLM Semantics for Self-Improving Meta-Reinforcement Learning
+
+# Motivation
+Reinforcement learning remains brittle in practice, requiring extensive manual tuning for each new problem. While recent advances in AutoML, meta-learning, and LLMs each address aspects of this challenge, these communities operate in isolation with "little crossover." Current AutoRL approaches use either LLM task clustering OR AutoML hyperparameter optimization, but never integrate their feedback bidirectionally. This creates a critical gap: low-level optimization signals (successful hyperparameters) could inform high-level semantic understanding (task representations), enabling systems that automatically improve their own task clustering and transfer capabilities.
+
+# Main Idea
+We propose CERSP (Convergent Experience Replay for Semantic-Parametric Task Clustering), a closed-loop AutoRL architecture where AutoML-discovered hyperparameters update LLM task embeddings via exponential moving average (α=0.1). **Core mechanism**: successful hyperparameter configurations from Bayesian optimization are embedded and concatenated with LLM task descriptions, creating enriched representations that improve k-means clustering quality. This updated clustering enhances meta-learning task distributions (Algorithm Distillation), improving cross-domain transfer.
+
+**Testable predictions**: ≥12% clustering quality improvement (adjusted Rand index), >15% cross-domain transfer performance gain (Atari→MuJoCo→Robotics), convergence guarantee (≥90% cluster stability within 20 iterations), all versus static LLM baselines. The approach provides the first formal framework unifying LLM semantics, meta-RL, and AutoML with provable convergence, addressing AutoRL's accessibility challenge through self-improving task understanding.

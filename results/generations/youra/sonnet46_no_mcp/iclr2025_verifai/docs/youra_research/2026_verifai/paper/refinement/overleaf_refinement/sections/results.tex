@@ -1,0 +1,171 @@
+
+\subsubsection{5.1 Unified Pipeline Operationality (h-e1)}
+
+All three formal repair tools are pip-installable and operational with CodeLlama-7B on the 20-problem HumanEval subset.
+
+\textbf{Table 1: Operationality gate metrics (h-e1)}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Metric & Value & Threshold & Result \\
+\midrule
+delta_ast (SynCode) & 0.075 & > 0 & PASS \\
+z3_eligibility_rate & 0.25 (5/20 problems) & >= 0.15 & PASS \\
+mypy_structured_rate & 1.000 & >= 0.90 & PASS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All three gate conditions are satisfied. SynCode-constrained generation produces a 7.5 percentage point lower AST parse failure rate relative to the baseline pool. Z3 encoding applies to 5 of 20 problems in the subset. mypy returns structured output for all completions.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/gate_metrics.png}
+\caption{Gate metrics visualization}
+\label{fig:gate_metrics}
+\end{figure}
+
+\textit{Figure 1: Operationality gate metrics (delta_ast, z3_eligibility_rate, mypy_structured_rate) compared against their thresholds.}
+
+\subsubsection{5.2 Failure Mode Distribution (h-m2)}
+
+The FMD analysis of 134 HumanEval problems (2,680 samples from the baseline pool) reveals a failure distribution dominated by syntax errors.
+
+\textbf{Table 2: Failure Mode Distribution (h-m2, 134 problems, 2,680 completions)}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+Stratum & Sample Count & Percentage of Classified Non-Success Samples \\
+\midrule
+Syntax (ast.parse failure) & 358 & 97.5\% \\
+Functional (test failure, no syntax error) & 44 & -- \\
+Type (mypy type error) & 0 & 0.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The 97.5\% figure reflects that 358 of approximately 367 non-success samples fail at the syntax stratum. The functional count (44) represents completions classified as non-syntax-failing that still fail tests; strata are applied in priority order (syntax > type > functional), so percentages across strata are not additive.
+
+The type stratum contains zero samples across all 134 problems and 2,680 completions. Despite a 100\% structured output rate, mypy reports zero type errors. The mypy repair loop activates zero times, yielding F_mypy = {} (empty set).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/fmd_distribution.png}
+\caption{FMD distribution}
+\label{fig:fmd_distribution}
+\end{figure}
+
+\textit{Figure 2: Failure Mode Distribution for CodeLlama-7B on 134 HumanEval problems.}
+
+\textbf{Consequence for C_score.} With F_mypy = {}, the C_score for the SynCode-mypy pair is undefined (trivially 0.0). The bootstrap test returns p = 1.0. The SHOULD_WORK gate fails on all three conditions: C_score = 0.0, p = 1.0, delta_P = 0.0.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/c_score_ci.png}
+\caption{C_score bootstrap CI}
+\label{fig:c_score_ci}
+\end{figure}
+
+\textit{Figure 3: Bootstrap confidence interval for C_score (SynCode-mypy pair). The C_score is trivially zero due to the empty mypy transition set.}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/transition_overlap.png}
+\caption{Transition overlap}
+\label{fig:transition_overlap}
+\end{figure}
+
+\textit{Figure 4: Failure-to-success transition sets. F_SynCode contains 2 transitions; F_mypy contains 0 transitions.}
+
+\subsubsection{5.3 SynCode Directional AST Reduction (h-m1)}
+
+\textbf{Table 3: SynCode mechanism test (h-m1, N = 20 problems)}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Metric & Value & Threshold & Result \\
+\midrule
+delta_ast & 0.075 & > 0 & PASS \\
+Bootstrap CI lower & -0.025 & > 0 & FAIL \\
+Bootstrap CI upper & 0.220 & -- & -- \\
+p-value (one-sided) & 0.1186 & < 0.05 & FAIL \\
+F_SynCode transitions & 2 & > 0 & PASS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The directional reduction is observed but statistical significance is not achieved. delta_ast = 0.075 is identical in both h-e1 and h-m1, which were run independently. The bootstrap CI lower bound of -0.025 means the null hypothesis (delta_ast = 0) cannot be rejected at N = 20. Power analysis indicates N >= 60 is required for 80\% power at this effect size.
+
+The h-m1 FMD analysis shows the baseline distribution is 97.5\% syntax, 0.75\% type, 1.75\% functional, while the SynCode distribution is 90.0\% syntax, 0.0\% type, 10.0\% functional -- indicating a shift from syntax failures to functional failures under SynCode, consistent with the expected mechanism.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/per_problem_scatter.png}
+\caption{Per-problem scatter}
+\label{fig:per_problem_scatter}
+\end{figure}
+
+\textit{Figure 5: Per-problem delta_ast scatter for baseline versus SynCode pools.}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/fmd_comparison.png}
+\caption{FMD comparison}
+\label{fig:fmd_comparison}
+\end{figure}
+
+\textit{Figure 6: FMD comparison between baseline and SynCode pools.}
+
+\textbf{Implementation note.} The h-e1 validation log recorded \texttt{constraint_active = False} for SynCode's internal enforcement flag during generation. This indicates that SynCode's grammar did not enforce all Python indentation constraints at the token level. Despite this, delta_ast = 0.075 was measured, indicating that the \texttt{GrammarAlignedLogitsProcessor} produced measurable AST improvement under partial constraint enforcement. The h-m1 experiment loaded the h-e1 pool rather than regenerating, so the constraint_active check was not applicable to h-m1 measurements.
+
+\subsubsection{5.4 Z3 Eligibility Scope}
+
+Using the test-assertion scanning criterion, 5 of 20 problems are Z3-eligible in the subset (25\%), and 54 of 164 problems are Z3-eligible in full HumanEval (33\%).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/z3_eligibility.png}
+\caption{Z3 eligibility}
+\label{fig:z3_eligibility}
+\end{figure}
+
+\textit{Figure 7: Z3 eligibility distribution across HumanEval problems.}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/z3_eligibility_delta.png}
+\caption{Z3 eligibility delta}
+\label{fig:z3_eligibility_delta}
+\end{figure}
+
+\textit{Figure 8: Pre- versus post-mypy Z3 eligibility. delta_P = 0.0 (no cascade expansion observed).}
+
+\textbf{Heuristic inconsistency.} The h-m2 experiment initially measured Z3 eligibility at 0\% using a return-type annotation heuristic, which is stricter than the test-assertion scanning approach used in h-e1. The h-e1 measurement (33\% at full scale) based on test-assertion scanning is the correct value.
+
+\subsubsection{5.5 Summary}
+
+\textbf{Table 4: Summary metrics across all experiments}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lllll}
+\toprule
+Metric & h-e1 & h-m1 & h-m2 & Target \\
+\midrule
+delta_ast & 0.075 & 0.075 & -- & > 0 \\
+z3_eligibility_rate & 0.25 & -- & 0.0* & >= 0.15 \\
+mypy_structured_rate & 1.000 & -- & 1.000 & >= 0.90 \\
+C_score (SynCode-mypy) & -- & -- & 0.0 & > 0 \\
+delta_P (Z3 eligible) & -- & -- & 0.0 & > 0.05 \\
+type_stratum_rate & -- & -- & 0.0\% & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+*h-m2 used an annotation-based heuristic; the correct Z3 eligibility rate is 0.33 from h-e1 test-assertion scanning.

@@ -1,0 +1,536 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# NARRATIVE BLUEPRINT — Phase 6 Step 02
+# Depth-Resolved Logit-Lens Uncertainty Signals for Hallucination Detection
+# ═══════════════════════════════════════════════════════════════════════════════
+
+version: "1.0.0"
+schema: "narrative_blueprint"
+created_at: "2026-08-05T11:20:00+00:00"
+updated_at: "2026-08-05T11:20:00+00:00"
+
+metadata:
+  hypothesis_id: "H-LayerLensUQ-v2"
+  hypothesis_title: "Depth-Resolved Logit-Lens Uncertainty Signals for Architecture-Robust Hallucination Detection"
+  research_folder: "docs/youra_research"
+  target_venue: "ICML 2025"
+  source_artifacts:
+    brainstorm_session: "00_brainstorm_session.md"
+    targeted_research: "01_targeted_research.md"
+    refinement: "03_refinement.yaml"
+    synthesis: "045_validated_hypothesis.md"   # PRIMARY evidence source
+    verification_plan: "02b_verification_plan.md"
+    experiment_brief: "h-e1-v2/02c_experiment_brief.md"
+    validation_report: "h-e1-v2/04_validation.md"
+    baseline_comparison: ""  # Phase 5 skipped by config
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 1: HOOK & MOTIVATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+hook:
+  opening_statement:
+    content: >
+      In every model and dataset we tested, the model's intermediate layers scored
+      its own hallucinations better than its output layer did — using nothing but
+      the uncertainty statistics of the distributions the model already computes on
+      the way to its answer. And the "documented failure" baseline this study set
+      out to beat turned out to be an artifact of someone else's evaluation
+      protocol: six protocol differences moved the same cell's AUROC from 0.5186 to
+      0.5928 before a single new claim was tested.
+    strategy: "counterintuitive_finding + measurement_validity_subplot"
+
+  why_reader_should_care:
+    main_reason: >
+      Hallucination detection that needs no trained probe, no repeated sampling,
+      and no extra inference cost — the per-layer signals are free byproducts of a
+      single greedy pass — would make white-box uncertainty quantification
+      deployable wherever open-weight LLMs run.
+    concrete_example: >
+      Final-layer entropy, the cheapest standard signal, is architecture-fragile: a
+      prior run in this program measured AUROC 0.66 on LLaMA-3-8B-Instruct but
+      ~0.52 with inverted direction on base LLaMA-2-7B — the same statistic, the
+      same datasets. Practitioners cannot rely on a signal whose validity flips
+      with the checkpoint.
+    stakes: >
+      Without architecture-robust, training-free signals, deployments either pay
+      10x inference for multi-sample methods, train per-model supervised probes, or
+      ship confidence scores that silently fail on some model families.
+
+  real_world_impact:
+    application_domain: "Open-weight LLM deployment; QA and factual generation monitoring"
+    potential_beneficiaries: "Practitioners running white-box LLMs; UQ and interpretability researchers"
+    scale_of_impact: >
+      Any system with hidden-state access; zero additional forward passes, so the
+      method scales with existing serving cost.
+
+problem_framing:
+  surface_problem:
+    description: >
+      LLMs hallucinate, and the cheap detection signals — output-layer confidence
+      statistics — are unreliable across architectures.
+    common_understanding: >
+      Papers typically frame this as "confidence is miscalibrated" and reach for
+      multi-sample semantic consistency (10x cost) or supervised hidden-state
+      probes (labels + training per model).
+
+  deeper_problem:
+    description: >
+      The field has converged on the premise that intermediate layers carry
+      stronger truthfulness signal than the final layer, yet every method that
+      exploits it re-introduces supervision (probes), geometric machinery over
+      hidden states, or multi-sample generation. The obvious training-free
+      candidate — the raw logit-lens uncertainty statistics of each layer's decoded
+      distribution — has never been evaluated as a detection score.
+    why_overlooked: >
+      Logit-lens entropy was developed as an interpretability instrument
+      (computation signatures), not a detector; the nearest published measurement
+      (final-prediction-token trajectories, Kim et al. 2025) found certain and
+      uncertain trajectories aligned, which discouraged the depth-resolved route
+      without actually testing full-distribution statistics.
+    our_perspective: >
+      The final layer is not where the information dies — it is where output
+      calibration (tokenizer- and tuning-dependent) reshapes it. Read the
+      uncertainty BEFORE that calibration stage, selecting the readout layer per
+      model, and the separation is still there in token space.
+
+  gap_in_existing_work:
+    description: >
+      No training-free, single-pass evaluation of raw per-layer logit-lens
+      uncertainty statistics (entropy, max-prob, adjacent-layer KL) as
+      hallucination-detection AUROC scores with per-model layer selection; and
+      adjacent-layer KL divergence had never been used as a detection-time score at
+      all (only to steer decoding, DoLa-style).
+    why_gap_exists: >
+      Community split: interpretability owns the instrument (lens) but doesn't
+      evaluate detection; detection owns the task but defaults to probes and
+      sampling. The rescue-style controlled test additionally requires a documented
+      final-layer failure baseline, which no external group possesses.
+    why_gap_matters: >
+      If the signal exists raw in token space, the trained probe is unnecessary for
+      signal existence — changing the recipe for white-box UQ and the
+      interpretation of what probes add.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 2: THE INSIGHT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+key_insight:
+  aha_moment:
+    one_sentence: >
+      Hallucination-predictive uncertainty is present and class-separable in the
+      token-space readout of intermediate layers (L28–L31) in every model × dataset
+      cell tested, and always exceeds the final layer's own entropy readout —
+      without training any probe.
+    expanded_explanation: >
+      For factual answers, next-token candidate competition resolves at
+      intermediate depth; for hallucinated answers it stays unresolved — wider
+      decoded distributions, contested leaders, persistent inter-layer belief
+      revision. Final-layer output calibration partially attenuates this
+      separation, so per-model selection of an intermediate readout layer recovers
+      signal the output layer weakens. A second insight emerged the hard way:
+      AUROC magnitudes for weak signals are not portable across evaluation
+      protocols — validity anchors must be protocol-internal.
+
+  why_others_missed_it:
+    common_assumptions: >
+      (a) Useful intermediate-layer signal requires a trained probe or hidden-state
+      geometry; (b) layer-wise trajectory measurements had already come up empty
+      (Kim et al. 2025); (c) cross-run numeric baselines are reusable as anchors.
+    our_different_view: >
+      Full-vocabulary distribution statistics are a different measurement from
+      single-token probability trajectories; the scope boundary between the two is
+      load-bearing. And the h-e1 failure record pointed directly at final-layer
+      calibration as the confound to bypass.
+    enabling_factor: >
+      A documented final-layer failure on base LLaMA-2-7B from a prior run in this
+      program — a controlled falsification anchor no external work possesses — plus
+      a degeneracy screen that makes the raw lens usable without tuned translators.
+
+  what_makes_it_work:
+    intuitive_explanation: >
+      Watch the model make up its mind layer by layer: when it knows the answer,
+      the candidate set collapses early and stays collapsed; when it is
+      hallucinating, the distribution stays wide and keeps churning until the
+      output head tidies it up. Reading the statistics one stop before the terminus
+      preserves the difference.
+    key_mechanism: >
+      Per-layer logit-lens decoding (lm_head ∘ norm applied to each hidden state)
+      from one greedy pass; three statistics per layer (Shannon entropy, max-token
+      probability, adjacent-layer KL), averaged over answer tokens; degeneracy
+      screen; (layer, signal, direction) selected per model on a held-out
+      selection split.
+    analogy: >
+      Election-night forecasting: the final published tally is calibrated for
+      presentation; the county-by-county returns an hour earlier carry the
+      uncertainty structure. We read the returns, not the press release.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 3: EVIDENCE STORY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+evidence_narrative:
+  main_claim:
+    statement: >
+      Training-free per-layer logit-lens uncertainty statistics are class-separable
+      hallucination scores at intermediate depth in all six model × dataset cells
+      (selection-split corrected AUROC 0.6092–0.7011), and the best screened
+      intermediate layer beats the same sweep's final-layer entropy readout in
+      every cell (point-estimate margins +0.0035 to +0.130).
+    measurable_criteria: >
+      Gate: >= 1 screened (layer, signal) pair per model with corrected AUROC >=
+      0.55 on both datasets (observed margin over gate +0.059 to +0.151);
+      depth_beats_final direction check per cell; 5,451 real scored generations,
+      37/37 tests, REAL_MODEL verification.
+
+  supporting_evidence:
+    - id: "evidence_1"
+      what: >
+        The 6/6 existence grid: llama2/triviaqa L31 adj_kl 0.6522; llama2/truthfulqa
+        L29 entropy 0.7011; mistral/triviaqa L31 maxprob 0.6092; mistral/truthfulqa
+        L31 adj_kl 0.6570; llama3/triviaqa L28 entropy 0.6868; llama3/truthfulqa
+        L31 maxprob 0.6213 — informative layers concentrated at L28–L31.
+      so_what: >
+        The signal exists everywhere tested, not in cherry-picked cells — the
+        intermediate>final consensus holds for training-free token-space statistics.
+      how_it_supports_claim: "Directly instantiates the existence clause of the main claim in every cell."
+    - id: "evidence_2"
+      what: >
+        depth_beats_final 6/6: TriviaQA margins +0.059/+0.064/+0.130 vs TruthfulQA
+        +0.034/+0.052/+0.0035; TruthfulQA final layers already strong (0.60–0.67).
+      so_what: >
+        The depth advantage is universal in direction but dataset-dependent in
+        size — a nuance that preempts over-generalization and motivates transfer
+        experiments.
+      how_it_supports_claim: "Supports the calibration-suppression direction (consistent with, not established)."
+    - id: "evidence_3"
+      what: >
+        Adjacent-layer KL — previously a decoding heuristic (DoLa lineage) — is the
+        best signal in 3/6 cells; top-3 llama2/triviaqa intermediates are all
+        adj_kl (L31 0.6522, L17 0.6145, L30 0.6062).
+      so_what: >
+        Inter-layer belief revision is a first-class detection signal — the paper's
+        most novel single observation.
+      how_it_supports_claim: "Shows the signal family is broader than entropy; upgrades cross-layer shift to detection."
+    - id: "evidence_4"
+      what: >
+        Anchor forensics: the v1-recorded 0.5186 final-layer baseline measured
+        0.5928/0.5739 under the current protocol; provenance audit found six
+        protocol differences; a designed halt gate stopped a doomed ~2.5 h campaign
+        in 47 seconds.
+      so_what: >
+        Quantified, attributable demonstration that AUROC magnitudes for weak
+        signals are protocol-bound — direction transfers, magnitude does not — and
+        that cheap validity gates pay for themselves.
+      how_it_supports_claim: "Grounds the measurement-validity contribution and the A2-v2 protocol-internal anchor design."
+
+  surprising_findings:
+    finding: >
+      The depth advantage does NOT track tuning status as predicted: the largest
+      TriviaQA margin (+0.130) is on RLHF-tuned LLaMA-3-8B-Instruct — the model
+      predicted to need depth least — reversing the hypothesized severity ordering.
+    why_surprising: >
+      The Phase 2A mechanism predicted base LLaMA-2 would be worst-suppressed and
+      gain most from depth readout.
+    our_interpretation: >
+      Unverified hypothesis: instruct tuning SHARPENS final-layer calibration,
+      strengthening suppression — still a calibration story, opposite tuning
+      polarity. Reported descriptively only (single instruct model, R3 confound).
+
+  what_results_mean:
+    synthesis: >
+      At PoC scale, the existence premise of depth-resolved training-free
+      hallucination detection is confirmed universally within scope; the
+      deployable-detector claims (test-split AUROC >= 0.60, CI-separated rescue,
+      transfer, fusion) remain explicitly unmeasured because the dependent
+      hypotheses never executed.
+    confidence_level: >
+      HIGH for existence (full-scale real run, gate margins +0.059 to +0.151);
+      MEDIUM for depth advantage (point estimates, one margin +0.0035 within
+      noise); the mechanism is directionally supported, not established.
+    caveats: >
+      Selection-split-only evidence; single seed; no CIs; three 7–8B families, two
+      short-form QA datasets, greedy decoding; familiarity-vs-truthfulness
+      confound unaddressed (A5).
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 4: BROADER IMPACT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+takeaway:
+  main_contribution:
+    one_sentence: >
+      First evidence that raw logit-lens per-layer uncertainty statistics — with no
+      trained probe, no sampling, one greedy pass — are class-separable
+      hallucination scores that beat the model's own final-layer readout in every
+      model × dataset cell tested, plus a reusable protocol-internal validity-anchor
+      design born from a quantified cross-protocol baseline failure.
+    why_significant: >
+      Removes the trained probe from the intermediate-layer detection recipe
+      (the delta to SAPLMA/FEPoID/TriLens is supervision) and turns a
+      reproducibility failure into a methodological contribution.
+
+  implications:
+    for_field: >
+      Intermediate>final consensus extended to training-free token-space readouts;
+      adjacent-layer KL promoted from decoding heuristic to detection statistic;
+      cross-protocol numeric anchors shown invalid by construction.
+    for_practice: >
+      Zero-extra-inference-cost signal for white-box deployments; auditable,
+      resumable, cheap protocol (binding cell reproduced with zero GPU via
+      verified cache reuse).
+    conceptual_contribution: >
+      "Read before calibration": the output layer is a presentation surface, not
+      the best measurement surface.
+
+  future_possibilities:
+    immediate_extensions: >
+      The single highest-value next step is zero-GPU: freeze the six selected
+      tuples and evaluate the locked test splits with paired bootstrap — this IS
+      the original rescue claim (h-m1/h-m2). Also zero-GPU: transfer matrix
+      (h-c1), KL-entropy fusion (h-m3), CIs on the existence grid.
+    longer_term_vision: >
+      Base-vs-instruct pairs of one family to test the reversed tuning-polarity
+      hypothesis; third dataset with exact-match labels; factorial protocol
+      attribution of the 0.5186→0.5928 shift as a standalone reproducibility study.
+    open_questions: >
+      Does selection survive frozen test evaluation (A4)? Is adj_kl complementary
+      to entropy or a calibration-step meter? Does the signal reflect truthfulness
+      or familiarity (A5)?
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 5: SECTION-LEVEL NARRATIVE GOALS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+section_goals:
+  abstract:
+    narrative_purpose: "Compress the full story into ~150 words — written LAST"
+    key_message: >
+      Training-free intermediate-layer uncertainty statistics detect hallucinations
+      better than the final layer in every cell tested; AUROC baselines don't
+      survive protocol changes.
+    structure_notes: |
+      - S1-2: architecture-fragility of final-layer signals + the training-free gap
+      - S3: approach (per-layer logit-lens statistics, per-model selection)
+      - S4-5: 6/6 existence grid 0.61-0.70, depth_beats_final 6/6, adj_kl novelty
+      - S6: measurement-validity finding + scope honesty (selection-split PoC)
+    avoid: ["Citations in abstract", "Vague claims without numbers", "Undefined acronyms", "Claiming test-split/held-out performance"]
+
+  introduction:
+    narrative_purpose: "Hook -> Problem -> Insight -> Preview"
+    hook_strategy: "counterintuitive_finding + measurement_validity_subplot"
+    problem_escalation: |
+      1. Surface: cheap output-layer confidence signals are architecture-fragile
+         (concrete: 0.66 llama3 vs ~0.52 inverted llama2, same statistic).
+      2. Deeper: intermediate>final is consensus, but every exploit re-introduces
+         supervision, geometry, or sampling.
+      3. Gap: raw logit-lens uncertainty statistics never evaluated as detection
+         scores; adjacent-layer KL never used at detection time.
+    insight_preview: >
+      Read uncertainty before final-layer calibration; select the readout layer per
+      model. Preview 6/6 grid + depth_beats_final without over-numbering.
+    contributions_framing: |
+      Flow from insight, not a bulleted dump: (1) first AUROC evaluation of
+      training-free per-layer lens statistics (6/6 cells separable); (2) universal
+      point-estimate depth advantage; (3) adj_kl as detection signal; (4)
+      protocol-internal validity anchoring (methodological). State the staged-
+      verification scope honestly (selection-split PoC; test-split = future tier).
+    transition_to_related_work: >
+      "This sits at the junction of interpretability instruments and detection
+      methods that have never been connected without supervision..."
+
+  related_work:
+    narrative_purpose: "Show existing work insufficient -> justify our approach"
+    positioning_strategy: >
+      Organize by what each line RE-INTRODUCES that we remove: probes (SAPLMA,
+      FEPoID, CLAP, TriLens), sampling (Semantic Entropy, INSIDE), decoding-only
+      use of cross-layer shift (DoLa, END, SLED), instrument-not-detector
+      (Entropy-Lens, Tuned Lens). Address adversarial results head-on (Kim 2025
+      trajectory alignment = different measurement; Chi 2025 recall shadow =
+      scoped interpretation).
+    key_comparison_points:
+      - area: "Supervised intermediate-layer probing"
+        limitation_to_highlight: "Requires labeled training data + per-model probe training"
+        how_we_differ: "Training-free statistics; selection is label-efficient argmax, not a trained model"
+      - area: "Multi-sample UQ"
+        limitation_to_highlight: "10x inference cost"
+        how_we_differ: "Single greedy pass, statistics are free byproducts"
+      - area: "Cross-layer shift at decoding time (DoLa/END/SLED)"
+        limitation_to_highlight: "Signal exploited only to steer generation, never scored for detection"
+        how_we_differ: "First detection-time AUROC evaluation of adjacent-layer KL"
+      - area: "Lens instruments (Entropy-Lens, Tuned Lens)"
+        limitation_to_highlight: "Same statistics studied as computation signatures, never as detection scores"
+        how_we_differ: "Same instrument, detection evaluation with per-model selection"
+    papers_to_discuss:
+      - "Belrose et al. 2023 (Tuned Lens, arXiv 2303.08112)"
+      - "Ali et al. 2025 (Entropy-Lens, arXiv 2502.16570)"
+      - "Wang et al. 2026 (FEPoID / Automatic Layer Selection, arXiv 2605.26366)"
+      - "Azaria & Mitchell 2023 (SAPLMA, arXiv 2304.13734)"
+      - "Chuang et al. 2023 (DoLa, arXiv 2309.03883)"
+      - "Wu et al. 2025 (END, arXiv 2502.03199)"
+      - "Zhang et al. 2024 (SLED, arXiv 2411.02433)"
+      - "Kim et al. 2025 (trajectory alignment, arXiv 2507.06722)"
+      - "Chi et al. 2025 (recall vs truthfulness, arXiv 2510.09033)"
+      - "Farquhar et al. 2024 (Semantic Entropy, Nature)"
+      - "Chen et al. 2024 (INSIDE, arXiv 2402.03744)"
+      - "Kadavath et al. 2022 (arXiv 2207.05221)"
+      - "Kossen et al. 2024 (Semantic Entropy Probes, arXiv 2406.15927)"
+      - "Orgad et al. 2024 (LLMs Know More Than They Show)"
+      - "Azaria & Mitchell / CLAP Suresh et al. 2025 (arXiv 2509.09700)"
+      - "HalluShift (arXiv 2504.09482)"
+      - "Su et al. 2024 (MIND, arXiv 2403.06448)"
+    avoid: ["Survey-style listing", "Unfair dismissal of probes (they hit higher AUROC — supervised skyline)", "Ignoring Kim/Chi adversarial results"]
+
+  methodology:
+    narrative_purpose: "WHY this design solves the problem"
+    connection_to_insight: >
+      Every component operationalizes 'read before calibration': lens readout at
+      every layer; three uncertainty facets (width: entropy/maxprob, revision:
+      adj_kl); per-model selection because calibration depth is a model property;
+      degeneracy screen because the raw lens is a biased instrument.
+    key_design_decisions:
+      - decision: "Raw logit lens (lm_head ∘ norm on each hidden state), no tuned translators"
+        rationale: "Training-free claim integrity; LLaMA/Mistral lineage is the best-behaved raw-lens case"
+        alternatives_considered: "Tuned lens (introduces trained components; kept as documented fallback if screen fails)"
+      - decision: "Three signals: entropy, max-token probability, adjacent-layer KL"
+        rationale: "Width vs revision facets of unresolved candidate competition; adj_kl is the untested cell"
+        alternatives_considered: "Hidden-state geometry (supervised), single entropy (misses revision)"
+      - decision: "Per-model (layer, signal, direction) selection on held-out selection split; test split locked"
+        rationale: "Optimal layer/signal varies per model AND dataset (observed: signal winner differs in 4/6 cells)"
+        alternatives_considered: "Fixed relative depth (contradicted by SAPLMA layer shift); all-layer ensembles (supervision creep)"
+      - decision: "Degeneracy screen (entropy within 1% of ln|V| OR <5% top-1 agreement with final layer)"
+        rationale: "Guards against lens artifacts scoring as signal; retained 20/15/15 layers"
+        alternatives_considered: "No screen (risks scoring degenerate layers); tuned-lens fallback"
+      - decision: "A2-v2 protocol-internal validity anchor (identity-verified cache reuse 10/10 + within-sweep final-layer baselines + descriptive-only cross-run direction reports)"
+        rationale: "Cross-protocol numeric anchors are unsatisfiable by construction — demonstrated by the v1 forensics"
+        alternatives_considered: "v1 cross-protocol numeric anchor (breached: Δ +0.0742, six protocol differences)"
+    intuition_building: |
+      entropy_heatmap_llama2.png (correct vs incorrect groups across layers) for
+      the separation intuition; degeneracy_screen.png for instrument validity;
+      anchor_v2_report.png for the validity protocol.
+    technical_depth_balance: |
+      Main text: lens path, signals, screen, selection discipline, anchor design
+      rationale. Appendix-level detail (exact numerics guards, resume mechanics)
+      compressed or footnoted.
+
+  experiments:
+    narrative_purpose: "Design tests for our specific claims"
+    experimental_questions:
+      - question: "EQ1: Does at least one screened intermediate (layer, signal) pair per model separate classes (AUROC >= 0.55) on both datasets?"
+        experiment: "Full sweep: 3 models x 2 datasets x 32 layers x 3 signals, 5,451 scored generations; degeneracy screen; selection-split evaluation"
+        expected_outcome: "Existence gate pass in all 6 cells (observed 0.6092-0.7011)"
+      - question: "EQ2: Does the best screened intermediate layer beat the same sweep's final-layer entropy readout per cell?"
+        experiment: "Within-sweep depth_beats_final comparison, per cell, point estimates"
+        expected_outcome: "6/6 direction consistency (observed margins +0.0035 to +0.130)"
+      - question: "EQ3: Is the evaluation protocol internally valid?"
+        experiment: "A2-v2 anchor: 10/10 donor-cache identity verification before reuse; per-cell within-sweep baselines; v1-record direction consistency reported descriptively"
+        expected_outcome: "All anchor clauses satisfied with zero spurious halts (vs v1's constructive unsatisfiability)"
+    baseline_rationale: >
+      Within-sweep final-layer entropy (and max-prob) — the SAME protocol, same
+      pass, same labels — is the only valid comparison after the cross-protocol
+      anchor forensics; supervised skylines (FEPoID) cited but not re-run
+      (different resource class, Phase 5 skipped by config).
+    dataset_rationale: >
+      TriviaQA rc.nocontext (n=1000) + TruthfulQA generation (n=817): short-form QA
+      with the documented final-layer failure lineage; label protocols differ
+      (alias match vs similarity) — a deliberate robustness axis.
+    metric_rationale: >
+      Corrected AUROC (direction selected on selection split): threshold-free,
+      comparable across cells; direction correction addresses the documented
+      inversion failure mode.
+    fairness_considerations: |
+      Identical prompts/labels/decoding across all cells (v1-verbatim data.py);
+      stratified 50/50 selection/test split, seed 42, test locked and untouched;
+      all selection-sensitive operations confined to the selection split.
+
+  results:
+    narrative_purpose: "Present evidence supporting claims"
+    main_result_highlight: >
+      6/6 existence grid (AUROC 0.6092-0.7011, gate 0.55) with depth_beats_final
+      in every cell — Figure: gate_metrics_bar.png headline + auroc_heatmap.png.
+    result_presentation_order:
+      - result: "Existence grid (6/6 cells, selected tuples table)"
+        purpose: "Main claim first — universal within scope"
+      - result: "Depth advantage per cell, split by dataset (TriviaQA large, TruthfulQA thin)"
+        purpose: "Mechanism direction + honest nuance (the +0.0035 cell flagged)"
+      - result: "Signal-family analysis: adj_kl dominance at L31, layer localization L28-L31"
+        purpose: "Most novel observation; sets up fusion future work"
+      - result: "Anchor forensics: 0.5186 vs 0.5928, six protocol differences, 47-second halt"
+        purpose: "Measurement-validity contribution; explains why baselines are within-sweep"
+    surprising_result_handling: >
+      Tuning-polarity reversal (llama3-instruct largest margin) reported
+      descriptively with the revised sharpening hypothesis, explicitly unverified;
+      TruthfulQA strong final layers presented with three live explanations.
+    avoid: ["Presenting selection-split AUROC as held-out performance", "Hiding the +0.0035 margin", "Claiming statistical significance (no CIs computed)"]
+
+  discussion:
+    narrative_purpose: "Interpret results, acknowledge limits"
+    key_findings_interpretation: >
+      Existence premise confirmed universally at PoC scale; calibration-suppression
+      mechanism directionally supported but not established (CI test never ran;
+      severity-ordering sub-claim contradicted descriptively); protocol-sensitivity
+      finding elevates measurement validity to a first-class result.
+    honest_limitations:
+      - limitation: "All AUROCs are selection-split values; locked test splits never evaluated"
+        why_acceptable: "Staged EXISTENCE-tier design; every artifact for zero-GPU test-split follow-up exists"
+        future_mitigation: "Freeze the six tuples (published), evaluate locked test splits with paired bootstrap — the original rescue claim"
+      - limitation: "Single seed, no confidence intervals; thinnest margin +0.0035 is within noise"
+        why_acceptable: "Gate margins on the binding quantity are large (+0.059 to +0.151); claim degrades gracefully (5/6 margins > 0.03)"
+        future_mitigation: "Bootstrap CI machinery exists in analysis.py; zero-GPU"
+      - limitation: "The original 'rescue from 0.5186 failure' framing is protocol-specific; current-protocol llama2 final layer is 0.59, not chance"
+        why_acceptable: "Converted into the measurement-validity contribution; depth advantage stands on within-protocol comparisons"
+        future_mitigation: "Factorial protocol-attribution study"
+      - limitation: "Scope: three 7-8B families, two short-form QA datasets, greedy decoding, one instruct model; familiarity confound (A5) unaddressed"
+        why_acceptable: "Standard PoC scoping; controlled lineage to the failure record was deliberate"
+        future_mitigation: "Base-vs-instruct pairs; frequency-stratified AUROC diagnostic"
+    broader_impact_statement: >
+      Better cheap hallucination detection lowers deployment risk for open-weight
+      LLMs; scores are uncertainty correlates under standard labels, not
+      truth oracles — overtrust is the primary misuse risk.
+
+  conclusion:
+    narrative_purpose: "Reinforce message, open future"
+    callback_to_hook: >
+      Close the loop on both hook threads: (1) every model scored its own
+      hallucinations better from the middle of the stack than from its mouth;
+      (2) the baseline we set out to beat dissolved under provenance audit — and
+      the replacement protocol-internal anchor is itself a contribution.
+    memorable_ending: >
+      The output layer is where the model speaks; it is not the best place to
+      listen.
+    future_work_vision: >
+      Zero-GPU completion of the staged program (test-split rescue, transfer,
+      fusion, CIs) from the published caches; base-vs-instruct calibration-polarity
+      study; protocol-attribution reproducibility follow-up.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 6: NARRATIVE FLOW VERIFICATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+narrative_coherence_checklist:
+  - check: "Does Introduction hook connect to Conclusion ending?"
+    status: "verified"   # hook (layers beat mouth + anchor subplot) ↔ conclusion callback + 'where the model speaks' ending
+  - check: "Does each section naturally flow to the next?"
+    status: "verified"   # transitions specified per section above
+  - check: "Is the key insight consistently emphasized throughout?"
+    status: "verified"   # 'read before calibration' threads intro→method→results→conclusion
+  - check: "Are all major claims supported by evidence in Results?"
+    status: "verified"   # 4 claims map to 4 evidence blocks; unmeasured claims explicitly demoted
+  - check: "Do experimental questions match the claims in Introduction?"
+    status: "verified"   # EQ1-EQ3 ↔ contributions 1-2-4
+  - check: "Would a busy reviewer find the Abstract compelling?"
+    status: "pending"    # abstract written last (Step 5)
+  - check: "Can the key contribution be understood from Figure 1?"
+    status: "verified"   # gate_metrics_bar.png shows 6/6 grid vs gate + final-layer bars
+  - check: "Is the paper interesting, not just correct?"
+    status: "verified"   # counterintuitive finding + validity subplot + honest staged-verification framing
+
+notes:
+  creation_notes: >
+    Hook, insight, claims, limitations drawn from 045_validated_hypothesis.md §8
+    (Phase 4.5 recommendations) with problem framing from 00/01/03 artifacts.
+    CRITICAL WRITING CONSTRAINTS inherited from Phase 4.5: (1) never present
+    selection-split AUROCs as held-out/test performance; (2) never cite 0.5186 as
+    a same-protocol baseline — motivating context with cross-protocol caveat only;
+    (3) mechanism language capped at 'consistent with'; (4) P1-P4 test-split
+    claims are future work, not results.
+  revision_history: []

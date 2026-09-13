@@ -1,0 +1,71 @@
+
+\subsubsection{Study Design}
+
+This study was designed to verify the existence hypothesis for the Epistemic Geometry Scaling Hypothesis (EGSH): that SE and KLE achieve statistically higher AUROC for correctness prediction than token-probability at both 8B and 70B scale in the Llama-3 base model family. The existence gate required SE AUROC > token-probability AUROC at both scales on both TriviaQA and NaturalQuestions, with 95\% bootstrap confidence intervals excluding zero. The gate failed at 8B scale.
+
+\subsubsection{Models}
+
+\textbf{Primary model:} Llama-3-8B-Base (\texttt{meta-llama/Meta-Llama-3-8B}), loaded in bfloat16 precision on a single NVIDIA H100 NVL GPU (96 GB). This is a pretrained base checkpoint without instruction tuning or RLHF.
+
+\textbf{Planned comparison model:} Llama-3-70B-Base (\texttt{meta-llama/Meta-Llama-3-70B}), to be loaded with 8-bit quantization via bitsandbytes. The 70B experiment was initiated (\texttt{run_70b_only.py}) but did not produce results prior to the gate evaluation at 8B; since both 8B conditions already failed, the 70B results cannot change the gate outcome.
+
+\textbf{NLI entailment model:} \texttt{microsoft/deberta-large-mnli}, used for SE clustering (bidirectional entailment) and SelfCheckGPT-NLI scoring.
+
+\subsubsection{Datasets}
+
+\textbf{TriviaQA rc.nocontext} (Joshi et al., 2017): validation split, 500 queries (sampled as a proof-of-concept subset; planned full evaluation was 17,944 test queries). Correctness rate: 66.0\% (330/500). Loaded from HuggingFace (\texttt{mandarjoshi/trivia_qa}, config \texttt{rc.nocontext}).
+
+\textbf{NaturalQuestions open-domain} (Kwiatkowski et al., 2019): validation split, 500 queries (planned full evaluation was 3,610 validation queries). Correctness rate: 19.4\% (97/500). Loaded from HuggingFace (\texttt{google-research-datasets/natural_questions}, config \texttt{default}).
+
+Correctness labels were determined by exact-match normalization of the model's greedy decode against gold answer aliases. A post-generation bug fix in \texttt{data_loader.py} was applied to extract only the first line of multi-line generations and to use the correct TriviaQA HuggingFace package and validation split; these corrections were applied before final evaluation.
+
+\subsubsection{Generation Protocol}
+
+For each query: N=10 stochastic samples at temperature=1.0, top_p=0.9, max 50 new tokens, plus one greedy decode. Sampling seed: 42. Few-shot prompting: 5-shot for TriviaQA, standard format for NaturalQuestions, following Farquhar et al. (2024). Token-probability is computed from greedy decode logits (negative mean log-probability). Generation outputs were checkpointed to pickle files every 500 items to support resumption.
+
+The N=10, temperature=1.0 protocol matches Farquhar et al. (2024) exactly and was not modified in order to characterize failure under the standard conditions.
+
+\subsubsection{UQ Methods}
+
+Six methods were evaluated:
+
+\begin{enumerate}
+\item \textbf{Token-probability:} Negative mean log-probability of the greedy decode token sequence. Single forward pass; no sampling diversity requirement.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Semantic Entropy (SE):} NLI-based bidirectional entailment clustering of N=10 samples using DeBERTa-large-mnli. Cluster entropy H = −∑_c p(c) log p(c) over cluster probability mass. Implementation follows Farquhar et al. (2024).
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Kernel Language Entropy (KLE):} Von Neumann entropy over the normalized Laplacian of the pairwise NLI semantic similarity matrix. Implemented as EigValLaplacian. Near-zero for rank-1 matrices.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{SelfCheckGPT-BERTScore:} Mean BERTScore between greedy decode and each of the N samples. Constant when all samples are identical.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{SelfCheckGPT-NLI:} Proportion of the N samples that do not entail the greedy decode. Uses DeBERTa-large-mnli.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Semantic Entropy Probes (SEPs):} Linear probes on hidden-state representations. Produced zero valid scores on both datasets (insufficient probe data at proof-of-concept scale); excluded from all analyses.
+\end{enumerate}
+
+\subsubsection{Evaluation}
+
+\textbf{Primary metric:} AUROC for binary correctness prediction (higher uncertainty should predict lower correctness). Computed via \texttt{sklearn.metrics.roc_auc_score}.
+
+\textbf{Confidence intervals:} 1000-resample bootstrap, 95\% percentile intervals, applied per method per dataset.
+
+\textbf{Degenerate fraction diagnostic:} For each dataset, degenerate_fraction = (number of queries with K=1) / (total queries), where K is the number of distinct semantic clusters produced by SE clustering over N=10 samples.
+
+\textbf{Gate criterion:} SE AUROC > token-probability AUROC with 95\% CI of the difference excluding zero, on both TriviaQA and NaturalQuestions, at both 8B and 70B scale. All four conditions must be satisfied.
+
+\subsubsection{Implementation}
+
+The complete implementation comprises approximately 2,222 lines of Python across 10 source files: \texttt{config.py}, \texttt{data_loader.py}, \texttt{evaluate.py}, \texttt{generate.py}, \texttt{model_loader.py}, \texttt{uq_methods.py}, \texttt{visualize.py}, \texttt{run_experiment.py}, \texttt{run_70b_only.py}, and \texttt{eval_from_checkpoint.py}. All code is located in \texttt{h-e1/code/}. Four correctness bugs were identified and fixed after initial code generation: a multi-line answer extraction issue and a wrong HuggingFace package/split in \texttt{data_loader.py}, a question_id alignment issue in \texttt{eval_from_checkpoint.py}, and a model list issue in \texttt{run_experiment.py}.
+
+The 8B experiment ran from 03:51 UTC to 07:13 UTC on 2026-05-21, a duration of approximately 3 hours 22 minutes, on GPU 0 of a system with 5 NVIDIA H100 NVL GPUs (95,830 MiB each).
+

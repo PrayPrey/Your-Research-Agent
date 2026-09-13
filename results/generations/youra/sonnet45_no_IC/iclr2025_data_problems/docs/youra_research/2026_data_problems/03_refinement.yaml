@@ -1,0 +1,276 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-07-12T06:08:42Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1-rag-curation"
+  gap_title: "RAG-Specific Data Curation"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 17
+  convergence_reason: "All 6 convergence criteria met after 17 exchanges with all personas participating"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Model-based filtering with FastText classifiers outperforms perplexity-based filtering for LM pretraining data curation"
+      status: "BUILD_ON"
+      evidence: "DataComp-LM [Li et al., 2024] showed 9pp MMLU improvement with model-based filtering vs heuristics"
+    - claim: "Educational quality filtering produces domain-specific gains (e.g., +5.0pp MMLU) but may trade off general performance"
+      status: "BUILD_ON"
+      evidence: "FineWeb-Edu [Penedo et al., 2024] demonstrated dramatic knowledge-task gains from educational classifier"
+    - claim: "Individual per-snapshot deduplication can outperform global deduplication by avoiding upsampling of low-quality content"
+      status: "BUILD_ON"
+      evidence: "FineWeb found global dedup upsampled ads/spam from older crawls; individual dedup matched RefinedWeb performance"
+    - claim: "Retrieval-optimal corpus curation measurably diverges from pretraining-optimal curation"
+      status: "PROVE_NEW"
+      evidence: "Core hypothesis to be tested"
+  scope_reduction_percentage: 25
+  phase2b_4_instructions: |
+    BUILD_ON claims: Cite as established baseline knowledge, do not re-verify.
+    PROVE_NEW claims: Design experiments to validate these novel claims with evidence.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-RAGCuration-v1"
+  confidence_level: 0.80
+  core_hypothesis_statement: |
+    Under RAG corpus construction from Common Crawl, if a factorized ensemble of specialist retrieval-quality classifiers (trained on stratified BEIR success examples) filters documents, then the resulting corpus achieves ≥3% higher Recall@10 on factoid QA tasks compared to perplexity-based filtering (matched corpus size), because retrieval utility optimizes for factual density, entity coverage, and retrieval-specific quality dimensions orthogonal to pretraining fluency.
+  alternative_hypothesis_h0: |
+    There is no significant difference in Recall@10 between retrieval-quality filtered corpora and perplexity-filtered corpora when corpus size is held constant.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Filtering Strategy"
+      type: "categorical"
+      operationalization: "Method used to select documents from Common Crawl: (1) Perplexity-based (GPT-2 perplexity threshold), (2) Educational quality (FineWeb-style classifier), (3) Retrieval-quality (factorized specialist ensemble)"
+      levels: ["Perplexity", "Educational", "Retrieval-Quality"]
+  dependent:
+    - name: "Retrieval Performance (Recall@10)"
+      type: "continuous"
+      operationalization: "Recall@10 on BEIR Natural Questions test set (10K queries), measured after indexing with DPR"
+      primary: true
+    - name: "Pretraining Quality (MMLU)"
+      type: "continuous"
+      operationalization: "5-shot MMLU accuracy of 400M LM trained on filtered corpus"
+      primary: false
+    - name: "Corpus Divergence"
+      type: "continuous"
+      operationalization: "Overlap percentage between top-50K documents selected by retrieval vs educational filtering"
+      primary: false
+  controlled:
+    - name: "Corpus Size"
+      operationalization: "Fixed at 1M documents across all filtering conditions"
+    - name: "Common Crawl Source"
+      operationalization: "All filters applied to same 100K document held-out sample from Common Crawl"
+    - name: "Retrieval Model"
+      operationalization: "DPR (dense passage retriever) architecture fixed across conditions"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 4
+  steps:
+    - step: 1
+      description: "Retrieval-quality classifier learns to identify documents with high factual density and entity coverage by training on positive examples (successful BEIR retrievals stratified by low educational score) vs negative examples (failed retrievals)"
+      evidence: "DataComp-LM demonstrated model-based classifiers learn quality signals from positive/negative examples; our stratification forces independence from educational quality"
+      falsifier: "If classifier-selected documents do not show higher named entity density or type-token ratio than perplexity-matched controls, classifier failed to learn retrieval-specific signals"
+    - step: 2
+      description: "Documents with high factual density and entity coverage improve retrieval performance specifically on semantic queries (where BM25 lexical matching fails) because they contain information in multiple phrasings and higher informativeness per token"
+      evidence: "FineWeb showed quality metrics beyond fluency (educational content) drive task-specific gains; we hypothesize factual density drives retrieval gains"
+      falsifier: "If retrieval gains are uniform across lexical vs semantic queries (+1% vs +1%), quality improvement is just lexical coverage, not semantic quality"
+    - step: 3
+      description: "The factorized specialist classifier approach (multiple classifiers for factoid/argument/technical modes) preserves corpus diversity while ensuring quality, avoiding homogenization that single-quality-dimension filtering causes"
+      evidence: "Discussion identified risk that single classifier optimizes one dimension and reduces diversity; multi-faceted filtering maintains coverage"
+      falsifier: "If average pairwise SBERT similarity >0.7 for retrieval-filtered corpus (vs <0.6 baseline), diversity was not preserved"
+    - step: 4
+      description: "Retrieval-optimal and pretraining-optimal corpora diverge measurably because retrieval values factual density over narrative fluency, leading to systematic differences in document selection (high-perplexity technical docs selected by retrieval filter, rejected by pretraining filter)"
+      evidence: "Discussion prediction: divergent subset (selected by retrieval, rejected by educational) contributes ≥2% Recall@10 gain"
+      falsifier: "If corpus overlap >80% or divergent subset contributes <1% Recall gain, divergence is not meaningful for retrieval performance"
+  key_tension: "Risk that BEIR relevance annotations reflect human annotation bias toward fluent documents rather than true retrieval utility; requires two-stage validation via downstream QA accuracy"
+  evidence_summary: |
+    Mechanism builds on established findings from DataComp-LM (model-based filtering effectiveness) and FineWeb (task-specific quality dimensions), extending to retrieval-specific context. Novel elements are stratified training to enforce retrieval-pretraining divergence and factorized multi-classifier approach to preserve diversity.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "BEIR relevance annotations correlate with downstream task performance (QA answer accuracy), not just annotation agreement"
+    supporting_evidence: "BEIR is widely used benchmark, but discussion identified risk of annotation bias"
+    consequence_if_violated: "Classifier trained on BEIR annotations may not improve actual retrieval utility; requires two-stage validation"
+  - id: "A2"
+    assumption: "Factual density and entity coverage are retrieval-specific quality signals orthogonal to pretraining quality (fluency, coherence)"
+    supporting_evidence: "Discussion consensus that retrieval values informativeness over narrative flow, but not empirically validated"
+    consequence_if_violated: "If factual density correlates highly with educational quality, retrieval filtering is just reweighting pretraining-optimal documents"
+  - id: "A3"
+    assumption: "Common Crawl contains sufficient coverage of relevant information for Natural Questions test set (coverage failures <50% of BM25-failed queries)"
+    supporting_evidence: "Natural Questions derived from Wikipedia, likely well-covered in Common Crawl"
+    consequence_if_violated: "If most query failures are coverage gaps (info absent), quality filtering cannot improve Recall measurably"
+  - id: "A4"
+    assumption: "Retrieval quality can be measured independent of reader model architecture (via controlled reader like BM25 + exact match)"
+    supporting_evidence: "Discussion identified confound: neural reader capabilities affect measured quality; proposed BM25 baseline control"
+    consequence_if_violated: "Quality gains may reflect reader model bias, not document quality"
+  - id: "A5"
+    assumption: "Factorized multi-classifier approach preserves inter-document diversity needed for multi-hop reasoning"
+    supporting_evidence: "Discussion proposed diversity measurement (pairwise SBERT similarity <0.6) as validation"
+    consequence_if_violated: "Single-document quality optimization may reduce diversity, harming coverage for complex queries"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Factoid question answering tasks with extractive answers (Natural Questions-style)
+    - RAG corpus construction from web-crawled data (Common Crawl)
+    - Dense retrieval systems (DPR, Contriever) for indexing
+    - English-language corpora
+  does_not_apply_to: |
+    - Abstractive QA requiring synthesis across multiple documents (multi-hop reasoning not validated)
+    - Non-English retrieval tasks (FastText classifier language-dependent)
+    - Argumentative retrieval or document ranking tasks (factoid-specific validation)
+    - RAG systems using sparse retrieval only (BM25 without dense component)
+  known_limitations: |
+    - Validation restricted to Natural Questions benchmark; generalization to other retrieval modes requires further work
+    - Reader model confound: downstream task performance depends on both document quality and reader architecture
+    - Coverage vs quality trade-off not fully characterized; focuses on fixed-size quality improvement
+    - Stratified training requires sufficient low-educational, high-retrieval examples in BEIR (may limit applicability to other domains)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Corpus filtered by retrieval-quality classifier achieves ≥3% higher Recall@10 on BEIR Natural Questions than perplexity-filtered baseline (matched 1M document corpus size)"
+    test_method: "Three-way controlled comparison (Perplexity vs Educational vs Retrieval filtering) on 100K Common Crawl sample. Index with DPR, measure Recall@10 on 10K Natural Questions test queries. Statistical test: two-tailed t-test, α=0.05, 3-5 replications."
+    success_criterion: "Retrieval filter achieves Recall@10 ≥ Perplexity + 0.03 (absolute), p<0.05"
+    falsification: "If |ΔRecall@10| < 0.01 or p>0.05, retrieval-specific filtering provides no measurable advantage"
+  - id: "P2"
+    primary: false
+    statement: "Top-50K documents selected by retrieval filter show <60% overlap with educational filter, and divergent subset contributes ≥2% absolute Recall@10 gain"
+    test_method: "Compute set intersection between top-50K from each filter. Measure Recall@10 using (1) educational-filtered corpus alone, (2) educational + divergent subset. ΔRecall = metric(2) - metric(1)."
+    success_criterion: "Overlap <60% AND ΔRecall ≥ 0.02"
+    falsification: "If overlap >80% OR ΔRecall <0.01, divergence is not performance-relevant"
+  - id: "P3"
+    primary: false
+    statement: "Retrieval-quality corpus shows +4% Recall gain on semantic queries (BM25-failed) vs +1% on lexical queries (BM25-succeeded), demonstrating quality beyond keyword matching"
+    test_method: "Split Natural Questions into two subsets: Lexical (answer string in top-10 BM25 results) vs Semantic (answer not in top-10 BM25). Measure Recall@10 improvement (retrieval filter - perplexity baseline) for each subset separately."
+    success_criterion: "ΔRecall_semantic ≥ 0.04 AND ΔRecall_lexical ≤ 0.01 (differential gain)"
+    falsification: "If ΔRecall_semantic ≈ ΔRecall_lexical (within 0.01), gains are uniform across query types (just improved lexical coverage)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "BEIR Natural Questions (test set)"
+    type: "standard"
+    source: "BEIR benchmark (Thakur et al., 2021)"
+    path: "beir/nq"
+    hypothesis_fit: "Natural Questions is factoid QA with extractive answers, ideal for controlled validation of retrieval utility. Test set size (~3.5K queries) sufficient for statistical power. Derived from Wikipedia, likely well-covered in Common Crawl (addresses coverage assumption)."
+  model:
+    name: "DPR (Dense Passage Retriever)"
+    type: "Dense retrieval (bi-encoder)"
+    source: "facebook/dpr-question_encoder-single-nq-base, facebook/dpr-ctx_encoder-single-nq-base"
+    hypothesis_fit: "DPR is standard dense retrieval architecture widely used for RAG. Pre-trained on Natural Questions, ensuring reader model is well-calibrated for the task. Bi-encoder design allows indexing filtered corpora without retraining."
+  baselines:
+    - name: "Perplexity-based filtering"
+      method: "Keep documents with GPT-2 perplexity < threshold (calibrated to yield 1M documents)"
+    - name: "Educational quality filtering"
+      method: "FineWeb-Edu style classifier (LightGBM + fastText embeddings + heuristic features); keep top 1M by educational score"
+    - name: "Unfiltered baseline"
+      method: "Random sample of 1M documents from Common Crawl (no filtering)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "Demonstrates that data quality is task-specific and multi-dimensional (quality/coverage/diversity axes), not monolithic. Provides methodology for empirically characterizing filtering trade-offs for RAG, analogous to DataComp-LM's benchmark contribution for pretraining."
+  key_innovation: "Factorized specialist classifier ensemble that targets retrieval-specific quality dimensions (factual density, entity coverage) independent of pretraining quality, validated via stratified training on low-educational, high-BEIR examples."
+  differentiation:
+    - prior_work: "DataComp-LM [Li et al., 2024]"
+      difference: "DataComp-LM optimizes for pretraining quality (MMLU); we optimize for retrieval utility (Recall@K) and demonstrate measurable divergence between these objectives. Methodology transfer but different quality dimension."
+    - prior_work: "FineWeb-Edu [Penedo et al., 2024]"
+      difference: "FineWeb-Edu demonstrates domain-specific filtering (educational quality); we demonstrate task-specific filtering (retrieval utility). Analogous methodology applied to different inference mode (retrieval vs pretraining)."
+    - prior_work: "Perplexity-based filtering (standard practice)"
+      difference: "Perplexity is a pretraining-derived quality signal (fluency, coherence); retrieval-quality classifier learns task-specific signals (factual density, entity coverage) via supervised training on retrieval success examples."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "RefinedWeb perplexity filtering"
+      performance: "Not RAG-specific; serves as pretraining baseline"
+      dataset: "Common Crawl (600B tokens)"
+      why_insufficient: "Optimizes for pretraining fluency, not retrieval utility"
+    - method: "FineWeb-Edu educational filtering"
+      performance: "+5.0pp MMLU, +4.5pp ARC for knowledge tasks"
+      dataset: "Common Crawl (15T tokens → 1.3T filtered)"
+      why_insufficient: "Educational quality ≠ retrieval utility; may reject high-perplexity technical docs valuable for factoid retrieval"
+    - method: "DataComp-LM model-based filtering"
+      performance: "7B model to 64% MMLU with 40% less compute than prior SOTA"
+      dataset: "240T token pool → 3.8T DCLM-BASELINE"
+      why_insufficient: "Optimizes for pretraining; FastText positive/negative examples selected for language modeling quality, not retrieval utility"
+  best_baseline_performance: "FineWeb-Edu shows +5.0pp gains on knowledge-intensive tasks; if retrieval filtering achieves comparable Recall@10 gains (≥3%), demonstrates retrieval-specific quality dimension analogous to educational quality"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Retrieval-quality classifier can be trained on BEIR examples; Common Crawl corpus exists; DPR indexing is standard practice. All experimental components are established technologies."
+  sh2_mechanism: "Test whether factorized specialist classifiers learn retrieval-specific quality signals (factual density, entity coverage) independent of pretraining quality, and whether this translates to measurable Recall@10 improvements on factoid QA."
+  sh3_comparison: "Compare retrieval-quality filtering against perplexity baseline and educational filtering baseline to demonstrate divergence. Deferred to Phase 5: comparison against state-of-the-art RAG corpus curation methods (e.g., Voyage AI's corpus construction, Anthropic's RAG documentation)."
+  open_questions:
+    - "Does stratified training (oversample low-educational, high-BEIR examples) produce sufficient training signal, or is BEIR too small/biased?"
+    - "Can two-stage validation (train on annotations, validate on QA accuracy) confirm BEIR relevance correlates with downstream utility?"
+    - "Does factorized multi-classifier approach actually preserve diversity (pairwise SBERT similarity <0.6), or does multi-dimensional optimization still homogenize?"
+    - "How does quality-coverage trade-off manifest in Recall@K curves (K ∈ {1,5,10,20,50})? Does retrieval filtering optimize top-result precision at cost of tail coverage?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "Converged after 17 exchanges with all 6 personas participating. Hypothesis evolved from 'build better RAG filter' to 'systematically map quality-coverage-diversity trade-off space for retrieval corpus curation' (meta-contribution)."
+  clarity_verified: true
+  remaining_objections: []
+
+discussion_context:
+  total_exchanges: 17
+  agent_participation:
+    dr_nova: 4
+    prof_vera: 3
+    dr_sage: 3
+    prof_pax: 4
+    dr_ally: 2
+    prof_rex: 2
+  paper_citations: 2
+  convergence_type: "qualitative"

@@ -1,0 +1,10 @@
+﻿# Research Idea
+
+## Title
+Physics-Guided Foundation Models with Learnable Conservation Law Constraints
+
+## Motivation
+Foundation models have achieved remarkable success across domains, yet they often violate fundamental physical laws (conservation of energy, momentum, mass) when applied to physical sciences problems. Current approaches either sacrifice the flexibility of foundation models by hard-coding constraints, or ignore physics entirely and rely on data alone. This creates a critical gap: how can we leverage the power of large-scale pre-trained models while ensuring physical consistency? This is particularly crucial for scientific applications where violating conservation laws leads to physically meaningless predictions, undermining trust and utility in high-stakes domains like climate modeling or materials discovery.
+
+## Main Idea
+We propose a framework that augments pre-trained foundation models with learnable constraint layers that automatically discover and enforce conservation laws from data. The methodology involves three components: (1) a **conservation law discovery module** using neural divergence operators to identify conserved quantities directly from simulation data, (2) **differentiable projection layers** that project foundation model outputs onto the manifold of physically valid solutions, and (3) **adaptive constraint weighting** that balances data fidelity with physical consistency during fine-tuning. We will validate on multi-physics simulation benchmarks (fluid dynamics, molecular dynamics) measuring both prediction accuracy and physical constraint satisfaction. Expected outcomes include foundation models that generalize better to out-of-distribution physical regimes while maintaining strict conservation properties, bridging the gap between data-driven flexibility and physics-driven reliability.

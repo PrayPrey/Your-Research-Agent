@@ -1,0 +1,169 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m3"
+  hypothesis_type: "MECHANISM"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-08-18T16:48:00Z"
+
+reference_files:
+  prd: "03_prd.md"
+  architecture: "03_architecture.md"
+  logic: "03_logic.md"
+  config: "03_config.md"
+  experiment_brief: "02c_experiment_brief.md"
+
+tasks:
+  # === Data Preparation (Priority 100-95) ===
+  - id: "D-1"
+    title: "Download LongBench QA datasets"
+    description: |
+      Download THUDM/LongBench test splits for 7 QA tasks:
+      narrativeqa, qasper, multifieldqa_en, hotpotqa, 2wikimqa, musique, triviaqa.
+      Full test splits (~200 samples per task, ~1400 total).
+    type: "data-preparation"
+    priority: 100
+    reference_files:
+      - "03_prd.md#4-data-specification"
+
+  # === Environment Setup (Priority 94) ===
+  - id: "E-1"
+    title: "Install dependencies and setup environment"
+    description: |
+      Install: torch>=2.0, transformers>=4.35, mamba-ssm>=1.0, datasets>=2.14,
+      scipy>=1.10, statsmodels>=0.14, matplotlib>=3.7, seaborn>=0.12.
+      Verify CUDA availability for bf16 training.
+    type: "setup"
+    priority: 94
+    reference_files:
+      - "03_prd.md#7-dependencies"
+
+  # === Epic Tasks (Priority 93-50) ===
+  - id: "C-1"
+    title: "Config + teacher/student loaders"
+    description: "ExperimentConfig dataclass, load_teacher (Phi-1.5), load_student_base (Mamba), AttentionBridge module"
+    type: "model"
+    priority: 93
+    complexity: 8
+    reference_files:
+      - "03_architecture.md#config-codeconfigpy"
+      - "03_architecture.md#model-codemodelpy"
+      - "03_config.md#experimentconfig"
+
+  - id: "C-2"
+    title: "MOHAWK + CAB loss implementation"
+    description: "Matrix MSE loss for MOHAWK, token-level Q/K->B/C bridge loss for CAB"
+    type: "model"
+    priority: 92
+    complexity: 10
+    reference_files:
+      - "03_architecture.md#losses-codelossesspy"
+      - "03_logic.md#c-2-mohawk--cab-loss-implementation"
+
+  - id: "C-3"
+    title: "C4 training data pipeline"
+    description: "Streaming loader per length bucket (4K/16K/32K) from allenai/c4"
+    type: "data-pipeline"
+    priority: 91
+    complexity: 6
+    reference_files:
+      - "03_architecture.md#data---training-codedata_trainpy"
+
+  - id: "C-4"
+    title: "Distillation training loop (6 conditions)"
+    description: |
+      AdamW + cosine scheduler, 1.5B tokens per condition (smoke mode: 10M).
+      Checkpointing every 500M tokens. OOM handling. 2x3 factorial design.
+    type: "training"
+    priority: 90
+    complexity: 15
+    reference_files:
+      - "03_architecture.md#train-codetrainpy"
+      - "03_logic.md#c-4-training-loop"
+
+  - id: "C-5"
+    title: "LongBench data loading + length bucketing"
+    description: "Load 7 QA tasks, middle-truncation to 4K/16K/32K buckets"
+    type: "data-pipeline"
+    priority: 89
+    complexity: 7
+    reference_files:
+      - "03_architecture.md#data---eval-codedata_evalpy"
+
+  - id: "C-6"
+    title: "Generation + F1 evaluation"
+    description: "generate_response, qa_f1_score (token overlap), per-task/per-length aggregation"
+    type: "evaluation"
+    priority: 88
+    complexity: 9
+    reference_files:
+      - "03_architecture.md#generate-codegeneratepy"
+      - "03_architecture.md#metrics-codemetricspy"
+      - "03_logic.md#c-6-evaluation"
+
+  - id: "C-7"
+    title: "F1 retention computation"
+    description: "student_F1 / teacher_F1 * 100 per condition x length"
+    type: "evaluation"
+    priority: 87
+    complexity: 4
+    reference_files:
+      - "03_logic.md#f1-retention"
+
+  - id: "C-8"
+    title: "2x3 ANOVA + t-test statistical analysis"
+    description: |
+      statsmodels 2-way ANOVA with interaction term.
+      Per-length t-tests for P2/P3 effect sizes. 95% CIs.
+      Gate evaluation: interaction p<0.05, P2>=3, P3>=5.
+    type: "evaluation"
+    priority: 86
+    complexity: 11
+    reference_files:
+      - "03_architecture.md#stats-codestatspy"
+      - "03_logic.md#c-8-statistical-analysis"
+      - "03_config.md#c-8-subtasks-statistical-analysis"
+
+  - id: "C-9"
+    title: "Visualization suite"
+    description: |
+      Required: F1 retention bar chart, interaction plot.
+      Optional: per-task breakdown, effect size heatmap.
+    type: "evaluation"
+    priority: 85
+    complexity: 8
+    reference_files:
+      - "03_architecture.md#visualization-codevisualizepy"
+      - "03_config.md#c-9-subtasks-visualization"
+
+  - id: "C-10"
+    title: "Main orchestration + PASS/FAIL summary"
+    description: "Wire train->eval->stats->figures, JSON persistence, gate report"
+    type: "orchestration"
+    priority: 84
+    complexity: 6
+    reference_files:
+      - "03_architecture.md#main-codemainpy"
+
+  # === Failsafe Task (Priority 1) ===
+  - id: "F-1"
+    title: "Pipeline continuation checkpoint"
+    description: "Verify all outputs exist, update verification_state.yaml, report gate result"
+    type: "checkpoint"
+    priority: 1
+    reference_files: []
+
+budget_summary:
+  data_preparation: 1
+  setup: 1
+  epic_tasks: 10
+  failsafe: 1
+  total: 13
+  within_budget: true
+
+complexity_distribution:
+  very_high: 0
+  high: 1     # C-4 (15)
+  medium: 4   # C-2 (10), C-6 (9), C-8 (11), C-9 (8)
+  low: 5      # C-1 (8), C-3 (6), C-5 (7), C-7 (4), C-10 (6)

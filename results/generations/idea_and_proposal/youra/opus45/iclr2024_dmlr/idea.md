@@ -1,0 +1,8 @@
+## Title
+APIDS: Adaptive Perplexity-Influence Data Selection for Foundation Model Pre-training
+
+## Motivation
+Foundation model training increasingly depends on data quality over architecture innovations, yet current data selection methods rely on single metrics that fail at high compression ratios. Perplexity-based filtering is computationally cheap but misses training utility; influence-based methods capture utility but are prohibitively expensive at scale. The "No Free Lunch" theorem suggests no single metric universally succeeds, creating a critical gap for efficient, high-quality data curation from web-crawled sources.
+
+## Main Idea
+We propose APIDS, a hierarchical three-stage data selection framework that combines complementary signals: (1) perplexity filtering removes noise/outliers cheaply via a small reference LM, (2) self-influence ranking identifies high-utility samples only on the filtered subset, and (3) adaptive threshold learning via Bayesian optimization determines optimal selection boundaries. The key insight is that perplexity captures data typicality (global signal) while self-influence captures training utility (local signal)—when these metrics are weakly correlated (ρ<0.8), their combination reduces selection errors neither achieves alone. We predict APIDS achieves >90% full-data performance at 50% retention, outperforming single-metric baselines by 3-5%. Validation on DataComp benchmarks across 160M-7B parameter scales will test this hypothesis, with explicit falsification criteria ensuring scientific rigor. Success would establish principled hybrid selection as a new paradigm for data-centric foundation model development.

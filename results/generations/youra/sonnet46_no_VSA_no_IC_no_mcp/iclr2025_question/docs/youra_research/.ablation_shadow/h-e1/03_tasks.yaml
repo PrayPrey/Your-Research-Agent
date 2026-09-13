@@ -1,0 +1,218 @@
+budget_summary:
+  data_env: 2
+  epics: 6
+  subtasks: 7
+  total: 15
+metadata:
+  generated: '2026-08-25'
+  hypothesis_id: H-E1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+tasks:
+- acceptance_criteria:
+  - Samples file exists and is loadable
+  - Contains N=98 entries with 10 samples each
+  - log_probs field present per entry
+  description: 'Verify h-e2-v2 pilot samples exist at expected path. If missing, regenerate
+    K=10 stochastic samples for N=98 TriviaQA dev questions using Llama-2-7B-hf, temperature=0.7,
+    max_new_tokens=50, top_p=1.0, seed=42. Save as JSON with keys: question_id, question,
+    samples (list[str]×10), log_probs (list[float]×10).'
+  id: D-1
+  priority: 100
+  reference_files:
+  - 02c_experiment_brief.md#Dataset
+  - 03_prd.md#FR-2
+  title: Locate or prepare h-e2-v2 K=10 samples
+  type: data-preparation
+- acceptance_criteria:
+  - All packages import without error
+  - torch.cuda.is_available() == True
+  - HF_TOKEN set and valid
+  description: 'Create virtual environment. Install: torch>=2.0, transformers>=4.35,
+    datasets>=2.14, scikit-learn>=1.3, numpy>=1.24, matplotlib>=3.7, seaborn>=0.12,
+    scipy>=1.11. Set HF_TOKEN env var for gated Llama-2-7b-hf access. Verify GPU available.'
+  id: D-2
+  priority: 94
+  reference_files:
+  - 03_prd.md#8-dependencies
+  - 03_config.md#environment-variables
+  title: Set up Python environment
+  type: setup
+- acceptance_criteria:
+  - load_triviaqa(n=98) returns 98 question dicts
+  - load_h_e2v2_samples() returns dict with 10 samples per question
+  - Module imports cleanly
+  description: 'Implement data.py: load_triviaqa() loads TriviaQA dev via HuggingFace
+    (mandarjoshi/trivia_qa, rc.nocontext, validation split), get_pilot_indices() selects
+    N=98 with seed=42. load_h_e2v2_samples() loads pre-generated samples from D-1
+    path. Smoke test: N=5 questions load correctly.'
+  id: A-1
+  priority: 93
+  reference_files:
+  - 03_prd.md#FR-1
+  - 03_prd.md#FR-2
+  - 03_architecture.md#dataloader-codedatapy
+  - 03_logic.md#A-1-setup--data
+  title: Setup & Data Loading
+  type: data-pipeline
+- description: load_llama(model_id='meta-llama/Llama-2-7b-hf', hf_token=None) -> tuple[model,
+    tokenizer]. Read HF_TOKEN from env if not provided. Use AutoModelForCausalLM.from_pretrained
+    with torch_dtype=torch.float16, device_map='auto'. Return (model, tokenizer).
+  id: L-2-1
+  parent: A-2
+  priority: 84
+  reference_files:
+  - 03_logic.md#L-2-1
+  - 03_config.md#inference-hyperparameters
+  title: Implement load_llama() with HF token
+  type: subtask
+- description: 'compute_single_te(question_text: str, model, tokenizer, device=''cuda'')
+    -> float. Tokenize question, run greedy forward pass. Extract logits (1, seq_len,
+    32000). Softmax. Per-token entropy: -sum(p*log(p+1e-9), dim=-1). Return mean as
+    scalar float.'
+  id: L-2-2
+  parent: A-2
+  priority: 83
+  reference_files:
+  - 03_logic.md#L-2-2
+  - 02c_experiment_brief.md#TOKEN-ENTROPY-Baseline-Method
+  title: Implement compute_single_te() — single question
+  type: subtask
+- description: 'compute_te_scores(questions: list[dict], model, tokenizer, device=''cuda'')
+    -> list[float]. Loop over questions calling compute_single_te(). tqdm progress.
+    CUDA OOM handling with CPU fallback. Return list[float] length N.'
+  id: L-2-3
+  parent: A-2
+  priority: 82
+  reference_files:
+  - 03_logic.md#L-2-3
+  title: Implement compute_te_scores() — batched
+  type: subtask
+- acceptance_criteria:
+  - load_llama() succeeds with HF_TOKEN
+  - compute_te_scores returns N floats, all > 0
+  - 'Smoke test: 5 questions complete'
+  description: 'Implement compute_te.py: load_llama() loads meta-llama/Llama-2-7b-hf
+    in float16 with device_map=auto. compute_te_scores() runs greedy decode per question,
+    extracts logits (1, seq_len, 32000), computes mean per-token Shannon entropy.
+    Returns list[float] length N.'
+  id: A-2
+  priority: 85
+  reference_files:
+  - 03_prd.md#FR-3
+  - 03_architecture.md#tokenentropy-codecompute_tepy
+  - 03_logic.md#A-2-token-entropy
+  title: Token Entropy Computation
+  type: model
+- description: 'get_semantic_ids(strings_list: list[str], nli_pipeline) -> list[int].
+    For each pair (i,j) i>j: check bidirectional entailment. If both entail, assign
+    semantic_ids[i] = semantic_ids[j]. Handles K=10 → 90 NLI calls per question.'
+  id: L-3-1
+  parent: A-3
+  priority: 79
+  reference_files:
+  - 03_logic.md#L-3-1
+  - 02c_experiment_brief.md#Pattern-1-Semantic-Entropy-Clustering
+  title: Implement get_semantic_ids() — bidirectional NLI clustering
+  type: subtask
+- description: 'aggregate_log_probs_by_cluster(log_probs: list[float], semantic_ids:
+    list[int]) -> np.ndarray. Group log_probs by cluster. scipy.special.logsumexp
+    per cluster. Return cluster_log_probs shape (n_clusters,).'
+  id: L-3-2
+  parent: A-3
+  priority: 78
+  reference_files:
+  - 03_logic.md#L-3-2
+  title: Implement aggregate_log_probs_by_cluster() — logsumexp
+  type: subtask
+- description: 'compute_se_scores() orchestrates: for each question, get_semantic_ids
+    → aggregate_log_probs_by_cluster → softmax → Shannon entropy. Track avg_clusters.
+    Return (se_scores: list[float], avg_clusters: float).'
+  id: L-3-3
+  parent: A-3
+  priority: 77
+  reference_files:
+  - 03_logic.md#L-3-3
+  - 03_prd.md#FR-4
+  title: Implement full SE pipeline with cluster logging
+  type: subtask
+- description: load_nli_model(model_id='cross-encoder/nli-deberta-v3-large') -> pipeline.
+    transformers.pipeline('zero-shot-classification', device=0). CUDA OOM handling.
+    Verify on test pair.
+  id: L-3-4
+  parent: A-3
+  priority: 76
+  reference_files:
+  - 03_logic.md#L-3-4
+  title: Implement load_nli_model() with error handling
+  type: subtask
+- acceptance_criteria:
+  - avg_clusters > 1.5 on N=98
+  - se_scores length == N, all finite
+  description: 'Implement compute_se.py: load_nli_model() loads DeBERTa NLI. get_semantic_ids()
+    implements Kuhn et al. 2023 bidirectional NLI entailment clustering. aggregate_log_probs_by_cluster()
+    applies logsumexp. compute_se_scores() returns (se_scores, avg_clusters).'
+  id: A-3
+  priority: 80
+  reference_files:
+  - 03_prd.md#FR-4
+  - 03_architecture.md#semanticentropy-codecompute_sepy
+  - 03_logic.md#A-3-semantic-entropy
+  title: Semantic Entropy Computation
+  type: model
+- acceptance_criteria:
+  - AUROC computed for TE and SE
+  - Bootstrap CI computed
+  - Gap reported
+  description: 'Implement evaluate.py: normalize_answer() TriviaQA EM normalization.
+    em_correctness() scores against gold aliases. bootstrap_auroc() 1000 iterations
+    seed=42. verify_mechanism() assertions. Extension protocol if gap in [0.03, 0.05].'
+  id: A-4
+  priority: 70
+  reference_files:
+  - 03_prd.md#FR-5
+  - 03_prd.md#FR-6
+  - 03_prd.md#FR-7
+  - 03_architecture.md#evaluator-codeevaluatepy
+  title: Evaluation & Metrics
+  type: evaluation
+- acceptance_criteria:
+  - results.json has all keys
+  - 4 figures in figures/
+  description: 'save_results(): results.json + npy files. plot_figures(): Fig1 bar
+    chart w/ CI; Fig2 ROC curves; Fig3 violin distributions; Fig4 bootstrap histogram.
+    Save to figures/.'
+  id: A-5
+  priority: 60
+  reference_files:
+  - 03_prd.md#FR-9
+  - 03_prd.md#FR-10
+  - 03_architecture.md#evaluator-codeevaluatepy
+  title: Results & Figures
+  type: evaluation
+- acceptance_criteria:
+  - python run.py --smoke-test completes
+  - Gap printed to stdout
+  description: 'run.py: parse_args() with --samples-path, --n, --out-dir, --smoke-test,
+    --seed, --skip-te, --extension. smoke_test() N=5. main() wires full pipeline.'
+  id: A-6
+  priority: 50
+  reference_files:
+  - 03_prd.md#NFR-3
+  - 03_architecture.md#orchestrator-coderunpy
+  - 03_config.md#argparse-cli
+  title: Orchestrator & CLI
+  type: training
+- acceptance_criteria:
+  - All output files present
+  - Gate result printed
+  description: 'Verify all outputs exist. Print gate result: PASS/EXTEND/FAIL based
+    on gap.'
+  id: FAILSAFE-1
+  priority: 1
+  reference_files:
+  - 03_prd.md#9-success-criteria
+  title: Pipeline continuation checkpoint
+  type: failsafe
+version: '1.0'

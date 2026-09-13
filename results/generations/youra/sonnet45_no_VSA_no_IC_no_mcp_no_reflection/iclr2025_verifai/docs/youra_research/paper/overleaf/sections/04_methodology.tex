@@ -1,0 +1,129 @@
+\section{Methodology}
+
+We designed a four-hypothesis validation chain to test whether incremental SMT verification would achieve 2-5x speedup (predicted, not validated) for LLM code repair in typed Python with Pydantic. This section describes the hypothesis decomposition, experimental protocol, and modular pipeline architecture. While validation was blocked by infrastructure failures, the methodology and implementation artifacts remain sound and reusable.
+
+\subsection{Hypothesis Decomposition}
+
+\textbf{Main Hypothesis (H-IncrementalSMT-v1):} Under iterative LLM code repair workflows in typed Python with Pydantic, if incremental SMT verification is used (re-verifying only modified functions + dependencies), then verification time reduces by 2-5x (predicted, not validated) compared to batch re-verification, because unchanged code portions skip redundant constraint checking.
+
+This decomposes into four sub-hypotheses:
+
+\begin{itemize}
+\item \textbf{h-e1 (EXISTENCE):} We hypothesized that static analyzers can extract SMT constraints from LLM-generated typed code. \emph{Gate: $\geq$90\% extraction success rate.} If fail: pivot to neural constraint extraction. \textbf{Status: FAIL (0.0\%, infrastructure block).}
+
+\item \textbf{h-m1 (MECHANISM):} We hypothesized that Pyre extracts type contracts from Pydantic annotations. \emph{Gate: MUST\_WORK.} \textbf{Status: NOT\_STARTED (prerequisite h-e1 failed).}
+
+\item \textbf{h-m2 (MECHANISM):} We hypothesized that dependency analysis computes transitive closure for incremental re-verification. \emph{Gate: SHOULD\_WORK.} \textbf{Status: NOT\_STARTED.}
+
+\item \textbf{h-m3 (MECHANISM):} We predicted incremental SMT would achieve 2-5x speedup vs batch. \emph{Gate: MUST\_WORK (median $\geq$2x, 75th percentile $\geq$3x).} \textbf{Status: NOT\_STARTED.}
+\end{itemize}
+
+The dependency chain is sequential: h-e1 → h-m1 → h-m2 → h-m3. Gate failure at h-e1 blocked all downstream hypotheses.
+
+\subsection{Dataset Extension: HumanEval + Pydantic}
+
+HumanEval lacks type annotations required for SMT constraint extraction. We designed a template-based transformation pipeline:
+
+\textbf{Step 1:} Parse function signature and docstring from each HumanEval problem.
+
+\textbf{Step 2:} Generate Pydantic BaseModel schema for inputs/outputs:
+\begin{verbatim}
+class Input(BaseModel):
+    param1: Type1
+    param2: Type2
+
+    @validator('param1')
+    def validate_param1(cls, v):
+        assert v is not None, 'param1 must not be None'
+        return v
+\end{verbatim}
+
+\textbf{Step 3:} Add @validator decorators encoding preconditions extracted from docstrings (e.g., ``numbers must not be None'').
+
+\textbf{Step 4:} Preserve original test suite for functional correctness validation.
+
+This process was applied to HumanEval problems 0-99, generating 100 Pydantic-annotated prompts. \textbf{Result: VERIFIED.} All 100 prompts created successfully, demonstrating feasibility of mechanical type annotation generation.
+
+\subsubsection{Design Rationale}
+
+\textbf{Why Pydantic over Mypy?} Pydantic validators provide runtime-checkable contracts that map naturally to SMT predicates (preconditions/postconditions). Mypy type hints support static checking but lack explicit constraint semantics.
+
+\textbf{Why extend HumanEval?} Existing test suites, standard baseline for code generation research, avoids annotation bias from creating custom datasets.
+
+\textbf{Why template-based transformation?} Ensures consistent annotation quality, avoids manual annotation overhead, scales to large benchmarks. However, templates encode simple constraint patterns (non-null, range checks); complex preconditions (e.g., ``matrix must be square'') require semantic understanding beyond pattern matching.
+
+\subsection{Constraint Extraction Pipeline}
+
+The pipeline consists of five sequential modules:
+
+\begin{enumerate}
+\item \textbf{DatasetExtender:} Load HumanEval, generate Pydantic templates (150 LOC).
+\item \textbf{LLMGenerator:} Generate typed Python code via Claude Sonnet 3.5 API (82 LOC).
+\item \textbf{PyreExtractor:} Parse AST, extract SMT constraints from type annotations (128 LOC).
+\item \textbf{Z3Validator:} Validate constraint quality via SMT satisfiability checking (132 LOC).
+\item \textbf{MetricsEngine:} Compute extraction/quality rates, generate visualizations (156 LOC).
+\end{enumerate}
+
+\subsubsection{Architectural Soundness}
+
+Modular design allowed partial validation despite LLM generation failure:
+\begin{itemize}
+\item \textbf{DatasetExtender:} Validated on 100 prompts (success).
+\item \textbf{LLMGenerator:} Failed with HTTP 401 errors (invalid API key).
+\item \textbf{PyreExtractor:} Validated on error files (correctly found 0 constraints).
+\item \textbf{Z3Validator:} Validated on error files (correctly identified 0 quality constraints).
+\item \textbf{MetricsEngine:} Correctly computed 0.0\% extraction rate and generated 4 figures.
+\end{itemize}
+
+Pipeline validated on negative cases only (error files processed without crashing; positive case untested). Pipeline separation (extend → generate → extract) prevented cascading failures---dataset extension succeeded independently of generation failure.
+
+\subsection{Incremental SMT Strategy}
+
+\textbf{Batch Verification (Baseline):} On each repair iteration, re-verify entire program by re-extracting all constraints and solving via Z3.
+
+\textbf{Incremental Verification (Proposed):}
+\begin{enumerate}
+\item Extract constraints from initial program, solve via Z3 push/pop contexts.
+\item On modification, run dependency analysis to compute invalidation cone (functions reachable from modified code).
+\item Re-verify only invalidated constraints; reuse cached results for unchanged code.
+\end{enumerate}
+
+\textbf{Success Criteria (Predicted, Not Validated):} Median speedup $\geq$2x, 75th percentile $\geq$3x across 100 programs.
+
+\subsubsection{Key Design Decisions}
+
+\textbf{Conservative dependency analysis (designed for soundness, not validated):} Over-approximate dependency cone to prioritize soundness. False positives (re-verifying more than necessary) reduce speedup but maintain correctness. False negatives (missing dependencies) cause unsound verification.
+
+\textbf{Z3 incremental mode:} Use push/pop contexts to cache verification state across iterations, avoiding full re-verification overhead.
+
+\textbf{Localized repair assumption (A2, untested):} Based on CURE/CoCoNut literature showing 80\%+ of human repairs touch 1-3 lines. We assume LLM repairs are similarly localized; if true, invalidation cones remain small (<30\%), enabling speedup. \textbf{Status: UNVERIFIED} (h-m2 not reached). Repair locality assumption (A2) transfers from human code literature without validation; LLM repair patterns may differ significantly (broader edits, cross-module changes), potentially eliminating speedup benefits even if extraction succeeds.
+
+\subsection{Validation Protocol}
+
+\textbf{h-e1 Protocol:}
+\begin{enumerate}
+\item Generate 100 typed Python programs from Pydantic-annotated HumanEval prompts using Claude Sonnet 3.5.
+\item Extract SMT constraints via Pyre static analyzer.
+\item Measure extraction success rate (\% of programs with usable constraints).
+\item Compare against 90\% threshold.
+\end{enumerate}
+
+\textbf{h-m3 Protocol:} MECHANISM hypothesis testing incremental SMT speedup (predicted median $\geq$2x, 75th percentile $\geq$3x). Gate: MUST\_WORK. Status: NOT\_STARTED (prerequisite h-e1 failed).
+
+\subsection{Failure Mode Analysis}
+
+The h-e1 validation failed with 0.0\% extraction rate due to 100\% API authentication failure (48/48 generation attempts returned HTTP 401 ``API key is invalid''). Root cause: invalid Anthropic API key in experiment configuration. The retry mechanism (3 attempts with exponential backoff) correctly exhausted retries but lacked logic to fast-fail on non-retryable auth errors.
+
+\textbf{Why This Is Not Scientific Refutation:} The falsifier for h-e1 is ``static analyzer fails to extract usable constraints (<90\% success).'' Infrastructure failures prevent testing the falsifier---we cannot distinguish between ``extraction doesn't work'' and ``no code to extract from.'' The hypothesis remains theoretically plausible pending retry with valid API access.
+
+\textbf{Implementation Readiness:} The pipeline is complete and validated on negative cases. Retry requires only fixing the API key, not redesigning the experiment.
+
+\subsection{Reproducibility}
+
+\textbf{Environment:} Python 3.13, dependencies: \texttt{datasets}, \texttt{anthropic}, \texttt{pydantic}, \texttt{z3-solver}, \texttt{matplotlib}.
+
+\textbf{Data:} HumanEval (openai\_humaneval, problems 0-99), extended prompts in \texttt{src/data/humaneval\_pydantic/}.
+
+\textbf{Code:} 700 LOC total, modular architecture, available for inspection.
+
+\textbf{Retry Instructions:} Set valid \texttt{ANTHROPIC\_API\_KEY}, run \texttt{python main.py}. Expected outcome (if hypothesis valid): extraction\_rate $\geq$90\%, gate PASS.

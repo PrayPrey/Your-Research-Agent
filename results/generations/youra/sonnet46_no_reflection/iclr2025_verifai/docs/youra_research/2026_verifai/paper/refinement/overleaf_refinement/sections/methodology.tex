@@ -1,0 +1,76 @@
+
+\subsubsection{3.1 The Oracle/Regularizer Distinction}
+
+When the Lean4 compiler rejects a tactic at proof state \textit{s} with a type mismatch message, that message carries semantic content: the violated type constraint and an implicit pointer toward premise-consistent continuations. Under the oracle hypothesis, a DPO model trained on this rejection concentrates probability mass on tactics that address the specific type constraint. Under the regularizer hypothesis, the DPO update diffusely sharpens the policy regardless of the error message content.
+
+Two implications follow. If the oracle hypothesis holds, the quality of feedback (semantic specificity) is the key design variable. If the regularizer hypothesis holds, the quantity and diversity of negative examples is more important. These lead to opposite design recommendations.
+
+\subsubsection{3.2 Three-Condition DPO Design}
+
+The experiment extends the BFS-Prover framework \citep{Xinetal2025}, using \texttt{ByteDance-Seed/BFS-Prover-V2-7B} (Qwen2.5-Math-7B initialized from the BFS-Prover cold-start SFT checkpoint). All three conditions share the same base model (frozen π_ref), the same proof states (hard subset: cold-start SFT pass@1 < 20\% across 16 rollouts), the same chosen tactics (a_w), and the same DPO hyperparameters (β=10, lr 5e-6→5e-7, 1-epoch). The conditions differ only in the rejected tactic (a_l):
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Condition & Name & a_l content & Semantic grounding \\
+\midrule
+A & Step-local Grounded & Lean4 compiler-error-triggering tactic at state *s* & Full: error type, location, violated constraint \\
+B & Step-local Ungrounded & Failed-branch tactic at same state *s* (no error message) & None: failed tactic identity only \\
+P & Permuted Control & Tactic paired with shuffled/permuted compiler error message & Scrambled: structure preserved, semantics destroyed \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Condition A versus P isolates the contribution of coherent semantic content (both have compiler error messages; only A has consistent ones). Condition A versus B isolates the contribution of semantic grounding (both are step-local; only A is grounded).
+
+\textbf{State alignment requirement.} For all three conditions, the chosen tactic a_w and rejected tactic a_l must originate from the same proof state \textit{s}. State alignment is verified via LeanDojo state IDs; the pipeline aborts if any pair has s_w ≠ s_l.
+
+\subsubsection{3.3 The Locality Score Metric}
+
+The \textbf{locality score (LS)} is defined as:
+
+$$\text{LS} = \frac{\sum_s \left[ P_{\text{post}}(\text{premise-consistent} \mid s) - P_{\text{pre}}(\text{premise-consistent} \mid s) \right]}{\sum_s \sum_t \left| P_{\text{post}}(t \mid s) - P_{\text{pre}}(t \mid s) \right|}$$
+
+where \textit{P_pre} is the frozen reference policy and \textit{P_post} is the DPO-trained policy for a given condition. "Premise-consistent" denotes tactics in the tactic category that addresses the specific violated constraint at state \textit{s}, as determined by the pre-specified taxonomy.
+
+An oracle produces LS >> 0 (focused mass shift); a regularizer produces LS ≈ 0 (diffuse mass shift).
+
+\textbf{Tactic taxonomy (pre-specified).} To prevent post-hoc circularity, the tactic category taxonomy is defined before any training:
+\begin{itemize}
+\item \textbf{type_error}: \texttt{type mismatch}, \texttt{application type mismatch}
+\item \textbf{undefined_name}: \texttt{unknown identifier}, \texttt{unknown tactic}
+\item \textbf{tactic_failure}: \texttt{tactic failed}, \texttt{simp made no progress}
+\end{itemize}
+
+\textbf{Gate condition.} The oracle hypothesis predicts LS_A > LS_P, tested via one-sided t-test at p < 0.05. This is the MUST_WORK gate for hypothesis H-E1.
+
+\subsubsection{3.4 The α-Interaction Prediction}
+
+BFS-Prover's length normalization parameter α controls search depth bias:
+
+$$\text{score}(s_L) = \frac{\sum_t \log p(a_t \mid s_t)}{L^\alpha}$$
+
+At α=0, shorter proof paths are preferred regardless of tactic probability. Under the oracle hypothesis, step-local grounded feedback provides the greatest benefit at α=0, because local oracle guidance compensates for search depth bias that would otherwise prevent deep proofs from being explored. The prediction is: Δ(A−B)|_{α=0} > Δ(A−B)|_{α=0.5} > Δ(A−B)|_{α=1.0}. A regularizer would predict uniform gains across α settings. This α-interaction prediction is tested in hypotheses H-M3 and H-M4 (not executed in the present run).
+
+\subsubsection{3.5 Hypothesis Chain}
+
+The full verification plan decomposes into a 6-hypothesis chain:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+ID & Type & Gate & Description \\
+\midrule
+H-E1 & Existence & MUST_WORK & LS_A > LS_P — oracle signal detectable at probability mass level \\
+H-M1 & Mechanism & MUST_WORK & State alignment = 100\% — valid state-aligned DPO supervision \\
+H-M2 & Mechanism & SHOULD_WORK & LS_A > LS_B, Cohen's d > 0.2 — oracle mass shift is specific \\
+H-M3 & Mechanism & SHOULD_WORK & Δ(A−B) ≥ 10pp on hard-stratum pass@1 \\
+H-M4 & Mechanism & SHOULD_WORK & Monotonic α-interaction, Cohen's d ≥ 0.3 \\
+H-C1 & Condition & SHOULD_WORK & Fidelity-stratified Δ(A−B): Q4 > Q1 (oracle requires ≥85\% formalization fidelity) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Phase 4 execution targets H-E1 only. H-M1 through H-C1 were not executed, as they depend on H-E1 passing.

@@ -1,0 +1,65 @@
+
+To validate the hypothesis that post-optimizer sampling timing is critical for accurate lightweight memory profiling, we designed experiments that test: (1) post-optimizer sampling reduces error compared to pre-optimizer sampling, (2) profiling accuracy depends on optimizer type, and (3) the approach generalizes across CNN architectures.
+
+\subsubsection{Experimental Questions}
+
+\textbf{Q1: Does post-optimizer sampling reduce prediction error compared to pre-optimizer baseline?} We hypothesize that sampling after optimizer.step()---rather than before---captures Adam workspace allocations, yielding lower error.
+
+\textbf{Q2: Is memory profiling accuracy optimizer-dependent?} Prior work assumes memory profiling is optimizer-agnostic. We test whether post-optimizer sampling effectiveness varies by optimizer type.
+
+\textbf{Q3: Does post-optimizer sampling generalize across CNN architectures?} We test both shallow (ResNet-18) and deeper (ResNet-34) architectures to validate that post-optimizer timing is not architecture-specific.
+
+\subsubsection{Experimental Setup}
+
+\textbf{Models.} We evaluate ResNet-18 (11.7M parameters, 8 residual blocks) and ResNet-34 (21.8M parameters, 16 residual blocks). ResNet was chosen as a standard benchmark architecture with well-understood memory characteristics, allowing us to isolate the effect of optimizer workspace allocations.
+
+\textbf{Optimizers.} We test Adam ($\beta _{1}=0.9, \beta _{2}=0.999$, lr=1e-4), which allocates first-order and second-order moment buffers (~$2\times$ parameter memory); and SGD (lr=0.1, momentum=0.9), which allocates only a momentum buffer (~$1\times$ parameter memory) as a control condition.
+
+\textbf{Dataset.} We use CIFAR-10-scale synthetic data ($32\times 32\times 3$ tensors generated with \texttt{torch.randn()}) rather than real images. This design isolates the core memory profiling mechanism from DataLoader overhead, data augmentation, and I/O variability. Batch size is fixed at 64 samples. While synthetic data limits ecological validity, it enables fast validation and establishes conceptual proof before committing to full-scale validation.
+
+\textbf{Ground Truth.} For each configuration (model $\times$ optimizer), we establish ground truth peak memory by running 10 full training iterations with \texttt{torch.cuda.memory\textbackslash \_stats()} instrumentation. Ground truth is recorded as the segment-level peak memory (in MB) at iteration 10.
+
+\textbf{Baseline.} We compare against a 2-iteration pre-optimizer sampling protocol, which samples memory after the forward pass and after backward propagation but before \texttt{optimizer.step()}.
+
+\subsubsection{Profiling Protocol}
+
+Our 3-iteration post-optimizer sampling protocol consists of:
+
+\begin{enumerate}
+\item \textbf{Iteration 1 (Forward-only):} We run a forward pass without backward propagation to capture base model parameters plus forward activation buffers.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Post-optimizer sampling:} We run a complete training iteration (forward + backward + optimizer.step) and sample memory immediately after \texttt{optimizer.step()} completes.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Prediction formula:} We predict peak memory as \texttt{max(iter1\textbackslash \_forward\textbackslash \_peak, post\textbackslash \_optim\textbackslash \_peak)}.
+\end{enumerate}
+
+Memory measurements use PyTorch's \texttt{torch.cuda.max\textbackslash \_memory\textbackslash \_allocated()} API, which returns the peak allocated bytes since the last \texttt{torch.cuda.reset\textbackslash \_peak\textbackslash \_memory\textbackslash \_stats()} call.
+
+\subsubsection{Evaluation Metrics}
+
+We compute relative error for each configuration as:
+
+$$\text{Relative Error} = \frac{|\text{predicted\_memory} - \text{ground\_truth\_memory}|}{\text{ground\_truth\_memory}} \times 100\%$$
+
+We report median relative error across all configurations, 95th percentile (P95) error, and individual configuration errors.
+
+We adopt the 10\% acceptability threshold: median error $\leq 10$\% is considered acceptable for pre-training OOM prediction.
+
+\subsubsection{Rationale for Design Choices}
+
+\textbf{Why 4 configurations instead of 48?} Our experimental design prioritizes fast validation to establish conceptual proof before committing to full-scale evaluation. We reduced scope to 4 configurations (2 models $\times$ 2 optimizers) with synthetic data to validate the core mechanism in seconds rather than GPU-hours. This fast validation strategy is appropriate for existence proofs.
+
+\textbf{Why ResNet-18/34 instead of transformers?} Transformers introduce confounding factors: variable-length sequences require stratified sampling, and attention mechanisms have O($n^{2})$ memory scaling. By scoping to CNNs with fixed-length inputs, we isolate optimizer workspace timing effects from architectural complexity.
+
+\textbf{Why synthetic data?} Real CIFAR-10 images introduce DataLoader overhead (multiprocessing workers, prefetching, data augmentation), which adds unrelated memory allocations. Synthetic tensors eliminate this noise, allowing us to measure pure model + optimizer memory. The tradeoff is reduced ecological validity, but the core hypothesis concerns optimizer workspace timing, which is dataset-independent.
+
+\subsubsection{Implementation Details}
+
+All experiments run on a single NVIDIA GPU with PyTorch 2.0+. We use standard torchvision ResNet implementations with pretrained=False to ensure reproducibility. Optimizer configurations follow PyTorch defaults except for learning rates.
+
+Before each profiling run, we call \texttt{torch.cuda.empty\textbackslash \_cache()} and \texttt{torch.cuda.reset\textbackslash \_peak\textbackslash \_memory\textbackslash \_stats()} to ensure clean allocator state.
+

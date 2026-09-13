@@ -1,0 +1,530 @@
+# Implementation Task List: H-C1 Edge Case Robustness Validation
+# Generated: 2026-07-11
+# Hypothesis: h-c1 (CONDITION - SHOULD_WORK gate)
+# Total Complexity: 58
+# Budget: 30 tokens
+
+tasks:
+  # ============================================================================
+  # ENVIRONMENT SETUP (1 task)
+  # ============================================================================
+
+  - id: ENV-001
+    type: environment_setup
+    title: Set up h-c1 project structure and dependencies
+    description: |
+      Create directory structure for h-c1 code and verify h-m3/h-e1 dependencies.
+      - Create dirs: code/, code/src/, code/results/
+      - Copy requirements.txt from h-m3 (100% reuse)
+      - Verify h-m3 extractor accessible at ../h-m3/code/src/
+      - Check h-e1 classifier at ../h-e1/code/results/logistic_classifier.pkl (optional)
+      - Create config_h_c1.py with edge case families, thresholds, paths
+    acceptance_criteria:
+      - Directory structure created
+      - requirements.txt present (reused from h-m3)
+      - h-m3 import paths verified
+      - config_h_c1.py contains EDGE_CASE_FAMILIES, GATE_THRESHOLDS, CLASSIFIER_CONFIG
+    complexity: 3
+    prerequisites: []
+    assignee: User
+    archon_id: null
+
+  # ============================================================================
+  # EPIC TASKS (6 tasks: C1-1 through C1-6)
+  # ============================================================================
+
+  - id: C1-1
+    type: epic
+    title: Edge Case Model Curation
+    description: |
+      Implement EdgeCaseModelCurator to validate TIMM availability and assign family labels.
+      - Validate 20 edge case models across 4 families (NormFree, SENet, RegNet, ViT-Extreme)
+      - Check availability via timm.list_models()
+      - Assign ground truth labels based on model naming
+      - Handle fallback if models unavailable (minimum 3 per family)
+
+      Module: src/edge_case_curator.py
+      Methods: validate_timm_availability(), get_edge_case_models(), assign_family_labels()
+    acceptance_criteria:
+      - EdgeCaseModelCurator class implemented
+      - Validates ≥12 edge case models available (minimum 3 per family)
+      - Returns {'available': [...], 'missing': [...]}, model→family mapping
+      - Logs warnings for missing models with fallback suggestions
+    complexity: 8
+    prerequisites: [ENV-001]
+    assignee: User
+    archon_id: null
+
+  - id: C1-1-1
+    type: subtask
+    parent: C1-1
+    title: Implement TIMM availability validation
+    description: |
+      Create validate_timm_availability() method to check which edge case models exist.
+      - Loop through EDGE_CASE_FAMILIES from config
+      - Use timm.list_models() to check availability
+      - Return dict with 'available' and 'missing' lists
+      - Raise ValueError if <12 models available
+    acceptance_criteria:
+      - Returns available/missing dict
+      - Fails gracefully if <12 models found
+    complexity: 2
+    prerequisites: [ENV-001]
+    assignee: User
+    archon_id: null
+
+  - id: C1-1-2
+    type: subtask
+    parent: C1-1
+    title: Implement family label assignment
+    description: |
+      Create assign_family_labels() to map model names to ground truth families.
+      - Input: list of available model names
+      - Match to families (NormFree, SENet, RegNet, ViT-Extreme)
+      - Return dict: {model_name: family_label}
+    acceptance_criteria:
+      - All models mapped to one of 4 families
+      - Handles ambiguous cases (document in code comments)
+    complexity: 2
+    prerequisites: [C1-1-1]
+    assignee: User
+    archon_id: null
+
+  - id: C1-2
+    type: epic
+    title: Classifier Setup (Load h-e1 or Train Fallback)
+    description: |
+      Implement ClassifierLoader to load pre-trained h-e1 classifier or train fallback.
+      - Attempt to load from ../h-e1/code/results/logistic_classifier.pkl
+      - If missing, train LogisticRegression on standard models from h-m3
+      - Verify fallback accuracy matches h-e1 baseline (>80%)
+
+      Module: src/classifier_loader.py
+      Methods: load_or_train(), save_classifier()
+    acceptance_criteria:
+      - ClassifierLoader class implemented
+      - Loads h-e1 classifier if exists
+      - Trains fallback if missing (sklearn LogisticRegression)
+      - Fallback accuracy ≥80% on standard models
+    complexity: 10
+    prerequisites: [ENV-001]
+    assignee: User
+    archon_id: null
+
+  - id: C1-2-1
+    type: subtask
+    parent: C1-2
+    title: Implement h-e1 classifier loading
+    description: |
+      Create load_or_train() method with primary path: load existing classifier.
+      - Try joblib.load(classifier_path)
+      - Return loaded classifier if successful
+      - Catch FileNotFoundError → proceed to fallback training
+    acceptance_criteria:
+      - Loads .pkl file if exists
+      - Handles missing file gracefully
+    complexity: 3
+    prerequisites: [ENV-001]
+    assignee: User
+    archon_id: null
+
+  - id: C1-2-2
+    type: subtask
+    parent: C1-2
+    title: Implement fallback classifier training
+    description: |
+      If h-e1 classifier missing, train LogisticRegression on standard models.
+      - Use fallback_features_df (standard models from h-m3)
+      - Train LogisticRegression(random_state=42, max_iter=1000)
+      - Verify accuracy ≥80% on standard models
+      - Log warning: "h-e1 classifier missing, trained fallback"
+    acceptance_criteria:
+      - Trains classifier on standard models
+      - Accuracy ≥80% verified
+      - Logs fallback usage
+    complexity: 3
+    prerequisites: [C1-2-1]
+    assignee: User
+    archon_id: null
+
+  - id: C1-2-3
+    type: subtask
+    parent: C1-2
+    title: Implement classifier saving
+    description: |
+      Create save_classifier() to persist trained classifier.
+      - Use joblib.dump(classifier, path)
+      - Save to results/ directory for reuse
+    acceptance_criteria:
+      - Saves classifier to specified path
+      - Can be reloaded with joblib.load()
+    complexity: 2
+    prerequisites: [C1-2-2]
+    assignee: User
+    archon_id: null
+
+  - id: C1-3
+    type: epic
+    title: Feature Extraction from Edge Cases
+    description: |
+      Extract 5D feature vectors from edge case models using h-m3 extractor (100% reuse).
+      - Import CheckpointOnlyExtractor from h-m3
+      - Run extract_batch() on edge case models
+      - Validate no_norm_flag=1 for NormFree models
+      - Save to results/edge_case_features.csv
+
+      Integration: main_h_c1.py
+      Reuses: h-m3/code/src/checkpoint_only_extractor.py
+    acceptance_criteria:
+      - All edge case models extracted successfully
+      - Features saved to CSV with family labels
+      - no_norm_flag=1 verified for NormFree models
+      - Extraction time <2 minutes logged
+    complexity: 6
+    prerequisites: [C1-1, ENV-001]
+    assignee: User
+    archon_id: null
+
+  - id: C1-3-1
+    type: subtask
+    parent: C1-3
+    title: Import and instantiate h-m3 extractor
+    description: |
+      Set up h-m3 CheckpointOnlyExtractor in main_h_c1.py.
+      - Add sys.path.append('../h-m3/code/src')
+      - Import CheckpointOnlyExtractor
+      - Instantiate with cache_dir='../.cache/checkpoints'
+    acceptance_criteria:
+      - Extractor imported successfully
+      - Cache directory configured
+    complexity: 2
+    prerequisites: [ENV-001]
+    assignee: User
+    archon_id: null
+
+  - id: C1-3-2
+    type: subtask
+    parent: C1-3
+    title: Extract edge case features and validate
+    description: |
+      Run extraction and validate outputs.
+      - Call extractor.extract_batch(edge_case_models)
+      - Check no_norm_flag=1 for all NormFree models
+      - Log any failed extractions
+      - Validate no NaN values in features
+    acceptance_criteria:
+      - Features extracted for all available models
+      - NormFree validation passes
+      - Failed models logged (if any)
+    complexity: 2
+    prerequisites: [C1-3-1, C1-1]
+    assignee: User
+    archon_id: null
+
+  - id: C1-4
+    type: epic
+    title: Evaluation Pipeline (Predict + Accuracy Metrics)
+    description: |
+      Implement EdgeCaseEvaluator to predict families and compute accuracy metrics.
+      - Predict family labels for edge cases
+      - Compute overall accuracy with 95% Wilson CI
+      - Per-family accuracy breakdown (4 families)
+      - Degradation = baseline_acc - edge_acc
+      - Save to results/accuracy_by_family.json
+
+      Module: src/edge_case_evaluator.py
+      Methods: predict(), compute_accuracy_metrics(), compute_degradation()
+    acceptance_criteria:
+      - EdgeCaseEvaluator class implemented
+      - Overall accuracy computed with 95% CI
+      - Per-family accuracy for NormFree, SENet, RegNet, ViT-Extreme
+      - Degradation computed vs 85% baseline
+      - Results saved to JSON
+    complexity: 12
+    prerequisites: [C1-2, C1-3]
+    assignee: User
+    archon_id: null
+
+  - id: C1-4-1
+    type: subtask
+    parent: C1-4
+    title: Implement prediction method
+    description: |
+      Create predict() to apply classifier to edge case features.
+      - Input: features_df (5D feature vectors)
+      - Use classifier.predict(features_df)
+      - Return predictions as pd.Series
+    acceptance_criteria:
+      - Predictions generated for all edge cases
+      - Matches ground truth format (family labels)
+    complexity: 3
+    prerequisites: [C1-2, C1-3]
+    assignee: User
+    archon_id: null
+
+  - id: C1-4-2
+    type: subtask
+    parent: C1-4
+    title: Implement overall accuracy with Wilson CI
+    description: |
+      Compute overall accuracy with 95% Wilson confidence intervals.
+      - Use accuracy_score(y_true, y_pred)
+      - Compute Wilson score CI (statsmodels.stats.proportion.proportion_confint)
+      - Return accuracy with lower/upper CI bounds
+    acceptance_criteria:
+      - Overall accuracy computed
+      - 95% CI bounds calculated
+      - Flag if CI width >±10%
+    complexity: 3
+    prerequisites: [C1-4-1]
+    assignee: User
+    archon_id: null
+
+  - id: C1-4-3
+    type: subtask
+    parent: C1-4
+    title: Implement per-family accuracy breakdown
+    description: |
+      Compute accuracy for each edge case family separately.
+      - Loop through 4 families (NormFree, SENet, RegNet, ViT-Extreme)
+      - Compute accuracy per family
+      - Return dict: {family: {accuracy, count, correct}}
+    acceptance_criteria:
+      - Accuracy computed for all 4 families
+      - JSON structure matches PRD specification
+    complexity: 3
+    prerequisites: [C1-4-1]
+    assignee: User
+    archon_id: null
+
+  - id: C1-4-4
+    type: subtask
+    parent: C1-4
+    title: Compute degradation and save results
+    description: |
+      Calculate degradation and save all metrics to JSON.
+      - degradation = baseline_acc - edge_acc (baseline = 0.85 from config)
+      - Combine overall, per-family, degradation into single dict
+      - Save to results/accuracy_by_family.json
+    acceptance_criteria:
+      - Degradation computed
+      - JSON file saved with all metrics
+    complexity: 3
+    prerequisites: [C1-4-2, C1-4-3]
+    assignee: User
+    archon_id: null
+
+  - id: C1-5
+    type: epic
+    title: Failure Mode Analysis
+    description: |
+      Implement FailureModeAnalyzer to characterize misclassifications.
+      - Generate confusion matrix (4×4 for edge families)
+      - Plot feature distributions (edge vs baseline)
+      - Identify systematic error patterns
+      - Document failure hypotheses and proposed extensions
+      - Save to results/failure_analysis.md
+
+      Module: src/failure_analyzer.py
+      Methods: generate_confusion_matrix(), analyze_per_family_failures(),
+               compute_feature_distributions(), save_failure_report()
+    acceptance_criteria:
+      - FailureModeAnalyzer class implemented
+      - Confusion matrix generated and saved as PNG
+      - Feature distributions plotted (box plots, edge vs baseline)
+      - Systematic patterns documented (e.g., "All NormFree misclassified as CNN")
+      - Failure report saved to results/failure_analysis.md
+    complexity: 14
+    prerequisites: [C1-4]
+    assignee: User
+    archon_id: null
+
+  - id: C1-5-1
+    type: subtask
+    parent: C1-5
+    title: Generate confusion matrix
+    description: |
+      Create confusion matrix for edge case families.
+      - Use sklearn.metrics.confusion_matrix(y_true, y_pred)
+      - Visualize as heatmap (matplotlib/seaborn)
+      - Save to results/confusion_matrix.png
+    acceptance_criteria:
+      - 4×4 confusion matrix generated
+      - Heatmap saved as PNG
+    complexity: 4
+    prerequisites: [C1-4]
+    assignee: User
+    archon_id: null
+
+  - id: C1-5-2
+    type: subtask
+    parent: C1-5
+    title: Plot feature distributions
+    description: |
+      Compare edge case vs baseline feature distributions.
+      - Plot 5 features (bn_count, ln_count, gn_count, no_norm_flag, param_mass_ratio)
+      - Use box plots or violin plots
+      - Edge cases vs baseline models (from h-m3)
+      - Save to results/feature_distributions.png
+    acceptance_criteria:
+      - 5-panel plot created
+      - Edge vs baseline clearly distinguished
+      - PNG saved
+    complexity: 4
+    prerequisites: [C1-4]
+    assignee: User
+    archon_id: null
+
+  - id: C1-5-3
+    type: subtask
+    parent: C1-5
+    title: Identify systematic error patterns
+    description: |
+      Analyze misclassified models for systematic patterns.
+      - Group misclassifications by family
+      - Identify if entire families fail (e.g., all NormFree → CNN)
+      - Compute feature importance shift (logistic regression coefficients)
+      - Generate failure hypotheses (e.g., "no_norm_flag coefficient near-zero")
+    acceptance_criteria:
+      - Systematic patterns identified
+      - Feature importance documented
+      - Failure hypotheses formulated
+    complexity: 3
+    prerequisites: [C1-4, C1-5-1]
+    assignee: User
+    archon_id: null
+
+  - id: C1-5-4
+    type: subtask
+    parent: C1-5
+    title: Generate failure analysis report
+    description: |
+      Write detailed failure report to results/failure_analysis.md.
+      - Confusion matrix summary
+      - Per-family failure breakdown
+      - Feature distribution observations
+      - Systematic patterns
+      - Proposed extensions (e.g., "Add GroupNorm count")
+    acceptance_criteria:
+      - Markdown report generated
+      - Follows PRD template (Appendix C)
+      - Saved to results/failure_analysis.md
+    complexity: 3
+    prerequisites: [C1-5-1, C1-5-2, C1-5-3]
+    assignee: User
+    archon_id: null
+
+  - id: C1-6
+    type: epic
+    title: Gate Decision and Validation Report
+    description: |
+      Implement GateDecisionMaker to evaluate SHOULD_WORK gate and generate report.
+      - Evaluate P1: Overall accuracy ≥70%
+      - Evaluate P2: ≥3/4 families pass 70%
+      - Generate gate decision (PASS/DOCUMENT)
+      - Generate recommendation based on failure patterns
+      - Save to 04_validation.md
+
+      Module: src/gate_decision.py
+      Methods: evaluate_gate(), generate_recommendation()
+    acceptance_criteria:
+      - GateDecisionMaker class implemented
+      - Gate decision computed (PASS/DOCUMENT)
+      - Recommendation generated
+      - Validation report saved to results/04_validation.md
+    complexity: 8
+    prerequisites: [C1-4, C1-5]
+    assignee: User
+    archon_id: null
+
+  - id: C1-6-1
+    type: subtask
+    parent: C1-6
+    title: Implement gate evaluation logic
+    description: |
+      Create evaluate_gate() to check SHOULD_WORK thresholds.
+      - P1: overall_accuracy ≥ 0.70
+      - P2: count(family_accuracy ≥ 0.70) ≥ 3
+      - Return gate_decision: "PASS" or "DOCUMENT"
+    acceptance_criteria:
+      - Gate logic implemented
+      - Returns PASS/DOCUMENT decision
+    complexity: 2
+    prerequisites: [C1-4]
+    assignee: User
+    archon_id: null
+
+  - id: C1-6-2
+    type: subtask
+    parent: C1-6
+    title: Generate gate recommendation
+    description: |
+      Create generate_recommendation() based on gate result and failure patterns.
+      - If PASS: "Edge case support confirmed, no action required"
+      - If DOCUMENT: "Document scope boundaries, propose extensions"
+      - Include specific recommendations from failure analysis
+    acceptance_criteria:
+      - Recommendation text generated
+      - Tailored to gate decision and failure patterns
+    complexity: 2
+    prerequisites: [C1-6-1, C1-5]
+    assignee: User
+    archon_id: null
+
+  - id: C1-6-3
+    type: subtask
+    parent: C1-6
+    title: Generate validation report
+    description: |
+      Write 04_validation.md following PRD structure.
+      - Executive summary (gate decision, accuracy, degradation)
+      - Results (overall + per-family breakdown)
+      - Failure mode analysis (link to failure_analysis.md)
+      - Scope boundaries (supported vs unsupported edge cases)
+      - Recommendations
+      - Conclusion (gate decision rationale)
+    acceptance_criteria:
+      - Validation report generated
+      - Follows PRD Section 11.3 template
+      - Saved to results/04_validation.md
+    complexity: 2
+    prerequisites: [C1-6-1, C1-6-2, C1-5-4]
+    assignee: User
+    archon_id: null
+
+  # ============================================================================
+  # FAILSAFE (1 task)
+  # ============================================================================
+
+  - id: FAILSAFE-001
+    type: failsafe
+    title: Update verification_state.yaml with h-c1 result
+    description: |
+      Update verification_state.yaml with h-c1 validation outcome.
+      - Read gate decision from results/accuracy_by_family.json
+      - Update h-c1.validation.status = "COMPLETED"
+      - Set h-c1.validation.result with gate decision and key metrics
+      - Set h-c1.completed = true/false based on gate
+      - Set h-c1.completed_at = current timestamp
+    acceptance_criteria:
+      - verification_state.yaml updated
+      - h-c1 marked as completed (if PASS) or documented (if FAIL)
+    complexity: 2
+    prerequisites: [C1-6]
+    assignee: User
+    archon_id: null
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+# Total tasks: 30
+# - Environment setup: 1
+# - Epic tasks: 6 (C1-1 through C1-6)
+# - Subtasks: 22
+# - Failsafe: 1
+#
+# Complexity distribution:
+# - Total: 58
+# - Epic breakdown: C1-1(8), C1-2(10), C1-3(6), C1-4(12), C1-5(14), C1-6(8)
+#
+# Budget: 30 tokens (MINIMAL tier with 6 epics)

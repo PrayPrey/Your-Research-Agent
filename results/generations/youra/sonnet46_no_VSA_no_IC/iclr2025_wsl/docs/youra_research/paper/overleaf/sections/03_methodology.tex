@@ -1,0 +1,49 @@
+\section{Methodology}
+\label{sec:method}
+
+Our experimental design is constructed to make the crossover visible. The minimum-data threshold can only be detected if the training size grid is fine enough to straddle it, and the intermediate condition (PermAug) can only be compared if it is implemented correctly alongside both extremes. Each design decision follows from these requirements.
+
+\subsection{Problem Setup}
+
+We study \emph{supervised weight-space property prediction}: given a set of trained neural networks $\{(\theta_i, y_i)\}_{i=1}^N$, where $\theta_i \in \mathbb{R}^d$ are the weight parameters and $y_i \in \mathbb{R}$ is a ground-truth property (test accuracy), we learn an encoder $f_\phi: \mathbb{R}^d \to \mathbb{R}^h$ and a prediction head $g_\psi: \mathbb{R}^h \to \mathbb{R}$ to minimize MSE on held-out models. We measure performance via R$^2$ on a fixed test split shared across all encoder types.
+
+The \textbf{efficiency ratio} is our primary evaluation metric:
+\begin{equation}
+    \text{EfficiencyRatio} = N_{\text{plain},90} / N_{\text{equiv},90}
+\end{equation}
+where $N_{x,90}$ is the minimum training size at which encoder $x$ reaches 90\% of its peak R$^2$. A ratio $\geq 2$ indicates the equivariant encoder reaches equivalent relative performance at half or less the data requirement of the plain encoder.
+
+\subsection{Dataset}
+
+We use the \textbf{ModelZooDataset CIFAR-10 CNN zoo} \cite{Schurholt2022Model}, approximately 9,000 convolutional neural networks trained on CIFAR-10 with systematically varied hyperparameters. We use the standardized shared train/test split from the repository---ensuring all encoder types are trained and evaluated on identical splits---at training sizes $N \in \{100, 250, 500, 1000, \text{full}\}$. The full training set contains approximately 7,000 models; the test set is fixed at approximately 2,000 models.
+
+\subsection{Encoder Architectures}
+
+We compare three conditions:
+
+\textbf{Flat-MLP (Plain baseline).} All weight parameters are flattened into a single vector and passed through a standard MLP with 3 hidden layers, hidden dimension 256, ReLU activations (${\sim}190$K parameters). This encoder is permutation-sensitive by design.
+
+\textbf{Flat-MLP + PermAug (Augmented intermediate).} Identical to Flat-MLP but during training each model's first hidden layer is randomly permuted before flattening, with 11$\times$ expansion ($N{=}100 \to 1{,}100$ effective samples). PermAug is verified to produce meaningfully different augmented samples from originals ($\text{aug\_diff}{=}4.12 \gg 10^{-6}$).
+
+\textbf{GNN-NFN (Structural equivariant encoder).} The GNN-NFN architecture \cite{Kofinas2024Graph} represents each neural network as a computational graph and processes it with permutation-equivariant message-passing operations. We use 4 layers, hidden dimension 64 (${\sim}180$K parameters). All three encoders operate in the \emph{medium parameter tier} (50K--200K).
+
+\subsection{Training Protocol}
+
+All encoders: Adam optimizer, learning rate $1{\times}10^{-3}$, weight decay $1{\times}10^{-4}$, batch size 64, 100 epochs. Hyperparameters were tuned once on the full-data condition and held fixed across all training sizes---standard practice in learning curve studies.
+
+\subsection{Evaluation Metrics}
+
+\begin{itemize}
+    \item \textbf{Test R$^2$:} Primary metric.
+    \item \textbf{Sample efficiency ratio:} $N_{\text{plain},90} / N_{\text{equiv},90}$ (interpolated from learning curve).
+    \item \textbf{Bootstrap 95\% CI:} Percentile method, 1,000 resamples.
+    \item \textbf{PermAug fraction of equivariant gap:} $(R^2_{\text{PermAug}} - R^2_{\text{flat}}) / (R^2_{\text{GNN-NFN}} - R^2_{\text{flat}})$.
+\end{itemize}
+
+\subsection{Permutation Equivariance Verification}
+
+We apply 50 random layer permutations to 200 randomly sampled CIFAR-10 zoo models (10,000 checks for GNN-NFN and flat-MLP) and measure max absolute output difference. DWSNets, which requires $M{>}2$ FC layers (incompatible with the CIFAR-10 CNN zoo's 2 FC layers), is verified on 50 synthetic 4-layer MLP weight tensors (1,000 checks). This verification confirms equivariance as a structural architectural property independent of training.
+
+\subsection{Experimental Phasing Note}
+
+The flat-MLP and GNN-NFN results were generated in the primary experiment (h-m2), which loaded stored baseline results from h-e1 for the full-data condition. PermAug results were generated in a follow-up experiment (h-m3) that reloaded the flat-MLP and GNN-NFN baseline results from h-m2; PermAug training in h-m3 used a distinct random seed. All three conditions share the same test split and baseline checkpoints, but PermAug training was conducted in a separate experimental phase. This design allows direct comparison of the augmentation strategy under identical evaluation conditions, but the crossover finding---specifically the $N{=}100$ ordering between PermAug and GNN-NFN---should be interpreted with this in mind and confirmed under a fully co-trained single-experiment design.

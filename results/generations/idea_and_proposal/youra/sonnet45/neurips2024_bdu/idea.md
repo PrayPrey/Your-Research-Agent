@@ -1,0 +1,8 @@
+# Title
+Latent-Space Bayesian Inference for Calibrated Uncertainty Quantification in Large Language Models
+
+# Motivation
+Large language models (LLMs) deployed in critical applications like healthcare and scientific discovery require reliable uncertainty estimates, yet existing methods face a fundamental trade-off: Deep Ensembles provide good calibration but require 5× computational cost, while MC Dropout is efficient but poorly calibrated (ECE 0.12-0.15). Current Bayesian approaches operate in intractable parameter space (billions of dimensions) or input space (prompting), missing the opportunity to leverage LLM hidden states—which recent neuroscience-inspired work shows encode uncertainty information. This creates a critical gap: no method achieves both Bayesian rigor and computational tractability for frozen pretrained LLMs.
+
+# Main Idea
+We propose training sparse Gaussian Processes (GPs) over frozen LLM hidden state representations extracted from middle layers (L/2 to 3L/4). By operating in latent space (4K-8K dimensions) rather than parameter space (billions), this approach enables tractable Bayesian inference while preserving pretrained knowledge. The causal mechanism: frozen LLM embeddings encode task-relevant semantics → sparse GP (100-500 inducing points) provides exact posterior → calibrated predictions with epistemic uncertainty. We predict: (1) Expected Calibration Error <0.10, outperforming MC Dropout by 10%+; (2) out-of-distribution detection AUROC >0.80; (3) inference overhead <200ms. A 1-week pilot on GPT-2 de-risks the core assumption before scaling to billion-parameter models, with falsification if ECE≥0.10 or worse than all baselines.

@@ -1,0 +1,229 @@
+# Narrative Blueprint for Phase 6 Paper Writing
+# Generated: 2026-08-05
+# Research: Iso-Compute Feedback Type Comparison for LLM Code Generation (VerifAI)
+# Primary source: 045_validated_hypothesis.md (Section 8)
+
+paper_title: "Execution Feedback Dominates Static Analysis for LLM Code Repair: A Style-Function Dissociation"
+short_title: "VerifAI: Feedback Type Comparison at Fixed Compute"
+hypothesis_id: "H-IsoComputeFeedback-v1"
+
+# ============================================================================
+# HOOK DESIGN
+# ============================================================================
+
+hook:
+  strategy: "counterintuitive_finding"
+
+  opening_statement:
+    content: |
+      When pylint flags 100% of code failures, you might expect it to guide better repairs —
+      but when 94.3% of those flags are "missing newline" and "missing docstring,"
+      the LLM is being told to fix formatting on code that fails for logical reasons.
+    rationale: |
+      Counterintuitive: audience expects "pylint misses failures" as the mechanism (the original
+      prediction). The actual finding — "pylint flags everything but the flags are style noise" —
+      is more surprising, more specific, and sets up both the McNemar result (P1) and the
+      mechanism story (P2) simultaneously.
+
+  why_reader_should_care:
+    main_reason: "Choosing the wrong feedback signal for LLM code repair actively harms performance — pylint repair reduces HumanEval accuracy by 4.3pp while execution feedback improves it."
+    concrete_example: "Llama 3.1 8B with pylint/mypy feedback: HumanEval drops from 61.0% to 56.7%. With execution feedback: rises to 65.9%. Same model, same budget, opposite direction."
+    stakes: "Production systems that use static analysis as code quality feedback to LLMs may be inadvertently degrading functional correctness on complex algorithmic tasks."
+
+# ============================================================================
+# PROBLEM FRAMING (Three Levels)
+# ============================================================================
+
+problem_framing:
+  surface_problem:
+    description: "LLM-generated code fails frequently — 39% on HumanEval, 67% on MBPP for a competitive 7B model — and iterative repair has emerged as a promising approach to improve correctness."
+    common_understanding: "Adding feedback signals (execution results, static analysis warnings) to LLM repair loops improves code quality. The question is which signal works best."
+
+  deeper_problem:
+    description: "Not all feedback signals are equally informative for functional correctness. Static analysis tools like pylint and mypy were designed to enforce code style and type correctness — not to detect the logical and algorithmic errors that dominate HumanEval/MBPP failures."
+    why_overlooked: "Prior work (Blyth et al., 2025; FeedbackEval) either used security benchmarks (where pylint detects real issues) or excluded semantic static analysis from the comparison. No study provided an iso-compute head-to-head comparison of execution vs. pylint/mypy feedback on functional correctness benchmarks."
+    our_perspective: "The informativeness of a feedback signal for repair depends on how well it detects the *type* of errors present in failures — not just whether it detects *some* errors."
+
+  gap_in_existing_work:
+    description: "No existing study provides a compute-controlled, head-to-head comparison of execution test feedback vs. pylint/mypy static analysis feedback on HumanEval/MBPP pass@1, with mechanistic analysis of why one signal outperforms the other."
+    why_gap_exists: "FeedbackEval (Dai et al., 2025) compared compiler vs. test feedback but excluded semantic pylint/mypy; Blyth et al. (2025) used a security benchmark (not pass@k); no study normalizes by token budget."
+    why_gap_matters: "Without a controlled comparison, practitioners cannot make principled decisions about which feedback tool to integrate into code repair pipelines."
+
+# ============================================================================
+# KEY INSIGHT
+# ============================================================================
+
+key_insight:
+  type: "observation_based"
+
+  aha_moment:
+    one_sentence: "Pylint flags 100% of HumanEval failures, but 94.3% of those flags are Convention-category style issues that fire universally on all LLM-generated code regardless of correctness — creating a style-function dissociation that makes pylint feedback actively harmful on complex algorithmic tasks."
+    expanded_explanation: |
+      The critical distinction is between *coverage* and *informativeness*. Pylint achieves 100%
+      coverage because style rules like C0304 (missing newline) and C0114 (missing docstring)
+      fire on virtually every snippet of LLM-generated code regardless of whether the code is
+      correct or not. When the LLM receives this as feedback, it tries to repair style — potentially
+      rewriting logically correct solutions while "fixing" formatting, explaining the HumanEval
+      regression (−4.3pp). Execution feedback, by contrast, is inherently informative: a failing
+      test always tells you what the code does wrong functionally.
+
+  why_others_missed_it:
+    common_assumptions: "Prior work assumed that high pylint coverage of failures implied informative feedback. Blyth et al. measured pylint success on security benchmarks where E-category functional flags genuinely dominate."
+    our_different_view: "We decompose pylint flags by category (E/W/C/R/I) to distinguish functional coverage (E+W: 12.5%) from style coverage (C: 94.3%), revealing that 'coverage' and 'informativeness' are decoupled for LLM code generation failures."
+    enabling_factor: "Running both the feedback type comparison (h-m1) and the coverage analysis (h-m2) in the same pipeline, allowing us to connect the mechanism study to the outcome."
+
+  what_makes_it_work:
+    intuitive_explanation: "A code review that says 'your algorithm is wrong because the loop exits early' is more useful than one that says 'add a docstring.' Pylint mostly says the latter."
+    key_mechanism: "Convention-category pylint flags (C0304, C0114) are properties of the code generation context (LLM generates without newlines/docstrings by default) rather than indicators of logical errors. They correlate with all LLM output, not with incorrect output specifically."
+
+# ============================================================================
+# EVIDENCE NARRATIVE
+# ============================================================================
+
+evidence_narrative:
+  main_claim:
+    statement: "Execution test feedback achieves significantly larger pass@1 improvement than pylint/mypy static analysis at fixed token budget B=1000 on HumanEval and MBPP (Llama 3.1 8B Instruct)."
+    measurable_criteria: "McNemar's test: p<0.05 on both benchmarks; positive Δ_exec > Δ_pylint"
+
+  supporting_evidence:
+    - id: "evidence_p1_main"
+      what: "McNemar HumanEval: exec_only=15, pylint_only=0, p=0.0001; MBPP: exec_only=85, pylint_only=2, p<1e-18"
+      so_what: "Zero problems uniquely repaired by pylint on HumanEval — execution feedback strictly dominates. On MBPP, pylint uniquely fixes 2 problems vs. execution fixing 85 exclusively."
+      how_it_supports_claim: "Provides the primary statistical evidence for P1 at both benchmarks with extreme significance."
+
+    - id: "evidence_p1_delta"
+      what: "Δ_exec_HE=+0.049, Δ_exec_MBPP=+0.402; Δ_pylint_HE=−0.043, Δ_pylint_MBPP=+0.183"
+      so_what: "Execution feedback improves both benchmarks; pylint harms HumanEval and provides smaller benefit on MBPP. The 40.2pp MBPP improvement demonstrates the practical magnitude of the execution advantage."
+      how_it_supports_claim: "Shows both statistical significance (McNemar) and practical significance (Δ magnitudes)."
+
+    - id: "evidence_p2_mechanism"
+      what: "Pylint category breakdown: C=283 flags (94.3%), R=8 (2.7%), W=7 (2.3%), E=1 (0.3%) across 64 HumanEval failures. Total coverage=100%, functional (E+W) coverage=12.5%."
+      so_what: "When LLMs receive pylint feedback, 94.3% of the signal is about missing newlines and docstrings. The LLM may 'repair' these while introducing logical errors — especially on complex algorithmic tasks (HumanEval)."
+      how_it_supports_claim: "Provides the mechanistic explanation for WHY pylint underperforms: low functional signal quality, not low overall coverage."
+
+    - id: "evidence_asymmetry"
+      what: "Pylint helps MBPP (+18.3pp) but hurts HumanEval (−4.3pp); execution helps both."
+      so_what: "Task complexity moderates feedback utility. MBPP's simpler function-completion tasks are more tolerant of style-guided rewrites; HumanEval's algorithmic problems suffer when pylint style feedback triggers logical restructuring."
+      how_it_supports_claim: "Supports the style-function dissociation mechanism and reveals the boundary conditions of the finding."
+
+  surprising_findings:
+    - finding: "Pylint achieves 100% total coverage (flags ALL HumanEval failures)"
+      why_surprising: "Original prediction (P2) was <50% coverage — the null result on the primary metric was unexpected and counterintuitive to reviewers expecting pylint to miss failures."
+      our_interpretation: "The 100% is driven by universal style flags, not functional detection. This is a stronger mechanistic finding than the original prediction: we can now specify exactly which pylint signals are noise (C0304, C0114) and what proportion are informative (12.5%)."
+
+    - finding: "HumanEval regresses under pylint repair (−4.3pp)"
+      why_surprising: "Expected pylint feedback to be neutral-to-positive, not harmful. Any feedback was expected to produce zero or positive delta."
+      our_interpretation: "Style-guided corruption: pylint flags cause LLM to rewrite solution style while introducing logical errors. Most likely mechanism given the 94.3% C-category dominance."
+
+# ============================================================================
+# BROADER IMPACT & TAKEAWAY
+# ============================================================================
+
+takeaway:
+  main_contribution:
+    one_sentence: "First iso-compute comparison showing execution feedback significantly outperforms pylint/mypy for LLM code repair, with a novel style-function dissociation explaining why pylint's 100% failure coverage translates to only 12.5% functional signal."
+    why_significant: "Provides principled guidance for choosing feedback signals in LLM code repair systems; reveals that coverage metrics can be misleading without category decomposition."
+
+  implications:
+    for_field: "Feedback signal evaluation should decompose coverage by error category, not just report total coverage. Papers that measure pylint coverage without E/W decomposition may systematically overestimate feedback informativeness."
+    for_practice: "Coding assistants and automated repair pipelines should prefer execution-based feedback over static analysis when the goal is functional correctness; pylint/mypy may be counterproductive on algorithmic coding tasks."
+
+  future_possibilities:
+    immediate_extensions: "W+E only pylint filtering (removing C-category noise); combined feedback; per-model-scale analysis (Qwen2.5-Coder-7B replication); larger token budget (B=2000+) allowing multi-round repair."
+    longer_term_vision: "Feedback signal design as a first-class engineering problem for LLM code systems: what makes a feedback signal informative for a specific error distribution?"
+
+# ============================================================================
+# SECTION-LEVEL NARRATIVE GOALS
+# ============================================================================
+
+section_goals:
+  abstract:
+    narrative_purpose: "Compress full story into ~150 words — lead with counterintuitive finding, share mechanism insight, cite one headline result"
+    key_message: "Pylint's apparent 100% coverage is style noise; execution feedback dominates at fixed compute, especially on MBPP (+40.2pp)."
+    tone: "Story-first, not metrics-first"
+
+  introduction:
+    narrative_purpose: "Hook (counterintuitive coverage finding) → Problem escalation (3 levels) → Key insight preview (style-function dissociation) → Contributions (as story)"
+    hook_strategy: "counterintuitive_finding — start with the coverage paradox"
+    transition_to_related: "After contributions, transition: 'Prior work has compared feedback types but no study isolates pylint/mypy vs. execution at fixed compute on functional correctness benchmarks...'"
+    contributions:
+      - "First iso-compute comparison of execution vs. pylint/mypy on HumanEval/MBPP pass@1 (McNemar-validated)"
+      - "Novel measurement: pylint style-function dissociation (94.3% C-category; 12.5% E+W functional coverage)"
+      - "Benchmark asymmetry finding: pylint harms HumanEval (−4.3pp) but helps MBPP (+18.3pp), revealing task-complexity moderation"
+
+  related_work:
+    narrative_purpose: "Show existing work insufficient → justify our specific experimental design"
+    positioning_strategy: "Three clusters: (1) execution feedback repair (strong, but no pylint comparison); (2) static analysis feedback (Blyth: wrong benchmark); (3) feedback type comparison (FeedbackEval: missing pylint/mypy)"
+    key_comparison_points:
+      - "Self-Debug/Reflexion: established execution feedback efficacy but no pylint comparison"
+      - "Blyth et al. 2025: pylint on security benchmark, not pass@k — cannot generalize to functional correctness"
+      - "FeedbackEval (Dai et al. 2025): compared compiler vs. test feedback but excluded semantic static analysis (pylint/mypy)"
+      - "Iterative Self-Repair (Arimbur 2026): modern 8B models succeed at repair but studied only execution feedback"
+      - "Our position: fills the head-to-head pylint/mypy vs. execution gap with compute-controlled comparison + mechanism analysis"
+
+  methodology:
+    narrative_purpose: "WHY iso-compute comparison is the right evaluation framework → experimental design as natural consequence"
+    connection_to_insight: "The iso-compute framing is motivated by the insight that any comparison must hold inference budget constant — otherwise results conflate feedback quality with compute quantity."
+    key_design_decisions:
+      - "ISO-COMPUTE: Fixed B=1000 output tokens per problem — prevents confounding feedback quality with compute quantity"
+      - "MCNEMAR TEST: Paired test on same problems — captures within-problem feedback type effect"
+      - "MECHANISM STUDY: Separate h-m2 to decompose pylint coverage by category (E/W/C/R/I)"
+      - "FEEDBACK FORMAT: Pylint/mypy output formatted as structured feedback prompt (not raw tool output)"
+    baseline_conditions: "no_feedback (single pass, no repair) + pylint/mypy repair + execution feedback repair"
+
+  experiments:
+    narrative_purpose: "Design tests that verify specific claims — each RQ maps to a contribution"
+    experimental_questions:
+      - "RQ1: Does execution feedback achieve significantly larger pass@1 improvement than pylint/mypy at B=1000? (Tests P1)"
+      - "RQ2: What fraction of HumanEval failures does pylint/mypy detect, and what categories dominate? (Tests P2 mechanism)"
+      - "RQ3: Does the feedback advantage vary by benchmark complexity? (Tests asymmetry finding)"
+    dataset_rationale: "HumanEval (164 problems, algorithmic) + MBPP (378 problems, function-completion) — different complexity profiles allow asymmetry analysis"
+    baseline_rationale: "No-feedback baseline (single-pass generation) as compute anchor; pylint/mypy and execution as treatment conditions"
+    metric_rationale: "pass@1 improvement delta as primary (iso-compute normalization); McNemar as statistical test (paired, binary outcome)"
+
+  results:
+    narrative_purpose: "Present evidence in argument form — each result supports the claim chain"
+    main_result_highlight: "McNemar MBPP: exec_only=85, pylint_only=2, p<1e-18 — execution repair uniquely fixes 42.5x more problems than pylint"
+    result_order: "P1 (main comparison) → P2 mechanism (coverage decomposition) → Asymmetry analysis → Per-round trajectory"
+    figure_assignments:
+      fig_1: "Lead figure: delta bar chart with CI + p-values (h-m1 figure1_delta_comparison.png)"
+      fig_2: "Mechanism figure: pylint category breakdown (h-m2 fig2_pylint_categories.png)"
+      fig_3: "Per-round trajectory (h-m1 figure2_per_round_trajectory.png)"
+      fig_4: "Absolute pass@1 values (h-e1 figure1_pass_at_1_comparison.png)"
+      fig_5: "Coverage bar with decomposition (h-m2 fig1_coverage_bar.png)"
+
+  discussion:
+    narrative_purpose: "Interpret style-function dissociation; acknowledge limitations honestly; connect to broader implications"
+    honest_limitations:
+      - "L1: Single model (Llama 3.1 8B only; Qwen2.5-Coder-7B not executed)"
+      - "L2: B=1000 allows only ~1 repair round in practice"
+      - "L3: P2 primary prediction refuted (coverage=100% not <50%); reported as informative null"
+    key_findings_interpretation:
+      - "Style-guided corruption explains HumanEval regression under pylint repair"
+      - "Task-complexity moderation explains MBPP benefit (simpler tasks tolerate style-guided rewrites)"
+      - "Mypy coverage = 0% confirms HumanEval failures are logic/runtime not type errors"
+
+  conclusion:
+    narrative_purpose: "Callback to hook → summary of contributions → evidence-grounded future work → memorable closing"
+    callback_to_hook: "Return to the counterintuitive finding: pylint flags everything, but 'everything' turns out to be mostly formatting. The lesson is that coverage without category analysis misleads."
+    memorable_ending: "For LLM code repair, the question is not whether a tool detects errors — it is whether it detects the right errors."
+
+# ============================================================================
+# NARRATIVE COHERENCE CHECKLIST
+# ============================================================================
+
+narrative_coherence_checklist:
+  - check: "Does Introduction hook connect to Conclusion ending?"
+    status: "PLANNED — both center on coverage paradox and style-function dissociation"
+
+  - check: "Does each section naturally flow to the next?"
+    status: "PLANNED — Intro→RelWork→Method→Experiments→Results→Discussion→Conclusion follow causal chain"
+
+  - check: "Is key insight (style-function dissociation) consistently emphasized?"
+    status: "PLANNED — appears in intro preview, methodology rationale, results mechanism, discussion interpretation"
+
+  - check: "Are all major claims supported by evidence?"
+    status: "VERIFIED — P1 by McNemar; P2 by h-m2 category decomposition; asymmetry by both h-e1 and h-m1"
+
+  - check: "Would a busy reviewer find Abstract compelling?"
+    status: "PLANNED — lead with counterintuitive, one striking result (+40.2pp MBPP), mechanism in one sentence"

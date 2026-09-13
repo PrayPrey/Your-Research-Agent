@@ -1,0 +1,8 @@
+# Title
+Unifying Spurious Correlation Mitigation via Multi-Dimensional Invariance Constraints
+
+# Motivation
+Machine learning models frequently fail in deployment due to spurious correlations—relying on scanner artifacts in medical imaging, superficial word overlap in NLP, or ancestry-specific genes in precision medicine. Current solutions address only isolated aspects: causal methods target structural confounding, fairness approaches protect subgroups, and OOD techniques handle distribution shifts. No unified framework exists to simultaneously combat spurious correlations across all three dimensions, leaving models vulnerable to real-world scenarios involving multiple concurrent shifts.
+
+# Main Idea
+We propose the Invariance-Based Translation Framework (IBTF), which formally unifies causal ML, algorithmic fairness, and OOD generalization through a single principle: probability distribution invariance P(Y|X,C) across structural, distributional, and environmental dimensions. The core innovation is operationalizing spurious correlations as violations of these three invariance types simultaneously. Models trained under multi-constraint optimization learn features with ≥40% lower mutual information with spurious attributes compared to single-dimension approaches. We predict ≥5% absolute improvement in worst-group accuracy and ≥15% reduction in cross-domain degradation versus specialized baselines. Experiments across Waterbirds, CelebA, PACS, and ColoredMNIST (750 runs) will test whether joint invariance satisfaction bounds spurious correlation risk more tightly than individual constraints. This framework enables cross-translation of methods between communities and provides the first composite robustness metric for multi-shift scenarios.

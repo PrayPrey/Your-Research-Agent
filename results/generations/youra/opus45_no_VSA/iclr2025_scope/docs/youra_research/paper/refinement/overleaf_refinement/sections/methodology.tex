@@ -1,0 +1,39 @@
+
+\subsubsection{Overview}
+
+Given an instruction x, IPCR routes to a bank of k task-specific LoRA adapters through three steps:
+
+\begin{enumerate}
+\item \textbf{Embed:} Encode the instruction prefix using a frozen sentence encoder $f: X \rightarrow \mathbb{R}^d$
+\item \textbf{Route:} Apply a linear probe $W \in \mathbb{R}^{k\times d}$ to predict adapter scores
+\item \textbf{Select:} Choose the highest-scoring adapter (hard routing)
+\end{enumerate}
+
+If instruction semantics and adapter specializations share geometric structure, a linear mapping should suffice. Any success demonstrates intrinsic alignment, and failure would motivate more complex architectures.
+
+\subsubsection{Instruction Embedding}
+
+MiniLM-L6-v2, a 22M-parameter sentence encoder pretrained via contrastive learning, serves as the embedding function. The encoder is completely frozen during both probe training and inference. Only the instruction prefix (first 128 tokens) is encoded, excluding input/output content. This focuses routing on task semantics rather than instance-specific features.
+
+\subsubsection{Linear Probe Training}
+
+The routing probe is a multinomial logistic regression classifier:
+
+p(y = j | x) = exp($W_j \cdot$ f(x)) / $\Sigma _i$ exp($W_i \cdot$ f(x))
+
+where $W_j$ is the weight vector for adapter j. Training uses L-BFGS optimization with balanced class weights to handle task-frequency imbalance in FLAN.
+
+A linear probe has minimal capacity---it can only exploit structure that already exists in the embedding space. If the probe succeeds, this provides evidence that MiniLM embeddings encode task-relevant structure.
+
+\subsubsection{Adapter Bank}
+
+Each adapter is a task-specialized LoRA with rank r = 16, scaling factor $\alpha$ = 32, applied to query/value projections in all attention layers. Adapters are trained independently on their respective task families, then frozen for routing experiments.
+
+\subsubsection{Baseline Comparisons}
+
+To isolate routing contribution, comparisons include:
+\begin{itemize}
+\item \textbf{Oracle:} Always select the adapter trained on the input's task family (upper bound)
+\item \textbf{Uniform:} Equal weight to all adapters (no routing information)
+\item \textbf{Random:} Uniformly random adapter selection
+\end{itemize}

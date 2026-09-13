@@ -1,0 +1,575 @@
+# Phase 3 Implementation Tasks: h-m2
+# Generated: 2026-05-10
+# Hypothesis: h-m2 (MECHANISM / INCREMENTAL)
+# Tier: FULL
+# Budget: 30 tasks (11 epics + 19 subtasks = 30)
+# Schema version: 1.1
+
+schema_version: "1.1"
+hypothesis_id: "h-m2"
+hypothesis_type: "MECHANISM"
+tier: "FULL"
+budget_total: 30
+task_count: 30
+generated_at: "2026-05-10T10:30:00+00:00"
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 11
+  subtasks: 19
+  failsafe: 0
+  data_preparation: 0
+  total: 30
+
+tasks:
+
+  # ============================================================
+  # ENVIRONMENT SETUP (priority 94)
+  # ============================================================
+
+  - id: "A-1"
+    title: "Environment & Config Setup"
+    type: "setup"
+    priority: 94
+    complexity: 7
+    status: "todo"
+    description: >
+      Install all dependencies, set CUDA_VISIBLE_DEVICES, create output
+      directories (h-m2/data/, h-m2/results/, h-m2/figures/, h-m2/code/),
+      verify h-m1 code imports via sys.path, and write H2ExperimentConfig
+      dataclass to h-m2/code/config.py.
+    acceptance_criteria:
+      - "All packages installed: evalplus>=0.3.0 transformers>=4.35.0 torch accelerate mypy>=1.0.0 z3-solver>=4.12.0 numpy>=1.24.0 matplotlib>=3.7.0 syncode"
+      - "CUDA_VISIBLE_DEVICES set to single available GPU"
+      - "Directories created: h-m2/data/, h-m2/results/, h-m2/figures/, h-m2/code/"
+      - "h-m1 code importable: from sys.path import ExtendedBaselineGenerator, FMDClassifier, BootstrapCI"
+      - "H2ExperimentConfig written with all fields and defaults"
+    reference_files:
+      - "h-m2/03_prd.md#6-dependencies"
+      - "h-m2/03_config.md#h2experimentconfig"
+      - "h-m2/03_architecture.md#A-1"
+
+  # ============================================================
+  # EPIC IMPLEMENTATION TASKS (priority 93-50)
+  # ============================================================
+
+  - id: "A-2"
+    title: "Baseline Pool Generation (164 Problems)"
+    type: "data-pipeline"
+    priority: 93
+    complexity: 10
+    status: "todo"
+    description: >
+      Extend the baseline (unconstrained CodeLlama-7B) frozen pool from
+      h-e1/h-m1 to all 164 HumanEval+ problems. Reuse h-e1 baseline pool
+      for first 20 problems if available. Generate remaining 144 problems
+      with seed=problem_idx*100+sample_idx, T=0.8, N=20. Checkpoint every
+      10 problems. Output: h-m2/data/baseline_pool.jsonl (3,280 samples).
+    acceptance_criteria:
+      - "baseline_pool.jsonl covers all 164 HumanEval+ problems"
+      - "N=20 samples per problem, total 3280 samples"
+      - "Seed formula: problem_idx * 100 + sample_idx applied consistently"
+      - "First 20 problems reuse h-e1/data/baseline_pool.jsonl if available"
+      - "JSONL format: {task_id, problem_idx, sample_idx, seed, completion, ast_valid}"
+      - "Checkpoint/resume functional (restart from last completed problem)"
+    reference_files:
+      - "h-m2/03_prd.md#fr-1-full-scale-baseline-pool-164-problems"
+      - "h-m2/03_config.md#a-2-baseline-pool-generation-config"
+      - "h-m2/03_logic.md#external-dependencies-api"
+
+  - id: "A-3"
+    title: "Failure Mode Distribution (FMD) Classification"
+    type: "evaluation"
+    priority: 92
+    complexity: 11
+    status: "todo"
+    description: >
+      Classify all 3,280 baseline pool samples into FMD strata in parallel:
+      syntax (ast.parse fails), type_structural (ast valid, mypy_exit_code≠0),
+      constraint_logical (ast+mypy pass, z3_eligible, functional fail),
+      functional_only, pass. Validate type_structural stratum ≥10 problems.
+      Cross-validate sequential vs parallel on 10 samples (Assumption A5).
+      Output: h-m2/data/fmd_classification.jsonl.
+    acceptance_criteria:
+      - "All 3280 samples classified into one of 5 strata"
+      - "mypy flags: --ignore-missing-imports --no-error-summary"
+      - "type_structural stratum contains >=10 problems (pre-condition check)"
+      - "Cross-validation: sequential vs parallel FMD agrees on 10-sample subset"
+      - "fmd_classification.jsonl produced with stratum per sample"
+      - "FMD summary statistics logged (counts per stratum)"
+    reference_files:
+      - "h-m2/03_prd.md#fr-2-failure-mode-distribution-fmd-classification"
+      - "h-m2/03_config.md#a-3-fmd-classification-config"
+      - "h-m2/03_logic.md#subtask-a-31-and-a-32"
+
+  - id: "A-4"
+    title: "mypy/ast Iterative Feedback Repair"
+    type: "model"
+    priority: 91
+    complexity: 16
+    status: "todo"
+    description: >
+      Implement MypyFeedbackRepair class and apply 3-round mypy/ast iterative
+      repair to all 164 baseline pool problems. Each round: ast.parse check →
+      mypy.api.run → if errors: build structured (line, error_type, msg) feedback
+      → regenerate with CodeLlama-7B at T=0.2. Stop early if clean. Log
+      mechanism activation. Checkpoint/resume. Output: h-m2/data/mypy_repair_pool.jsonl.
+    acceptance_criteria:
+      - "MypyFeedbackRepair class implemented in h-m2/code/mypy_feedback_repair.py"
+      - "3-round max loop with early stopping on clean ast+mypy"
+      - "Structured feedback: list of (line_num, error_type, message) tuples"
+      - "Repair temperature T=0.2 (vs T=0.8 for generation)"
+      - "Mechanism log: 'mypy_feedback_applied: round={r}, errors_before={n}, errors_after={m}'"
+      - "mechanism_activated_rate > 0.10 (fraction of samples where rounds_used > 0)"
+      - "mypy_repair_pool.jsonl: {task_id, problem_idx, sample_idx, rounds_used, final_code, success, feedback_history}"
+      - "Checkpoint/resume functional"
+    reference_files:
+      - "h-m2/03_prd.md#fr-3-mypyast-iterative-feedback-repair"
+      - "h-m2/03_logic.md#subtask-a-41-a-42-a-43-a-44"
+      - "h-m2/03_config.md#h2repairconfigmypyfeedbackrepairconfig"
+
+  - id: "A-5"
+    title: "SynCode Pool Extension to Full N=164"
+    type: "data-pipeline"
+    priority: 90
+    complexity: 12
+    status: "todo"
+    description: >
+      Extend h-m1 SynCode pool (20 problems) to all 164 HumanEval problems.
+      Reuse existing h-m1/data/syncode_pool.jsonl for first 20. Generate
+      remaining 144 problems using ExtendedSyncodeGenerator with identical
+      seed scheme. Then recompute F_SynCode→✓ at full N=164 as problem IDs
+      where pass@1 transitions from 0 to >0. Output: h-m2/data/syncode_pool.jsonl,
+      h-m2/data/f_syncode_transitions.json.
+    acceptance_criteria:
+      - "syncode_pool.jsonl covers all 164 problems, N=20 samples each"
+      - "First 20 problems reuse h-m1/data/syncode_pool.jsonl where available"
+      - "SynCode initialized: grammar='python', mode='grammar_mask', device='auto'"
+      - "F_SynCode→✓: problem IDs with at least one pass@1 transition (baseline fail → syncode pass)"
+      - "f_syncode_transitions.json: {f_syncode: list[str], n_transitions: int, n_problems: int}"
+      - "syncode_pool.jsonl format: {task_id, problem_idx, sample_idx, seed, completion, ast_valid, pass_at_1}"
+    reference_files:
+      - "h-m2/03_prd.md#fr-4-fsyncode-recomputation-at-full-n164"
+      - "h-m2/03_logic.md#subtask-a-51-a-52"
+      - "h-m2/03_architecture.md#A-5"
+
+  - id: "A-6"
+    title: "F_mypy→✓ Transition Set Extraction"
+    type: "evaluation"
+    priority: 89
+    complexity: 8
+    status: "todo"
+    description: >
+      Extract F_mypy→✓ = set of problem IDs where any sample transitions from
+      baseline fail to post-mypy success. Restrict to mypy-eligible problems
+      (≥1 baseline sample with mypy_exit_code≠0). Compute repair_success_rate
+      and mechanism_activated_rate. Validate F_mypy→✓ is non-empty (PoC
+      pre-condition). Output: h-m2/data/f_mypy_transitions.json.
+    acceptance_criteria:
+      - "F_mypy→✓ defined as problem IDs where baseline pass@1=0 AND post-mypy pass@1>0"
+      - "Restricted to mypy-eligible problems only"
+      - "F_mypy→✓ is non-empty (>=1 transition; PoC failure if empty)"
+      - "f_mypy_transitions.json: {f_mypy: list[str], n_transitions: int, repair_success_rate: float, mechanism_activated_rate: float}"
+      - "repair_success_rate and mechanism_activated_rate logged"
+    reference_files:
+      - "h-m2/03_prd.md#fr-5-fmypy-transition-set-extraction"
+      - "h-m2/03_architecture.md#A-6"
+      - "h-m2/03_logic.md#external-dependencies-api"
+
+  - id: "A-7"
+    title: "C_score Computation (Jaccard Complement + Bootstrap CI)"
+    type: "evaluation"
+    priority: 88
+    complexity: 17
+    status: "todo"
+    description: >
+      Implement CScoreCalculator and compute C_score(SynCode, mypy) within
+      the eligibility-conditioned type/structural failure stratum. Compute
+      J_obs, E[J] (independence null model), C_score = (E[J]-J_obs)/E[J].
+      Bootstrap CI: 10,000 iters, problem-level resampling, Bonferroni α=0.0167.
+      Also compute raw C_score and per-difficulty-quintile C_score.
+      Output: h-m2/results/c_score_results.json.
+    acceptance_criteria:
+      - "CScoreCalculator implemented in h-m2/code/c_score_calculator.py"
+      - "Stratum: problems with >=1 baseline sample FMD=type_structural AND mypy-eligible"
+      - "J_obs = |F_SynCode ∩ F_mypy| / |F_SynCode ∪ F_mypy| within stratum"
+      - "E[J] = (r1*r2)/(r1+r2-r1*r2); C_score = (E[J]-J_obs)/E[J]"
+      - "Bootstrap: 10000 iters, problem-level resampling; p_value = P(C_score<=0)"
+      - "Bonferroni alpha=0.0167 applied to CI bounds"
+      - "Quintile breakdown: 5 difficulty bins by baseline pass@1 rate"
+      - "c_score_results.json: {c_score, j_obs, e_j, ci_lower, ci_upper, bootstrap_p_value, stratum_size, f_syncode_in_stratum, f_mypy_in_stratum, raw_c_score, quintile_results}"
+    reference_files:
+      - "h-m2/03_prd.md#fr-6-cscore-computation-within-eligibility-conditioned-stratum"
+      - "h-m2/03_logic.md#subtask-a-71-a-72-a-73-a-74"
+      - "h-m2/03_config.md#h2cscorecalculatorconfig"
+
+  - id: "A-8"
+    title: "Z3 Eligibility Delta Measurement (ΔP)"
+    type: "evaluation"
+    priority: 87
+    complexity: 13
+    status: "todo"
+    description: >
+      Implement Z3EligibilityDelta and compute ΔP = P(Z3_eligible | post-mypy)
+      - P(Z3_eligible | baseline) across all 164 problems. Use AST arithmetic
+      density heuristic + optional actual z3 encoding attempt (60s timeout).
+      Bootstrap CI: 10,000 iters, problem-level. CI lower > 0 required for
+      secondary claim. Output: h-m2/results/z3_eligibility_delta.json.
+    acceptance_criteria:
+      - "Z3EligibilityDelta implemented in h-m2/code/z3_eligibility_delta.py"
+      - "Heuristic: integer arithmetic density in code AST + return type annotation check"
+      - "Z3 timeout: 60,000ms (60s) per problem"
+      - "ΔP computed across all 164 problems (per-problem mean)"
+      - "Bootstrap: 10000 iters, problem-level; CI lower bound > 0 for secondary PASS"
+      - "z3_eligibility_delta.json: {delta_p, ci_lower, ci_upper, p_eligible_baseline, p_eligible_post_mypy, n_problems}"
+    reference_files:
+      - "h-m2/03_prd.md#fr-7-z3-eligibility-expansion-measurement-dp"
+      - "h-m2/03_logic.md#subtask-a-81-a-82"
+      - "h-m2/03_config.md#h2z3eligibilityconfig"
+
+  - id: "A-9"
+    title: "Visualization (6 Required Figures)"
+    type: "evaluation"
+    priority: 86
+    complexity: 10
+    status: "todo"
+    description: >
+      Generate all 6 required figures using matplotlib. Save to h-m2/figures/.
+      Figures: gate_metrics.png (C_score+ΔP with CI), jaccard_heatmap.png
+      (3-panel: raw/conditioned/quintile), fmd_distribution.png (pie chart),
+      z3_eligibility_comparison.png (before/after bar), repair_convergence.png
+      (round 1/2/3 cumulative), quintile_c_score.png (per-quintile C_score).
+    acceptance_criteria:
+      - "All 6 figures saved to h-m2/figures/ at DPI>=150"
+      - "gate_metrics.png: C_score vs 0 with 95% CI bar; ΔP with CI"
+      - "jaccard_heatmap.png: 3-panel (raw, eligibility-conditioned, difficulty-stratified)"
+      - "fmd_distribution.png: pie chart with 5 strata proportions"
+      - "z3_eligibility_comparison.png: baseline vs post-mypy P(Z3_eligible) with 95% CI"
+      - "repair_convergence.png: cumulative repair success fraction at rounds 1, 2, 3"
+      - "quintile_c_score.png: C_score per difficulty quintile with CI error bars"
+      - "Color scheme consistent with h-m1 (blue=SynCode, orange=mypy, grey=baseline)"
+    reference_files:
+      - "h-m2/03_prd.md#fr-8-visualization-and-reporting"
+      - "h-m2/03_config.md#a-9-visualization-config"
+      - "h-m2/03_architecture.md#A-9"
+
+  - id: "A-10"
+    title: "Gate Evaluation & Metrics JSON Assembly"
+    type: "evaluation"
+    priority: 85
+    complexity: 8
+    status: "todo"
+    description: >
+      Assemble complete metrics.json with all gate-relevant metrics. Apply
+      PASS/PARTIAL/FAIL gate logic: PASS = C_score>0 AND p<0.0167 AND ΔP>0.05
+      AND CI_lower>0. PARTIAL = C_score>0 but significance or ΔP threshold
+      not met. FAIL = C_score≤0. Log null result protocol if FAIL.
+      Output: h-m2/results/metrics.json.
+    acceptance_criteria:
+      - "metrics.json written with full schema per FR-9"
+      - "Gate result field: PASS | PARTIAL | FAIL"
+      - "All primary_metric fields populated: c_score, j_obs, e_j, bootstrap_p_value, ci_lower, ci_upper, stratum_size"
+      - "All secondary_metric fields: delta_p_z3, ci_lower, ci_upper"
+      - "fmd_stats and repair_stats sections complete"
+      - "Null result logged if C_score<=0: 'NULL RESULT: methods address same failure subset'"
+      - "n_problems=164 recorded"
+    reference_files:
+      - "h-m2/03_prd.md#fr-9-metrics-serialization-and-gate-evaluation"
+      - "h-m2/03_architecture.md#A-10"
+      - "h-m2/03_logic.md#gate-evaluation-logic"
+
+  - id: "A-11"
+    title: "Integration & End-to-End Test"
+    type: "testing"
+    priority: 84
+    complexity: 11
+    status: "todo"
+    description: >
+      Wire all phases into run_experiment.py with ordered execution (8 phases).
+      Perform dry-run on 5 problems to validate full pipeline end-to-end.
+      Verify all 9 required output files are produced. Write unit tests for
+      core modules. Validate CUDA_VISIBLE_DEVICES handling.
+    acceptance_criteria:
+      - "run_experiment.py executes all 8 phases in order"
+      - "Dry-run on 5 problems completes without error"
+      - "All 9 required output files produced: baseline_pool.jsonl, fmd_classification.jsonl, mypy_repair_pool.jsonl, syncode_pool.jsonl, f_syncode_transitions.json, f_mypy_transitions.json, c_score_results.json, z3_eligibility_delta.json, metrics.json"
+      - "Unit tests written for MypyFeedbackRepair, CScoreCalculator, Z3EligibilityDelta"
+      - "CUDA_VISIBLE_DEVICES set before any model loading"
+      - "Experiment log written to h-m2/code/experiment.log"
+    reference_files:
+      - "h-m2/03_prd.md#nfr-2-performance"
+      - "h-m2/03_config.md#a-11-integration-and-end-to-end-test-config"
+      - "h-m2/03_architecture.md#A-11"
+
+  # ============================================================
+  # SUBTASKS — Logic Agent (A-7, A-4, A-8, A-5): 12 subtasks
+  # ============================================================
+
+  - id: "A-7.1"
+    title: "Implement compute_c_score (J_obs, E[J], C_score formula)"
+    type: "subtask"
+    parent_epic: "A-7"
+    priority: 49
+    status: "todo"
+    description: >
+      Implement CScoreCalculator.compute_c_score(set_a, set_b, n_total) → dict.
+      Returns {j_obs, e_j, c_score, r1, r2}. Handle edge cases: empty union
+      (J_obs=0.0), zero denominator in E[J] (return 0.0), C_score when E[J]=0.
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-71-compute_c_score"
+
+  - id: "A-7.2"
+    title: "Implement bootstrap_c_score_ci (problem-level resampling)"
+    type: "subtask"
+    parent_epic: "A-7"
+    priority: 48
+    status: "todo"
+    description: >
+      Implement CScoreCalculator.bootstrap_c_score_ci(f_syncode, f_mypy, problems,
+      n_bootstrap=10000, alpha=0.0167) → dict with {mean, ci_lower, ci_upper, p_value}.
+      Problem-level resampling (not sample-level). p_value = P(C_score<=0).
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-72-bootstrap_c_score_ci"
+
+  - id: "A-7.3"
+    title: "Implement eligibility-conditioned stratum definition"
+    type: "subtask"
+    parent_epic: "A-7"
+    priority: 47
+    status: "todo"
+    description: >
+      Implement CScoreCalculator.define_eligibility_conditioned_stratum(
+      fmd_results, mypy_repair_results) → set of problem IDs. Stratum = problems
+      with >=1 baseline sample FMD='type' (h-m1 naming) AND >=1 sample with
+      mypy_exit_code≠0. Validate stratum_size >= 5.
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-73-define_eligibility_conditioned_stratum"
+
+  - id: "A-7.4"
+    title: "Implement difficulty quintile C_score breakdown"
+    type: "subtask"
+    parent_epic: "A-7"
+    priority: 46
+    status: "todo"
+    description: >
+      Implement compute_quintile_c_scores(f_syncode, f_mypy, problems,
+      baseline_pass_rates) → list[dict]. Partition 164 problems into 5 quintiles
+      by baseline pass@1 rate. Compute C_score + bootstrap CI per quintile.
+      Return [{quintile, c_score, ci_lower, ci_upper, n_problems}, ...].
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-74-compute_difficulty_quintiles"
+
+  - id: "A-4.1"
+    title: "Implement parse_mypy_output + format_structured_feedback"
+    type: "subtask"
+    parent_epic: "A-4"
+    priority: 45
+    status: "todo"
+    description: >
+      Implement parse_mypy_output(stdout: str) → list[tuple[int,str,str]] parsing
+      mypy stdout into (line_num, error_type, message) tuples. Implement
+      format_structured_feedback(ast_valid, ast_error, mypy_errors) → str
+      producing structured human-readable feedback for repair prompt.
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-41-parse_mypy_output--format_structured_feedback"
+
+  - id: "A-4.2"
+    title: "Implement build_repair_prompt"
+    type: "subtask"
+    parent_epic: "A-4"
+    priority: 44
+    status: "todo"
+    description: >
+      Implement build_repair_prompt(problem_prompt, current_code, feedback) → str.
+      Constructs repair instruction with original problem prompt, current code,
+      and structured feedback. Format: "Fix the following Python code based on
+      these errors: {feedback}\n\nOriginal problem: {prompt}\n\nCurrent code:
+      {code}\n\nFixed code:".
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-42-build_repair_prompt"
+
+  - id: "A-4.3"
+    title: "Implement repair_sample (single sample 3-round loop)"
+    type: "subtask"
+    parent_epic: "A-4"
+    priority: 43
+    status: "todo"
+    description: >
+      Implement MypyFeedbackRepair.repair_sample(code, problem, model, tokenizer,
+      max_rounds=3) → dict. Returns {final_code, rounds_used, success, feedback_history}.
+      Inner loop: ast.parse → mypy.api.run → if clean: break → format feedback →
+      build prompt → generate at T=0.2 → next round.
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-43-repair_sample"
+
+  - id: "A-4.4"
+    title: "Implement repair_pool (batch repair with checkpoint/resume)"
+    type: "subtask"
+    parent_epic: "A-4"
+    priority: 42
+    status: "todo"
+    description: >
+      Implement repair_pool(baseline_pool, problems, model, tokenizer,
+      checkpoint_path=None) → list[dict]. Iterates over all problems, applies
+      repair_sample to each baseline sample, checkpoints every 10 problems,
+      resumes from checkpoint on restart. Computes mechanism_activated_rate.
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-44-repair_pool--compute_mechanism_activated_rate"
+
+  - id: "A-8.1"
+    title: "Implement Z3 eligibility heuristic checker"
+    type: "subtask"
+    parent_epic: "A-8"
+    priority: 41
+    status: "todo"
+    description: >
+      Implement Z3EligibilityDelta.check_z3_eligible_heuristic(code: str) → bool.
+      Returns True if code has integer arithmetic density > threshold AND return
+      type annotated. Also implement check_z3_eligible_actual(code, timeout_ms=60000)
+      attempting real z3 solver encoding with timeout guard.
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-81-check_z3_eligible_heuristic--compute_eligibility_rate"
+
+  - id: "A-8.2"
+    title: "Implement compute_delta_p + bootstrap for Z3 eligibility"
+    type: "subtask"
+    parent_epic: "A-8"
+    priority: 40
+    status: "todo"
+    description: >
+      Implement compute_delta_p(baseline_pool, repaired_pool) → dict with
+      {delta_p, p_eligible_baseline, p_eligible_post_mypy}. Implement
+      bootstrap_delta_p(baseline_pool, repaired_pool, n_bootstrap=10000) → dict
+      with {delta_p, ci_lower, ci_upper}. Problem-level resampling.
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-82-compute_delta_p--save_results"
+
+  - id: "A-5.1"
+    title: "Implement SynCode pool extension (problems 20-163)"
+    type: "subtask"
+    parent_epic: "A-5"
+    priority: 39
+    status: "todo"
+    description: >
+      Implement ExtendedSyncodeGeneratorV2.extend_pool(existing_pool_path,
+      target_n_problems=164, output_path) → list[dict]. Copies h-m1 records
+      first, then delegates remaining problems to parent generate_pool().
+      Records pass@1 per sample via evalplus runner.
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-51-extend_syncode_pool"
+
+  - id: "A-5.2"
+    title: "Implement F_SynCode→✓ recomputation at full N=164"
+    type: "subtask"
+    parent_epic: "A-5"
+    priority: 38
+    status: "todo"
+    description: >
+      Implement recompute_f_syncode(syncode_pool, baseline_pool) → set[str].
+      F_SynCode→✓ = problem IDs where baseline pass@1=0 AND syncode pass@1>0
+      (at least one sample). Returns set of task_id strings. Distinct from
+      h-m1 TransitionExtractor which used ast_valid transitions (not pass@1).
+    reference_files:
+      - "h-m2/03_logic.md#subtask-a-52-extract_f_syncode_pass_at_1"
+
+  # ============================================================
+  # SUBTASKS — Config Agent (A-3, A-2, A-11, A-9): 7 subtasks
+  # ============================================================
+
+  - id: "C-3-1"
+    title: "FMD stratum mapping (h-m1 'type' → 'type_structural')"
+    type: "subtask"
+    parent_epic: "A-3"
+    priority: 37
+    status: "todo"
+    description: >
+      Implement stratum mapping: h-m1 FMDClassifier returns 'type' category;
+      h-m2 uses 'type_structural'. Add mapping layer in H2FMDConfig and
+      FMD classification wrapper. Define 5-stratum label list and ensure
+      consistent naming throughout h-m2 codebase.
+    reference_files:
+      - "h-m2/03_config.md#c-3-1-fmd-stratum-mapping"
+
+  - id: "C-3-2"
+    title: "Parallel/sequential FMD cross-validation config (Assumption A5)"
+    type: "subtask"
+    parent_epic: "A-3"
+    priority: 36
+    status: "todo"
+    description: >
+      Configure cross_validate_n=10 in H2FMDConfig and implement A5 validation:
+      run both parallel and sequential FMD on same 10 random samples; assert
+      stratum assignment agreement. Log result. This validates that FMD signals
+      are truly order-independent as assumed in 02b verification plan.
+    reference_files:
+      - "h-m2/03_config.md#c-3-2-parallelsequential-validation"
+
+  - id: "C-2-1"
+    title: "Pool extension config (n_problems=164, seed formula, reuse flags)"
+    type: "subtask"
+    parent_epic: "A-2"
+    priority: 35
+    status: "todo"
+    description: >
+      Write H2BaselinePoolConfig to h-m2/code/config.py with n_problems=164,
+      n_samples_per_problem=20, seed_formula="problem_idx * 100 + sample_idx",
+      reuse_h_e1_pool=True, h_e1_pool_path and h_m1_syncode_pool_path fields.
+      Validate paths exist at runtime before pool generation begins.
+    reference_files:
+      - "h-m2/03_config.md#c-2-1-pool-extension-config"
+
+  - id: "C-2-2"
+    title: "Checkpoint/resume config (checkpoint_interval=10)"
+    type: "subtask"
+    parent_epic: "A-2"
+    priority: 34
+    status: "todo"
+    description: >
+      Configure checkpoint_interval=10 in H2BaselinePoolConfig. Implement
+      checkpoint save/load logic for baseline pool generation: save progress
+      JSONL path, last completed problem_idx. Integrate with pool generator
+      to resume from last checkpoint on restart.
+    reference_files:
+      - "h-m2/03_config.md#c-2-2-checkpointresume-config"
+
+  - id: "C-11-1"
+    title: "Dry-run config and phases list for run_experiment.py"
+    type: "subtask"
+    parent_epic: "A-11"
+    priority: 33
+    status: "todo"
+    description: >
+      Write H2IntegrationConfig to config.py with dry_run=False,
+      dry_run_n_problems=5, and phases list of 8 phase names in execution order.
+      run_experiment.py reads this config to orchestrate pipeline execution.
+      Dry-run mode restricts all phases to first 5 problems only.
+    reference_files:
+      - "h-m2/03_config.md#c-11-1-dry-run-config"
+
+  - id: "C-11-2"
+    title: "Output validation config (required_output_files checklist)"
+    type: "subtask"
+    parent_epic: "A-11"
+    priority: 32
+    status: "todo"
+    description: >
+      Configure required_output_files list of 9 files in H2IntegrationConfig.
+      Implement post-run validation: assert all 9 files exist in h-m2/data/
+      and h-m2/results/. Log PASS/FAIL per file. Handle CUDA_VISIBLE_DEVICES
+      env var: check and warn if not set before model loading.
+    reference_files:
+      - "h-m2/03_config.md#c-11-2-output-validation-config"
+
+  - id: "C-9-1"
+    title: "Visualization config (6 figure paths, DPI, color scheme)"
+    type: "subtask"
+    parent_epic: "A-9"
+    priority: 31
+    status: "todo"
+    description: >
+      Write H2VisualizationConfig to config.py: 6 figure filenames, dpi=150,
+      fig dimensions 8×6, color scheme {syncode: '#2196F3', mypy: '#FF5722',
+      baseline: '#9E9E9E', pass: '#4CAF50', fail: '#F44336'} consistent with
+      h-m1 for paper coherence. All figures saved to h-m2/figures/.
+    reference_files:
+      - "h-m2/03_config.md#c-9-1-figure-config"

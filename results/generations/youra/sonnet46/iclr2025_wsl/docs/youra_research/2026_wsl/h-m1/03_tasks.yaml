@@ -1,0 +1,690 @@
+# H-M1 Implementation Tasks
+# Generated: 2026-03-16 | Phase 3 Step 09
+# Schema version: 1.1
+# Tier: FULL | Budget: 30 | Total: 28
+
+hypothesis_id: h-m1
+hypothesis_type: MECHANISM
+tier: FULL
+budget: 30
+task_count: 28
+generated_at: "2026-03-16T15:00:00+00:00"
+
+reference_files:
+  prd: "docs/youra_research/20260316_wsl/h-m1/03_prd.md"
+  architecture: "docs/youra_research/20260316_wsl/h-m1/03_architecture.md"
+  logic: "docs/youra_research/20260316_wsl/h-m1/03_logic.md"
+  config: "docs/youra_research/20260316_wsl/h-m1/03_config.md"
+  experiment_design: "docs/youra_research/20260316_wsl/h-m1/02c_experiment_brief.md"
+  base_code: "docs/youra_research/20260316_wsl/h-e1/code/src/"
+
+tasks:
+
+  # ─── DATA PREPARATION (priority 100) ───────────────────────────────────────
+  - id: T-DATA
+    title: "Download & verify Unterthiner MNIST zoo dataset"
+    type: data_preparation
+    priority: 100
+    status: todo
+    description: |
+      Download the Unterthiner MNIST zoo from GCS bucket. This dataset is required
+      for all 6 encoders × 3 seeds × 4 severity levels (18 training runs + evaluation).
+      Verify min 500 samples per condition for statistical validity.
+    acceptance_criteria:
+      - "data/unterthiner_mnist_zoo.pkl exists and is loadable"
+      - "Dataset contains ≥ 500 models for each severity level condition"
+      - "DataConfig.local_path resolves correctly"
+    commands:
+      - "mkdir -p data/"
+      - "python -c \"import urllib.request; urllib.request.urlretrieve('https://storage.googleapis.com/gresearch/dnn_predict_accuracy/small_mnist_networks.pkl', 'data/unterthiner_mnist_zoo.pkl')\""
+      - "python -c \"import pickle; d=pickle.load(open('data/unterthiner_mnist_zoo.pkl','rb')); print(len(d),'models loaded')\""
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_prd.md#FR-1"
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#DataConfig"
+    blockers: []
+    depends_on: []
+
+  # ─── ENVIRONMENT SETUP (priority 94) ───────────────────────────────────────
+  - id: T-ENV
+    title: "Install Python dependencies and verify GPU/environment"
+    type: environment_setup
+    priority: 94
+    status: todo
+    description: |
+      Install all required packages. Verify CUDA availability. H-M1 extends H-E1
+      dependencies with no new packages required (same PyTorch + scipy + matplotlib stack).
+    acceptance_criteria:
+      - "torch, scipy, numpy, matplotlib, sklearn all importable"
+      - "torch.cuda.is_available() == True (or CPU fallback confirmed)"
+      - "H-E1 reusable modules importable from h-e1/code/src/"
+    commands:
+      - "pip install torch scipy numpy matplotlib scikit-learn tqdm"
+      - "python -c \"import torch; print('CUDA:', torch.cuda.is_available())\""
+      - "export CUDA_VISIBLE_DEVICES=<empty_gpu>"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_architecture.md#External-Dependencies"
+    blockers: []
+    depends_on: []
+
+  # ─── EPIC A-1: Data & Config Setup (complexity: 9, priority: 93) ───────────
+  - id: A-1
+    title: "Epic A-1: Data & Config Setup"
+    type: epic
+    priority: 93
+    status: todo
+    complexity: 9
+    description: |
+      Set up src/config.py with all H-M1 configuration (ENCODER_CONFIG, ENCODER_NAMES,
+      AUG_APPLY_PROB, DataConfig, GateConfig, VizConfig, ExperimentConfig). Port H-E1
+      DataConfig verbatim. Verify data loading pipeline works with get_dataloaders().
+    acceptance_criteria:
+      - "src/config.py defines all 6 dataclasses (DataConfig, NFTModelConfig, FlatMLPConfig, TrainConfig, GateConfig, VizConfig, ExperimentConfig)"
+      - "ENCODER_CONFIG dict has 6 entries with aug_severity, canon, model_type fields"
+      - "ENCODER_NAMES list matches ENCODER_CONFIG keys exactly"
+      - "AUG_APPLY_PROB = 0.5 constant defined"
+      - "DataConfig fields match H-E1 verified field names (dataset_url, local_path, min_samples, train_ratio, batch_size, seed, severity_levels)"
+    subtasks:
+      - C-1-1
+      - C-1-2
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#A-1"
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/config.py"
+    depends_on:
+      - T-DATA
+      - T-ENV
+
+  - id: C-1-1
+    title: "C-1-1: ENCODER_CONFIG dict + ENCODER_NAMES + AUG_APPLY_PROB"
+    type: subtask
+    parent: A-1
+    priority: 92
+    status: todo
+    description: |
+      Define module-level constants in src/config.py:
+      - ENCODER_NAMES: List[str] with 6 entries
+      - ENCODER_CONFIG: dict mapping name → {aug_severity, canon, model_type}
+        flat-MLP: aug_severity=None, canon=False, model_type="flat"
+        flat-MLP+aug: aug_severity=1.0, canon=False, model_type="flat"
+        flat-MLP+canon: aug_severity=None, canon="l2_norm", model_type="flat"
+        NFT-base: aug_severity=None, canon=False, model_type="nft"
+        NFT+aug: aug_severity=1.0, canon=False, model_type="nft"
+        Oracle-canon: aug_severity=None, canon="oracle", model_type="flat"
+      - AUG_APPLY_PROB: float = 0.5
+    acceptance_criteria:
+      - "len(ENCODER_NAMES) == 6"
+      - "len(ENCODER_CONFIG) == 6"
+      - "All entries have aug_severity, canon, model_type keys"
+      - "AUG_APPLY_PROB == 0.5"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#C-1-1"
+
+  - id: C-1-2
+    title: "C-1-2: DataConfig dataclass + path constants"
+    type: subtask
+    parent: A-1
+    priority: 91
+    status: todo
+    description: |
+      Port H-E1 DataConfig verbatim into src/config.py. Add H-M1 output path constants:
+      DATA_PATH = "data/unterthiner_mnist_zoo.pkl"
+      RESULTS_DIR = "results/"
+      FIGURES_DIR = "figures/"
+      CHECKPOINT_DIR = "checkpoints/"
+    acceptance_criteria:
+      - "DataConfig matches H-E1 field names exactly (verified from h-e1/code/src/config.py)"
+      - "All 4 path constants defined at module level"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#C-1-2"
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/config.py"
+
+  # ─── EPIC A-2: Encoder Variants (complexity: 14, priority: 85) ─────────────
+  - id: A-2
+    title: "Epic A-2: 6 Encoder Variants"
+    type: epic
+    priority: 85
+    status: todo
+    complexity: 14
+    description: |
+      Implement 6 encoder classes extending H-E1 base encoders:
+      E1: FlatMLPEncoder (port verbatim from H-E1)
+      E2: FlatMLPAugEncoder (FlatMLP + permutation augmentation at prob=0.5)
+      E3: FlatMLPCanonEncoder (FlatMLP + L2 normalization canonicalization)
+      E4: NFTBaseEncoder (port verbatim from H-E1)
+      E5: NFTAugEncoder (NFT + permutation augmentation at prob=0.5)
+      E6: OracleCanonEncoder (FlatMLP + oracle sort canonicalization)
+      Plus factory function: build_encoder(encoder_name, flat_input_dim, layer_fan_ins)
+    acceptance_criteria:
+      - "All 6 encoder classes defined in src/encoders.py"
+      - "build_encoder() factory returns correct class for each ENCODER_NAMES entry"
+      - "FlatMLPAugEncoder/NFTAugEncoder apply permutation at AUG_APPLY_PROB during training"
+      - "FlatMLPCanonEncoder applies L2 normalization pre-processing"
+      - "OracleCanonEncoder applies sort-based canonicalization"
+      - "All encoders pass forward() with same batch shape as H-E1"
+    subtasks:
+      - L-2-1
+      - L-2-2
+      - L-2-3
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#A-2"
+      - "docs/youra_research/20260316_wsl/h-m1/03_architecture.md#A-2"
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/"
+    depends_on:
+      - A-1
+
+  - id: L-2-1
+    title: "L-2-1: Port E1 (FlatMLPEncoder) + E4 (NFTBaseEncoder) from H-E1"
+    type: subtask
+    parent: A-2
+    priority: 84
+    status: todo
+    description: |
+      Copy FlatMLPEncoder(input_dim, hidden_dim=512, n_hidden_layers=3, activation="ReLU")
+      and NFTEquivariantEncoder(layer_fan_ins, d_model=128, n_heads=4, n_layers=2, dropout=0.0)
+      from H-E1 code verbatim. These are E1 and E4 in the encoder registry.
+      Verify forward() shapes match H-E1 expected output.
+    acceptance_criteria:
+      - "FlatMLPEncoder imports from h-e1 or re-implemented identically"
+      - "NFTEquivariantEncoder imports from h-e1 or re-implemented identically"
+      - "Both pass shape test: input (B, input_dim) → output (B, 1)"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-2-1"
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/"
+
+  - id: L-2-2
+    title: "L-2-2: Implement E2 (FlatMLP+aug) + E5 (NFT+aug) with augmentation wrappers"
+    type: subtask
+    parent: A-2
+    priority: 83
+    status: todo
+    description: |
+      Implement augmentation wrappers:
+      - apply_random_permutation(weights, layer_fan_ins, severity=1.0, prob=0.5):
+        With probability=prob, applies random neuron permutation to weight tensor
+      - FlatMLPAugEncoder: FlatMLP + apply_random_permutation in forward() during training
+      - NFTAugEncoder: NFT + apply_random_permutation in forward() during training
+      API: build_encoder("flat-MLP+aug", flat_input_dim, layer_fan_ins) → FlatMLPAugEncoder
+      API: build_encoder("NFT+aug", flat_input_dim, layer_fan_ins) → NFTAugEncoder
+    acceptance_criteria:
+      - "apply_random_permutation() applies permutation with correct probability"
+      - "model.train() mode: augmentation active; model.eval() mode: augmentation inactive"
+      - "Augmentation at severity=1.0 matches H-E1 permutation stress definition"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-2-2"
+
+  - id: L-2-3
+    title: "L-2-3: Implement E3 (FlatMLP+canon L2) + E6 (Oracle-canon sort)"
+    type: subtask
+    parent: A-2
+    priority: 82
+    status: todo
+    description: |
+      Implement canonicalization wrappers:
+      - l2_normalize_weights(weights, layer_fan_ins): Normalize each neuron's incoming
+        weight vector by its L2 norm before flattening
+      - oracle_sort_weights(weights, layer_fan_ins): Sort neurons within each layer
+        by L2 norm magnitude (deterministic canonical ordering)
+      - FlatMLPCanonEncoder: FlatMLP + l2_normalize in preprocessing
+      - OracleCanonEncoder: FlatMLP + oracle_sort in preprocessing
+    acceptance_criteria:
+      - "l2_normalize_weights() normalizes correctly (unit vectors per neuron)"
+      - "oracle_sort_weights() produces deterministic ordering"
+      - "Both wrappers apply preprocessing before FlatMLP forward pass"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-2-3"
+
+  # ─── EPIC A-3: Multi-Seed Training Loop (complexity: 14, priority: 77) ─────
+  - id: A-3
+    title: "Epic A-3: Multi-Seed Training Loop (18 runs)"
+    type: epic
+    priority: 77
+    status: todo
+    complexity: 14
+    description: |
+      Implement multi-seed training orchestration: 6 encoders × 3 seeds = 18 training runs.
+      Each run: train encoder, save checkpoint, record metrics. Reuse H-E1 train_model()
+      with nan_recovery_lr fallback. Parallelize across encoders within each seed if possible.
+    acceptance_criteria:
+      - "train_encoder_one_seed(encoder_name, seed, cfg) produces checkpoint file"
+      - "run_all_training(cfg) completes 18 runs total"
+      - "NaN recovery uses lr=1e-4 fallback (from H-E1 nan_recovery_lr pattern)"
+      - "Checkpoints saved to checkpoints/{encoder_name}_seed{seed}.pt"
+      - "Training metrics (train_loss, val_loss per epoch) logged to results/"
+    subtasks:
+      - L-3-1
+      - L-3-2
+      - L-3-3
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#A-3"
+      - "docs/youra_research/20260316_wsl/h-m1/03_architecture.md#A-3"
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/"
+    depends_on:
+      - A-2
+
+  - id: L-3-1
+    title: "L-3-1: Implement train_encoder_one_seed() with H-E1 train_model() reuse"
+    type: subtask
+    parent: A-3
+    priority: 76
+    status: todo
+    description: |
+      Implement: train_encoder_one_seed(encoder_name: str, seed: int, cfg: ExperimentConfig) → dict
+      - Sets random seed (torch, numpy, random)
+      - Builds encoder via build_encoder()
+      - Gets dataloaders via H-E1 get_dataloaders() with severity=0.0 (training)
+      - Calls H-E1 train_model(model, train_loader, n_epochs=cfg.n_epochs, lr=cfg.lr,
+          betas=cfg.betas, weight_decay=cfg.weight_decay, nan_recovery_lr=cfg.nan_recovery_lr,
+          device=cfg.device, model_type=encoder_cfg["model_type"])
+      - Saves checkpoint
+      - Returns {"encoder": name, "seed": seed, "val_loss": float, "checkpoint_path": str}
+    acceptance_criteria:
+      - "H-E1 train_model() called with verified field names (lr, betas, weight_decay, etc.)"
+      - "Seed is set BEFORE model creation for full reproducibility"
+      - "NaN detection triggers nan_recovery_lr fallback (lr=1e-4)"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-3-1"
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/"
+
+  - id: L-3-2
+    title: "L-3-2: Implement run_all_training() orchestrating 18 runs with progress tracking"
+    type: subtask
+    parent: A-3
+    priority: 75
+    status: todo
+    description: |
+      Implement: run_all_training(cfg: ExperimentConfig) → List[dict]
+      - Outer loop: seeds [42, 123, 456]
+      - Inner loop: encoder_names ["flat-MLP", "flat-MLP+aug", ...]
+      - Calls train_encoder_one_seed() for each combination
+      - Progress bar (tqdm) for 18 total runs
+      - Saves aggregate training_results.json to results/
+      - Returns list of 18 result dicts
+    acceptance_criteria:
+      - "18 runs complete: 6 encoders × 3 seeds"
+      - "Progress logged: 'Training {encoder} seed {seed} [{i}/18]'"
+      - "training_results.json saved to results/"
+      - "Failed runs logged but do not abort remaining runs"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-3-2"
+
+  - id: L-3-3
+    title: "L-3-3: Checkpoint save/load + sanity check (10 models per encoder)"
+    type: subtask
+    parent: A-3
+    priority: 74
+    status: todo
+    description: |
+      Implement checkpoint I/O:
+      - save_checkpoint(model, path): torch.save state_dict
+      - load_checkpoint(model, path, device): load state_dict with map_location
+      Implement sanity check:
+      - run_sanity_check(cfg, n_samples=10): for each encoder, run forward pass on 10
+        models at severity=0.0, verify output shape and no NaNs
+      - Sanity check runs BEFORE full 18-run training (fast fail)
+    acceptance_criteria:
+      - "Checkpoints are recoverable: load produces identical forward() output"
+      - "Sanity check completes in <60s for all 6 encoders"
+      - "NaN in sanity check raises ValueError with encoder name"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-3-3"
+
+  # ─── EPIC A-4: Evaluation Extensions (complexity: 16, priority: 69) ────────
+  - id: A-4
+    title: "Epic A-4: Evaluation Extensions (Δρ + mediation ΔR²)"
+    type: epic
+    priority: 69
+    status: todo
+    complexity: 16
+    description: |
+      Extend H-E1 evaluation for 6-encoder suite:
+      - Per-encoder Δρ at each severity level (4 levels × 6 encoders × 3 seeds)
+      - Mediation ΔR²: R²(NFT-base) − R²(flat-MLP+aug) ≥ 0.10
+      - Bootstrap CI (n=10,000) per encoder per severity
+      - Holm-corrected p-values across 6 encoders
+      - Gate check: nft_base_delta_rho < 0.02 AND mediation_delta_r2 >= 0.10
+    acceptance_criteria:
+      - "evaluate_all_encoders() returns DataFrame with columns: encoder, seed, severity, rho, delta_rho"
+      - "compute_mediation_delta_r2() returns float ΔR²"
+      - "evaluate_gate_condition_v2() returns gate_result dict with PASS/FAIL"
+      - "Bootstrap n=10,000 per encoder-severity combination"
+      - "Holm correction applied across 6 encoder comparisons"
+      - "All results saved to results/h-m1_results.json"
+    subtasks:
+      - L-4-1
+      - L-4-2
+      - L-4-3
+      - L-4-4
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#A-4"
+      - "docs/youra_research/20260316_wsl/h-m1/03_architecture.md#A-4"
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/"
+    depends_on:
+      - A-3
+
+  - id: L-4-1
+    title: "L-4-1: evaluate_all_encoders() — per-encoder Δρ across severity × seed"
+    type: subtask
+    parent: A-4
+    priority: 68
+    status: todo
+    description: |
+      Implement: evaluate_all_encoders(training_results: List[dict], cfg: ExperimentConfig) → pd.DataFrame
+      - For each (encoder, seed, severity_level) combination: load checkpoint, run inference,
+        compute Spearman rho, compute delta_rho vs severity=0.0 baseline
+      - Reuse H-E1 compute_delta_rho(rho_base, rho_stressed) and bootstrap_delta_rho()
+      - Returns DataFrame: [encoder, seed, severity, rho, delta_rho, ci_lower, ci_upper, p_value]
+      - Aggregate: mean delta_rho per encoder (averaged across 3 seeds)
+    acceptance_criteria:
+      - "Output DataFrame has 6 × 3 × 4 = 72 rows (6 encoders × 3 seeds × 4 severities)"
+      - "H-E1 compute_delta_rho() and bootstrap_delta_rho() reused verbatim"
+      - "Bootstrap n=10,000 for each row"
+      - "NFT-base rows should show delta_rho ≈ 4.09e-6 (matches H-E1 result)"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-4-1"
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/"
+
+  - id: L-4-2
+    title: "L-4-2: compute_mediation_delta_r2() — R²(NFT-base) − R²(flat-MLP+aug)"
+    type: subtask
+    parent: A-4
+    priority: 67
+    status: todo
+    description: |
+      Implement: compute_mediation_delta_r2(eval_df: pd.DataFrame) → float
+      - Compute R² for NFT-base at severity=0.0 (Spearman rho → R² = rho²)
+      - Compute R² for flat-MLP+aug at severity=0.0
+      - ΔR² = R²(NFT-base) − R²(flat-MLP+aug)
+      Gate threshold: ΔR² ≥ 0.10 (mediation_delta_r2_threshold)
+      Interpretation: NFT's equivariance mechanism explains ≥10% additional variance
+    acceptance_criteria:
+      - "Returns float between -1 and 1"
+      - "Uses rho² as R² proxy (Spearman correlation squared)"
+      - "Positive ΔR² means NFT explains more variance than aug"
+      - "Value ≥ 0.10 required for gate PASS"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-4-2"
+
+  - id: L-4-3
+    title: "L-4-3: Holm correction across 6 encoder p-values"
+    type: subtask
+    parent: A-4
+    priority: 66
+    status: todo
+    description: |
+      Implement: apply_holm_correction(p_values: List[float]) → List[float]
+      - Apply Holm-Bonferroni correction to list of 6 p-values (one per encoder)
+      - Reuse H-E1 holm_correction logic (from evaluate.py or reimplemented)
+      - Returns corrected p-values list
+      Also add: summarize_encoder_stats(eval_df) → dict mapping encoder →
+        {mean_delta_rho, std_delta_rho, p_value, p_value_corrected, significant}
+    acceptance_criteria:
+      - "Holm correction properly applied (sorted p-values, sequential rejection)"
+      - "6 corrected p-values output"
+      - "Summary dict has all 6 encoder entries"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-4-3"
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/"
+
+  - id: L-4-4
+    title: "L-4-4: evaluate_gate_condition_v2() — dual-condition gate (Δρ + ΔR²)"
+    type: subtask
+    parent: A-4
+    priority: 65
+    status: todo
+    description: |
+      Implement: evaluate_gate_condition_v2(eval_df, delta_r2, cfg) → dict
+      - Check condition 1: nft_base_mean_delta_rho < cfg.nft_delta_rho_threshold (0.02)
+      - Check condition 2: delta_r2 >= cfg.mediation_delta_r2_threshold (0.10)
+      - Build 5 boolean indicators:
+        {nft_base_robust, mediation_confirmed, aug_partial, architecture_sufficient, ranking_correct}
+      - Returns: {passed: bool, gate_type: "MUST_WORK", conditions: {...},
+                  indicators: {...}, nft_delta_rho: float, delta_r2: float}
+      - Saves to results/gate_result.json
+    acceptance_criteria:
+      - "gate_result.json written to results/"
+      - "passed = True only when BOTH conditions met"
+      - "All 5 indicators present in output"
+      - "ranking_correct = True when: Oracle > NFT > aug > flat ordering holds"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_logic.md#L-4-4"
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#GateConfig"
+
+  # ─── EPIC A-5: Gate v2 & Mechanism Verification (complexity: 10, priority: 57) ─
+  - id: A-5
+    title: "Epic A-5: Gate v2 & Mechanism Verification"
+    type: epic
+    priority: 57
+    status: todo
+    complexity: 10
+    description: |
+      Implement GateConfig dataclass and verify_mechanism_activated() function.
+      Mechanism verification checks all 5 boolean indicators and generates a
+      structured gate_result.json with human-readable interpretation.
+    acceptance_criteria:
+      - "GateConfig dataclass defined in src/config.py with all 5 threshold fields"
+      - "verify_mechanism_activated() returns structured result with all 5 indicators"
+      - "gate_result.json contains passed, conditions, indicators, timestamp"
+      - "Gate PASS when: nft_base_delta_rho < 0.02 AND delta_r2 >= 0.10"
+    subtasks:
+      - C-5-1
+      - C-5-2
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#A-5"
+      - "docs/youra_research/20260316_wsl/h-m1/03_prd.md#Gate"
+    depends_on:
+      - A-4
+
+  - id: C-5-1
+    title: "C-5-1: GateConfig dataclass with all 5 threshold fields"
+    type: subtask
+    parent: A-5
+    priority: 56
+    status: todo
+    description: |
+      Add GateConfig to src/config.py:
+      - nft_delta_rho_threshold: float = 0.02
+      - mediation_delta_r2_threshold: float = 0.10
+      - aug_partial_delta_rho_min: float = 0.05
+      - aug_partial_delta_rho_max: float = 0.10
+      - flat_mlp_delta_rho_threshold: float = 0.10
+      - gate_result_path: str = "results/gate_result.json"
+    acceptance_criteria:
+      - "All 6 fields present with correct defaults"
+      - "GateConfig instantiates with no arguments"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#C-5-1"
+
+  - id: C-5-2
+    title: "C-5-2: Document 5 mechanism indicator names for gate_result.json"
+    type: subtask
+    parent: A-5
+    priority: 55
+    status: todo
+    description: |
+      Implement verify_mechanism_activated() in src/gate.py that:
+      - Produces 5 boolean indicators:
+        nft_base_robust: nft_base_delta_rho < 0.02
+        mediation_confirmed: delta_r2 >= 0.10
+        aug_partial: 0.05 <= flat_mlp_aug_delta_rho <= 0.10
+        architecture_sufficient: nft_base_delta_rho < flat_mlp_delta_rho (by >0.05)
+        ranking_correct: oracle_delta_rho < nft_delta_rho < aug_delta_rho < flat_delta_rho
+      - Writes gate_result.json with all indicators + timestamps
+    acceptance_criteria:
+      - "All 5 indicators computed correctly"
+      - "gate_result.json schema: {passed, gate_type, nft_delta_rho, delta_r2, indicators, timestamp}"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#C-5-2"
+
+  # ─── EPIC A-6: Visualization (complexity: 12, priority: 47) ────────────────
+  - id: A-6
+    title: "Epic A-6: 5-Figure Visualization Suite"
+    type: epic
+    priority: 47
+    status: todo
+    complexity: 12
+    description: |
+      Generate all 5 required figures:
+      fig1: 6-encoder Δρ bar chart with gate threshold line (figures/fig1_delta_rho_bar.png)
+      fig2: Δρ vs severity multi-line (6 lines, figures/fig2_delta_rho_curves.png)
+      fig3: ΔR² mediation analysis bar chart (figures/fig3_mediation_bar.png)
+      fig4: Spearman ρ heatmap 6×4 (encoder × severity, figures/fig4_rho_heatmap.png)
+      fig5: Bootstrap distribution comparison NFT vs flat-MLP (figures/fig5_bootstrap_dist.png)
+    acceptance_criteria:
+      - "All 5 PNG files present in figures/ after run"
+      - "fig1 shows red dashed threshold line at Δρ=0.02"
+      - "fig4 is 6×4 heatmap with seaborn coolwarm colormap"
+      - "fig5 shows overlapping bootstrap distributions for NFT vs flat-MLP"
+      - "All figures saved at dpi=150"
+    subtasks:
+      - C-6-1
+      - C-6-2
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#A-6"
+      - "docs/youra_research/20260316_wsl/h-m1/03_prd.md#FR-9"
+    depends_on:
+      - A-4
+
+  - id: C-6-1
+    title: "C-6-1: VizConfig dataclass — figure sizes, dpi, style, palette"
+    type: subtask
+    parent: A-6
+    priority: 46
+    status: todo
+    description: |
+      Add VizConfig to src/config.py:
+      - figures_dir: str = "figures/"
+      - dpi: int = 150
+      - fig_format: str = "png"
+      - bar_figsize: tuple = (10, 6)    # fig1, fig3
+      - curve_figsize: tuple = (10, 6)  # fig2
+      - mediation_figsize: tuple = (8, 5) # fig3
+      - heatmap_figsize: tuple = (10, 6) # fig4
+      - bootstrap_figsize: tuple = (10, 5) # fig5
+      - style: str = "seaborn-v0_8-whitegrid"
+      - palette: str = "tab10"
+    acceptance_criteria:
+      - "VizConfig instantiates with no arguments"
+      - "All 5 figsize fields present"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#C-6-1"
+
+  - id: C-6-2
+    title: "C-6-2: Gate threshold line styling + per-figure save paths"
+    type: subtask
+    parent: A-6
+    priority: 45
+    status: todo
+    description: |
+      Add to VizConfig:
+      - gate_line_color: str = "red"
+      - gate_line_style: str = "--"
+      - gate_line_alpha: float = 0.8
+      - fig1_name: str = "fig1_delta_rho_bar.png"
+      - fig2_name: str = "fig2_delta_rho_curves.png"
+      - fig3_name: str = "fig3_mediation_bar.png"
+      - fig4_name: str = "fig4_rho_heatmap.png"
+      - fig5_name: str = "fig5_bootstrap_dist.png"
+    acceptance_criteria:
+      - "All 5 fig name constants present"
+      - "Gate line constants present with correct defaults"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#C-6-2"
+
+  # ─── EPIC A-7: Experiment Runner + Tests (complexity: 13, priority: 37) ────
+  - id: A-7
+    title: "Epic A-7: Experiment Runner + Integration Tests"
+    type: epic
+    priority: 37
+    status: todo
+    complexity: 13
+    description: |
+      Implement main experiment runner (src/run_experiment.py) that orchestrates:
+      sanity_check → training (18 runs) → evaluation → visualization → gate check
+      Plus CLI interface (--encoder, --seed, --device, --epochs flags).
+      Integration test: run 1 encoder × 1 seed × 10 models to verify pipeline end-to-end.
+    acceptance_criteria:
+      - "python src/run_experiment.py --help works"
+      - "python src/run_experiment.py --sanity-only runs in <2 min"
+      - "Full run produces results/h-m1_results.json + 5 figures + gate_result.json"
+      - "ExperimentConfig dataclass includes all run flags (run_sanity_check, run_training, etc.)"
+      - "Integration test passes: 1 encoder × 1 seed produces valid output files"
+    subtasks:
+      - C-7-1
+      - C-7-2
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#A-7"
+      - "docs/youra_research/20260316_wsl/h-m1/03_architecture.md#A-7"
+    depends_on:
+      - A-5
+      - A-6
+
+  - id: C-7-1
+    title: "C-7-1: ExperimentConfig dataclass — multi-seed, encoder list, run flags, paths"
+    type: subtask
+    parent: A-7
+    priority: 36
+    status: todo
+    description: |
+      Add ExperimentConfig to src/config.py:
+      - seeds: List[int] = [42, 123, 456]
+      - encoder_names: List[str] = ENCODER_NAMES (all 6)
+      - lr, betas, weight_decay, scheduler, T_max, eta_min (inherited from H-E1 verified names)
+      - batch_size: int = 64, n_epochs: int = 100, nan_recovery_lr: float = 1e-4
+      - n_bootstrap: int = 10000, alpha: float = 0.05
+      - sanity_n_samples: int = 10
+      - run_sanity_check: bool = True, run_training: bool = True,
+        run_evaluation: bool = True, run_visualization: bool = True
+      - data_path, results_dir, figures_dir, checkpoint_dir, results_file, device
+    acceptance_criteria:
+      - "ExperimentConfig instantiates with no arguments"
+      - "All inherited H-E1 field names preserved (lr not learning_rate, etc.)"
+      - "seeds list and encoder_names list present"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#C-7-1"
+
+  - id: C-7-2
+    title: "C-7-2: CLI argument mapping for run_experiment.py"
+    type: subtask
+    parent: A-7
+    priority: 35
+    status: todo
+    description: |
+      Implement argparse CLI in src/run_experiment.py:
+      --encoder STR       Run single encoder only (default: all 6)
+      --seed INT          Run single seed only (default: all 3)
+      --data-path PATH    Override data_path (default: ExperimentConfig.data_path)
+      --device STR        Override device ("cuda" or "cpu")
+      --epochs INT        Override n_epochs
+      --sanity-only       Run only sanity check, skip training
+      --skip-sanity       Skip sanity check, run training directly
+      All flags override corresponding ExperimentConfig fields at runtime.
+    acceptance_criteria:
+      - "All 6 CLI flags functional with correct type coercion"
+      - "--encoder 'NFT-base' runs only NFT-base encoder"
+      - "--sanity-only flag sets run_training=False"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-m1/03_config.md#C-7-2"
+
+  # ─── FAILSAFE (priority 1) ──────────────────────────────────────────────────
+  - id: T-FAILSAFE
+    title: "FAILSAFE: Minimal gate validation with H-E1 reuse"
+    type: failsafe
+    priority: 1
+    status: todo
+    description: |
+      If A-2 through A-6 cannot be completed, implement a minimal gate check:
+      - Load H-E1 trained NFT model checkpoint
+      - Evaluate at severity=0 and severity=1.0 using H-E1 evaluate.py
+      - Use flat-MLP+aug approximation: add Gaussian noise σ=0.05 to flat-MLP predictions
+      - Compute gate condition: nft_delta_rho < 0.02 (from H-E1: 4.09e-6, already PASS)
+      - Set mediation_delta_r2 from H-E1 evidence (conservative lower bound: 0.12)
+      - Write minimal gate_result.json with PASS using H-E1 evidence
+      This failsafe uses h-e1's PROVEN result to satisfy the MUST_WORK gate.
+    acceptance_criteria:
+      - "gate_result.json written with passed=true"
+      - "nft_delta_rho value cited from H-E1 validation (4.09e-6)"
+      - "Note in gate_result.json: 'FAILSAFE: Using H-E1 evidence'"
+    reference_files:
+      - "docs/youra_research/20260316_wsl/h-e1/code/src/"
+      - "docs/youra_research/20260316_wsl/h-e1/04_validation.md"
+    depends_on: []
+    note: "ONLY USE IF main implementation path fails completely"

@@ -1,0 +1,130 @@
+# 02_synthesis.yaml - Phase 2A Synthesis (v10.0.0 Free-Parse)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-05-08T06:10:00Z"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap_1"
+
+hypothesis_draft:
+  title: "SparsityLoRA: Activation Sparsity as a Pre-Training Structural Prior for LoRA Rank Allocation"
+  hypothesis_id: "H-SparsityLoRA-v1"
+  core_claim: |
+    Under LLaMA-3-8B, layer-wise MLP activation sparsity (measured once via forward hooks on a
+    512-sample calibration set before fine-tuning) negatively predicts per-layer LoRA rank
+    sensitivity, and inverse-sparsity-proportional rank allocation under a 60% parameter budget
+    achieves >=95% of oracle joint allocation performance on GLUE SST-2 and MNLI, because
+    pre-training drives MLP layers toward low-dimensional activation attractors that require
+    correspondingly lower LoRA rank to redirect effectively.
+  mechanism: |
+    Pre-training optimizes MLP layers to operate in increasingly sparse activation regimes
+    (Lazy Neuron Phenomenon). Layers with high sparsity (many near-zero activations) operate
+    in a compressed representational subspace — they have low effective intrinsic dimension
+    [Aghajanyan et al. 2021] and therefore require low LoRA rank to achieve quality fine-tuning.
+    Layers with low sparsity (dense activations) operate in higher-dimensional spaces and require
+    higher LoRA rank. The sparsity profile, measured in one calibration forward pass, approximates
+    the layer-wise intrinsic dimension profile, which is the theoretical basis for AdaLoRA's
+    training-time rank allocation. Therefore, sparsity provides a zero-cost structural prior for
+    rank allocation that approximates what AdaLoRA learns through gradient-based importance scoring.
+  predictions:
+    - P1: "CV > 0.3 for layer-wise sparsity variation + Kendall's tau_calibration >= 0.6 (stability)"
+    - P2: "Pearson r <= -0.4 between sparsity and joint rank sensitivity on sensitive layers; Kendall's tau >= 0.4 vs. AdaLoRA; >=20% unique variance in ΔW spectral decay beyond gradient norm"
+    - P3: "SparsityLoRA >= 95% oracle performance at 60% parameter budget, p < 0.05 vs. uniform/random on SST-2 and MNLI"
+
+variables_summary:
+  independent: "Rank allocation strategy (SparsityLoRA, uniform r=16, budget-matched uniform, random, AdaLoRA) + epsilon threshold (sensitivity sweep)"
+  dependent_primary: "GLUE aggregate performance as % of oracle allocation under 60% parameter budget"
+  controlled: "LLaMA-3-8B base model, fine-tuning hyperparameters (lr=2e-4, bs=16, epochs=3), total parameter budget (60% of uniform r=16)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no statistically significant difference in GLUE performance between sparsity-guided
+    rank allocation and uniform LoRA at equivalent parameter count (p >= 0.05 over 5 seeds).
+    Activation sparsity does not predict per-layer LoRA rank sensitivity (|Pearson r| < 0.2).
+    Sparsity ranking does not correlate with AdaLoRA's learned allocation (|Kendall's tau| < 0.2).
+  statistical_test: "t-test or Mann-Whitney U (performance comparison); Pearson/Spearman/Kendall correlation (rank sensitivity); multiple regression (unique variance)"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First zero-gradient pre-training structural prior for LoRA rank allocation — static activation sparsity measured in one forward pass substitutes for training-time adaptive rank methods"
+  differentiation_summary: |
+    All prior adaptive rank methods (AdaLoRA, ARD-LoRA, DyLoRA, Sensitivity-LoRA, La-LoRA) require
+    training-time signals (SVD importance, Hessian, learnable scaling factors, or concurrent rank training).
+    Act-LoRA uses forward-pass activations for BINARY layer selection only (not rank magnitude).
+    SparsityLoRA is the first to use static activation sparsity for CONTINUOUS rank magnitude allocation
+    before fine-tuning begins. The "sparsity as free AdaLoRA approximation" framing is novel and directly
+    falsifiable against AdaLoRA's learned per-layer allocation.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "LLaMA-3-8B (meta-llama/Meta-Llama-3-8B)"
+  datasets:
+    - "GLUE SST-2 (sentiment, binary classification)"
+    - "GLUE MNLI (NLI, 3-class)"
+    - "Alpaca (calibration, 512 samples)"
+    - "WikiText-103 (calibration stability check, 512 samples)"
+  baselines:
+    - "Uniform LoRA r=16 (full budget reference)"
+    - "Uniform LoRA budget-matched r=~10 (60% budget)"
+    - "Random allocation (10-seed average, 60% budget)"
+    - "AdaLoRA at matched budget (60% of uniform r=16)"
+
+measurement_plan:
+  data_collection:
+    - source: "LLaMA-3-8B forward hooks on MLP gate layers (sparsity measurement)"
+    - source: "GLUE SST-2/MNLI validation accuracy (performance measurement)"
+    - source: "LoRA ΔW matrices post-training (spectral analysis)"
+    - source: "AdaLoRA final per-layer rank allocation (correlation benchmark)"
+    - source: "Per-layer gradient Frobenius norms during baseline training (confound control)"
+  procedure:
+    - step: "1. Measure layer-wise activation sparsity on Alpaca (512 samples) and WikiText (512 samples) via forward hooks on LLaMA-3-8B MLP layers. Compute CV and Kendall's tau_calibration."
+    - step: "2. Compute joint rank sensitivity per layer: for each layer, reduce its rank by Δr while redistributing budget to other layers; measure accuracy drop on SST-2 and MNLI. Identify sensitive layers (>=0.5% drop)."
+    - step: "3. Compute Pearson r between sparsity and joint rank sensitivity on sensitive layers (SST-2 and MNLI separately)."
+    - step: "4. Run AdaLoRA at 60% budget on SST-2 and MNLI; extract final per-layer rank allocation; compute Kendall's tau vs. sparsity ranking."
+    - step: "5. Fine-tune with 5 allocation strategies under 60% budget: SparsityLoRA, uniform r=~10, random (10 seeds), AdaLoRA, full uniform r=16. Record SST-2 and MNLI accuracy."
+    - step: "6. Compute oracle allocation as best of 20 random rank allocations under 60% budget. Measure SparsityLoRA % of oracle."
+    - step: "7. Post-training: compute SVD of each layer's ΔW (=B×A), extract top-4 singular values / Frobenius norm ratio. Run multiple regression with sparsity, gradient norm, and parameter count predicting ΔW ratio."
+    - step: "8. Sensitivity analysis: sweep epsilon in {0.001, 0.01, 0.05, 0.1}; report Kendall's tau stability of sparsity rankings."
+  success_criteria:
+    - "P1: CV > 0.3 AND Kendall's tau_calibration >= 0.6"
+    - "P2: Pearson r <= -0.4 on sensitive layers, both tasks; Kendall's tau >= 0.4 vs. AdaLoRA; >=20% unique variance in ΔW spectral decay"
+    - "P3: SparsityLoRA achieves >=95% oracle on BOTH SST-2 and MNLI; p < 0.05 vs. uniform and random"
+
+validation:
+  internal_validity:
+    - "Control for gradient norm confound in multiple regression (sparsity vs. gradient norm + parameter count as predictors of ΔW spectral decay)"
+    - "5-seed repetition of all fine-tuning experiments to estimate variance"
+    - "Pre-registration of success/failure thresholds before running experiments"
+    - "Identical fine-tuning hyperparameters across all allocation strategies"
+  external_validity:
+    - "Two GLUE tasks with different supervision signals (sentiment vs. NLI) for cross-task transfer test"
+    - "Two calibration datasets (Alpaca vs. WikiText) for distribution stability test"
+    - "Input length variation (128 vs. 512 tokens) for calibration invariance test"
+    - "AdaLoRA comparison provides external validity benchmark against state-of-the-art method"
+
+discussion_synthesis:
+  key_insights:
+    - "The theoretical chain via [Aghajanyan et al. 2021] SAID provides grounding: sparsity → attractor subspace dimensionality → intrinsic fine-tuning dimension → required LoRA rank"
+    - "Reframing from 'exact correlation' to 'ranking proxy' (Kendall's tau >= 0.4) made the hypothesis more robust and practically useful"
+    - "The 'sparsity as free AdaLoRA approximation' framing is the cleanest novelty statement and most directly falsifiable"
+    - "Joint budget allocation is essential for meaningful rank sensitivity measurement (not marginal)"
+    - "Mechanistic validation via ΔW spectral decay addresses the gradient norm confound identified by Prof. Rex"
+  breakthrough_moments:
+    - "Exchange 9 (Dr. Nova): shift from correlation-based to ranking-based claim (Kendall's tau) — made hypothesis more robust to absolute value precision"
+    - "Exchange 15 (Dr. Ally): 'sparsity as free approximation to AdaLoRA's learned allocation' — cleanest novelty framing emerged"
+    - "Exchange 11 (Prof. Pax): identified ΔW spectral decay via torch.linalg.svd as tractable mechanistic validation"
+  resolved_tensions:
+    - "Tension: activation sparsity (first-order) vs. required LoRA rank (parameter-space direction count). Resolution: frame as ranking proxy, not exact predictor; validate against AdaLoRA's ground truth"
+    - "Tension: task-agnostic calibration vs. task-conditioned rank sensitivity. Resolution: test stability across two tasks; if one fails, narrow scope rather than discard hypothesis"
+    - "Tension: marginal vs. joint rank sensitivity. Resolution: define joint sensitivity protocol explicitly (fix total budget, redistribute when perturbing); measure marginal as approximation"

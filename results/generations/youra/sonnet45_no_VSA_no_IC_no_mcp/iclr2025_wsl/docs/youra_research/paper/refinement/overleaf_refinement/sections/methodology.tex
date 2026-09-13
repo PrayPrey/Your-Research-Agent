@@ -1,0 +1,40 @@
+
+\subsubsection{Overview}
+
+The verification system checks for the existence of (Dataset D, Benchmark B, Metric M) triples in a structured knowledge base and flags known confound patterns. The system prioritizes precision over recall through conservative classification logic. The approach consists of four components: (1) automated knowledge base construction from catalog APIs, (2) formal (D,B,M) existence verification, (3) cross-domain confound pattern flagging, and (4) domain boundary detection for novel modalities.
+
+\subsubsection{Knowledge Base Construction}
+
+The knowledge base stores (D,B,M) triples extracted from the HuggingFace Datasets Hub API, which provides programmatic access to Papers With Code catalog metadata. The extraction logic queries the API for all datasets with benchmark metadata, parses structured responses to extract dataset names, benchmark task identifiers, and associated metric names, then validates completeness by checking that all three fields are non-empty. Triples with missing fields are discarded. The extraction runs without manual intervention.
+
+Automated API-driven extraction achieved 84\% coverage (42/50 well-known datasets, 49 complete triples). The HuggingFace API provides 100\% metadata completeness: all extracted triples contain all required fields. Domain distribution (28.6\% vision, 28.6\% NLP, 11.9\% graph, 11.9\% video, 9.5\% audio, 9.5\% other) matches the deep learning research landscape.
+
+Eight well-known datasets are missing from the January 2026 snapshot: Pascal VOC, MS COCO (duplicate naming), STL-10, SST-2, Common Voice, tieredImageNet, CUB-200, and Stanford Cars. These gaps reflect catalog incompleteness rather than extraction failures. Missing datasets span multiple domains (vision: 3, NLP: 1, audio: 1, few-shot learning: 3) with no systematic bias.
+
+\subsubsection{Formal Verification Logic}
+
+Given hypothesis text H and knowledge base KB, the verification system determines testability via existence checking: ∃ (D,B,M) $\in$ KB such that H can be expressed as an intervention measurable by metric M over benchmark B on dataset D.
+
+Keyword extraction parses hypothesis text to extract dataset names, benchmark task identifiers, and metric names via substring matching against KB entries. For example, hypothesis ''Under CIFAR-10 image classification accuracy conditions, if we apply data augmentation...'' extracts (D=''CIFAR-10'', B=''image-classification'', M=''accuracy''). The extraction requires standard phrasing.
+
+Existence checking queries KB for exact triple match: (D\_extracted, B\_extracted, M\_extracted) $\in$ KB. If match exists, hypothesis is classified as ''testable''. If no match, hypothesis is ''not testable''.
+
+Conservative logic prioritizes precision (0\% false positive rate) over recall (10\%). The 10\% recall reflects keyword extraction brittleness---paraphrased hypotheses fail to extract metric M, triggering false negatives. On a balanced test set of 20 expert-labeled hypotheses (10 testable, 10 untestable), the verifier achieved 0\% false positive rate, 100\% specificity, 100\% precision, and 10\% recall. Six false negatives correspond to datasets missing from the knowledge base.
+
+\subsubsection{Cross-Domain Confound Pattern Flagging}
+
+Confound detection checks hypothesis H against 15 documented confound patterns from deep learning literature (Salesky \& Black 2020, Touvron et al. 2019, Goyal et al. 2017). Each pattern P consists of keyword pairs (variable\_1, variable\_2) and domain tags. Example pattern: P\_tokenizer = {keywords: [''tokenizer'', ''BLEU''], domain: ''NLP''}. For hypothesis H, the system extracts all nouns and technical terms, then checks for co-occurrence of confound pattern keywords.
+
+Cross-domain transfer does not filter patterns by hypothesis domain---NLP patterns are tested against vision hypotheses, vision patterns against training hypotheses. On a labeled test set of 30 hypotheses (15 confounded, 15 clean), the system achieved 93.33\% precision (14/15 flagged confounds were true positives), 93.33\% recall (14/15 confounded hypotheses detected), and 6.67\% false positive rate (1/15 clean hypotheses incorrectly flagged). Domain breakdown: NLP 100\% precision (5/5), vision 80\% precision (4/5, 1 false positive), training 100\% precision (5/5).
+
+The single false positive flagged ''Test augmentation strength (same resolution, same model)'' due to ''augmentation''+''model'' keyword co-occurrence triggering augmentation-capacity pattern, though augmentation was varied alone. One false negative missed a pre-training dataset confound not covered by the 2017-2020 pattern database.
+
+\subsubsection{Domain Boundary Detection}
+
+Domain boundary detection prevents false positives on out-of-scope hypotheses from novel modalities (olfactory AI, haptic deep learning, gustatory classification). The system computes Jaccard similarity between hypothesis domain keywords and KB domain taxonomy (7 established domains: vision, NLP, audio, graph, video, speech, multimodal). Threshold 0.7: if max domain similarity < 0.7, classify hypothesis as ''not testable'' without attempting (D,B,M) verification.
+
+On 10 novel modality hypotheses (olfactory, haptic, gustatory, thermal imaging, hyperspectral agriculture, quantum ML, neuromorphic computing, brain-computer interface, molecular dynamics, affective computing), all 10 were correctly flagged as out-of-scope (100\% accuracy).
+
+\subsubsection{Implementation}
+
+The system is implemented in Python 3.8 using standard libraries. Knowledge base stored as YAML (49 triples, ~5KB). HuggingFace API accessed via REST requests. Keyword extraction uses substring matching. Confound pattern database stored as JSON (15 patterns, ~2KB). Domain boundary detection uses spaCy for noun extraction and Python sets for Jaccard similarity. Total computational cost: <1 second per hypothesis classification, <1 minute for full KB construction from API. No GPU required.

@@ -1,0 +1,356 @@
+# Phase 5: Baseline Repository Comparison Workflow
+# Anonymous Research Pipeline
+#
+# Purpose: Full-scale comparison with official baseline implementations
+# Role: DETERMINES_SUCCESS gate - final validation of research hypothesis
+# Principle: Mode B - Inject OUR algorithm into BASELINE's environment
+#
+# Configuration (Mode B):
+# - 3 baselines (top 3 from evaluation)
+# - Each baseline uses THEIR OWN model, dataset, config
+# - Total runs: 6 = 3 baselines × 2 methods (baseline vs ours) × 1 seed
+# - Gate: beat ≥2/3 baselines (ours > baseline on their turf)
+
+name: "phase5-baseline-repo-comparison"
+description: "Mode B baseline comparison with DETERMINES_SUCCESS gate (3 baselines × 2 methods)."
+
+# ============================================================================
+# PATH VARIABLES (evaluated at runtime)
+# ============================================================================
+
+variables:
+  # Base paths (injected from pipeline)
+  project_root: "${PROJECT_ROOT}"
+  research_folder: "${RESEARCH_FOLDER}"
+  hypothesis_folder: "${HYPOTHESIS_FOLDER}"
+  hypothesis_id: "${HYPOTHESIS_ID}"
+  hypothesis_id_lower: "${HYPOTHESIS_ID_LOWER}"
+
+  # Workflow paths
+  workflow_path: "{project_root}/bmad-custom-src/custom/modules/youra-research/workflows/phase5-baseline-repo-comparison"
+
+  # Input files (from Phase 4)
+  phase4_validation: "{hypothesis_folder}/04_validation.md"
+  phase4_results: "{hypothesis_folder}/experiment_results.json"
+  code_folder: "{hypothesis_folder}/code"
+
+  # Baseline comparison output folder
+  baseline_folder: "{hypothesis_folder}/baseline_comparison"
+  baselines_root: "{baseline_folder}/baselines"
+  adaptations_folder: "{baseline_folder}/adaptations"
+  experiments_folder: "{baseline_folder}/experiments"
+  reports_folder: "{baseline_folder}/reports"
+
+  # State files
+  verification_state_file: "{research_folder}/verification_state.yaml"
+  checkpoint_file: "{baseline_folder}/05_baseline_checkpoint.yaml"
+
+  # Output files
+  comparison_plan: "{baseline_folder}/comparison_plan.md"
+  repo_candidates: "{baseline_folder}/repo_candidates.md"
+  evaluation_matrix: "{baseline_folder}/evaluation_matrix.md"
+  selected_repo: "{baseline_folder}/selected_repo.md"
+  setup_log: "{baseline_folder}/setup_log.md"
+  code_analysis: "{baseline_folder}/code_analysis.md"
+  adaptation_plan: "{baseline_folder}/adaptation_plan.md"
+  changes_log: "{baseline_folder}/changes/CHANGES.md"
+  comparison_report: "{baseline_folder}/05_baseline_comparison.md"
+
+# ============================================================================
+# WORKFLOW CONFIGURATION
+# ============================================================================
+
+config:
+  # Comparison settings
+  comparison:
+    max_candidates: 15 # metadata-only (stored in checkpoint) — keep enough candidates
+    baselines_to_select: 3 # CONSUMED by step-05 — select top N baselines
+    min_baselines_required: 1 # CONSUMED by step-05
+    min_stars: 10 # CONSUMED by step-03
+    recent_activity_months: 24 # CONSUMED by step-03
+    dataset_overlap_weight: 0.3 # CONSUMED by step-05 — common dataset bonus weight (0.0-1.0)
+
+  # Experiment settings
+  # total_runs = baselines × methods_per_baseline × seeds
+  experiment:
+    seeds: 1 # FIXED (1 seed per run) — CONSUMED by step-09, experiment-guide, report template
+    baselines: 3 # VARIABLE (top N from evaluation) — CONSUMED by step-01-init (calculates min_baselines_to_beat)
+    methods_per_baseline: 2 # FIXED (baseline_original vs ours_injected) — CONSUMED by step-09, experiment-guide, report template
+    total_runs: 6 # DERIVED (baselines × methods_per_baseline × seeds) — CONSUMED by step-09, experiment-guide, report template
+
+  # Retry limits
+  max_adaptation_retries: 5 # CONSUMED by step-10a
+  max_coder_validator_cycles: 5 # CONSUMED by step-07, step-08
+  max_experiment_retries: 5 # CONSUMED by step-09
+
+# ============================================================================
+# DETERMINES_SUCCESS GATE
+# ============================================================================
+
+gate:
+  criteria:
+    mode_b_comparison:
+      baseline_win_threshold: 1/4 # CONSUMED by step-01-init → checkpoint → step-10a
+
+# ============================================================================
+# INPUT REQUIREMENTS
+# ============================================================================
+
+inputs:
+  required:
+    - file: "{phase4_validation}"
+      description: "Phase 4 validation report"
+      check: "file_exists"
+
+    - file: "{phase4_results}"
+      description: "Phase 4 experiment results (JSON)"
+      check: "file_exists"
+
+    - file: "{code_folder}/outputs/results.csv"
+      description: "Our experiment results (CSV)"
+      check: "file_exists"
+
+    - state: "verification_state.yaml"
+      check: "hypothesis_validation_completed"
+
+  optional:
+    - file: "{code_folder}/measurements.py"
+      description: "Our measurement implementations (for metric injection)"
+
+# ============================================================================
+# OUTPUT SPECIFICATIONS
+# ============================================================================
+
+outputs:
+  primary:
+    - file: "{comparison_report}"
+      description: "Final comparison report (05_baseline_comparison.md)"
+      format: "markdown"
+
+  secondary:
+    - file: "{experiments_folder}/comparison_data.csv"
+      description: "Merged comparison data (ours + baseline)"
+      format: "csv"
+
+    - file: "{reports_folder}/comparison_plots.png"
+      description: "Comparison visualizations"
+      format: "image"
+
+  artifacts:
+    - folder: "{baselines_root}/{repo_name}"
+      description: "Cloned baseline repository"
+
+    - folder: "{adaptations_folder}/{repo_name}"
+      description: "Adaptation code and configs"
+
+# ============================================================================
+# MCP SERVER REQUIREMENTS
+# ============================================================================
+
+mcp_servers:
+  required:
+    - name: "exa"
+      purpose: "GitHub repository search"
+      tools:
+        - "web_search_exa"
+        - "get_code_context_exa"
+
+    - name: "archon"
+      purpose: "Task management"
+      tools:
+        - "find_projects"
+        - "manage_project"
+        - "find_tasks"
+        - "manage_task"
+
+    - name: "serena"
+      purpose: "Code analysis"
+      tools:
+        - "list_dir"
+        - "find_file"
+        - "search_for_pattern"
+        - "get_symbols_overview"
+        - "find_symbol"
+
+  external:
+    - name: "gh"
+      purpose: "GitHub CLI operations"
+      type: "cli"
+      commands:
+        - "gh repo clone"
+        - "gh repo fork"
+        - "gh auth status"
+
+# ============================================================================
+# STEP DEFINITIONS
+# ============================================================================
+
+steps:
+  - id: "step-01"
+    name: "Initialize"
+    file: "steps/step-01-init.md"
+    description: "Initialize workflow, verify Phase 4 completion, detect hallucinations"
+    inputs: ["phase4_validation", "verification_state_file", "extended_hypothesis"]
+    outputs: ["checkpoint_file", "baseline_folder"]
+    gate: null
+    mcp: ["serena"] # For hallucination detection via code structure analysis
+
+  - id: "step-02"
+    name: "Define Comparison"
+    file: "steps/step-02-define.md"
+    description: "Define comparison scope and requirements"
+    inputs: ["phase4_validation", "phase4_results"]
+    outputs: ["comparison_plan"]
+    gate: null
+
+  - id: "step-03"
+    name: "Search Repositories"
+    file: "steps/step-03-search.md"
+    description: "Search for candidate baseline repositories"
+    inputs: ["comparison_plan"]
+    outputs: ["repo_candidates"]
+    gate: null
+    mcp: ["exa"]
+
+  - id: "step-04"
+    name: "Evaluate Candidates"
+    file: "steps/step-04-evaluate.md"
+    description: "Evaluate repositories, score them, and extract datasets used by each"
+    inputs: ["repo_candidates"]
+    outputs: ["evaluation_matrix"] # Now includes datasets_used per repo
+    gate: null
+
+  - id: "step-05"
+    name: "Select Baselines"
+    file: "steps/step-05-select.md"
+    description: "Select top 3 baseline repositories and merge their dataset lists"
+    inputs: ["evaluation_matrix"]
+    outputs: ["selected_baselines"] # Contains 3 baselines + merged datasets
+    gate: null
+
+  - id: "step-05.5"
+    name: "Verify Baseline Environments"
+    file: "steps/step-05.5-baseline-env-verification.md"
+    description: "Mode B: Verify baseline environments are usable (dataset, model, config)"
+    inputs: ["selected_baselines"]
+    outputs: ["environment_verification"] # Per-baseline environment status
+    gate: null
+
+  - id: "step-06"
+    name: "Setup & Analyze"
+    file: "steps/step-06-setup.md"
+    description: "Clone all baselines, setup environments, analyze injection points"
+    inputs: ["selected_baselines", "environment_verification"]
+    outputs: ["setup_logs", "code_analyses", "05_tasks.yaml"] # For all 3 baselines
+    gate: null
+    mcp: ["gh", "serena"]
+
+  - id: "step-07"
+    name: "Adaptation Coding"
+    file: "steps/step-07-adaptation-coding.md"
+    description: "Mode B: Generate algorithm injection code (4 tasks × N baselines)"
+    inputs: ["code_analyses", "checkpoint_file", "05_tasks.yaml"]
+    outputs: ["adaptations_folder", "changes_logs"]
+    gate: null # UNATTENDED mode - auto-proceed
+    mcp: ["archon", "serena", "exa"]
+
+  - id: "step-08"
+    name: "Validation"
+    file: "steps/step-08-validation.md"
+    description: "Validate all injection code (4 tasks × N baselines)"
+    inputs: ["adaptations_folder"]
+    outputs: ["validation_logs"]
+    gate:
+      type: "TESTS_PASS"
+      description: "All injection tests must pass"
+    mcp: ["archon", "serena"]
+    agent: ".claude/agents/phase5-baseline/baseline-validator-agent.md"
+
+  - id: "step-09"
+    name: "Run Experiments"
+    file: "steps/step-09-experiment.md"
+    description: "Execute experiment runs: N Baselines × 2 Methods (baseline vs ours) × 1 Seed"
+    inputs: ["changes_logs", "dataset_selection"]
+    outputs: ["{experiments_folder}/results/"]
+    gate: null
+
+  - id: "step-10"
+    name: "Generate Report"
+    file: "steps/step-10-report.md"
+    description: "Generate comparison report with statistical analysis"
+    inputs: ["{experiments_folder}/comparison_data.csv"]
+    outputs: ["comparison_report"]
+    gate: null
+
+  - id: "step-10a"
+    name: "Gate Evaluation"
+    file: "steps/step-10a-gate-evaluation.md"
+    description: "Evaluate DETERMINES_SUCCESS gate and save Serena Memory for failure cases"
+    inputs: ["comparison_report", "{experiments_folder}/comparison_data.csv"]
+    outputs: ["serena_memory_file"]
+    gate:
+      type: "DETERMINES_SUCCESS"
+      description: "Final validation - does our method outperform baseline?"
+    mcp: ["serena"]
+
+  - id: "step-10b"
+    name: "Finalize"
+    file: "steps/step-10b-finalize.md"
+    description: "Calculate benchmark metrics, update Archon tasks, complete checkpoint"
+    inputs: ["checkpoint_file", "verification_state_file"]
+    outputs: ["archived_checkpoint"]
+    gate: null
+    mcp: ["archon", "serena"]
+
+# ============================================================================
+# CHECKPOINT SCHEMA
+# ============================================================================
+
+checkpoint:
+  version: "4.0"
+  fields:
+    hypothesis_id: "string"
+    created_at: "ISO8601"
+    updated_at: "ISO8601"
+    current_step: "integer"
+    selected_repo:
+      name: "string"
+      url: "string"
+      clone_path: "string"
+    adaptation_status:
+      completed: "boolean"
+      test_passed: "boolean"
+    experiment_status:
+      total_runs: "integer"
+      completed: "integer"
+      failed: "integer"
+    comparison_data:
+      ours_rows: "integer"
+      baseline_rows: "integer"
+      merged: "boolean"
+
+# ============================================================================
+# ERROR HANDLING
+# ============================================================================
+
+error_handling:
+  on_step_failure:
+    - log_error_to_checkpoint
+    - attempt_recovery
+    - if_unrecoverable: "stop_with_report"
+
+  recoverable_errors:
+    - "network_timeout"
+    - "gh_rate_limit"
+    - "conda_package_conflict"
+
+  fatal_errors:
+    - "no_suitable_repo"
+    - "adaptation_impossible"
+    - "experiment_all_failed"
+
+# ============================================================================
+# INTEGRATION WITH VERIFICATION STATE
+# ============================================================================
+# Actual verification_state update logic is implemented in step-10a/10b.
+# See step-10a-gate-evaluation.md and step-10b-finalize.md for details.

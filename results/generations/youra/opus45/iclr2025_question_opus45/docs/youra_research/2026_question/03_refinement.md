@@ -1,0 +1,128 @@
+# Phase 2A: Refinement Summary
+
+## Metadata
+- **Generated at**: 2026-03-28T20:15:00Z
+- **Workflow**: phase2a-dialogue v10.0.0
+- **Architecture**: Self-Contained Tikitaka Loop v10.0.0
+- **Gap ID**: gap1
+- **Gap Title**: Single-Pass SE Proxy Without Multi-Sample Generation
+- **Execution Mode**: UNATTENDED
+- **Discussion Exchanges**: 12
+
+---
+
+## Research Dialogue Context
+
+**Participants**: Dr. Nova, Prof. Vera, Dr. Sage, Prof. Pax, Dr. Ally, Prof. Rex
+
+**Total Exchanges**: 12
+
+**Convergence Reason**: All convergence criteria met: SPECIFIC core claim, MECHANISM explained, PREDICTIONS with criteria, NOVELTY articulated, FEASIBILITY established, OBJECTIONS addressed
+
+### Key Insights
+- Failed approaches (embeddings, lexical metrics, token-level entropy) didn't learn from SE signal - they assumed correlations exist
+- Successful approaches (SEPs, SSD, UQ Heads) all train on SE ground truth to learn the mapping
+- Cross-model transfer is the underexplored high-impact direction in SE proxy research
+- Similarity structure computed on generated text is model-agnostic by construction
+
+### Breakthrough Moments
+- **Exchange 5**: Dr. Ally synthesized SEP + SSD + KLE insights into unified SEDP proposal
+- **Exchange 8**: Prof. Vera formalized testable predictions with quantitative success/falsification thresholds
+- **Exchange 9**: Prof. Pax confirmed all components are technically feasible (<10 GPU-hours)
+- **Exchange 11**: Final consensus reached with clear mechanism and predictions
+
+---
+
+## Final Hypothesis
+
+### Title
+SE-Distilled Probes with Similarity Augmentation (SEDPs)
+
+### Core Claim
+Under the condition of transformer-based LLMs performing question-answering tasks, if we train a probe to predict semantic entropy (SE) using hidden state features with semantic similarity structure as an auxiliary training signal, then the probe will achieve (1) single-pass SE prediction with Spearman rho ≥ 0.7 versus true SE, AND (2) cross-model transfer with rho ≥ 0.5, because the similarity structure provides model-agnostic regularization that prevents overfitting to model-specific hidden state patterns.
+
+### Mechanism
+1. **SE Label Generation**: Generate N=20 responses per question, compute true SE using NLI-based clustering
+2. **Similarity Structure Extraction**: Compute pairwise semantic similarity (NLI entailment) for response sets
+3. **Probe Training**: Train MLP probe on hidden states with similarity structure as auxiliary input
+4. **Knowledge Distillation**: Probe learns to predict SE from single-pass hidden states
+5. **Transfer via Similarity**: Similarity-augmented training encourages model-agnostic feature learning
+
+---
+
+## Predictions
+
+| ID | Statement | Success Criterion | Falsification |
+|----|-----------|-------------------|---------------|
+| **P1** | SEDP achieves rho ≥ 0.7 with true SE on same-model test | rho ≥ 0.7 (p < 0.001) | rho < 0.5 |
+| **P2** | SEDP achieves rho ≥ 0.5 on cross-model transfer | rho ≥ 0.5 (p < 0.01) | rho < 0.3 |
+| **P3** | SEDP provides ≥10x inference speedup | Speedup ≥ 10x | Speedup < 5x |
+
+---
+
+## Novelty
+
+**Key Innovation**: First SE proxy explicitly designed for cross-model transfer via similarity-augmented training.
+
+**Differentiation from Prior Work**:
+- vs **SEPs** (Kossen et al.): Adds similarity auxiliary signal; targets cross-model transfer
+- vs **SSD** (Phillips et al.): Uses lightweight probe instead of full student model; more efficient
+- vs **UQ Heads** (Shelmanov et al.): Uses NLI-based similarity instead of attention patterns; architecture-agnostic
+
+---
+
+## Experimental Design
+
+**Dataset**: TruthfulQA (817 questions, 80/20 train/test split)
+
+**Models**:
+- Llama-3-8B-Instruct (training)
+- Mistral-7B-Instruct-v0.2 (cross-model transfer test)
+
+**Baselines**:
+- Full SE (N=20) - upper bound
+- SEP (hidden-only) - comparison for transfer benefit
+- First-Token Entropy - lower bound (rho ≈ 0.13 from ROUTE_TO_0)
+
+**Probe Architecture**: 2-layer MLP with 256 hidden units, ReLU activation, MSE loss
+
+---
+
+## Limitations
+
+**Scope Boundaries**:
+- Transformer-based decoder-only LLMs only
+- English language QA tasks with factual ground truth
+- Open-weight models with accessible hidden states
+
+**Known Limitations**:
+- Initial validation on TruthfulQA only
+- Transfer tested only between Llama and Mistral families
+- Long-form generation not addressed
+- Optimal hidden layer selection not explored
+
+---
+
+## Decision
+
+| Item | Status |
+|------|--------|
+| **Overall Status** | VALIDATED |
+| **Discussion Convergence** | All 6 personas reached consensus after 12 exchanges |
+| **Clarity Verified** | Yes |
+| **Remaining Objections** | None (all addressed with mitigation strategies) |
+
+---
+
+## Persona Verdicts Summary
+
+| Persona | Dimension | Verdict |
+|---------|-----------|---------|
+| 🔭 Dr. Nova | Novelty | **STRONG** |
+| 🔬 Prof. Vera | Falsifiability | **STRONG** |
+| 🎯 Dr. Sage | Significance | **STRONG** |
+| ⚙️ Prof. Pax | Feasibility | **STRONG** |
+
+---
+
+*Generated by Phase 2A-Dialogue Workflow v10.0.0 (Self-Contained Tikitaka Loop, Free-Parse)*

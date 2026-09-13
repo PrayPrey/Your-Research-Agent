@@ -1,0 +1,751 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m2"
+  hypothesis_id_upper: "H-M2"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-03-17T03:46:00Z"
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+  budget_rebalancing:
+    applied: true
+    excluded_count: 2
+    excluded_ids:
+      - "C-11-1"
+      - "C-11-2"
+
+tasks:
+  # ─── Environment Setup (priority 94) ───────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Setup development environment"
+    description: |
+      Install required packages (reuse youra-h-e1 conda env from H-E1/H-M1):
+        numpy>=1.24.0
+        scipy>=1.11.0
+        matplotlib>=3.7.0
+        seaborn>=0.12.0
+        statsmodels>=0.14.0
+        pyyaml>=6.0
+        tqdm>=4.65.0
+        pytest>=7.0.0
+
+      No GPU required — pure numpy/scipy statistical analysis.
+      No new model downloads — cache reused from h-e1/cache/.
+
+      Verify H-E1 cache files exist:
+        h-e1/cache/pair2_mmlu_test_logprobs.pkl
+        h-e1/cache/pair2_truthfulqa_test_logprobs.pkl
+        h-e1/cache/pair2_arc_test_logprobs.pkl
+        h-e1/cache/pair4_mmlu_test_logprobs.pkl
+        h-e1/cache/pair4_truthfulqa_test_logprobs.pkl
+        h-e1/cache/pair4_arc_test_logprobs.pkl
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  # ─── Epic Tasks (priority 93-50) ───────────────────────────────────────────
+  - id: "task-002"
+    epic: "Project Setup"
+    title: "A-1: Project Setup"
+    description: |
+      Create h-m2/code/ directory structure:
+        config.py, analysis_variance.py, visualize.py, run_analysis.py
+        tests/__init__.py, tests/test_analysis_variance.py, tests/test_config.py
+      Create h-m2/figures/ and h-m2/cache/ output directories.
+      Implement config.py: BASE_DIR, HYPOTHESIS_DIR, HM1_CODE_DIR, HE1_CACHE_DIR,
+        FIGURES_DIR, CACHE_OUT_DIR, RESULTS_PATH, SEED=1, N_QUINTILES=5,
+        MIN_QUINTILE_N=100, N_BOOTSTRAP=5000, GATE_THRESHOLDS, MODEL_PAIRS, DATASETS,
+        VIZ_CONFIG, LOG_CONFIG.
+      Set up sys.path.insert for h-m1/code/ import.
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: "03_architecture.md#A-1"
+      logic: null
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  - id: "task-003"
+    epic: "Cache Loading"
+    title: "A-2: Cache Loading"
+    description: |
+      Implement in analysis_variance.py:
+        load_h_e1_cache(pair_id, dataset, cache_dir) -> dict
+          - Load h-e1/cache/{pair_id}_{dataset}_test_logprobs.pkl
+          - Return dict: base_logprobs(N,4), aligned_logprobs(N,4), margin(N,), kl_div(N,)
+        validate_cache(cache, pair_id, dataset) -> None
+          - Raise ValueError on NaN values, shape mismatch, or missing keys
+          - Fail early with clear error message if cache corrupted
+    feature_tag: "data-pipeline"
+    priority: 92
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      Create tests/test_analysis_variance.py:
+        test_load_h_e1_cache_missing_file_raises()
+        test_validate_cache_nan_raises()
+        test_validate_cache_shape_mismatch_raises()
+    reference_files:
+      architecture: "03_architecture.md#A-2"
+      logic: "03_logic.md#A-12-Integration-Validation"
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  - id: "task-004"
+    epic: "Quintile Stratification"
+    title: "A-3: Quintile Stratification"
+    description: |
+      Implement compute_quintile_labels in analysis_variance.py:
+        compute_quintile_labels(margin, n_quintiles=5) -> (quintile_labels(N,), boundaries(n_quintiles+1,))
+          - boundaries = np.percentile(margin, np.linspace(0, 100, n_quintiles+1))
+          - quintile_labels = np.digitize(margin, boundaries[1:-1])  # [0..n_quintiles-1]
+          - Log WARNING if any quintile has < MIN_QUINTILE_N items
+          - Return (quintile_labels, boundaries)
+      Note: margin from H-E1 cache is already z-scored. No additional z-scoring needed.
+    feature_tag: "data-pipeline"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      tests/test_analysis_variance.py:
+        test_compute_quintile_labels_uniform_distribution()
+        test_compute_quintile_labels_min_n_check()
+        test_compute_quintile_labels_boundaries_shape()
+    reference_files:
+      architecture: "03_architecture.md#A-3"
+      logic: "03_logic.md#A-3-Quintile-Stratification"
+      config: null
+
+  - id: "task-005"
+    epic: "KL-Residualized Variance"
+    title: "A-4: KL-Residualized Variance Computation"
+    description: |
+      Implement compute_variance_by_quintile in analysis_variance.py:
+        compute_variance_by_quintile(base_logprobs(N,4), aligned_logprobs(N,4),
+                                     margin(N,), kl_div(N,), n_quintiles=5, kl_control=True) -> dict
+          1. delta = compute_logit_delta(base_logprobs, aligned_logprobs)  # (N, 4)
+          2. delta_var = np.var(delta, axis=1)                              # (N,)
+          3. quintile_labels, boundaries = compute_quintile_labels(margin)
+          4. For each quintile q: extract delta_var_q and kl_q
+             If kl_control and len >= 10: OLS residualize (np.polyfit degree 1)
+             Else: use raw delta_var_q
+             quintile_variances[q] = np.var(residuals)
+             Store q1_residuals for Q1
+          Returns: {quintile_variances(5,), quintile_counts(5,), q1_residuals(n_q1,),
+                    kl_residualization_applied(bool), boundaries(6,)}
+    feature_tag: "evaluation"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      tests/test_analysis_variance.py:
+        test_compute_variance_by_quintile_shape()
+        test_compute_variance_by_quintile_kl_residualization()
+        test_compute_variance_by_quintile_no_kl_control()
+        test_quintile_count_skip_below_min()
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4-KL-Residualized-Variance"
+      config: null
+
+  - id: "task-006"
+    epic: "Statistical Testing"
+    title: "A-5: Statistical Testing (Welch's t + Bootstrap CI)"
+    description: |
+      Implement test_method_quintile_interaction in analysis_variance.py:
+        test_method_quintile_interaction(dpo_q1_residuals(n,), sft_q1_residuals(n,),
+                                         n_bootstrap=5000, seed=1) -> dict
+          1. t_stat, p_two = scipy.stats.ttest_ind(dpo, sft, equal_var=False)
+          2. p_one_tailed = p_two / 2  (directional: DPO > SFT)
+          3. pooled_std = sqrt((var(dpo) + var(sft)) / 2)
+          4. cohens_d = (mean(dpo) - mean(sft)) / pooled_std
+          5. q1_variance_ratio = var(dpo) / var(sft)
+          6. Bootstrap CI: np.random.seed(seed); resample both arrays 5000×;
+             compute var ratio each iteration; CI = (2.5th, 97.5th percentile)
+          Returns: {t_stat, p_one_tailed, cohens_d, q1_variance_ratio, bootstrap_ci(2,)}
+    feature_tag: "evaluation"
+    priority: 89
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      tests/test_analysis_variance.py:
+        test_test_method_quintile_interaction_returns_keys()
+        test_test_method_quintile_interaction_one_tailed()
+        test_bootstrap_ci_shape()
+        test_cohens_d_direction()
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-Statistical-Testing"
+      config: null
+
+  - id: "task-007"
+    epic: "Ablation Variants"
+    title: "A-6: Ablation Variants"
+    description: |
+      Implement ablation functions in analysis_variance.py:
+        run_ablation_no_kl(base_logprobs, aligned_logprobs, margin, kl_div) -> dict
+          - Call compute_variance_by_quintile with kl_control=False
+          - Return same structure (raw variance without KL residualization)
+        run_isotropic_sanity_check(n_items=1000, seed=1) -> dict
+          - Generate synthetic Gaussian delta (N, 4) ~ N(0, I)
+          - Compute quintile variances on synthetic margin
+          - Expected: flat trend (all quintiles ~equal variance)
+          - Return {quintile_variances(5,), is_flat(bool)}
+      Also implement per-dataset separation (Q1-Q5 trend analysis per benchmark).
+    feature_tag: "evaluation"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      tests/test_analysis_variance.py:
+        test_run_isotropic_sanity_flat_trend()
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: "03_logic.md#A-6-Ablation-Variants"
+      config: null
+
+  - id: "task-008"
+    epic: "Mechanism Verification"
+    title: "A-7: Mechanism Verification"
+    description: |
+      Implement verify_mechanism_activated in analysis_variance.py:
+        verify_mechanism_activated(results: dict) -> (bool, dict)
+          Checks 4 indicators:
+            quintile_stratification_ok: all quintile_counts >= MIN_QUINTILE_N
+            variance_computed: dpo_q1_variance > 0 and sft_q1_variance > 0
+            kl_controlled: kl_residualization_applied == True
+            test_executed: "p_value" in results (use p_one_tailed key)
+          Returns (all(indicators.values()), indicators)
+      Add FR-6 logging:
+        INFO: "Quintile stratification: Q1 has N={n} items (expected ~2800)"
+        INFO: "delta shape: ({N}, 4), quintile_variances shape: (5,)"
+    feature_tag: "evaluation"
+    priority: 87
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      tests/test_analysis_variance.py:
+        test_verify_mechanism_activated_all_pass()
+        test_verify_mechanism_activated_missing_key()
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#A-12-Integration-Validation"
+      config: null
+
+  - id: "task-009"
+    epic: "Gate Evaluation"
+    title: "A-8: Gate Evaluation"
+    description: |
+      Implement evaluate_gate in run_analysis.py:
+        evaluate_gate(results: dict) -> dict
+          - Apply 2/3 benchmark criterion: count datasets where p_one_tailed < 0.05
+          - gate_pass = (n_significant >= GATE_THRESHOLDS["benchmarks_min"])
+          - Returns: {gate_pass(bool), n_significant(int), per_dataset(dict)}
+          - NOTE: p >= 0.05 is NOT a code error — SHOULD_WORK gate, document null result
+          - Write gate result to experiment_results.json
+    feature_tag: "evaluation"
+    priority: 86
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      tests/test_analysis_variance.py:
+        test_evaluate_gate_pass_condition()
+        test_evaluate_gate_fail_condition()
+    reference_files:
+      architecture: "03_architecture.md#A-8"
+      logic: "03_logic.md#A-12-Integration-Validation"
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  - id: "task-010"
+    epic: "Visualization"
+    title: "A-9: Visualization (5 Required Figures)"
+    description: |
+      Implement visualize.py with 5 figures saved to h-m2/figures/ as .pdf and .png:
+
+      Fig 1 (GATE METRIC — MANDATORY): plot_q1_variance_bar()
+        Bar chart: DPO vs SFT Q1 variance (KL-residualized) per dataset
+        With p-value annotation. FR-7.1.
+
+      Fig 2: plot_quintile_trend()
+        Line chart: DPO vs SFT variance ratio Q1→Q5 per dataset. FR-7.2.
+
+      Fig 3: plot_kl_scatter()
+        Scatter: delta_var vs kl_div colored by quintile (validates residualization). FR-7.3.
+
+      Fig 4: plot_benchmark_q1_grouped()
+        Grouped bar: MMLU/TQA/ARC × DPO/SFT with error bars. FR-7.4.
+
+      Fig 5: plot_variance_ratio_heatmap()
+        DPO/SFT variance ratio Q1-Q5 × dataset heatmap/line. FR-7.5.
+
+      Use FIG1_CONFIG..FIG5_CONFIG from config.py. save_figure() for pdf+png output.
+    feature_tag: "evaluation"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      Smoke test only (output files exist after run):
+        assert os.path.exists("h-m2/figures/fig1_q1_variance_bar.pdf")
+        assert os.path.exists("h-m2/figures/fig1_q1_variance_bar.png")
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: null
+      config: "03_config.md#A-9-Visualization-Config"
+
+  - id: "task-011"
+    epic: "Main Entry Point"
+    title: "A-10: Main Entry Point (run_analysis.py)"
+    description: |
+      Implement run_analysis.py:
+        setup_logging() -> Logger  (structured logging to run.log + console)
+        load_all_caches(model_pairs, datasets, cache_dir) -> {pair_id: {dataset: cache_dict}}
+        run_per_dataset_analysis(caches, n_quintiles=5, n_bootstrap=5000, seed=1) -> dict
+          For each dataset: compute_variance_by_quintile for DPO + SFT,
+          then test_method_quintile_interaction(dpo_q1_residuals, sft_q1_residuals)
+        save_results(results, path) -> None  (JSON)
+        main() -> None
+          Entry: load_all_caches → run_per_dataset_analysis → ablation variants →
+                 isotropic sanity → verify_mechanism_activated → evaluate_gate →
+                 visualize all 5 figures → save_results → log gate result
+      Write h-m2/04_checkpoint.yaml on start (schema v3.5).
+    feature_tag: "experiment"
+    priority: 84
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      Integration test with real cache data (if available):
+        test_main_runs_without_error()
+        test_results_json_written()
+    reference_files:
+      architecture: "03_architecture.md#A-10"
+      logic: "03_logic.md#A-12-Integration-Validation"
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  - id: "task-012"
+    epic: "Unit Tests"
+    title: "A-11: Unit Tests (15 test functions)"
+    description: |
+      Complete tests/test_analysis_variance.py with all 15 test functions:
+        test_compute_quintile_labels_uniform_distribution()
+        test_compute_quintile_labels_min_n_check()
+        test_compute_variance_by_quintile_shape()
+        test_compute_variance_by_quintile_kl_residualization()
+        test_compute_variance_by_quintile_no_kl_control()
+        test_test_method_quintile_interaction_returns_keys()
+        test_test_method_quintile_interaction_one_tailed()
+        test_verify_mechanism_activated_all_pass()
+        test_verify_mechanism_activated_missing_key()
+        test_run_isotropic_sanity_flat_trend()
+        test_load_h_e1_cache_missing_file_raises()
+        test_validate_cache_nan_raises()
+        test_bootstrap_ci_shape()
+        test_cohens_d_direction()
+        test_quintile_count_skip_below_min()
+
+      Use synthetic data (TEST_N_ITEMS=500, TEST_N_BOOTSTRAP=100).
+      All tests runnable with: pytest h-m2/code/tests/ -v
+    feature_tag: "evaluation"
+    priority: 83
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: "These ARE the tests. Run with pytest to verify."
+    reference_files:
+      architecture: "03_architecture.md#A-11"
+      logic: "03_logic.md#A-5-Statistical-Testing"
+      config: "03_config.md#A-11-Test-Config"
+
+  - id: "task-013"
+    epic: "Integration & Validation"
+    title: "A-12: Integration & End-to-End Validation"
+    description: |
+      End-to-end integration run:
+        1. Load all 6 H-E1 cache files (pair2 + pair4 × 3 datasets)
+        2. Run full analysis pipeline (compute_variance_by_quintile × 6 + test × 3)
+        3. Run ablation (no-KL control) and isotropic sanity check
+        4. Verify mechanism_activated indicators all True
+        5. Evaluate gate (2/3 benchmark criterion)
+        6. Generate all 5 figures to h-m2/figures/
+        7. Save experiment_results.json
+        8. Verify JSON structure: gate_pass(bool), per_dataset results, q1_variance_ratio
+
+      Gate interpretation:
+        PASS (p < 0.05, >= 2/3 datasets): Write "H-M2 PASS: DPO Q1 variance > SFT"
+        FAIL (p >= 0.05): Write "H-M2 NULL RESULT: no significant Q1 variance difference"
+        Both are valid — SHOULD_WORK gate continues pipeline regardless.
+    feature_tag: "experiment"
+    priority: 82
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      Verify experiment_results.json exists and contains required keys:
+        assert "gate_pass" in results
+        assert "per_dataset" in results
+        assert len(results["per_dataset"]) == 3
+    reference_files:
+      architecture: "03_architecture.md#A-12"
+      logic: "03_logic.md#A-12-Integration-Validation"
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  # ─── Logic Subtasks (priority 49-40) ───────────────────────────────────────
+  - id: "task-014"
+    epic: "Statistical Testing"
+    title: "L-5-1: Welch's t one-tailed implementation"
+    description: |
+      Implement one-tailed Welch's t-test in test_method_quintile_interaction:
+        t_stat, p_two = scipy.stats.ttest_ind(dpo_q1_residuals, sft_q1_residuals, equal_var=False)
+        p_one_tailed = p_two / 2  # directional hypothesis: DPO > SFT
+      Store t_stat and p_one_tailed in results dict.
+    feature_tag: "evaluation"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_test_method_quintile_interaction_one_tailed()"
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-Statistical-Testing"
+      config: null
+
+  - id: "task-015"
+    epic: "Statistical Testing"
+    title: "L-5-2: Cohen's d + variance ratio"
+    description: |
+      Implement effect size metrics in test_method_quintile_interaction:
+        pooled_std = sqrt((var(dpo_q1_residuals) + var(sft_q1_residuals)) / 2)
+        cohens_d = (mean(dpo_q1_residuals) - mean(sft_q1_residuals)) / pooled_std
+        q1_variance_ratio = var(dpo_q1_residuals) / var(sft_q1_residuals)
+      Store cohens_d and q1_variance_ratio in results dict.
+    feature_tag: "evaluation"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_cohens_d_direction()"
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-Statistical-Testing"
+      config: null
+
+  - id: "task-016"
+    epic: "Statistical Testing"
+    title: "L-5-3: Bootstrap CI (5000 replicates)"
+    description: |
+      Implement bootstrap confidence interval in test_method_quintile_interaction:
+        np.random.seed(seed)
+        bootstrap_ratios = []
+        for _ in range(n_bootstrap):
+            dpo_boot = np.random.choice(dpo_q1_residuals, size=len(dpo_q1_residuals), replace=True)
+            sft_boot = np.random.choice(sft_q1_residuals, size=len(sft_q1_residuals), replace=True)
+            bootstrap_ratios.append(var(dpo_boot) / var(sft_boot))
+        bootstrap_ci = (np.percentile(bootstrap_ratios, 2.5), np.percentile(bootstrap_ratios, 97.5))
+    feature_tag: "evaluation"
+    priority: 47
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_bootstrap_ci_shape()"
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-Statistical-Testing"
+      config: null
+
+  - id: "task-017"
+    epic: "Statistical Testing"
+    title: "L-5-4: Cross-benchmark gate (2/3 datasets)"
+    description: |
+      In evaluate_gate: count datasets where test result p_one_tailed < GATE_THRESHOLDS["pvalue_max"]:
+        significant_datasets = [d for d in results if results[d]["test"]["p_one_tailed"] < 0.05]
+        n_significant = len(significant_datasets)
+        gate_pass = n_significant >= GATE_THRESHOLDS["benchmarks_min"]  # >= 2
+      Log result: "Gate: {'PASS' if gate_pass else 'FAIL'} ({n_significant}/3 datasets significant)"
+    feature_tag: "evaluation"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_evaluate_gate_pass_condition()"
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-Statistical-Testing"
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  - id: "task-018"
+    epic: "KL-Residualized Variance"
+    title: "L-4-1: delta_var computation (N,4) → (N,)"
+    description: |
+      In compute_variance_by_quintile:
+        delta = compute_logit_delta(base_logprobs, aligned_logprobs)  # (N, 4)
+        delta_var = np.var(delta, axis=1)                              # (N,) scalar variance per item
+      Log: "delta shape: ({delta.shape[0]}, 4), delta_var shape: ({delta_var.shape[0]},)"
+      Validate: assert delta.shape[1] == 4, "Expected 4D MCQ logits"
+    feature_tag: "evaluation"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_compute_variance_by_quintile_shape()"
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4-KL-Residualized-Variance"
+      config: null
+
+  - id: "task-019"
+    epic: "KL-Residualized Variance"
+    title: "L-4-2: OLS residualization loop"
+    description: |
+      Per-quintile KL residualization in compute_variance_by_quintile:
+        for q in range(n_quintiles):
+            mask = (quintile_labels == q)
+            delta_var_q, kl_q = delta_var[mask], kl_div[mask]
+            if kl_control and len(delta_var_q) >= 10:
+                slope, intercept = np.polyfit(kl_q, delta_var_q, 1)
+                residuals = delta_var_q - (slope * kl_q + intercept)
+                quintile_variances[q] = np.var(residuals)
+            else:
+                residuals = delta_var_q
+                quintile_variances[q] = np.var(delta_var_q)
+            if q == 0: q1_residuals = residuals
+    feature_tag: "evaluation"
+    priority: 44
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_compute_variance_by_quintile_kl_residualization()"
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4-KL-Residualized-Variance"
+      config: null
+
+  - id: "task-020"
+    epic: "Ablation Variants"
+    title: "L-6-1: No-KL ablation + isotropic sanity check"
+    description: |
+      Implement run_ablation_no_kl and run_isotropic_sanity_check.
+      No-KL: call compute_variance_by_quintile(kl_control=False) for comparison.
+      Isotropic sanity: generate synthetic Gaussian delta (1000, 4) ~ N(0, I),
+        compute quintile variances, assert flat trend (max/min ratio < 1.5).
+    feature_tag: "evaluation"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_run_isotropic_sanity_flat_trend()"
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: "03_logic.md#A-6-Ablation-Variants"
+      config: null
+
+  - id: "task-021"
+    epic: "Quintile Stratification"
+    title: "L-3-1: np.digitize stratification + min-N check"
+    description: |
+      Core stratification in compute_quintile_labels:
+        boundaries = np.percentile(margin, np.linspace(0, 100, n_quintiles + 1))  # (6,)
+        quintile_labels = np.digitize(margin, boundaries[1:-1])  # (N,) in [0..4]
+        for q in range(n_quintiles):
+            count = np.sum(quintile_labels == q)
+            if count < MIN_QUINTILE_N:
+                logger.warning(f"Q{q} has only {count} items — variance estimate may be unstable")
+        Log INFO: "Quintile stratification: Q1 has N={Q1_count} items (expected ~2800)"
+    feature_tag: "data-pipeline"
+    priority: 42
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_compute_quintile_labels_uniform_distribution()"
+    reference_files:
+      architecture: "03_architecture.md#A-3"
+      logic: "03_logic.md#A-3-Quintile-Stratification"
+      config: null
+
+  - id: "task-022"
+    epic: "Integration & Validation"
+    title: "L-12-1: load_all_caches + validate_cache"
+    description: |
+      Implement load_all_caches in run_analysis.py:
+        For each pair_id in MODEL_PAIRS, each dataset in DATASETS:
+          cache = load_h_e1_cache(pair_id, dataset["name"], HE1_CACHE_DIR)
+          validate_cache(cache, pair_id, dataset["name"])
+          caches[pair_id][dataset["name"]] = cache
+        Return nested dict {pair_id: {dataset_name: cache_dict}}
+        Fail fast if any cache file missing or corrupted.
+    feature_tag: "data-pipeline"
+    priority: 41
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_load_h_e1_cache_missing_file_raises()"
+    reference_files:
+      architecture: "03_architecture.md#A-12"
+      logic: "03_logic.md#A-12-Integration-Validation"
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  - id: "task-023"
+    epic: "Integration & Validation"
+    title: "L-12-2: run_per_dataset_analysis + gate eval + JSON write"
+    description: |
+      Implement run_per_dataset_analysis and save_results:
+        For each dataset:
+          dpo_result = compute_variance_by_quintile(caches["pair2"][dataset], ...)
+          sft_result = compute_variance_by_quintile(caches["pair4"][dataset], ...)
+          test_result = test_method_quintile_interaction(dpo_result["q1_residuals"],
+                                                          sft_result["q1_residuals"])
+          results[dataset] = {dpo: dpo_result, sft: sft_result, test: test_result}
+        gate = evaluate_gate(results)
+        all_results = {per_dataset: results, gate: gate, mechanism: verify_mechanism_activated(...)}
+        save_results(all_results, RESULTS_PATH)  # JSON
+    feature_tag: "experiment"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by integration test test_results_json_written()"
+    reference_files:
+      architecture: "03_architecture.md#A-12"
+      logic: "03_logic.md#A-12-Integration-Validation"
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  # ─── Config Subtasks (priority 15-10) ──────────────────────────────────────
+  - id: "task-024"
+    epic: "Visualization"
+    title: "C-9-1: Fig1 + Fig2 visualization config"
+    description: |
+      Implement FIG1_CONFIG (bar chart) and FIG2_CONFIG (quintile trend) in config.py:
+        FIG1_CONFIG = {"figsize": (10, 6), "dpi": 150,
+                       "bar_colors": {"DPO": "steelblue", "SFT": "darkorange"},
+                       "save_name": "fig1_q1_variance_bar"}
+        FIG2_CONFIG = {"figsize": (12, 5), "dpi": 150, "save_name": "fig2_quintile_trend"}
+      Implement plot_q1_variance_bar() and plot_quintile_trend() in visualize.py.
+    feature_tag: "evaluation"
+    priority: 15
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "Smoke test: figures created after main() runs."
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: null
+      config: "03_config.md#A-9-Visualization-Config"
+
+  - id: "task-025"
+    epic: "Visualization"
+    title: "C-9-2: Fig3 + Fig4 visualization config"
+    description: |
+      Implement FIG3_CONFIG (KL scatter) and FIG4_CONFIG (grouped bar) in config.py:
+        FIG3_CONFIG = {"figsize": (9, 7), "dpi": 150, "cmap": "viridis",
+                       "alpha": 0.6, "save_name": "fig3_kl_scatter"}
+        FIG4_CONFIG = {"figsize": (10, 6), "dpi": 150, "capsize": 4,
+                       "save_name": "fig4_benchmark_q1_grouped"}
+      Implement plot_kl_scatter() and plot_benchmark_q1_grouped() in visualize.py.
+    feature_tag: "evaluation"
+    priority: 14
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "Smoke test: figures created after main() runs."
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: null
+      config: "03_config.md#A-9-Visualization-Config"
+
+  - id: "task-026"
+    epic: "Visualization"
+    title: "C-9-3: Fig5 heatmap config"
+    description: |
+      Implement FIG5_CONFIG in config.py:
+        FIG5_CONFIG = {"figsize": (10, 5), "dpi": 150, "cmap": "RdBu_r",
+                       "save_name": "fig5_variance_ratio_heatmap"}
+      Implement plot_variance_ratio_heatmap() in visualize.py.
+    feature_tag: "evaluation"
+    priority: 13
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "Smoke test: figure created after main() runs."
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: null
+      config: "03_config.md#A-9-Visualization-Config"
+
+  - id: "task-027"
+    epic: "Visualization"
+    title: "C-9-4: save_figure defaults"
+    description: |
+      Implement save_figure() in visualize.py:
+        save_figure(fig, name, figures_dir, formats=("pdf", "png")) -> list[Path]
+          os.makedirs(figures_dir, exist_ok=True)
+          paths = []
+          for fmt in formats:
+              path = Path(figures_dir) / f"{name}.{fmt}"
+              fig.savefig(path, dpi=config["dpi"], bbox_inches="tight")
+              paths.append(path)
+          plt.close(fig)
+          return paths
+    feature_tag: "evaluation"
+    priority: 12
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "Smoke test: .pdf and .png files exist per figure."
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: null
+      config: "03_config.md#A-9-Visualization-Config"
+
+  - id: "task-028"
+    epic: "Main Entry Point"
+    title: "C-10-1: Path + seed constants"
+    description: |
+      Finalize config.py path and seed section (verify matches A-1 implementation):
+        BASE_DIR, HYPOTHESIS_DIR, HM1_CODE_DIR, HE1_CACHE_DIR,
+        FIGURES_DIR, CACHE_OUT_DIR, RESULTS_PATH,
+        SEED=1, N_QUINTILES=5, MIN_QUINTILE_N=100, N_BOOTSTRAP=5000
+    feature_tag: "setup"
+    priority: 11
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "Covered by test_config.py: assert SEED == 1, assert N_QUINTILES == 5"
+    reference_files:
+      architecture: "03_architecture.md#A-10"
+      logic: null
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  - id: "task-029"
+    epic: "Main Entry Point"
+    title: "C-10-2: Gate + model/dataset dicts"
+    description: |
+      Finalize config.py gate thresholds and model/dataset lists:
+        GATE_THRESHOLDS = {"pvalue_max": 0.05, "variance_ratio_min": 1.0, "benchmarks_min": 2}
+        MODEL_PAIRS = [pair2 (DPO), pair4 (SFT)]  # pair_new excluded
+        DATASETS = [mmlu (14042), truthfulqa (817), arc (1172)]
+        LOG_CONFIG = {level: INFO, format: ..., log_file: run.log}
+    feature_tag: "setup"
+    priority: 10
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "Covered by test_config.py: assert GATE_THRESHOLDS['benchmarks_min'] == 2"
+    reference_files:
+      architecture: "03_architecture.md#A-10"
+      logic: null
+      config: "03_config.md#A-10-Main-Entry-Point-Config"
+
+  # ─── Failsafe (priority 1) ─────────────────────────────────────────────────
+  - id: "task-030"
+    epic: "Pipeline Management"
+    title: "Pipeline Continuation Checkpoint"
+    description: "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK"
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "system"
+    complexity: null
+    test_requirements: "Failsafe task does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 12
+  subtasks: 16
+  failsafe: 1
+  total: 30

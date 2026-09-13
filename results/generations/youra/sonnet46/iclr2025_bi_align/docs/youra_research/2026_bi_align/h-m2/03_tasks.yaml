@@ -1,0 +1,824 @@
+version: "1.1"
+
+# ================================================================================
+# METADATA
+# ================================================================================
+metadata:
+  hypothesis_id: "h-m2"
+  hypothesis_id_upper: "H-M2"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-03-15T13:00:00Z"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+# ================================================================================
+# TASKS
+# Priority: epics 93-50, subtasks 49-2, failsafe 1
+# No data-preparation or environment-setup tasks (all cached/installed from h-m1)
+# ================================================================================
+tasks:
+
+  # --- EPIC TASKS (A-1 through A-11) ------------------------------------------
+
+  - id: "A-1"
+    epic: "Setup & Config"
+    title: "Setup & Config — Create config.py, config.yaml, directory structure"
+    description: |
+      Create h-m2/code/config.py with ExperimentConfig, CacheConfig, StatisticsConfig
+      dataclasses and load_config(yaml_path) function. Create h-m2/code/config.yaml
+      with all default hyperparameters. Create output directories: h-m2/figures/,
+      h-m2/results/. Verify h-m1 cache paths are accessible.
+      Key defaults: seed=42, alpha=0.05, knn_k=5, knn_n_jobs=1, n_bootstrap=1000,
+      tiers_required=2, models_required=2, encode_batch_size=256.
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - tests/test_config.py
+      - test_load_config_defaults()
+      - test_load_config_from_yaml()
+      - test_cache_config_key_templates()
+    reference_files:
+      architecture: "03_architecture.md#A-1"
+      logic: null
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "A-2"
+    epic: "Extend data_loader"
+    title: "Extend data_loader.py — Add h_curr and a_next fields"
+    description: |
+      Copy h-m1/code/data_loader.py to h-m2/code/data_loader.py and extend:
+      1. Modify extract_pairs() to also return 'h_curr' (H_t) and 'a_next' (A_{t+1})
+         in addition to existing h_next, a_actual, h_prompt fields.
+      2. Add verify_embedding_cache(cache_dir, model_names, tiers) function that
+         checks all required .npy files (h_m1 keys + h_m2 new keys) and returns
+         {cache_key: exists_bool} dict.
+      3. Keep all existing functions unchanged (parse_conversation, compute_jaccard,
+         compute_token_count, split_by_tier, load_all_splits).
+    feature_tag: "data-pipeline"
+    priority: 92
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - tests/test_data_loader.py
+      - test_extract_pairs_has_h_curr_and_a_next()
+      - test_verify_embedding_cache_returns_dict()
+      - test_split_by_tier_unchanged()
+    reference_files:
+      architecture: "03_architecture.md#A-2"
+      logic: null
+      config: "03_config.md#CacheConfig"
+
+  - id: "A-3"
+    epic: "Copy embedder + controls"
+    title: "Copy embedder.py and controls.py as-is from h-m1"
+    description: |
+      Copy h-m1/code/embedder.py → h-m2/code/embedder.py (no changes needed).
+      Copy h-m1/code/controls.py → h-m2/code/controls.py (no changes needed).
+      Verify: controls.py uses NearestNeighbors(n_jobs=1) — do NOT change to n_jobs=-1.
+      Verify cache key naming is consistent with h-m2 new keys (a_next, h_curr prefixes).
+    feature_tag: "setup"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: |
+      - tests/test_controls.py (smoke test)
+      - test_build_topic_control_uses_n_jobs_1()
+      - test_build_random_control_deterministic()
+    reference_files:
+      architecture: "03_architecture.md#A-3"
+      logic: null
+      config: null
+
+  - id: "A-4"
+    epic: "Extend accommodation"
+    title: "Extend accommodation.py — Add bidirectional C_sem computation"
+    description: |
+      Copy h-m1/code/accommodation.py → h-m2/code/accommodation.py and extend:
+      1. Add compute_h_given_a_csem_array(emb_h_next, emb_a_curr, shuffle_indices)
+         Returns per-pair array [N,]: cos(H_{t+1}, A_t) - cos(H_{t+1}, A_t[shuffle_H])
+      2. Add compute_a_given_h_csem_array(emb_a_next, emb_h_curr, shuffle_indices)
+         Returns per-pair array [N,]: cos(A_{t+1}, H_t) - cos(A_{t+1}, H_t[shuffle_A])
+      3. Add compute_bidirectional_csem_per_tier(tier_pairs, embedder, controls_fn_random,
+         controls_fn_topic, ipw_weights=None, seed=42)
+         Computes both H<-A and A<-H per tier. Logs [FR-M2] prefix for each tier.
+         Returns: {tier: {csem_H_given_A, csem_A_given_H, csem_H_given_A_array,
+                          csem_A_given_H_array, raw_cos_H_given_A, raw_cos_A_given_H, n_pairs}}
+      Keep all h-m1 functions unchanged.
+    feature_tag: "model"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - tests/test_accommodation.py
+      - test_bidirectional_csem_shapes()
+      - test_bidirectional_csem_fr_m2_log()
+      - test_bidirectional_csem_values_differ()
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4-Extend-accommodation"
+      config: null
+
+  - id: "A-5"
+    epic: "Extend statistics"
+    title: "Extend statistics.py — Add directional asymmetry test functions"
+    description: |
+      Copy h-m1/code/statistics.py → h-m2/code/statistics.py and add 5 new functions:
+      1. test_directional_asymmetry(bidir_results_by_tier, alpha=0.05, n_bootstrap=1000, seed=42)
+         Per-tier Mann-Whitney U one-sided (alternative='greater'): H<-A > A<-H.
+         Returns: {tier: {mw_statistic, p_value, cohen_d, cohen_d_ci, delta_asymmetry},
+                   tiers_passing: int, gate_passed: bool}
+         Logs: [FR-M2] Tier {tier}: C_sem^H<-A={:.4f}, C_sem^A<-H={:.4f}, p={:.4f}, d={:.4f}
+      2. compute_asymmetry_monotonicity(bidir_results_by_tier, tier_order)
+         Returns: {deltas: {tier: float}, is_monotonic: bool, jt_result: Dict}
+      3. check_model_consistency_m2(all_model_bidir_results, alpha=0.05)
+         Returns: {models_passing: int, passing_models: List[str], gate_passed: bool}
+      4. verify_mechanism_activated_m2(all_model_bidir_results, experiment_log)
+         4 indicators: both_directions_computed, shapes_match, asymmetry_nonzero, fr_m2_logs_found
+      5. compute_ipw_csem_bidir(bidir_results_by_tier, tier_prompt_embeddings)
+         Returns: {tier: {ipw_csem_H_given_A: float, ipw_csem_A_given_H: float}}
+    feature_tag: "evaluation"
+    priority: 89
+    source_document: "03_architecture.md"
+    complexity: 16
+    test_requirements: |
+      - tests/test_statistics.py
+      - test_directional_asymmetry_pass() (H>>A → gate_passed=True)
+      - test_directional_asymmetry_fail() (equal arrays → tiers_passing=0)
+      - test_verify_mechanism_activated_m2_all_true()
+      - test_check_model_consistency_m2_gate()
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-Extend-statistics"
+      config: null
+
+  - id: "A-6"
+    epic: "Extend visualize"
+    title: "Extend visualize.py — Add 7 bidirectional figure functions"
+    description: |
+      Copy h-m1/code/visualize.py → h-m2/code/visualize.py and extend:
+      1. Extend VisualizationConfig dataclass: add figure_size_bidir=(12,6),
+         figure_size_heatmap=(10,6), figure_size_violin=(12,6).
+      2. Add DIRECTION_COLORS, DIRECTION_LABELS, FIGURE_NAMES_M2 module-level dicts.
+      3. Add 7 figure functions:
+         - plot_bidirectional_bars() [REQUIRED]: grouped bar C_sem^H<-A vs C_sem^A<-H per tier
+         - plot_directional_asymmetry_bars(): 3 models x 3 tiers x 2 bars
+         - plot_asymmetry_delta_line(): Δ_asymmetry across tiers per model
+         - plot_pairwise_distributions_violin(): KDE/violin per-pair csem both directions
+         - plot_significance_heatmap(): p-value grid tier x model
+         - plot_bootstrap_ci_comparison(): bootstrap CI both directions per tier
+         - plot_ipw_asymmetry(): raw vs IPW-corrected Δ_asymmetry
+      All figures saved to h-m2/figures/.
+    feature_tag: "evaluation"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      - tests/test_visualize.py
+      - test_plot_bidirectional_bars_creates_file()
+      - test_all_7_figures_create_files()
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: null
+      config: "03_config.md#A-6-Visualization-Config"
+
+  - id: "A-7"
+    epic: "Implement run_experiment"
+    title: "Implement run_experiment.py — h-m2 bidirectional orchestrator"
+    description: |
+      Rewrite run_experiment.py as h-m2 orchestrator:
+      1. run_single_model(model_cfg, tier_pairs, tier_prompt_embeddings, config) → Dict
+         Steps: build Embedder, compute_bidirectional_csem_per_tier(), KS test on A<-H
+         distributions + IPW if triggered, test_directional_asymmetry(),
+         compute_asymmetry_monotonicity()
+      2. run_bidirectional_experiment(config) → Dict
+         Main loop: load config, split_by_tier(), encode prompt embeddings,
+         3-model loop via run_single_model(), check_model_consistency_m2(),
+         verify_mechanism_activated_m2(), generate all 7 figures, save_results()
+      3. evaluate_gate_m2(all_model_results) → Dict
+         Aggregates: tiers_passing >= 2 AND models_passing >= 2
+      4. save_results(results, output_dir) → None
+         JSON: experiment_results.json, CSV: asymmetry_summary.csv
+      5. main() with argparse: --config config.yaml, --dry-run flag
+    feature_tag: "experiment"
+    priority: 87
+    source_document: "03_architecture.md"
+    complexity: 16
+    test_requirements: |
+      - tests/test_run_experiment.py
+      - test_run_single_model_returns_expected_keys()
+      - test_evaluate_gate_m2_pass_fail()
+      - test_save_results_creates_json()
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#A-7-run_experiment"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "A-8"
+    epic: "Embedding cache check + encode"
+    title: "Embedding cache check — Verify h-m1 cache and encode missing A_next/H_curr"
+    description: |
+      Using the verify_embedding_cache() function from data_loader.py:
+      1. Check all 36 required .npy files (4 key templates x 3 models x 3 tiers).
+      2. h-m1 keys (H_next, A_curr): expect present from h-m1 cache.
+      3. h-m2 new keys (A_next, H_curr): may be missing — if so, run encoding pass.
+      4. For each missing key: use Embedder.encode_tier() with batch_size=256.
+         Expected: ~1.5-2h per model if all h-m2 keys missing (3 models x 3 tiers).
+      5. After encoding, re-verify all 36 files present before running experiment.
+      Log clearly which keys were present vs encoded.
+    feature_tag: "data-pipeline"
+    priority: 86
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      - tests/test_data_loader.py
+      - test_verify_embedding_cache_detects_missing()
+      - test_verify_embedding_cache_all_present()
+    reference_files:
+      architecture: "03_architecture.md#A-8"
+      logic: null
+      config: "03_config.md#CacheConfig"
+
+  - id: "A-9"
+    epic: "Unit tests"
+    title: "Unit tests — pytest suite for all h-m2 new/extended functions"
+    description: |
+      Create full pytest suite in h-m2/code/tests/:
+      - tests/test_accommodation.py: test_bidirectional_csem_shapes (N=100, D=32 synthetic),
+        test_bidirectional_csem_fr_m2_log (caplog), test_bidirectional_csem_values_differ
+      - tests/test_statistics.py: test_directional_asymmetry_pass (H>>A → gate=True),
+        test_directional_asymmetry_fail (equal → tiers_passing=0),
+        test_verify_mechanism_activated_m2_all_true,
+        test_check_model_consistency_m2_gate (2/3 pass, 1/3 fail cases)
+      - tests/test_data_loader.py: test_extract_pairs_h_curr_a_next,
+        test_verify_embedding_cache (mock filesystem)
+      - tests/test_visualize.py: test_plot_bidirectional_bars_creates_file (tmp_path),
+        test_all_7_m2_figures_create_files
+      - tests/test_config.py: test_load_config_defaults, test_load_config_yaml
+      All tests must use synthetic data (no real dataset load). Minimum 3 assertions per test.
+    feature_tag: "evaluation"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - All tests self-contained (synthetic data only)
+      - Run with: cd h-m2/code && pytest tests/ -v
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: "03_logic.md#A-9-Unit-Tests"
+      config: null
+
+  - id: "A-10"
+    epic: "Run full experiment"
+    title: "Run full experiment — Execute on complete 155,362-pair dataset"
+    description: |
+      Execute run_experiment.py on the full dataset (3 models x 3 tiers = 9 runs):
+      cd h-m2/code && python run_experiment.py --config config.yaml
+      Expected runtime: ~2-4h (depending on whether A_next/H_curr encoding needed).
+      Monitor [FR-M2] log lines to verify bidirectional computation proceeding.
+      Collect output: h-m2/results/experiment_results.json, asymmetry_summary.csv.
+      Verify 7 figures generated in h-m2/figures/.
+      Do NOT subample — full 155,362 pairs required for statistical validity.
+    feature_tag: "experiment"
+    priority: 60
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Verify experiment_results.json created and parseable
+      - Verify asymmetry_summary.csv has 9 rows (3 models x 3 tiers)
+      - Verify 7 figures exist in h-m2/figures/
+    reference_files:
+      architecture: "03_architecture.md#A-10"
+      logic: null
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "A-11"
+    epic: "Gate evaluation + reporting"
+    title: "Gate evaluation + reporting — Evaluate SHOULD_WORK gate and generate report"
+    description: |
+      After experiment completes:
+      1. evaluate_gate_m2(): check tiers_passing >= 2 AND models_passing >= 2.
+      2. verify_mechanism_activated_m2(): all 4 indicators must be True.
+      3. Log final gate result: PASS or FAIL with full details.
+      4. Save experiment_results.json with all metrics.
+      Gate: SHOULD_WORK — if FAIL, document as scope limitation (symmetric coherence),
+      reinterpret as "mutual contextual coherence", H-M4 proceeds regardless.
+      Phase 4 will read results and determine gate status for verification_state.yaml update.
+    feature_tag: "evaluation"
+    priority: 55
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - Verify gate evaluation result is PASS or FAIL (not null)
+      - Verify mechanism indicators logged
+      - Verify results JSON saved
+    reference_files:
+      architecture: "03_architecture.md#A-11"
+      logic: "03_logic.md#A-5-Extend-statistics"
+      config: null
+
+  # --- SUBTASKS: A-4 (accommodation) — 3 subtasks ----------------------------
+
+  - id: "L-4-1"
+    epic: "Extend accommodation"
+    title: "L-4-1: Implement per-pair helper functions for both directions"
+    description: |
+      Implement two per-pair C_sem helper functions in accommodation.py:
+      1. compute_h_given_a_csem_array(emb_h_next [N,D], emb_a_curr [N,D],
+         shuffle_indices [N,]) -> np.ndarray [N,]
+         Formula: cos(H_next, A_curr) - cos(H_next, A_curr[shuffle_H])
+      2. compute_a_given_h_csem_array(emb_a_next [N,D], emb_h_curr [N,D],
+         shuffle_indices [N,]) -> np.ndarray [N,]
+         Formula: cos(A_next, H_curr) - cos(A_next, H_curr[shuffle_A])
+      Both use sklearn cosine_similarity row-wise (dot product of L2-normalized vectors).
+    feature_tag: "model"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_h_given_a_shape_and_values()
+      - test_a_given_h_shape_and_values()
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4-per-pair-helpers"
+      config: null
+
+  - id: "L-4-2"
+    epic: "Extend accommodation"
+    title: "L-4-2: Implement compute_bidirectional_csem_per_tier main loop"
+    description: |
+      Implement compute_bidirectional_csem_per_tier(tier_pairs, embedder,
+      controls_fn_random, controls_fn_topic, ipw_weights=None, seed=42):
+      For each tier in TIER_ORDER:
+        - Encode H_next, A_curr, H_prompt (reuse h-m1 pattern, prefix='h'/'a'/'p')
+        - Encode A_next (prefix='a_next'), H_curr (prefix='h_curr') [NEW]
+        - Build shuffle_H = build_topic_control(H_prompt, A_curr)
+        - Build shuffle_A = build_topic_control(H_prompt, H_curr)
+        - Compute H<-A array via compute_h_given_a_csem_array
+        - Compute A<-H array via compute_a_given_h_csem_array
+        - Log: logger.info(f"[FR-M2] Tier {tier}: C_sem^H<-A={mean:.4f}, C_sem^A<-H={mean:.4f}")
+        - Store: {csem_H_given_A, csem_A_given_H, *_array, *_raw_cos, n_pairs}
+    feature_tag: "model"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_bidirectional_csem_fr_m2_log() using caplog
+      - test_bidirectional_both_directions_in_output()
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4-bidirectional-main-loop"
+      config: null
+
+  - id: "L-4-3"
+    epic: "Extend accommodation"
+    title: "L-4-3: Mechanism activation check for bidirectional computation"
+    description: |
+      Add mechanism activation verification in accommodation.py or run_experiment.py:
+      Check that [FR-M2] log lines are present after compute_bidirectional_csem_per_tier().
+      Verify both csem_H_given_A_array and csem_A_given_H_array have shape (n_pairs,).
+      Verify shapes match between both directions for each tier.
+      This is called by verify_mechanism_activated_m2() in statistics.py.
+    feature_tag: "model"
+    priority: 47
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_mechanism_activation_shapes_match()
+      - test_fr_m2_logs_found()
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4-mechanism-check"
+      config: null
+
+  # --- SUBTASKS: A-5 (statistics) — 4 subtasks --------------------------------
+
+  - id: "L-5-1"
+    epic: "Extend statistics"
+    title: "L-5-1: Implement test_directional_asymmetry"
+    description: |
+      Implement test_directional_asymmetry(bidir_results_by_tier, alpha=0.05,
+      n_bootstrap=1000, seed=42) -> Dict:
+      For each tier:
+        arr_H = bidir_results_by_tier[tier]['csem_H_given_A_array']
+        arr_A = bidir_results_by_tier[tier]['csem_A_given_H_array']
+        stat, p = mannwhitneyu(arr_H, arr_A, alternative='greater')
+        d, d_ci = bootstrap_cohen_d(arr_H, arr_A, n_bootstrap, seed)
+        delta = mean(arr_H) - mean(arr_A)
+        Log: [FR-M2] Tier {tier}: C_sem^H<-A={mean_H:.4f}, C_sem^A<-H={mean_A:.4f},
+             p={p:.4f}, d={d:.4f}
+      Aggregate: tiers_passing = count(p < alpha), gate_passed = tiers_passing >= 2
+    feature_tag: "evaluation"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_directional_asymmetry_pass() — H~N(0.5,0.1) vs A~N(0.1,0.1), N=500
+      - test_directional_asymmetry_fail() — equal arrays, tiers_passing=0
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-test_directional_asymmetry"
+      config: null
+
+  - id: "L-5-2"
+    epic: "Extend statistics"
+    title: "L-5-2: Implement compute_asymmetry_monotonicity"
+    description: |
+      Implement compute_asymmetry_monotonicity(bidir_results_by_tier, tier_order) -> Dict:
+      For each tier: delta = mean(H_given_A_array) - mean(A_given_H_array)
+      Check monotonicity: delta[T1] < delta[T2] < delta[T3]
+      Run jonckheere_terpstra_test on [delta_T1, delta_T2, delta_T3] arrays.
+      Returns: {deltas: {tier: float}, is_monotonic: bool, jt_result: Dict}
+      This is a secondary analysis (not a gate condition).
+    feature_tag: "evaluation"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_monotonicity_detected() — increasing deltas
+      - test_monotonicity_not_detected() — decreasing deltas
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-compute_asymmetry_monotonicity"
+      config: null
+
+  - id: "L-5-3"
+    epic: "Extend statistics"
+    title: "L-5-3: Implement check_model_consistency_m2"
+    description: |
+      Implement check_model_consistency_m2(all_model_bidir_results, alpha=0.05) -> Dict:
+      Input: {model_slug: {asymmetry_test: {tiers_passing, gate_passed, ...}}}
+      For each model: gate_passed = asymmetry_test['gate_passed'] (tiers_passing >= 2)
+      models_passing = count(gate_passed==True across models)
+      Returns: {models_passing: int, passing_models: List[str],
+                gate_passed: bool}  # gate_passed = models_passing >= 2
+      This is the cross-model consistency gate for h-m2.
+    feature_tag: "evaluation"
+    priority: 44
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_model_consistency_2_of_3_pass()
+      - test_model_consistency_1_of_3_fail()
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-check_model_consistency_m2"
+      config: null
+
+  - id: "L-5-4"
+    epic: "Extend statistics"
+    title: "L-5-4: Implement verify_mechanism_activated_m2 and compute_ipw_csem_bidir"
+    description: |
+      1. verify_mechanism_activated_m2(all_model_bidir_results, experiment_log) -> Tuple[bool, Dict]:
+         4 indicators:
+         - both_directions_computed: all tiers have csem_H_given_A and csem_A_given_H
+         - shapes_match: H_given_A_array.shape == A_given_H_array.shape for all tiers
+         - asymmetry_nonzero: any |mean(H_given_A) - mean(A_given_H)| > 1e-6
+         - fr_m2_logs_found: '[FR-M2]' in experiment_log
+         Returns (all(indicators.values()), indicators)
+      2. compute_ipw_csem_bidir(bidir_results_by_tier, tier_prompt_embeddings) -> Dict:
+         Extends h-m1 compute_ipw_csem to both H<-A and A<-H directions.
+         Returns: {tier: {ipw_csem_H_given_A: float, ipw_csem_A_given_H: float}}
+    feature_tag: "evaluation"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_verify_mechanism_all_true()
+      - test_verify_mechanism_missing_direction()
+      - test_ipw_bidir_returns_both_keys()
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5-verify_mechanism_m2"
+      config: null
+
+  # --- SUBTASKS: A-7 (run_experiment) — 4 subtasks ----------------------------
+
+  - id: "L-7-1"
+    epic: "Implement run_experiment"
+    title: "L-7-1: Implement run_single_model pipeline function"
+    description: |
+      Implement run_single_model(model_cfg, tier_pairs, tier_prompt_embeddings, config):
+      1. Build Embedder(model_cfg['name'], config.cache.embeddings_dir)
+      2. compute_bidirectional_csem_per_tier(tier_pairs, embedder, ...)
+      3. KS test on A<-H tier distributions: ks_test_tier_distributions(A_next_embeddings)
+      4. If KS triggered: compute_ipw_csem_bidir()
+      5. test_directional_asymmetry(bidir_results, config.stats.alpha)
+      6. compute_asymmetry_monotonicity(bidir_results, TIER_ORDER)
+      Returns: {tier_results, asymmetry_test, monotonicity, ipw_bidir, model_name}
+    feature_tag: "experiment"
+    priority: 42
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_run_single_model_returns_expected_keys()
+      - test_run_single_model_with_mock_embedder()
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#A-7-run_single_model"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "L-7-2"
+    epic: "Implement run_experiment"
+    title: "L-7-2: Implement run_bidirectional_experiment top-level orchestrator"
+    description: |
+      Implement run_bidirectional_experiment(config) -> Dict:
+      1. split_by_tier(config.cache.cache_dir) — load data
+      2. Encode H_prompt embeddings for KS test (using first model for tier distribution)
+      3. For each model in MODEL_CONFIGS:
+           run_single_model(model_cfg, tier_pairs, tier_prompt_embeddings, config)
+      4. check_model_consistency_m2(all_model_results)
+      5. verify_mechanism_activated_m2(all_model_results, experiment_log)
+      6. generate_all_bidir_figures(all_model_results, config)
+      7. save_results(results, config.output_dir)
+      8. Log final: PASS/FAIL + tiers_passing per model + models_passing
+      Returns: {all_model_results, consistency_m2, mechanism_m2, gate}
+    feature_tag: "experiment"
+    priority: 41
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_run_bidirectional_experiment_structure() (mock all sub-calls)
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#A-7-run_bidirectional_experiment"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: "L-7-3"
+    epic: "Implement run_experiment"
+    title: "L-7-3: Implement evaluate_gate_m2 aggregation function"
+    description: |
+      Implement evaluate_gate_m2(all_model_results) -> Dict:
+      Input: {model_slug: {asymmetry_test: {tiers_passing, gate_passed}}}
+      For each model: check if asymmetry_test['gate_passed'] is True
+      models_passing = count(True)
+      gate_passed = (models_passing >= 2)
+      Returns: {gate_passed: bool, models_passing: int, passing_models: List[str],
+                details: {model_slug: {tiers_passing, gate_passed}}}
+      Log: "[H-M2 GATE] PASS/FAIL: {models_passing}/3 models, details: ..."
+    feature_tag: "evaluation"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_evaluate_gate_m2_pass() (2 models passing)
+      - test_evaluate_gate_m2_fail() (1 model passing)
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#A-7-evaluate_gate_m2"
+      config: null
+
+  - id: "L-7-4"
+    epic: "Implement run_experiment"
+    title: "L-7-4: Implement save_results and generate_all_bidir_figures"
+    description: |
+      1. save_results(results, output_dir):
+         - JSON: output_dir/experiment_results.json (serialize non-array fields)
+         - CSV: output_dir/asymmetry_summary.csv
+           Columns: model, tier, csem_H_given_A, csem_A_given_H, delta_asymmetry,
+                    p_value, cohen_d, tiers_passing, gate_passed
+      2. generate_all_bidir_figures(all_model_results, config):
+         Call all 7 plot functions from visualize.py with appropriate data.
+         Required: plot_bidirectional_bars() for primary result.
+         All saved to config.figures_dir/.
+    feature_tag: "experiment"
+    priority: 39
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_save_results_creates_json_and_csv()
+      - test_generate_all_figures_creates_7_files()
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#A-7-save_results"
+      config: "03_config.md#FigureConfig"
+
+  # --- SUBTASKS: A-9 (unit tests) — 2 subtasks --------------------------------
+
+  - id: "L-9-1"
+    epic: "Unit tests"
+    title: "L-9-1: test_accommodation.py — bidirectional csem tests"
+    description: |
+      Create tests/test_accommodation.py with synthetic data tests:
+      1. test_bidirectional_csem_shapes(): N=100, D=32 random L2-normalized embeddings.
+         Assert csem_H_given_A_array.shape == (N,) and csem_A_given_H_array.shape == (N,).
+      2. test_bidirectional_csem_fr_m2_log(caplog): run compute_bidirectional_csem_per_tier
+         with caplog. Assert '[FR-M2]' in caplog.text.
+      3. test_bidirectional_csem_values_differ(): Assert H_given_A values != A_given_H values
+         (computation is non-trivial — different embedding pairs used).
+      Use mock Embedder that returns fixed numpy arrays. All synthetic — no real data.
+    feature_tag: "evaluation"
+    priority: 38
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - 3 test functions minimum
+      - Synthetic data only (N=100, D=32)
+      - No real dataset access
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: "03_logic.md#A-9-test_accommodation"
+      config: null
+
+  - id: "L-9-2"
+    epic: "Unit tests"
+    title: "L-9-2: test_statistics.py — directional asymmetry and mechanism tests"
+    description: |
+      Create tests/test_statistics.py:
+      1. test_directional_asymmetry_pass(): rng.normal(0.5, 0.1, 500) vs (0.1, 0.1, 500).
+         Assert gate_passed=True, p_value < 0.05 for that tier.
+      2. test_directional_asymmetry_fail(): equal arrays (same rng).
+         Assert tiers_passing=0, gate_passed=False.
+      3. test_verify_mechanism_activated_m2_all_true(): Construct valid bidir_results dict
+         with both keys, matching shapes, nonzero asymmetry, '[FR-M2]' in log.
+         Assert all 4 indicators True.
+      4. test_check_model_consistency_m2_gate(): 2/3 models passing → gate_passed=True.
+         1/3 models passing → gate_passed=False.
+    feature_tag: "evaluation"
+    priority: 37
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - 4 test functions minimum
+      - Synthetic data only
+      - Test both pass and fail cases
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: "03_logic.md#A-9-test_statistics"
+      config: null
+
+  # --- SUBTASKS: A-6 (visualization config) — 3 subtasks ----------------------
+
+  - id: "C-6-1"
+    epic: "Extend visualize"
+    title: "C-6-1: Extend VisualizationConfig with bidirectional figure sizes"
+    description: |
+      In visualize.py, extend VisualizationConfig dataclass (verified from h-m1 actual code):
+      Inherit: figure_size=(12,5), figure_size_wide=(18,6), dpi=150,
+               font_size_title=14, font_size_label=11, font_size_tick=9,
+               ci_alpha=0.3, save_format='png', figures_dir='figures'
+      Add new fields:
+        figure_size_bidir: tuple = (12, 6)    # bidirectional_comparison_bars
+        figure_size_heatmap: tuple = (10, 6)  # significance_heatmap
+        figure_size_violin: tuple = (12, 6)   # pairwise_distribution_violin
+      Note: verified h-m1 field names from actual code (NOT h-m1/03_config.md).
+    feature_tag: "evaluation"
+    priority: 36
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - test_visualization_config_has_bidir_fields()
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: null
+      config: "03_config.md#C-6-1"
+
+  - id: "C-6-2"
+    epic: "Extend visualize"
+    title: "C-6-2: Add DIRECTION_COLORS and DIRECTION_LABELS module-level dicts"
+    description: |
+      In visualize.py, add module-level constants (alongside h-m1's TIER_COLORS/TIER_LABELS):
+      DIRECTION_COLORS = {'H_given_A': '#4878CF', 'A_given_H': '#D65F5F'}
+      DIRECTION_LABELS = {'H_given_A': r'$C_{sem}^{H \leftarrow A}$',
+                          'A_given_H': r'$C_{sem}^{A \leftarrow H}$'}
+      Inherit h-m1 TIER_COLORS, TIER_LABELS, MODEL_DISPLAY_NAMES as-is (verified from code).
+      These are used by all 7 bidirectional figure functions for consistent styling.
+    feature_tag: "evaluation"
+    priority: 35
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - test_direction_colors_keys()
+      - test_direction_labels_latex()
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: null
+      config: "03_config.md#C-6-2"
+
+  - id: "C-6-3"
+    epic: "Extend visualize"
+    title: "C-6-3: Add FIGURE_NAMES_M2 dict and get_figure_path() helper"
+    description: |
+      In visualize.py, add:
+      FIGURE_NAMES_M2 = {
+        'bidirectional_comparison_bars': 'bidirectional_comparison_bars.png',  # REQUIRED
+        'directional_asymmetry_bars': 'directional_asymmetry_bars.png',
+        'asymmetry_delta_line': 'asymmetry_delta_line.png',
+        'pairwise_distribution_violin': 'pairwise_distribution_violin.png',
+        'significance_heatmap': 'significance_heatmap.png',
+        'bootstrap_ci_comparison': 'bootstrap_ci_comparison.png',
+        'ipw_adjusted_asymmetry': 'ipw_adjusted_asymmetry.png',
+      }
+      def get_figure_path(figures_dir: str, plot_type: str,
+                          model_slug: Optional[str] = None) -> str
+      Used by all figure functions and generate_all_bidir_figures().
+    feature_tag: "evaluation"
+    priority: 34
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - test_figure_names_m2_has_7_entries()
+      - test_get_figure_path_with_and_without_model_slug()
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: null
+      config: "03_config.md#C-6-3"
+
+  # --- SUBTASKS: A-8 (cache config) — 2 subtasks ------------------------------
+
+  - id: "C-8-1"
+    epic: "Embedding cache check + encode"
+    title: "C-8-1: Implement CacheConfig dataclass with key templates"
+    description: |
+      In config.py, implement CacheConfig dataclass:
+      - cache_dir: str = '.data_cache/datasets/hh-rlhf'
+      - embeddings_dir: str = '../h-m1/code/embeddings'  (reuse h-m1 cache)
+      - models: List[str] = [3 SBERT model names]
+      - tiers: List[str] = [3 RLHF tier names]
+      - encode_batch_size: int = 256  (verified from h-m1 embedder.py)
+      - h_m1_cache_key_templates: List[str] = ['{model}_H_next_{tier}.npy',
+                                                '{model}_A_curr_{tier}.npy']
+      - h_m2_cache_key_templates: List[str] = ['{model}_A_next_{tier}.npy',
+                                                '{model}_H_curr_{tier}.npy']
+      Also implement verify_cache(cfg) and get_missing_h_m2_keys(cfg).
+    feature_tag: "data-pipeline"
+    priority: 33
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - test_cache_config_key_templates_count() (4 templates x 3 x 3 = 36 total)
+      - test_verify_cache_returns_status_dict()
+    reference_files:
+      architecture: "03_architecture.md#A-8"
+      logic: null
+      config: "03_config.md#C-8-1"
+
+  - id: "C-8-2"
+    epic: "Embedding cache check + encode"
+    title: "C-8-2: Implement cache verification methods"
+    description: |
+      Implement in config.py (or data_loader.py):
+      def verify_cache(cache_config: CacheConfig) -> Tuple[bool, Dict[str, bool]]:
+        Check all 36 .npy files (4 templates x 3 models x 3 tiers).
+        Returns (all_present: bool, status: {key: exists_bool}).
+      def get_missing_h_m2_keys(cache_config: CacheConfig) -> List[str]:
+        Return only missing h-m2-specific keys (A_next, H_curr).
+        These indicate which additional encoding passes are needed.
+      Called from run_experiment.py before encoding, logged clearly.
+    feature_tag: "data-pipeline"
+    priority: 32
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - test_get_missing_keys_detects_missing() (mock filesystem)
+      - test_verify_cache_all_present() (tmp_path with dummy .npy files)
+    reference_files:
+      architecture: "03_architecture.md#A-8"
+      logic: null
+      config: "03_config.md#C-8-2"
+
+  # --- FAILSAFE TASK ----------------------------------------------------------
+
+  - id: "FAILSAFE-1"
+    epic: "Pipeline Continuation"
+    title: "Pipeline continuation checkpoint — h-m2 Phase 4 complete"
+    description: |
+      This task marks Phase 4 completion for h-m2. When all implementation tasks
+      are done and experiment results are saved, update verification_state.yaml:
+      - Set sub_hypotheses.h-m2.validation.status based on gate result
+      - Set sub_hypotheses.h-m2.gate.satisfied based on SHOULD_WORK gate
+      - Ensure 04_validation.md is generated with full results
+      This is a checkpoint task for pipeline orchestration.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: |
+      - verification_state.yaml updated with h-m2 results
+      - 04_validation.md generated
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+# ================================================================================
+# BUDGET SUMMARY
+# ================================================================================
+budget_summary:
+  data_preparation: 0      # Not required — dataset cached from h-m1
+  environment_setup: 0     # Not required — environment from h-m1
+  epic_tasks: 11           # A-1 through A-11
+  subtasks: 18             # L-4-1..3, L-5-1..4, L-7-1..4, L-9-1..2, C-6-1..3, C-8-1..2
+  failsafe: 1              # FAILSAFE-1
+  total: 30                # Within FULL tier budget (max 30)

@@ -1,0 +1,8 @@
+# Title
+Dynamic AI Role-Switching via Zone of Proximal Development Assessment for Personalized Learning
+
+# Motivation
+Current AI tutoring systems use fixed roles (tutor or peer), causing over-scaffolding for advanced learners (reducing autonomy) and under-scaffolding for struggling students (causing cognitive overload). This mismatch between learner competency and support intensity limits effectiveness across diverse student populations. Despite 45 years since Vygotsky's Zone of Proximal Development (ZPD) theory, no computational system dynamically adjusts AI agency based on real-time competency assessment. This research addresses the critical need for adaptive AI systems that optimize scaffolding intensity to individual learner needs.
+
+# Main Idea
+We hypothesize that an AI system dynamically switching between Tutor mode (high scaffolding) and Peer mode (collaborative support) based on continuous ZPD assessment will improve learning outcomes by 10-15% compared to fixed-role systems. The core mechanism uses Deep Knowledge Tracing to estimate real-time mastery probability P(mastery); when P>0.6, the AI transitions to Peer mode, otherwise Tutor mode. This ZPD-calibrated scaffolding optimizes cognitive load, accelerating knowledge acquisition while building learner autonomy. A three-arm RCT (N=200) will compare ZPD-AI against Always-Tutor and Always-Peer baselines, measuring composite outcomes (retention, transfer, time-to-mastery) and autonomy gains. Expected impact includes 20-35% improvements for mismatched fixed-role conditions and enhanced metacognitive skills through graduated support.

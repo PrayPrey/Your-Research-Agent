@@ -1,0 +1,309 @@
+# System Architecture: h-e1
+
+**Document Type**: Architecture Design
+**Hypothesis ID**: h-e1
+**Hypothesis Type**: EXISTENCE (PoC)
+**Created Date**: 2026-07-13
+**Infrastructure Tier**: LIGHT (minimal)
+
+---
+
+## Applied Patterns
+
+Applied: PyTorch experimental architecture (modular evaluation pipeline)
+Applied: Ensemble uncertainty quantification (multi-sample consistency pattern from Marigold)
+Applied: Conformal prediction statistical framework (coverage-based calibration)
+
+---
+
+## Codebase Analysis (Serena)
+
+**Project Type**: Green-field
+**Status**: No existing codebase to analyze
+**Analyzed Path**: N/A
+**Findings**: New implementation from scratch - no prior code in hypothesis folder
+
+---
+
+## Architecture Overview
+
+**Purpose**: Validate correlation between consistency-based (epistemic) and conformal prediction (aleatoric) uncertainty signals.
+
+**Core Hypothesis**: Measure ρ(C, I) ∈ [0.3, 0.7] across TruthfulQA, HH-RLHF, SQuAD datasets.
+
+**Module Count**: 6 modules (minimal EXISTENCE architecture)
+
+---
+
+## Module Structure
+
+### 1. DataLoader (`src/data_loader.py`)
+
+**Dependencies**: None
+
+```python
+class MultiDatasetLoader:
+    def __init__(self, datasets: list[str], tokenizer_name: str, max_length: int = 512): ...
+    
+    def load_dataset(self, name: str, split: str = "validation") -> Dataset: ...
+    
+    def preprocess(self, dataset: Dataset) -> Dataset: ...
+    
+    def get_dataloader(self, dataset: Dataset, batch_size: int = 8) -> DataLoader: ...
+```
+
+---
+
+### 2. BaselineModel (`src/baseline_model.py`)
+
+**Dependencies**: DataLoader
+
+```python
+class LlamaGenerator:
+    def __init__(self, model_name: str = "meta-llama/Llama-2-7b-hf"): ...
+    
+    def generate_single(self, input_text: str, max_tokens: int = 256, temperature: float = 0.7) -> str: ...
+    
+    def generate_multiple(self, input_text: str, num_samples: int = 5) -> list[str]: ...
+```
+
+---
+
+### 3. ConsistencyScorer (`src/consistency_scorer.py`)
+
+**Dependencies**: BaselineModel
+
+```python
+class ConsistencyScorer:
+    def __init__(self, nli_model: str = "roberta-large-mnli"): ...
+    
+    def compute_nli_scores(self, reference: str, samples: list[str]) -> list[float]: ...
+    
+    def compute_bertscore(self, reference: str, samples: list[str]) -> list[float]: ...
+    
+    def compute_consistency(self, reference: str, samples: list[str]) -> float: ...
+```
+
+**Interface**: Returns consistency score C ∈ [0, 1] where higher = more consistent (lower epistemic uncertainty).
+
+---
+
+### 4. ConformalPredictor (`src/conformal_predictor.py`)
+
+**Dependencies**: BaselineModel
+
+```python
+class ConformalPredictor:
+    def __init__(self, coverage_target: float = 0.9): ...
+    
+    def calibrate(self, calibration_samples: list[tuple]) -> None: ...
+    
+    def compute_conformity_score(self, prediction: str, ground_truth: str) -> float: ...
+    
+    def construct_interval(self, prediction: str, quantile: float) -> tuple[str, str]: ...
+    
+    def check_membership(self, ground_truth: str, interval: tuple) -> int: ...
+```
+
+**Interface**: Returns binary membership I ∈ {0, 1} for interval coverage.
+
+---
+
+### 5. CorrelationAnalyzer (`src/correlation_analyzer.py`)
+
+**Dependencies**: ConsistencyScorer, ConformalPredictor
+
+```python
+class CorrelationAnalyzer:
+    def __init__(self): ...
+    
+    def compute_pearson_correlation(self, c_scores: np.ndarray, i_binary: np.ndarray) -> tuple[float, float]: ...
+    
+    def compute_significance(self, rho: float, n_samples: int) -> float: ...
+    
+    def check_gate_criteria(self, rho: float, p_value: float, coverage: float) -> bool: ...
+```
+
+---
+
+### 6. Evaluator (`src/evaluator.py`)
+
+**Dependencies**: ConsistencyScorer, ConformalPredictor, CorrelationAnalyzer
+
+```python
+class ExperimentEvaluator:
+    def __init__(self, datasets: list[str], num_samples: int = 5): ...
+    
+    def run_experiment(self, dataset_name: str) -> dict: ...
+    
+    def compute_ece(self, predictions: list, labels: list, n_bins: int = 10) -> float: ...
+    
+    def generate_visualizations(self, results: dict, output_dir: str) -> None: ...
+    
+    def generate_report(self, results: dict, output_path: str) -> None: ...
+```
+
+---
+
+## File Organization
+
+```
+h-e1/
+├── code/
+│   └── src/
+│       ├── data_loader.py          # FR1: Multi-dataset loading
+│       ├── baseline_model.py       # FR2: Llama-2-7B integration
+│       ├── consistency_scorer.py   # FR3: Epistemic uncertainty (C)
+│       ├── conformal_predictor.py  # FR4: Aleatoric uncertainty (I)
+│       ├── correlation_analyzer.py # FR5: ρ(C,I) computation
+│       ├── evaluator.py            # FR6+FR7: Metrics & visualization
+│       ├── train.py                # Main execution script
+│       └── config.py               # Hardcoded configuration
+├── figures/                        # Generated visualizations
+├── 03_prd.md
+├── 02c_experiment_brief.md
+├── 03_architecture.md              # This document
+└── 04_validation.md                # Generated by evaluator
+
+```
+
+---
+
+## Data Flow
+
+1. **Data Loading**: MultiDatasetLoader → tokenized samples
+2. **Generation**: LlamaGenerator → 5 samples per input
+3. **Consistency**: ConsistencyScorer → C score from NLI+BERTScore
+4. **Conformal**: ConformalPredictor → I binary from interval membership
+5. **Analysis**: CorrelationAnalyzer → ρ(C, I), p-value
+6. **Evaluation**: ExperimentEvaluator → metrics, figures, report
+
+---
+
+## Configuration (Hardcoded - LIGHT Tier)
+
+```python
+# config.py
+CONFIG = {
+    "model": {
+        "name": "meta-llama/Llama-2-7b-hf",
+        "temperature": 0.7,
+        "max_tokens": 256,
+        "num_samples": 5,
+    },
+    "datasets": {
+        "names": ["truthful_qa", "Anthropic/hh-rlhf", "squad"],
+        "max_length": 512,
+        "calibration_size": 1000,
+        "test_size": 1000,
+    },
+    "consistency": {
+        "nli_model": "roberta-large-mnli",
+        "bertscore_model": "deberta-xlarge-mnli",
+    },
+    "conformal": {
+        "coverage_target": 0.9,
+        "alpha": 0.1,
+    },
+    "evaluation": {
+        "gate_rho_min": 0.3,
+        "gate_rho_max": 0.7,
+        "gate_p_threshold": 0.05,
+        "gate_coverage_min": 0.85,
+        "ece_bins": 10,
+    },
+    "output": {
+        "figures_dir": "figures/",
+        "report_path": "04_validation.md",
+    },
+}
+```
+
+---
+
+## Epic Tasks
+
+| ID | Task | Description | Complexity | Breakdown |
+|----|------|-------------|------------|-----------|
+| E-1 | Data Pipeline | Implement MultiDatasetLoader with TruthfulQA/HH-RLHF/SQuAD loading + preprocessing | 8 | Module(2) + Deps(1) + Algo(3) + Integration(2) |
+| E-2 | Model Integration | Integrate Llama-2-7B with multi-sample generation capability | 9 | Module(2) + Deps(2) + Algo(3) + Integration(2) |
+| E-3 | Consistency Scoring | Implement NLI+BERTScore ensemble consistency scorer | 11 | Module(3) + Deps(2) + Algo(4) + Integration(2) |
+| E-4 | Conformal Prediction | Implement calibration + interval construction + membership checking | 12 | Module(3) + Deps(2) + Algo(5) + Integration(2) |
+| E-5 | Correlation Analysis | Implement Pearson correlation + significance testing + gate validation | 10 | Module(2) + Deps(3) + Algo(3) + Integration(2) |
+| E-6 | Evaluation & Visualization | Implement ECE computation + 5 required figures + validation report generation | 13 | Module(3) + Deps(3) + Algo(4) + Integration(3) |
+
+**Total Tasks**: 6
+**Total Complexity**: 63
+**Distribution**: VeryHigh(18-20): [], High(14-17): [], Medium(9-13): [E-2, E-3, E-4, E-5, E-6], Low(4-8): [E-1]
+
+---
+
+## Task Execution Sequence
+
+**Phase 1 (Foundation)**: E-1 → E-2 (establish data + model)
+**Phase 2 (Uncertainty)**: E-3 || E-4 (parallel - independent modules)
+**Phase 3 (Analysis)**: E-5 (requires E-3 + E-4 outputs)
+**Phase 4 (Validation)**: E-6 (requires all previous)
+
+---
+
+## Success Criteria Mapping
+
+| Gate Metric | Module | Method |
+|-------------|--------|--------|
+| 0.3 ≤ ρ(C,I) ≤ 0.7 | CorrelationAnalyzer | `compute_pearson_correlation()` |
+| p < 0.05 | CorrelationAnalyzer | `compute_significance()` |
+| Coverage ≥ 85% | ConformalPredictor | `calibrate()` → coverage validation |
+| ECE < 0.10 | Evaluator | `compute_ece()` |
+
+---
+
+## Testing Strategy (LIGHT Tier)
+
+**Smoke Tests Only**:
+- `test_data_loader.py`: Verify dataset loads, shape correctness
+- `test_model_generation.py`: Verify Llama-2 generates 5 samples
+- `test_consistency.py`: Verify C ∈ [0, 1] range
+- `test_conformal.py`: Verify coverage ≥ 85% on calibration set
+- `test_correlation.py`: Verify ρ computation runs without error
+
+**No unit tests** - PoC focuses on functional validation.
+
+---
+
+## Infrastructure Notes
+
+**Logging**: Print statements + CSV metric export (no WandB)
+**Error Handling**: Graceful degradation for OOM, model loading failures
+**Reproducibility**: Fixed seed=42 in all modules
+**Hardware**: Single GPU (≥16GB VRAM), 2-4 hours per dataset
+
+---
+
+## Risk Mitigation
+
+| Risk | Mitigation |
+|------|------------|
+| OOM during multi-sample generation | Reduce batch size to 1, process sequentially |
+| Conformal library unavailable | Fallback to custom quantile-based implementation |
+| Low correlation (ρ < 0.3) | Report finding - hypothesis falsified, redesign needed |
+| High correlation (ρ > 0.7) | Report finding - signals redundant, hypothesis falsified |
+
+---
+
+## Deliverables
+
+1. **Code**: 7 Python files in `code/src/`
+2. **Figures**: 5 visualizations in `figures/`
+   - Gate metrics bar chart
+   - C vs I scatter plot
+   - Distribution comparison histogram
+   - Per-dataset correlation comparison
+   - Calibration curve (ECE)
+3. **Report**: `04_validation.md` with pass/fail determination
+
+---
+
+**Architecture Status**: COMPLETE
+**Ready for Phase 4 Implementation**: YES
+**Estimated Implementation Time**: 6-8 hours (coding) + 6-12 hours (experiment execution)

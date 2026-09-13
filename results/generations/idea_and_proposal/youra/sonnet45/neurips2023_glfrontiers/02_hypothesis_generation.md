@@ -1,0 +1,452 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** Round 1 (02a_round_1_discussion.md)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-GLF-001
+**Confidence Level:** 85%
+
+**Main Hypothesis:**
+Hierarchical graph compression trained via reinforcement learning (RL) enables LLMs to perform multi-hop reasoning over million-node knowledge graphs with <5% accuracy degradation compared to processing full subgraphs, achieving 100x scalability improvement over current graph-LLM fusion methods (GreaseLM baseline: ~10k nodes).
+
+**Alternative Hypothesis (H0):**
+Learned hierarchical graph compression does not significantly improve LLM reasoning accuracy or scalability over fixed compression baselines (top-k degree ranking, community-based summarization) when applied to large-scale knowledge graphs.
+
+### 1.2 Variables
+
+| Variable Type | Variable Name | Definition | Measurement Method |
+|---------------|---------------|------------|-------------------|
+| **Independent** | Graph Size (N) | Number of nodes in input knowledge graph | Direct count: N ∈ {10k, 50k, 100k, 500k, 1M} |
+| **Independent** | Compression Ratio (r) | Level-0 summary size / Full graph size | r = |L0| / N, where L0 is coarse level |
+| **Independent** | Hierarchy Depth (d) | Number of compression levels | d ∈ {2, 3, 4} (default: 3) |
+| **Dependent** | QA Accuracy (A) | Correctness on multi-hop reasoning questions | A = correct_answers / total_questions |
+| **Dependent** | Inference Latency (T) | End-to-end query response time | T = t_encode + t_compress + t_llm + t_expand |
+| **Dependent** | Structure Preservation (S) | Graph edit distance between original and compressed | S = 1 - GED(G_orig, G_compressed) / max_GED |
+| **Controlled** | LLM Architecture | Frozen language model (API-only) | GPT-4 or LLaMA-3 70B (fixed) |
+| **Controlled** | GNN Architecture | Graph neural network encoder | DeepGNN framework (fixed) |
+| **Controlled** | Training Dataset | QA dataset with knowledge graph annotations | CommonsenseQA + ConceptNet (fixed) |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain:**
+```
+[Large KG: N=1M nodes]
+    → [GNN Encoder: Full graph processing using DeepGNN]
+    → [Learned Hierarchical Compressor via RL:
+        Policy π selects nodes for L0(coarse), L1(medium), L2(fine)]
+    → [L0 Summary: Fits in LLM context (~1% of N)]
+    → [LLM Processing: Multi-hop reasoning over L0]
+    → [Attention-Guided Expansion:
+        IF attention_score(node_i) > threshold
+        THEN retrieve L1/L2 details for node_i]
+    → [Task Output: QA Answer with high accuracy A]
+```
+
+**Mechanism Details:**
+
+1. **GNN Encoding**: DeepGNN processes the full million-node graph using distributed message passing, producing node embeddings that capture k-hop neighborhood structure (k=3 typical).
+
+2. **RL-Based Compression**:
+   - **Policy**: Neural network π(s|G) takes graph G as input, outputs probability distribution over nodes for each hierarchy level
+   - **Action**: Select nodes N_L0 ⊂ N for coarse level (target: |N_L0| = 0.01N)
+   - **Reward**: R = α·Accuracy_QA - β·CompressionRatio - γ·StructureLoss
+   - **Training**: Policy gradient (REINFORCE) with frozen LLM providing task reward
+
+3. **Hierarchical Summarization**:
+   - Level 0 (Coarse): Critical nodes selected by policy (entity hubs, relation bridges)
+   - Level 1 (Medium): Neighbors of L0 nodes (1-hop expansion pool)
+   - Level 2 (Fine): Full subgraph around query-relevant L0 nodes
+
+4. **Attention-Guided Expansion**: LLM attention weights on L0 tokens identify nodes requiring detail. If attention(node_i) > τ, retrieve L1/L2 information.
+
+**Evidence for Causal Links:**
+
+- **Link 1** (GNN → Compression): Plexus demonstrates billion-edge GNN processing is feasible; DeepGNN provides production infrastructure.
+- **Link 2** (Compression → LLM Fit): GreaseLM shows graph-LLM fusion works for small subgraphs; ESCARGOT confirms context window is bottleneck.
+- **Link 3** (RL Training → Task Performance): Standard RL for NLP applications (e.g., RLHF for LLMs) demonstrates reward-based training preserves task quality.
+- **Link 4** (Hierarchical Structure → Accuracy): Database indexing literature shows multi-level hierarchies enable efficient large-scale access without sacrificing retrieval quality.
+
+**Key Tension:**
+The fundamental trade-off is **compression (reducing graph size to fit LLM context)** vs. **structure preservation (maintaining relational information for reasoning)**. Fixed compression methods (top-k degree) optimize for size but ignore task relevance. The hypothesis claims **learned compression via RL resolves this tension** by optimizing for task-specific structure preservation.
+
+### 1.4 Key Assumptions
+
+**Assumption 1: RL Reward Alignment**
+- **Statement**: QA task accuracy provides sufficient training signal for learning graph compression policies.
+- **Testability**: Measure correlation between compression quality (GED, motif preservation) and QA accuracy. Ablate reward components (accuracy vs. structure loss).
+- **Risk if violated**: Compression may learn spurious patterns unrelated to reasoning quality.
+
+**Assumption 2: Attention-Importance Correlation**
+- **Statement**: LLM attention scores on Level-0 nodes correlate with graph node importance for multi-hop reasoning.
+- **Testability**: Compare attention-guided expansion vs. learned importance scorer vs. random expansion. Measure retrieval precision for task-relevant nodes.
+- **Risk if violated**: Expansion retrieves irrelevant nodes, wasting context budget and degrading performance.
+
+**Assumption 3: Hierarchy Sufficiency**
+- **Statement**: A 3-level hierarchy (coarse/medium/fine) provides sufficient granularity for adaptive detail retrieval.
+- **Testability**: Ablation study varying hierarchy depth d ∈ {2, 3, 4, 5}. Measure accuracy vs. complexity trade-off.
+- **Risk if violated**: Either over-complex (d too large) or under-expressive (d too small) hierarchies.
+
+**Assumption 4: Frozen LLM Viability**
+- **Statement**: Training with a frozen LLM (no gradient access) via RL is sufficient; end-to-end fine-tuning is not required.
+- **Testability**: Compare RL-trained compression with frozen LLM vs. end-to-end fine-tuned system (if gradient access available).
+- **Risk if violated**: Suboptimal compression due to gradient approximation via RL.
+
+**Assumption 5: Infrastructure Transferability**
+- **Statement**: DeepGNN's scalability (demonstrated on billion-edge graphs) transfers to this hierarchical compression architecture.
+- **Testability**: Benchmark GNN+Compressor on graphs of increasing size: 10k → 100k → 1M nodes. Measure wall-clock time and memory.
+- **Risk if violated**: Compression overhead dominates, nullifying GNN scalability gains.
+
+### 1.5 Scope & Boundaries
+
+**In Scope:**
+- **Graph Types**: Knowledge graphs with natural language node/edge attributes (ConceptNet, UMLS, Freebase)
+- **Tasks**: Multi-hop question answering, reasoning tasks requiring graph traversal (2-5 hop reasoning)
+- **Scale**: Graphs with 10k to 1M+ nodes (target: 100x improvement over GreaseLM's ~10k baseline)
+- **LLM Interaction**: API-only LLMs (GPT-4, Claude, LLaMA via inference APIs)
+- **Evaluation Domains**: Commonsense reasoning (CommonsenseQA), biomedical QA (MedQA), general knowledge (KGQA benchmarks)
+
+**Out of Scope:**
+- Pure structural graphs without text attributes (e.g., social networks with no content)
+- Real-time streaming graphs (compression is precomputed per static graph snapshot)
+- Graph generation/editing tasks (focus is on reasoning over existing graphs)
+- LLMs requiring fine-tuning (assumes frozen, API-accessible models)
+- Graphs smaller than 10k nodes (GreaseLM already handles efficiently)
+- Non-reasoning tasks (e.g., node classification without multi-hop dependencies)
+
+**Boundary Conditions:**
+- **Minimum Effective Size**: Below 10k nodes, overhead of hierarchical compression may exceed benefits (use GreaseLM directly)
+- **Maximum Scalability**: Upper limit determined by GNN encoding phase (DeepGNN handles billions of edges; compressor adds ~10% overhead)
+- **Context Window Constraint**: Level-0 summary must fit in LLM context (assume 8k-32k tokens depending on model)
+- **Compression Floor**: Below compression ratio r=0.005 (0.5%), accuracy degrades due to insufficient information retention
+
+### 1.6 Testable Predictions
+
+**Primary Prediction (P1): Scalability with Minimal Accuracy Loss**
+- **Statement**: On knowledge graphs with N ∈ {100k, 500k, 1M} nodes, hierarchical RL-based compression achieves QA accuracy A ≥ 0.95 · A_baseline, where A_baseline is accuracy on full subgraphs (N ≤ 10k) using GreaseLM.
+- **Measurement**: Run CommonsenseQA with ConceptNet graphs scaled to 100k/500k/1M nodes. Compare learned compression vs. GreaseLM on matched 10k subgraphs.
+- **Success Criterion**: Accuracy degradation Δ = A_baseline - A_compressed < 5%
+- **Falsification**: If Δ > 10%, hypothesis is refuted (compression loses critical reasoning paths).
+
+**Secondary Prediction (P2): Attention-Guided Precision**
+- **Statement**: Attention-guided expansion retrieves task-relevant nodes with precision P ≥ 0.80, where relevance is measured by accuracy improvement when including expanded nodes.
+- **Measurement**: Compare QA accuracy with/without expansion. Precision = (correct_with_expansion - correct_without) / total_expanded_queries.
+- **Success Criterion**: P ≥ 0.80
+- **Falsification**: If P < 0.60, attention assumption is violated (random expansion would yield ~0.50 for binary relevance).
+
+**Secondary Prediction (P3): Learned > Fixed Compression**
+- **Statement**: RL-trained compression outperforms fixed baselines (top-k degree, community-based summarization, random sampling) by ΔA ≥ 10% on multi-hop reasoning questions requiring 3+ hops.
+- **Measurement**: Ablation study comparing learned compression vs. three fixed methods on multi-hop subset of CommonsenseQA (questions requiring ≥3 hops in ConceptNet).
+- **Success Criterion**: A_learned - A_fixed ≥ 0.10
+- **Falsification**: If A_learned ≈ A_fixed (within 3%), learned compression provides no advantage (reject hypothesis).
+
+**Falsification Criteria:**
+1. If P1 fails (Δ > 10%): Compression destroys reasoning paths → Core hypothesis refuted
+2. If P3 fails (learned ≈ fixed): RL training provides no benefit → Simpler fixed methods sufficient
+3. If P2 fails (P < 0.60): Attention mechanism unreliable → Need alternative expansion strategy (hypothesis adjustable, not fatal)
+
+### 1.7 SOTA Baseline
+
+**Primary Baseline: GreaseLM (Zhang et al., 2022)**
+- **Method**: Fuses frozen LM representations with GNN-based knowledge graph reasoning via modality interaction layers.
+- **Performance**:
+  - CommonsenseQA accuracy: ~78% (with ConceptNet, graph size ~10k nodes per question)
+  - Limitation: Context window restricts graph size to <10k nodes
+- **Benchmark Dataset**: CommonsenseQA (12,247 questions), OpenbookQA, MedQA-USMLE
+- **Our Target**: Match or exceed GreaseLM accuracy (78%+) on 100x larger graphs (1M nodes)
+
+**Secondary Baselines:**
+
+1. **Fixed Top-k Compression**
+   - Method: Rank nodes by degree, keep top k nodes
+   - Expected Performance: ~60-65% on CommonsenseQA (loses reasoning paths)
+
+2. **Community-Based Summarization**
+   - Method: Detect communities (Louvain), keep representative nodes per community
+   - Expected Performance: ~65-70% (preserves structure but ignores task relevance)
+
+3. **Random Sampling**
+   - Method: Uniformly sample k nodes
+   - Expected Performance: ~50-55% (lower bound)
+
+4. **ESCARGOT (Matsumoto et al., 2025)**
+   - Method: Dynamic Graph-of-Thoughts with LLM + KG retrieval
+   - Performance: Outperforms RAG on biomedical reasoning (precision improvement)
+   - Limitation: Computational cost scales poorly (iterative expansion)
+   - Our Advantage: Single-pass hierarchical compression vs. iterative retrieval
+
+**Success Metric Comparison:**
+- Must exceed GreaseLM accuracy on matched 10k graphs (baseline reference)
+- Must exceed all fixed methods by ≥10% on large graphs (100k+ nodes)
+- Should approach ESCARGOT precision with lower latency (1-pass vs. iterative)
+
+### 1.8 Statistical Verification Design
+
+**Experimental Design: Nested Cross-Validation with Ablation Studies**
+
+**Phase 1: Development Set (CommonsenseQA with ConceptNet)**
+- **Dataset**: 12,247 questions, split 70% train / 15% dev / 15% test
+- **Graph Scaling**: Augment ConceptNet (1M nodes full graph) by extracting subgraphs of size N ∈ {10k, 50k, 100k, 500k, 1M}
+- **Training**: RL policy gradient on train split (episodes = questions, reward = accuracy)
+- **Hyperparameters**: Tune compression ratio r, hierarchy depth d, attention threshold τ on dev split
+- **Evaluation**: Report accuracy A, latency T, structure preservation S on held-out test split
+
+**Phase 2: Transfer Evaluation (MedQA with UMLS)**
+- **Dataset**: MedQA-USMLE (10,178 questions), UMLS graph (~4M entities)
+- **Transfer**: Use compression policy trained on CommonsenseQA, evaluate on MedQA
+- **Metric**: Zero-shot transfer accuracy (tests generalization)
+
+**Phase 3: Ablation Studies**
+1. **Compression Method**: Learned (RL) vs. Top-k vs. Community vs. Random
+2. **Expansion Mechanism**: Attention-guided vs. Learned scorer vs. No expansion
+3. **Hierarchy Depth**: d ∈ {2, 3, 4}
+4. **Reward Components**: Accuracy-only vs. Accuracy+Structure
+
+**Statistical Tests:**
+- **Hypothesis Test**: Paired t-test comparing learned vs. each fixed baseline (questions as paired samples)
+- **Significance Level**: α = 0.05, Bonferroni correction for multiple comparisons (4 baselines → α' = 0.0125)
+- **Effect Size**: Cohen's d for accuracy differences (expect d > 0.5 for "medium" effect)
+- **Confidence Intervals**: 95% CI for accuracy A on each graph size
+
+**Sample Size Calculation:**
+- **Minimum**: 1000 test questions (sufficient for α=0.05, power=0.80, d=0.5)
+- **CommonsenseQA Test**: ~1800 questions (adequate)
+- **MedQA Test**: ~1500 questions (adequate)
+
+**Reproducibility Measures:**
+- Fixed random seeds (RL training, data splits)
+- 3 independent runs with different initializations
+- Report mean ± std across runs
+- Release code, trained models, evaluation scripts (GitHub repo)
+
+---
+
+## 2. Contribution Summary
+
+**Theoretical Contribution:**
+This work provides the first formulation of graph-LLM integration as a **rate-distortion optimization problem** solved via hierarchical learned compression. Unlike prior graph summarization work (which focuses on visualization or storage), this frames compression as a task-driven optimization where the "distortion" is LLM reasoning accuracy and "rate" is context budget consumption. The rate-distortion framework from information theory is adapted to discrete graph structures via RL-based policy learning, providing a principled approach to balancing scalability (compression) and reasoning quality (structure preservation).
+
+**Key Theoretical Insight:** The tension between graph size and LLM context constraints can be resolved not by better graph algorithms alone (which focus on structural properties) nor by better LLMs alone (which face fixed context limits), but by **learned task-aware compression** that bridges the modality gap. This positions graph-LLM fusion as a compression problem rather than a fusion architecture problem.
+
+**Methodological Contribution:**
+We introduce a **three-stage hierarchical compression architecture** (GNN → Learned Compressor → LLM) trained via reinforcement learning with a frozen LLM. The key methodological innovations are:
+
+1. **Multi-Resolution Graph Summaries**: Level-0 (coarse summary fitting LLM context), Level-1 (medium detail pool), Level-2 (fine-grained expansion targets). Enables adaptive detail retrieval without recomputing full GNN encoding.
+
+2. **RL-Based Compression Policy**: Unlike end-to-end fine-tuning (requires LLM gradients, computationally prohibitive) or fixed heuristics (ignore task objectives), RL training with frozen LLM enables practical optimization of API-only models (GPT-4, Claude).
+
+3. **Attention-Guided Expansion**: Leverages LLM's own attention weights to identify nodes requiring detail, avoiding separate learned retrieval modules. Validates the hypothesis that attention aligns with reasoning necessity.
+
+4. **Structure-Aware Evaluation**: Introduces graph-specific metrics (graph edit distance, motif preservation) alongside task accuracy, addressing the gap noted by Adeniye et al. (2025) that serialization quality is difficult to measure.
+
+**Practical Contribution:**
+This work **bridges the scalability gap** identified in Phase 1 research (Gap 2), enabling LLM reasoning over million-node knowledge graphs—a 100x improvement over current methods (GreaseLM: ~10k nodes). Practical impacts include:
+
+1. **Scientific Knowledge Graph QA**: Biomedical reasoning over full UMLS (4M entities), drug discovery over full ChEMBL (2M+ compounds), enabling queries previously impossible due to graph size.
+
+2. **Real-World Deployment Viability**: Works with API-only LLMs (no fine-tuning required), uses production GNN infrastructure (DeepGNN), and achieves sub-second latency targets (T < 2s for 1M-node graphs based on Plexus benchmarks + compression overhead ~10%).
+
+3. **Generalizable Framework**: Applies to any knowledge graph + LLM combination (not domain-locked). Demonstrated on commonsense reasoning and medical QA, transferable to legal knowledge graphs, scientific literature graphs, enterprise knowledge bases.
+
+4. **Open-Source Contribution**: Implementation on PyTorch Geometric + DeepGNN + standard RL libraries (Stable Baselines3), reproducible experiments, pre-trained compression policies for common KGs (ConceptNet, UMLS).
+
+---
+
+## 3. Key Related Work
+
+**Graph-LLM Fusion (Foundation + Extension):**
+
+1. **GreaseLM** (Zhang et al., 2022) [268 citations]
+   - **Relation**: Direct baseline and motivation
+   - **Key Idea**: Fuses LM and GNN via modality interaction layers (bidirectional information flow)
+   - **Limitation**: Restricted to small subgraphs (<10k nodes) due to context window
+   - **Our Extension**: Hierarchical compression enables scaling to 1M+ nodes while preserving GreaseLM's fusion benefits
+
+2. **ESCARGOT** (Matsumoto et al., 2025) [12 citations]
+   - **Relation**: Alternative approach (dynamic retrieval vs. precomputed compression)
+   - **Key Idea**: Dynamic Graph-of-Thoughts with iterative KG retrieval, outperforms RAG
+   - **Limitation**: "Significant challenges with context length limitations" (from paper)
+   - **Our Differentiation**: Single-pass hierarchical compression vs. iterative multi-turn retrieval (lower latency)
+
+3. **Natural Language Interface for Graph DBs** (Adeniye et al., 2025) [0 citations]
+   - **Relation**: Identifies problem (structure loss in serialization)
+   - **Key Insight**: "Graph-to-text serialization loses structural information"
+   - **Our Solution**: Learned compression preserves task-critical structure via RL optimization with structure-aware metrics
+
+**Graph Summarization & Compression (Methodological Baseline):**
+
+4. **Graph Summarization Survey** (Liu et al., 2018)
+   - **Relation**: Provides taxonomy of fixed compression methods
+   - **Methods Covered**: Top-k degree, community-based, random walk sampling
+   - **Our Differentiation**: All surveyed methods are task-agnostic; we introduce task-driven learned compression
+
+5. **Graph Pooling in GNNs** (Lee et al., 2019 - SAGPool; Gao et al., 2019 - DiffPool)
+   - **Relation**: Related but different objective
+   - **Key Idea**: Hierarchical graph coarsening for GNN classification (internal to GNN)
+   - **Our Differentiation**: Pooling optimizes GNN task performance; our compression optimizes downstream LLM task performance (cross-modal)
+
+**Scalable GNN Training (Infrastructure Foundation):**
+
+6. **Plexus** (2025, arXiv:2505.04083)
+   - **Relation**: Demonstrates billion-edge GNN feasibility
+   - **Key Contribution**: 3D parallelism (data + model + pipeline)
+   - **Our Usage**: Validates that GNN encoding phase can scale to target graph sizes (foundation for our architecture)
+
+7. **Microsoft DeepGNN** (2022, GitHub production system)
+   - **Relation**: Production GNN infrastructure
+   - **Our Usage**: Architectural foundation for scalable graph processing; our compressor integrates as post-GNN module
+
+**Reinforcement Learning for NLP (Training Methodology):**
+
+8. **RLHF for LLMs** (Ouyang et al., 2022 - InstructGPT)
+   - **Relation**: Demonstrates RL with frozen/partially-frozen LLMs
+   - **Key Technique**: Policy gradient with reward from human feedback (analogous to our task accuracy reward)
+   - **Our Adaptation**: Apply RL training paradigm to graph compression policy instead of LLM policy
+
+**Retrieval-Augmented Generation (Alternative Paradigm):**
+
+9. **RAG Survey** (Gao et al., 2023)
+   - **Relation**: Alternative approach to integrating external knowledge with LLMs
+   - **Limitation**: Text-based retrieval, no structural graph reasoning
+   - **Our Advantage**: Hierarchical graph compression preserves relational structure that RAG's vector search loses
+
+**Knowledge Graph Foundation Models (Emerging Paradigm):**
+
+10. **Graph Foundation Models Survey** (Wang et al., 2025) [20 citations]
+    - **Relation**: Parallel research direction (pre-training graph FMs)
+    - **Key Challenge**: "Structural alignment and heterogeneity across domains"
+    - **Our Complementarity**: Our compression approach is orthogonal—can apply to graph FM encodings to fit LLM context
+
+11. **PromptGFM** (Zhu et al., 2025) [18 citations]
+    - **Relation**: Graph vocabulary learning for cross-graph transfer
+    - **Potential Synergy**: PromptGFM's graph tokens could be input to our hierarchical compressor for LLM integration
+
+**Cross-Domain Inspiration (Information Theory & Databases):**
+
+12. **Learned Image Compression** (Ballé et al., 2018)
+    - **Relation**: Cross-domain inspiration (neural compression for continuous data)
+    - **Key Technique**: Variational autoencoders for rate-distortion optimization
+    - **Our Adaptation**: Adapt rate-distortion to discrete graphs via RL (no differentiable compression like VAEs)
+
+13. **B-tree & R-tree Indexing** (Database literature)
+    - **Relation**: Cross-domain inspiration (hierarchical indexing for large-scale data)
+    - **Our Adaptation**: Multi-level graph summaries analogous to database index levels (coarse → fine navigation)
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**Main Hypothesis (H):**
+Hierarchical RL-based graph compression enables LLM reasoning over million-node KGs with <5% accuracy degradation and 100x scalability improvement.
+
+**Sub-Hypothesis Decomposition:**
+
+**SH1 (Existence): Learned Compression Preserves Reasoning Paths**
+- **Statement**: RL-trained hierarchical compression retains critical reasoning paths (2-5 hop chains) in Level-0 summary with precision ≥ 90%.
+- **Rationale**: If compression discards necessary reasoning paths, no amount of expansion can recover them → accuracy degrades.
+- **Experiment**: Measure path recall: For multi-hop questions, what % of gold-standard reasoning paths are preserved in L0?
+- **Success Criterion**: Path recall ≥ 0.90 for paths ≤ 3 hops, ≥ 0.75 for paths = 4-5 hops
+
+**SH2 (Mechanism): Attention Guides Relevant Expansion**
+- **Statement**: LLM attention scores on Level-0 nodes correlate with reasoning necessity (nodes involved in correct answer path).
+- **Rationale**: Attention-guided expansion mechanism depends on attention aligning with structural importance.
+- **Experiment**: Compute attention-relevance correlation: Spearman ρ between attention weights and gold-standard node relevance.
+- **Success Criterion**: ρ ≥ 0.60 (moderate-to-strong correlation)
+
+**SH3 (Comparison): Learned Outperforms Fixed Baselines**
+- **Statement**: RL-based compression achieves ≥10% higher accuracy than top-k degree, community-based, and random baselines on multi-hop QA.
+- **Rationale**: If fixed methods perform comparably, the complexity of RL training is unjustified.
+- **Experiment**: Ablation study on CommonsenseQA multi-hop subset (≥3 hops required)
+- **Success Criterion**: A_learned - A_fixed ≥ 0.10 for all three fixed baselines (paired t-test p < 0.0125)
+
+### Readiness Checklist
+
+✅ **Hypothesis Specificity:**
+- [x] Variables clearly defined with measurement methods (Table 1.2)
+- [x] Testable predictions with quantitative success criteria (P1: Δ<5%, P2: P≥0.80, P3: ΔA≥10%)
+- [x] Falsification criteria established (P1 failure → core refutation, P3 failure → reject learned compression)
+
+✅ **Baseline Clarity:**
+- [x] SOTA baseline identified (GreaseLM: 78% on CommonsenseQA)
+- [x] Fixed compression baselines defined (top-k, community-based, random)
+- [x] Performance targets set relative to baselines (match GreaseLM, exceed fixed by 10%)
+
+✅ **Experimental Design:**
+- [x] Dataset specified (CommonsenseQA 12k questions, MedQA 10k questions)
+- [x] Train/dev/test splits defined (70/15/15)
+- [x] Statistical tests planned (paired t-test, Bonferroni correction, Cohen's d)
+- [x] Reproducibility measures (3 runs, fixed seeds, open-source release)
+
+✅ **Scope Definition:**
+- [x] In-scope tasks: Multi-hop QA on knowledge graphs with text attributes
+- [x] Out-of-scope: Pure structural graphs, real-time streaming, generation tasks
+- [x] Boundary conditions: Min N=10k (below: use GreaseLM), context window constraint (L0 must fit)
+
+✅ **Assumption Documentation:**
+- [x] 5 key assumptions identified with testability plans
+- [x] Risks if assumptions violated documented
+- [x] Ablation studies to validate assumptions (e.g., attention vs. learned scorer)
+
+✅ **Infrastructure Assessment:**
+- [x] GNN foundation: DeepGNN + PyTorch Geometric
+- [x] RL framework: Stable Baselines3 or custom policy gradient
+- [x] LLM APIs: GPT-4, Claude, LLaMA-3 (frozen, no fine-tuning)
+- [x] Estimated implementation time: 4-6 weeks for prototype (from Phase 2A)
+
+### Open Questions
+
+**Q1: Compression Architecture Details**
+- **Question**: What neural architecture should the compressor use? Graph transformer encoder? GNN with pooling layers?
+- **Impact**: Affects compression quality and computational cost
+- **Resolution Plan**: Pilot study comparing 3 architectures (GNN pooling, graph transformer, attention-based selector) on small graphs (10k nodes) in Phase 3 step 1
+
+**Q2: RL Reward Function Weighting**
+- **Question**: Optimal weighting for R = α·Accuracy - β·CompressionRatio - γ·StructureLoss?
+- **Impact**: Balances accuracy vs. efficiency vs. structure preservation
+- **Resolution Plan**: Hyperparameter sweep on dev set (grid search α, β, γ) in Phase 3
+
+**Q3: Hierarchy Level Selection Strategy**
+- **Question**: How to decide which nodes go into L0 vs. L1 vs. L2? Fixed ratios (1%/10%/25%) or dynamic?
+- **Impact**: Affects adaptability to different graph sizes and question complexities
+- **Resolution Plan**: Ablation study comparing fixed-ratio vs. learned-threshold strategies
+
+**Q4: Transfer Across Graph Types**
+- **Question**: Does a compression policy trained on ConceptNet transfer to UMLS (biomedical graph with different structure)?
+- **Impact**: Determines generalizability (one policy per graph type vs. universal)
+- **Resolution Plan**: Phase 2 transfer evaluation (Section 1.8) answers this directly
+
+**Q5: Cold-Start for New Graphs**
+- **Question**: For a new knowledge graph (e.g., enterprise KB), must we retrain the compression policy from scratch?
+- **Impact**: Practical deployment barrier if retraining required for each new graph
+- **Resolution Plan**: Test few-shot adaptation (fine-tune pre-trained policy on small sample of new graph)
+
+---
+
+**Ready for Phase 2B:** ✅ YES
+
+**Recommended Phase 2B Focus Areas:**
+1. **SH1 verification** (path preservation) → Critical for core hypothesis validity
+2. **SH3 comparison** (learned vs. fixed) → Justifies RL training complexity
+3. **Attention assumption validation** (SH2) → Determines expansion mechanism viability
+4. **Scalability empirical validation** → Measure actual latency T on graphs 10k → 1M nodes
+
+**Phase 2C Preview:**
+After Phase 2B decomposes sub-hypotheses and establishes verification plans, Phase 2C will generate detailed experiment specifications:
+- Experiment 1: Path preservation measurement (SH1) → Dataset: CommonsenseQA with annotated reasoning paths
+- Experiment 2: Attention-relevance correlation (SH2) → Method: Attention heatmap analysis + Spearman correlation
+- Experiment 3: Ablation study (SH3) → 4 conditions (learned + 3 fixed baselines)
+- Experiment 4: Scalability benchmarking (P1) → Graphs scaled 10k → 1M, measure A and T
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (YOLO Mode)*
+*2026-02-06*

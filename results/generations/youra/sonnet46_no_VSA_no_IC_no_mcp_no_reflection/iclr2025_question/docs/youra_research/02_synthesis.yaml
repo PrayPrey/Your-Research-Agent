@@ -1,0 +1,125 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-31T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (independent-controller ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Semantic Mode Consistency (SMC) as a Black-Box Hallucination Predictor Across Factual QA Benchmarks"
+  hypothesis_id: "H-SMC-v1"
+  core_claim: |
+    NLI-based Semantic Mode Consistency (SMC) — the fraction of semantically consistent
+    pairs across N=10 stochastic samples from a black-box LLM — serves as a reliable
+    hallucination predictor (AUROC ≥ 0.70) across TriviaQA, NaturalQuestions, HaluEval,
+    and TruthfulQA, without requiring model logit access, training data, or human annotation.
+  mechanism: |
+    When an LLM has strong parametric knowledge about a fact, its sampling distribution
+    concentrates over a narrow semantic cluster — stochastic samples remain semantically
+    equivalent (same entity, same claim). When the model hallucinates, sampling spreads
+    across multiple incompatible semantic clusters — different samples produce contradictory
+    claims. NLI-based pairwise agreement over N samples (45 pairs for N=10) captures this
+    multimodality directly as a scalar consistency score. Low consistency → high hallucination
+    probability; high consistency → factual grounding.
+  predictions:
+    - P1: "AUROC ≥ 0.70 on all 4 benchmarks (TriviaQA, NQ, HaluEval, TruthfulQA) with SMC-NLI N=10"
+    - P2: "AUROC ordering: HaluEval > TriviaQA ≈ NQ > TruthfulQA (TruthfulQA is hardest case)"
+    - P3: "N-efficiency elbow at N ≤ 10: AUROC(N=10) ≥ 0.95 × AUROC(N=20) on TriviaQA"
+
+variables_summary:
+  independent: "Uncertainty estimation method (SMC-NLI / SMC-Embed / Verbalized confidence) × Benchmark (TriviaQA / NQ / HaluEval / TruthfulQA) × Sample count N (1,3,5,10,20)"
+  dependent_primary: "AUROC for binary hallucination classification (primary); AUPRC (secondary)"
+  controlled: "LLM fixed to Llama-3-8B-Instruct; temperature fixed to 0.7; NLI scorer fixed to DeBERTa-v3-large; 1000 questions per benchmark"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in hallucination prediction AUROC between
+    SMC-NLI (N=10 samples) and verbalized confidence baseline across all four
+    benchmarks. SMC-NLI AUROC < 0.65 on ≥ 2 of 4 benchmarks.
+  statistical_test: "One-sided Wilcoxon signed-rank test on per-question SMC scores vs. binary correctness labels; bootstrap 95% CI for AUROC comparison"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First controlled multi-benchmark evaluation of black-box sampling consistency as hallucination predictor; N-efficiency analysis; dual NLI+embedding consistency comparison; SMC framing as semantic mode characterization"
+  differentiation_summary: |
+    SelfCheckGPT: evaluated WikiBio only (open-ended generation), single model (GPT-3), no N-ablation.
+    Semantic Uncertainty: requires token log-probabilities (not black-box), no HaluEval/TruthfulQA, no verbalized confidence comparison.
+    Self-Consistency: reasoning tasks (CoT), no hallucination classification AUROC, no factual QA.
+    This work: all four factual QA benchmarks, strict black-box, N-ablation, dual metrics, AUROC+AUPRC.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "Llama-3-8B-Instruct (primary, local)"
+    - "GPT-4o (secondary validation, 200-question subset only)"
+  datasets:
+    - "HaluEval (primary — balanced binary labels)"
+    - "TriviaQA (secondary)"
+    - "NaturalQuestions (secondary)"
+    - "TruthfulQA-MC (secondary — adversarial hard case)"
+  baselines:
+    - "Verbalized confidence (black-box prompt-based)"
+    - "SelfCheckGPT-NLI replication"
+    - "SMC N=1 (degenerate baseline, AUROC ≈ 0.50)"
+
+measurement_plan:
+  prerequisite_experiment:
+    - source: "200 TriviaQA questions"
+      action: "N-ablation: N ∈ {1,3,5,10,20}; plot AUROC vs N; confirm elbow ≤ N=10 before proceeding"
+  data_collection:
+    - source: "HaluEval QA split (HuggingFace)"
+    - source: "TriviaQA (HuggingFace trivia_qa)"
+    - source: "NaturalQuestions (HuggingFace natural_questions)"
+    - source: "TruthfulQA MC format (sylinrl/TruthfulQA GitHub)"
+  procedure:
+    - step: "Sample N=10 responses per question at temperature=0.7 from Llama-3-8B-Instruct"
+    - step: "Compute all C(N,2)=45 pairwise NLI labels using DeBERTa-v3-large (entailment/neutral/contradiction)"
+    - step: "Compute SMC-NLI = (entailment + neutral pairs) / 45"
+    - step: "Compute SMC-Embed = mean pairwise cosine similarity across all-mpnet-base-v2 embeddings of N samples"
+    - step: "Compute verbalized confidence: prompt model for self-reported confidence on 1-10 scale"
+    - step: "Compute ground truth labels: binary (correct=1, hallucinated=0) using exact match / F1 / benchmark labels"
+    - step: "Compute AUROC and AUPRC for each method × benchmark combination"
+    - step: "Bootstrap 95% CIs for all AUROC values"
+  success_criteria:
+    - "SMC-NLI AUROC ≥ 0.70 on all 4 benchmarks (primary P1)"
+    - "AUROC(HaluEval) > AUROC(TruthfulQA) with non-overlapping CIs (P2)"
+    - "AUROC(N=10) ≥ 0.95 × AUROC(N=20) on TriviaQA ablation (P3)"
+
+validation:
+  internal_validity:
+    - "Fixed model, temperature, NLI scorer, and dataset split across all conditions"
+    - "N-ablation on held-out 200-question subset before main experiment to confirm N=10 choice"
+    - "Bootstrap confidence intervals for all AUROC values to confirm statistical reliability"
+    - "Both SMC-NLI and SMC-Embed reported to assess sensitivity to consistency metric choice"
+  external_validity:
+    - "GPT-4o validation on 200-question subset provides one cross-model datapoint"
+    - "Coverage of 4 diverse benchmarks (open-domain, Wikipedia-grounded, adversarial) increases generalizability"
+    - "Defers cross-model and multimodal generalization to Gap 3 hypothesis"
+
+discussion_synthesis:
+  key_insights:
+    - "The core gap is not whether sampling-based consistency works (it does on WikiBio/TriviaQA) but whether it works across all four benchmarks under identical controlled conditions"
+    - "TruthfulQA is the critical hard case: adversarial questions produce confident, consistent wrong answers that may suppress SMC signal"
+    - "NLI OOD concern for short answers is real and addressed by parallel embedding consistency metric"
+    - "N=10 is the hypothesis-driven choice; N-ablation prerequisite makes this choice empirically grounded"
+    - "HaluEval's balanced binary labels make it the cleanest primary benchmark for AUROC analysis"
+  breakthrough_moments:
+    - "Prof. Vera clarified that the baseline must be verbalized confidence (black-box) not log-probability (white-box) — this sharpens the experimental design"
+    - "Prof. Rex identified NLI OOD concern for short answers — resolved by adding SMC-Embed as parallel metric"
+    - "Dr. Ally proposed the AUROC ordering prediction (HaluEval > TriviaQA/NQ > TruthfulQA) — this converts the TruthfulQA failure mode into a testable prediction"
+  resolved_tensions:
+    - "NLI OOD vs. embedding similarity: resolved by running both in parallel and reporting both"
+    - "N=10 vs. unknown optimal N: resolved by mandatory N-ablation prerequisite"
+    - "AUROC vs. AUPRC under class imbalance: resolved by reporting both; HaluEval primary (balanced)"
+    - "\"Reliable across all benchmarks\" vs. expected TruthfulQA degradation: resolved by making ordering an explicit prediction rather than failure criterion"

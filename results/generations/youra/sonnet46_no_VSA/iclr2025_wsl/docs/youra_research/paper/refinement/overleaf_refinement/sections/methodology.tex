@@ -1,0 +1,90 @@
+
+\subsubsection{3.1 Notation and Problem Setup}
+
+Let $V = \{v_1, \ldots, v_N\}$ be a model zoo of $N$ neural networks, where each $v_i \in \mathbb{R}^d$ is a flattened weight vector. For each network, let $y_i \in \mathbb{R}$ be a scalar performance label (test accuracy). A weight encoder $e: \mathbb{R}^d \rightarrow \mathbb{R}^k$ maps weight vectors to fixed-size representations; a downstream predictor $f: \mathbb{R}^k \rightarrow \mathbb{R}$ predicts performance from representations.
+
+The \textbf{permutation group} for a $K$-layer CNN with channel widths $c_1, \ldots, c_K$ is the direct product $S_{c_1} \times \cdots \times S_{c_K}$, acting via coupled row-column permutations: permuting the output channels of layer $\ell$ simultaneously permutes the input channels of layer $\ell+1$, preserving functional equivalence \citep{Navon2023Equivariant}. The orbit of network $v$ under this group is $O(v) = \{\pi \cdot v : \pi \in S_{c_1} \times \cdots \times S_{c_K}\}$.
+
+\textbf{OrbitVar} of an encoder e on network v is:
+
+$$\text{OrbitVar}(v) = \text{Var}_{\pi \sim \text{Uniform(orbit)}}[e(\pi \cdot v)]$$
+
+averaged over the embedding dimension. Population-level OrbitVar is $\mathbb{E}_v[\text{OrbitVar}(v)]$.
+
+\textbf{MSE\_perm} is the component of total prediction MSE attributable to permutation-induced variance:
+
+$$\text{MSE}_{\text{perm}} = \mathbb{E}_v\left[\mathbb{E}_{\pi, \pi'}\left[\frac{(f(e(\pi \cdot v)) - f(e(\pi' \cdot v)))^2}{2}\right]\right]$$
+
+Equivalently, MSE\_perm equals the mean per-model prediction variance over K permutations. MSE\_res = MSE\_total $-$ MSE\_perm is the residual component. Note that the additive decomposition assumes $\text{MSE}_\text{perm} \perp \text{MSE}_\text{res}$; empirical validity of this assumption is tested in Section 5.3.
+
+\subsubsection{3.2 Encoder Designs}
+
+Four encoders span the invariance spectrum (C0 $\leq$ C1 < C2 $\leq$ C3 in terms of architectural invariance):
+
+\textbf{C0 --- Per-Layer Statistics (Approximately Invariant).} The $\hat{W}_L$ encoder from Unterthiner et al. (2020) computes per-layer summary statistics: mean, variance, and spectral norm of each weight matrix. These statistics are invariant under row permutations but not under column permutations. C0 serves as the reference performance baseline.
+
+\textbf{C1 --- CISE (Non-Invariant).} A channel-index sinusoidal encoder, constructed as a representative non-invariant baseline. It applies per-channel learned projections with sinusoidal positional encodings indexed by channel position. For layer $\ell$ with weights $W^{(\ell)} \in \mathbb{R}^{C_\text{out} \times C_\text{in} \times k \times k}$:
+
+$$e_{C1}(W^{(\ell)})_c = \phi(W^{(\ell)}_c) + \text{PE}(c)$$
+
+where $\phi$ is a learned MLP and $\text{PE}(c)$ encodes channel index $c$ via sinusoidal functions. CISE concatenates embeddings across channels and layers to a 64-dim $\times$ 16-channel embedding (1024-dim total). Since $\text{PE}(c) \neq \text{PE}(\pi(c))$ for permutation $\pi$, CISE has OrbitVar $> 0$ by construction.
+
+\textbf{C2 --- DeepSets (Exactly Invariant).} Doubly-invariant DeepSets \citep{Zaheer2017Deep} applied to each convolutional layer:
+
+$$e_{C2}(W^{(\ell)}) = \rho\!\left(\sum_{c=1}^{C_{\text{out}}} \phi(W^{(\ell)}_c)\right)$$
+
+where $\phi: \mathbb{R}^{C_\text{in} \times k \times k} \rightarrow \mathbb{R}^{64}$ is a learned MLP and $\rho: \mathbb{R}^{64} \rightarrow \mathbb{R}^{128}$ is another MLP. Sum pooling over $C_\text{out}$ ensures invariance to output channel order; applying $\phi$ to each $W^{(\ell)}_c \in \mathbb{R}^{C_\text{in} \times k \times k}$ independently treats input channels symmetrically within each output channel. In the present implementation, the sum is taken over all $C_\text{out} \times C_\text{in}$ kernel pairs (doubly-invariant to both row and column permutations), as required by the coupled permutation group structure (h-e1 implementation note). Layer embeddings are concatenated and linearly projected to a 128-dim final representation. By Deep Sets Theorem 2, this architecture guarantees OrbitVar(C2) = 0 exactly --- residual variance at runtime reflects only float32 rounding noise.
+
+\textbf{C3 --- NFN (Near-Invariant).} Neural Functional Networks \citep{Zhou2023Permutation} via the official \texttt{nfn} library. The encoder applies two NF-Linear layers (NPLinear) with ReLU activations, followed by HNPPool for invariant aggregation and a final linear projection. Only convolutional layers are fed to NFN; FC layers are handled via a separate invariant summary (column-sum of FC1 weights, row and column sums of FC2 weights). NFN achieves equivariance at intermediate layers and converges to near-invariance after HNPPool. OrbitVar(C3) is small by the equivariance guarantee but not exactly zero due to finite-precision aggregation of spatial interaction terms.
+
+\subsubsection{3.3 Functional Permutation Implementation}
+
+Permutations are implemented as coupled row-column actions following DWSNet Eq. 5 \citep{Navon2023Equivariant}. For the 3-conv CNN with channel widths (8, 6, 4):
+
+\begin{itemize}
+\item Layer 1 (conv1): Permute output channels (rows of $W^{(1)}$) with $\pi_1$
+\item Layer 2 (conv2): Permute input channels (columns of $W^{(2)}$) with $\pi_1$; permute output channels (rows of $W^{(2)}$) with $\pi_2$
+\item Layer 3 (conv3): Permute input channels (columns of $W^{(3)}$) with $\pi_2$; permute output channels (rows of $W^{(3)}$) with $\pi_3$
+\item BatchNorm and FC layers: Permute consistently with corresponding conv layers (including block permutation of FC1 columns by 9-element spatial chunks corresponding to conv3 output spatial map)
+\end{itemize}
+
+Independent per-layer permutations would not preserve functional equivalence; the coupled structure is required.
+
+\textbf{Functional audit:} Before any encoding, functional equivalence is verified: for $K_\text{audit} = 5$ randomly drawn permutations and $n_\text{checks} = 5$ random inputs $x \in [0,1]^{3\times 28\times 28}$, $\|f_v(x) - f_{\pi \cdot v}(x)\|_\infty$ is computed. In the h-e1 experiment, max\_diff = 1.91e-6 (within float32 precision), and in h-m2, max\_diff = 1.43e-6. All experiments confirm functional equivalence before OrbitVar measurement proceeds; the audit is a hard gate.
+
+\subsubsection{3.4 OrbitVar Measurement Protocol}
+
+For each encoder and each model v\_i, K = 50 functional permutations are drawn (seed = 1) and OrbitVar(v\_i) is computed as the mean over embedding dimensions of the per-dimension variance over the K permuted representations. Computation uses float64 precision to avoid numerical cancellation. Population-level OrbitVar is the mean over N = 100 models.
+
+\subsubsection{3.5 MSE Bias-Variance Decomposition}
+
+For the CISE encoder (C1), a LightGBM predictor is trained on standard (non-permuted) embeddings using 5-fold cross-validation. For each of the $N = 100$ models, predictions $f(e(\pi_k \cdot v_i))$ are computed for $K = 50$ permutations. Per-model prediction variance $\text{PredVar}(v_i)$ is computed over these 50 predictions; $\text{MSE}_\text{perm} = (1/N) \sum_i \text{PredVar}(v_i)$. MSE\_total is the out-of-fold OOF MSE from the 5-fold cross-validation.
+
+An orbit-averaged diagnostic $R^{2}(C1_\text{avg})$ is also computed: $R^2$ when $f(\text{mean}_{k=1}^K e(\pi_k \cdot v_i))$ is used as the prediction. If the encoder were approximately invariant, averaging would have no effect; the diagnostic tests whether CISE channel-position information can be cancelled by orbit averaging.
+
+\subsubsection{3.6 Downstream Prediction}
+
+LightGBM with 5-fold cross-validation is used following Unterthiner et al. (2020): n\_estimators = 500, learning\_rate = 0.05, random\_seed = 42. Embeddings are used as raw features with no normalization. $R^2$ and Kendall's $\tau$ are evaluated on the held-out testset (100-model split used consistently across all hypothesis experiments).
+
+A linear head ablation (Ridge regression) is applied to C2 embeddings to test whether the DeepSets representation is linearly separable.
+
+\subsubsection{3.7 Experimental Design Summary}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Sub-experiment & Tests & Pre-registered Gate \\
+\midrule
+h-e1 & OrbitVar(C2) < 1e-6, OrbitVar(C3) < 1e-6 & MUST\_WORK \\
+h-m1 & OOM gap C1/C2 $\geq$ 4, Wilcoxon p < 0.001 & MUST\_WORK \\
+h-m2 & $\text{MSE}_\text{perm}^{C1}/\text{MSE}_\text{total} \geq 0.10$ & MUST\_WORK \\
+h-m3 & $R^{2}(C2) > R^{2}(C1)$; additive closure $\Delta\text{MSE} \approx \text{MSE}_\text{perm}^{C1} \pm 10\%$ & SHOULD\_WORK \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Each experiment is evaluated independently. h-e1 is prerequisite: if OrbitVar targets fail, the causal chain is broken at Step 1 and subsequent experiments are not informative.
+

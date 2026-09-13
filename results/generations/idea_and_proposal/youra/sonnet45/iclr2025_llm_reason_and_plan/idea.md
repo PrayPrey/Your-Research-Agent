@@ -1,0 +1,8 @@
+# Title
+Process-Supervised Reinforcement Learning with Selective Counterfactual Verification for Multi-Step Reasoning
+
+# Motivation
+Current LLM reasoning systems optimize training (RL) and test-time scaling separately, creating distribution mismatches and inefficiencies. While process verifiers improve accuracy by 10-30%, they're trained independently from reasoning policies. This fragmentation leaves a critical gap: no unified framework leverages the synergy between RL training and test-time verification. Existing approaches either sacrifice accuracy (greedy decoding) or incur prohibitive computational costs (exhaustive verification). We need a systematic integration that achieves both high accuracy and deployment feasibility.
+
+# Main Idea
+We propose the first unified training-inference framework that jointly trains a process reward model with a reasoning policy via reinforcement learning, then deploys the same model for selective test-time verification. **Core mechanism**: During training, the process reward model learns step-level correctness while providing intermediate supervision to the policy, creating a feedback loop. At test-time, we identify critical reasoning steps using attention weights and reward variance, then generate 2-3 counterfactual alternatives only for these steps (10-20% of total). The process reward model scores all paths and selects the best. This dual-process architecture (fast generation + slow verification) targets 15-20% accuracy improvement over separate-training baselines while maintaining 20-40% computational overhead—acceptable for non-real-time applications like math tutoring and theorem proving. Validation on MATH, GSM8K, and PlanBench will test generalization across mathematical and logical reasoning domains.

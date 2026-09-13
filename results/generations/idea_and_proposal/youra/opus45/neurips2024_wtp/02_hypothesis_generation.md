@@ -1,0 +1,253 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-13
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-IEAF-v1
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Under standard video-language understanding conditions, if we apply Inverse Effectiveness Principle-inspired confidence-gated adaptive fusion where fusion intensity is computed as w = σ(α · (1/c_a + 1/c_v + 1/c_t - β)), then the model will achieve 20-40% computational savings while maintaining or improving understanding performance, because the brain's proven principle of allocating more integration resources when unimodal signals are weak transfers to neural attention mechanisms.
+
+**Alternative Hypothesis (H0):**
+There is no meaningful relationship between modality-specific confidence scores and optimal fusion intensity; uniform fusion across all modalities regardless of confidence achieves equivalent or better efficiency-accuracy trade-offs compared to IEP-inspired adaptive gating.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Modality Confidence Scores (c_a, c_v, c_t) | Independent | Entropy-based uncertainty from 3-head ensemble per modality encoder: c = 1 - H(p)/log(K) where H is entropy over K classes | 0.0 (low confidence) to 1.0 (high confidence) |
+| Fusion Gate Parameters (α, β) | Independent | Learnable parameters in sigmoid gating formula, initialized α=1.0, β=1.5 | α ∈ [0.5, 2.0], β ∈ [0.5, 3.0] |
+| Video Understanding Accuracy | Dependent | Video-MME benchmark accuracy (%) across short (<2min), medium (4-15min), and long (30-60min) videos | 60-85% depending on video duration |
+| Computational Efficiency | Dependent | FLOPs reduction (%) in cross-modal attention layers compared to uniform full fusion baseline | 20-40% expected reduction |
+| Calibration Error | Dependent | Expected Calibration Error (ECE) measuring confidence-accuracy alignment | < 0.10 (well-calibrated) |
+| Encoder Architecture | Controlled | Fixed pretrained encoders: ViT-B/16 (visual), Wav2Vec 2.0 (audio), BERT-base (text) | Fixed throughout experiments |
+| Training Data | Controlled | Fixed dataset splits using Video-MME training subset | Consistent across all conditions |
+| Video Content Type | Controlled | Balanced distribution across 6 Video-MME domains | Equal representation |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+[Uncertainty Estimation] → [Confidence Scores] → [Adaptive Fusion Gate] → [Efficient Video Understanding]
+```
+
+**Step 1: Uncertainty Estimation → Confidence Scores**
+- Mechanism: Ensemble of 3 lightweight heads per modality encoder computes prediction distributions; entropy across ensemble captures uncertainty
+- Mathematical: c_m = 1 - mean(H(p_i))/log(K) for modality m, heads i ∈ {1,2,3}
+- Justification: Ensemble disagreement reliably indicates prediction uncertainty without ground truth
+
+**Step 2: Confidence Scores → Adaptive Fusion Gate**
+- Mechanism: IEP-inspired formula converts low confidence to high fusion intensity
+- Mathematical: w = σ(α · (1/c_a + 1/c_v + 1/c_t - β))
+- Justification: Inverse relationship ensures deep fusion when modalities are uncertain (need complementary information) and minimal fusion when confident (single modality sufficient)
+
+**Step 3: Adaptive Fusion Gate → Efficient Video Understanding**
+- Mechanism: Gated cross-modal attention applies attention with intensity proportional to fusion weight w
+- Mathematical: Attention(Q,K,V) = softmax(QK^T/√d · w) · V, with sparse patterns when w < threshold
+- Justification: Reduced attention operations when w is low yields FLOPs savings; maintained/improved accuracy when w is high ensures deep integration for difficult cases
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | Noppeney (2021), 106 cites | Brain integrates signals by weighting according to momentary sensory uncertainties | Strong |
+| Step2 → Step3 | McIntyre & Preuss (2019), 11 cites | Low intensity sound + low visual = supralinear increase in responsiveness (IEP validated) | Strong |
+| Step3 → Outcome | T-GATE (Archon KB) | Gated attention in diffusion transformers achieves 2-5x speedup with quality preservation | Medium |
+
+**Key Tension:**
+- **Tension:** Noppeney (2021) demonstrates IEP in biological multisensory integration, but arXiv 2505.10176 proposes without extensive validation that this transfers to artificial neural networks. The mathematical formulation for deep learning (soft sigmoid gating) differs from biological implementation (synaptic weighting).
+- **Resolution:** This verification plan includes ablation comparing IEP formula vs. learned MLP gating to test whether the bio-inspired formulation provides advantages over purely data-driven gating.
+
+### 1.4 Key Assumptions
+
+1. **A1: Uncertainty estimation correlates with prediction reliability**
+   - Evidence: Noppeney (2021) shows brain uses momentary sensory uncertainties for optimal weighting
+   - Consequence if violated: Gating decisions will be random, potentially reducing accuracy below baseline while adding overhead
+
+2. **A2: IEP transfers from biological to artificial neural networks**
+   - Evidence: arXiv 2505.10176 proposes IEP for AI multimodal learning; GAIS (2025) shows gated fusion works
+   - Consequence if violated: The inverse formula may not optimize efficiency-accuracy trade-off; learned gating may outperform
+
+3. **A3: Cross-modal attention is the primary computational bottleneck**
+   - Evidence: Video-MME analysis shows O(T²) attention scaling with video duration causes performance degradation
+   - Consequence if violated: Gating attention provides minimal FLOPs savings; encoder optimization needed instead
+
+4. **A4: Gating decisions can be made efficiently**
+   - Evidence: T-GATE shows <5% overhead for gating computation in diffusion transformers
+   - Consequence if violated: Gating overhead exceeds savings, resulting in net computational increase
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- Video-language understanding tasks with audio, visual, and text modalities
+- Tasks where modality reliability varies across samples (e.g., noisy audio, occluded video)
+- Architectures using cross-modal attention for multimodal fusion
+- Video durations from 11 seconds to 60 minutes (Video-MME range)
+
+**Where Hypothesis Does NOT Apply:**
+- Single-modality tasks (no fusion benefit)
+- Tasks where all modalities are always reliable or always unreliable (no variance to exploit)
+- Architectures without explicit cross-modal attention (e.g., early concatenation fusion)
+- Real-time streaming scenarios where frame-by-frame gating adds latency
+
+**Known Limitations:**
+- Ensemble uncertainty adds ~10% parameter overhead per encoder
+- Soft gating is slightly less efficient than hard binary gating
+- Calibration requires additional training objective (ECE loss)
+- IEP formula assumes independence of modality confidences (may not hold for correlated errors)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Efficiency-Accuracy Trade-off):**
+IEAF will achieve 20-40% FLOPs reduction in cross-modal attention while maintaining Video-MME accuracy within ±1% of uniform fusion baseline.
+
+*Measurement*:
+- FLOPs reduction: (Baseline_FLOPs - IEAF_FLOPs) / Baseline_FLOPs × 100%
+- Accuracy preservation: |IEAF_accuracy - Baseline_accuracy| ≤ 1%
+- Statistical test: Paired t-test over n ≥ 20 runs, p < 0.05
+
+*Basis*:
+- GAIS (2025) achieves gated fusion with quality preservation
+- T-GATE achieves 2-5x speedup in diffusion transformers
+- Conservative 20-40% target accounts for ensemble overhead (~10%)
+
+*Success Criteria for Phase 2B*:
+- Primary: FLOPs reduction ≥ 20% AND accuracy drop ≤ 1%
+- Stretch: FLOPs reduction ≥ 30% AND accuracy improvement ≥ 0.5%
+
+**Secondary Predictions:**
+
+**P2 (Confidence-Behavior Correlation):**
+When modality A has high confidence (c_a > 0.8) and modality B has low confidence (c_b < 0.4), the fusion gate will assign low weight (w < 0.3) and the model will primarily rely on modality A for prediction.
+
+*Measurement*: Correlation between confidence differential and fusion weight; attention weight analysis
+
+**P3 (Calibration Quality):**
+The ensemble uncertainty heads will achieve Expected Calibration Error (ECE) < 0.10 after calibration-aware training, indicating confidence scores reliably predict accuracy.
+
+*Measurement*: ECE computed on held-out validation set using 10 confidence bins
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any of the following occur:
+
+1. **Primary Failure**: FLOPs reduction < 15% OR accuracy drop > 3%
+   - Indicates IEP-based gating does not achieve meaningful efficiency-accuracy trade-off
+
+2. **Mechanism Failure**: Correlation between confidence and fusion weight < 0.5
+   - Indicates the IEP formula is not producing adaptive behavior
+
+3. **Calibration Failure**: ECE > 0.20 after calibration training
+   - Indicates uncertainty estimation is unreliable, invalidating A1
+
+4. **Comparative Failure**: Learned MLP gating significantly outperforms IEP formula (>5% accuracy gap)
+   - Indicates bio-inspired formulation provides no advantage over data-driven gating
+
+### 1.7 SOTA Baseline (Optional - If SOTA Comparison Mode)
+
+*Not applicable - This hypothesis targets efficiency improvement rather than SOTA accuracy comparison.*
+
+**Reference Baselines for Efficiency Comparison:**
+| Method | FLOPs | Accuracy (Video-MME) | Year |
+|--------|-------|---------------------|------|
+| Uniform Fusion (Baseline) | 100% | ~70% | - |
+| GAIS Gated Fusion | ~80% | ~70% | 2025 |
+| IEAF (Proposed) | 60-80% | ≥69% | 2026 |
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size (Cohen's d) for 20% FLOPs reduction: ~0.8 (large)
+- Required runs: n ≥ 20 (for power = 0.8, α = 0.05)
+- Random seeds: 5 seeds × 4 configurations = 20 runs
+
+**Test Specification:**
+- Primary metric: Paired t-test comparing IEAF vs. Uniform Fusion
+- Significance level: α = 0.05 (one-tailed for efficiency improvement)
+- Report format: Mean difference, 95% CI, Cohen's d, p-value
+
+**Experimental Configuration:**
+- Video-MME benchmark: 900 videos, 2,700 QA pairs
+- Duration splits: Short (<2min), Medium (4-15min), Long (30-60min)
+- Evaluation: Accuracy per duration category + overall weighted average
+- Hardware: Single NVIDIA A100 GPU for reproducibility
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does confidence-gated adaptive fusion based on the IEP formula produce measurable efficiency gains (FLOPs reduction ≥ 20%) in video-language models under standard conditions?"
+- Maps to: Primary prediction P1 (efficiency component)
+- Verification type: Empirical measurement
+- Critical: MUST PASS for Phase 2B to proceed
+
+**SH2 (Mechanism):**
+"Is the IEP-inspired inverse relationship between confidence and fusion intensity the actual cause of efficiency-accuracy trade-off optimization?"
+- Maps to: Causal mechanism (N=3 steps, will become H-M1 to H-M3)
+  - H-M1: Uncertainty estimation → Confidence scores (calibration quality)
+  - H-M2: Confidence scores → Fusion gate (IEP formula behavior)
+  - H-M3: Fusion gate → Efficient understanding (gating effectiveness)
+- Verification type: Causal analysis through ablation studies
+- Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does IEAF's IEP-based gating provide advantages over learned MLP gating and uniform fusion baselines?"
+- Maps to: Secondary predictions + ablation design
+- Verification type: Comparative empirical
+- Critical: Determines practical value and bio-inspiration benefit
+
+**Total sub-hypotheses in Phase 2B:** 5 (SH1 + 3×SH2 + SH3)
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-IEAF-v1
+- [x] Confidence level specified: 0.85
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (N=3 steps, evidence_for_links table)
+- [x] Causal chain length (N=3) determined and stored
+- [x] Key tension identified (IEP transfer validity) and resolution proposed (ablation)
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (P1 primary, P2-P3 secondary)
+- [x] Falsification criteria are defined (4 conditions)
+- [x] Baselines are identified for comparison (Uniform Fusion, GAIS, Learned MLP)
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:** What GPU memory is needed for ensemble heads? Estimate: +10% per encoder, ~2GB additional for ViT-B/16 ensemble.
+
+2. **Data Availability:** Is Video-MME training data accessible? Yes, publicly available at video-mme.github.io with 900 videos.
+
+3. **Implementation Priority:** Which sub-hypothesis should be verified first?
+   - Recommended: SH1 (Existence) first to establish efficiency gains exist, then SH2-H-M1 (calibration quality) to validate uncertainty estimation assumption.
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-13*

@@ -1,0 +1,415 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (Round 1: FEASIBLE)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-001
+**Confidence Level:** 0.82 (FEASIBLE)
+
+**Main Hypothesis:**
+A context-aware hallucination detection system that dynamically modulates detection sensitivity based on pragmatic task classification will achieve hallucination suppression comparable to fixed-threshold methods (F1 ≥ 0.85) in factual domains while preserving significantly higher creative capability (≥40% improvement in lexical diversity) in creative domains compared to uniform detection baselines.
+
+**Alternative Hypothesis (H0):**
+Context-aware threshold modulation provides no significant benefit over fixed-threshold hallucination detection: either (1) creative capability improvements are negligible (< 10% lexical diversity gain), or (2) hallucination detection accuracy degrades unacceptably (F1 < 0.75) in factual domains, or (3) context classification errors cause safety failures (misclassification rate > 20%).
+
+### 1.2 Variables
+
+| Variable Type | Variable Name | Definition | Measurement Method | Expected Range |
+|---------------|---------------|------------|-------------------|----------------|
+| **Independent** | Task Context Category | Classification of generation task into {Factual Retrieval, Analytical Reasoning, Creative Generation, Mixed} | BERT-based classifier using prompt + first 100 tokens | Categorical (4 classes) |
+| **Independent** | Detection Threshold | Confidence threshold for hallucination flagging | Learned via ROC analysis per task category | [0.5, 0.95] |
+| **Dependent** | Hallucination Detection F1 Score | Harmonic mean of precision/recall for hallucination detection | Standard F1 metric on labeled test set | [0, 1] |
+| **Dependent** | Lexical Diversity (Creativity Metric) | Unique n-gram ratio and semantic novelty | distinct-N / total-N, embedding distance from prompt | [0, 1] normalized |
+| **Dependent** | Reasoning Token Count | Number of tokens in generated reasoning chains | Token count in chain-of-thought outputs | Integer ≥ 0 |
+| **Moderator** | Classifier Confidence | Probability assigned to predicted task category | Softmax output of context classifier | [0, 1] |
+| **Control** | Base Model | Foundation model being evaluated | Fixed (GPT-3.5/4 or LLaMA-2) | N/A |
+| **Control** | Sampling Temperature | Generation randomness parameter | Fixed per experiment | [0.7, 1.0] |
+
+### 1.3 Causal Mechanism
+
+**Mechanism Chain:**
+
+```
+Task Context (prompt + output)
+    → Context Classifier (BERT-based)
+    → Predicted Task Category {Factual, Analytical, Creative, Mixed}
+    → Threshold Selection (learned per-category thresholds OR strict fallback if confidence < 0.8)
+    → SelfCheckGPT Consistency Scoring (sampling-based)
+    → Comparison: consistency_score vs. selected_threshold
+    → Detection Decision: Flag if consistency_score < threshold
+```
+
+**Causal Links:**
+
+1. **Context → Task Category**: Linguistic features in prompts and outputs reveal pragmatic intent
+   - Factual tasks contain domain markers (medical terms, citations), interrogative structures
+   - Creative tasks use hedging language ("imagine", "suppose"), imperative prompts
+   - Analytical tasks have structured reasoning chains, logical connectors
+
+2. **Task Category → Threshold**: Different task types have different tolerance for divergence
+   - Factual tasks require strict consistency (low tolerance for hallucination)
+   - Creative tasks benefit from divergence (exploration of novel ideas)
+   - This mapping is learned empirically via ROC analysis, not hard-coded
+
+3. **Threshold → Detection Accuracy + Creativity**: Modulating threshold creates trade-off
+   - Strict threshold (0.9) suppresses hallucinations but also suppresses creative divergence
+   - Permissive threshold (0.5) allows creative exploration but may miss factual errors
+   - Context-awareness selects appropriate point on this trade-off curve per task
+
+**Evidence for Causal Links:**
+
+- **Link 1 (Context → Category)**: NLP pragmatics literature (Geurts 2010) establishes that context determines interpretation; BERT classifiers achieve 90%+ accuracy on intent classification tasks
+- **Link 2 (Category → Threshold)**: Cognitive psychology (Ward 2004) demonstrates humans modulate creativity based on task goals; ROC analysis provides empirical validation for threshold selection
+- **Link 3 (Threshold → Outcomes)**: SelfCheckGPT (Manakul et al., 697 cit.) shows consistency scoring correlates with hallucination; SEAL (Chen et al.) demonstrates calibration's impact on creativity (50% token reduction)
+
+**Key Tension:**
+The central tension is between **detection sensitivity** (catching all hallucinations) and **creative freedom** (allowing beneficial divergence). Uniform thresholds force a single operating point; context-aware modulation enables task-specific operating points, optimizing the trade-off per context.
+
+### 1.4 Key Assumptions
+
+1. **Context Classification Accuracy Assumption**: The BERT-based classifier can achieve ≥80% accuracy on task categorization from 100-token context windows
+   - **Justification**: BERT fine-tuning on intent classification achieves 85-95% accuracy in literature
+   - **Risk if violated**: Misclassification could trigger wrong thresholds, causing safety failures
+   - **Mitigation**: Confidence-gated fallback (default to strict threshold if confidence < 0.8)
+
+2. **Task Taxonomy Completeness Assumption**: Four categories {Factual, Analytical, Creative, Mixed} sufficiently cover real-world LLM use cases
+   - **Justification**: Cognitive psychology task taxonomies (Ward 2004) use similar granularity
+   - **Risk if violated**: Edge cases may not fit categories, requiring "Mixed" fallback
+   - **Mitigation**: Mixed category uses most-strict threshold among segments (conservative)
+
+3. **SelfCheckGPT Baseline Validity**: SelfCheckGPT consistency scoring is a reliable hallucination proxy
+   - **Justification**: 697 citations, established method, multiple independent validations
+   - **Risk if violated**: Entire framework depends on base detection quality
+   - **Mitigation**: Low risk - SelfCheckGPT is well-validated; can substitute with MIND or MetaQA
+
+4. **Creativity Metrics Validity**: Lexical diversity (distinct-N) and semantic novelty correlate with beneficial creativity
+   - **Justification**: Used in NLG evaluation (BLEU alternatives), measure output richness
+   - **Risk if violated**: May optimize for superficial diversity without improving quality
+   - **Mitigation**: Include human evaluation for creativity quality (subset validation)
+
+5. **100-Token Context Sufficiency**: First 100 tokens of generation provide enough context for task classification
+   - **Justification**: Pragmatic features (hedging, domain markers) appear early in text
+   - **Risk if violated**: Classifier may miss late-appearing context cues
+   - **Mitigation**: Can extend to 200 tokens or use sliding window for mixed tasks
+
+6. **Learned Thresholds Transferability**: Thresholds learned on calibration data generalize to test distribution
+   - **Justification**: ROC analysis is standard practice for threshold selection
+   - **Risk if violated**: Domain shift could require threshold recalibration
+   - **Mitigation**: Test across multiple domains (medical, legal, creative writing)
+
+### 1.5 Scope & Boundaries
+
+**In-Scope:**
+- Text-only generation tasks (no multimodal inputs/outputs)
+- English language generation
+- Foundation models with API access (GPT-3.5/4, LLaMA-2)
+- Four task categories: Factual Retrieval, Analytical Reasoning, Creative Generation, Mixed
+- Hallucination types: Factual fabrication, entity errors, contradictions (not logical fallacies)
+- Domains: Medical QA, legal analysis, creative writing, brainstorming
+
+**Out-of-Scope:**
+- Multimodal hallucinations (image-text, audio)
+- Non-English languages (pragmatic features differ across languages)
+- Adversarial prompt injection attacks (separate security concern)
+- Real-time streaming generation (post-hoc analysis only)
+- Fine-tuning or training-time interventions (inference-only approach)
+- Code generation hallucinations (different error semantics)
+
+**Boundary Conditions:**
+- **Minimum Context Length**: Requires ≥50 tokens for task classification (below this, defaults to strict threshold)
+- **Maximum Calibration Set Size**: 10k labeled prompt-task pairs (feasibility constraint)
+- **Classifier Confidence Threshold**: 0.8 (below this, safety fallback activates)
+- **Domains**: Validated on 3+ domains (medical, legal, creative) before claiming generalization
+
+**Limitations:**
+1. **Computational Overhead**: Context classifier (BERT) + SelfCheckGPT sampling = 2x baseline inference cost
+2. **Labeled Data Requirement**: Requires 10k labeled prompts for classifier training (annotation cost)
+3. **Binary Classification Granularity**: Four categories may not capture all task nuances
+4. **Post-hoc Only**: Cannot intervene during generation, only flag completed outputs
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+On a multi-domain benchmark containing factual tasks (medical QA, legal retrieval) and creative tasks (story writing, brainstorming), context-aware confidence modulation (CACM) will achieve:
+- **Hallucination Detection**: F1 ≥ 0.85 on factual tasks (comparable to fixed-strict baseline)
+- **Creativity Preservation**: ≥40% improvement in lexical diversity (distinct-2) on creative tasks compared to fixed-strict baseline
+- **Safety**: Misclassification-induced errors < 5% (via confidence fallback)
+
+**Secondary Predictions:**
+
+1. **Threshold-Creativity Correlation**: Within creative tasks, permissive thresholds (0.5-0.6) will yield ≥30% more reasoning tokens than strict thresholds (0.9), without increasing hallucination rate
+   - **Measurement**: Compare reasoning token count and hallucination F1 across threshold values
+
+2. **Classifier Confidence-Accuracy Relationship**: Context classifier confidence will positively correlate with task classification accuracy (Pearson r ≥ 0.7)
+   - **Measurement**: Plot classifier confidence vs ground-truth accuracy on labeled test set
+
+3. **Domain-Specific Threshold Variation**: Learned thresholds will vary significantly across domains (medical: 0.88-0.92, creative: 0.48-0.58, analytical: 0.70-0.78)
+   - **Measurement**: ROC-derived optimal thresholds per domain
+
+**Falsification Criteria:**
+
+The hypothesis is **falsified** if ANY of the following occur:
+
+1. **Detection Degradation**: Hallucination F1 on factual tasks drops below 0.75 (>10% worse than fixed-strict baseline of 0.85)
+2. **Negligible Creativity Gain**: Lexical diversity improvement on creative tasks < 10% (not practically significant)
+3. **High Misclassification Risk**: Context classifier accuracy < 70% OR confidence-gated fallback triggers > 40% (system defaults to strict mode too often)
+4. **No Threshold Differentiation**: ROC analysis yields nearly identical thresholds across all task categories (difference < 0.1), suggesting context doesn't matter
+5. **Adverse Safety Event**: ANY instance where creative-mode threshold allows a dangerous medical/legal hallucination that strict mode would catch
+
+**Validation Approach:**
+Multi-domain benchmark evaluation with:
+- Factual tasks: Medical QA (MedQA), legal case retrieval
+- Creative tasks: Story completion (WritingPrompts), brainstorming
+- Analytical tasks: Math reasoning (GSM8K), logical inference
+- Ground truth: Human-annotated hallucinations + creativity ratings
+
+### 1.7 SOTA Baseline
+
+**Primary Baseline: SelfCheckGPT (Manakul et al., 2023)**
+- **Method**: Sampling-based consistency checking with fixed threshold
+- **Performance**: F1 ~0.82 on hallucination detection (reported on WikiBio)
+- **Limitation**: Uses uniform threshold (typically 0.7-0.8) regardless of task context, which over-constrains creative tasks
+
+**Secondary Baselines:**
+
+1. **MetaQA (Yang et al., 2025)**: Metamorphic testing approach
+   - **Performance**: 112.2% F1 improvement over SelfCheckGPT on some datasets
+   - **Limitation**: Still binary detection without creativity consideration
+
+2. **MIND Framework (Su et al., 2024)**: Internal state analysis
+   - **Performance**: Real-time detection using hidden states
+   - **Limitation**: Requires model access (not API-only), no creativity metrics
+
+3. **SEAL (Chen et al., 2025)**: Calibration method
+   - **Performance**: 50% reduction in reasoning tokens (efficiency gain)
+   - **Limitation**: Creativity loss - reduces reasoning token count, which may harm analytical/creative tasks
+
+**Comparison Plan:**
+- **Detection Accuracy**: Compare CACM F1 vs. all baselines on factual tasks (expect parity: F1 ~0.85)
+- **Creativity Preservation**: Compare CACM vs. SelfCheckGPT/SEAL on creative tasks (expect 40%+ diversity improvement)
+- **Efficiency**: CACM has 2x overhead (classifier + SelfCheckGPT) vs. SelfCheckGPT alone (1x), vs. MIND (similar overhead)
+
+### 1.8 Statistical Verification Design
+
+**Study Design**: Multi-domain randomized experiment with paired comparisons
+
+**Sample Size:**
+- **Prompts**: 1,000 prompts total (250 per task category)
+- **Responses**: 5 responses per prompt (SelfCheckGPT sampling requirement) = 5,000 generations
+- **Power Analysis**: Detect 40% creativity difference at α=0.05, β=0.2 requires n≥200 per group (achieved)
+
+**Experimental Groups:**
+1. **CACM (Treatment)**: Context-aware modulation with learned thresholds + confidence fallback
+2. **Fixed-Strict (Control)**: SelfCheckGPT with threshold=0.9 (conservative)
+3. **Fixed-Moderate (Control)**: SelfCheckGPT with threshold=0.7 (standard)
+4. **Fixed-Permissive (Control)**: SelfCheckGPT with threshold=0.5 (liberal)
+
+**Metrics:**
+- **Primary**: Hallucination F1 (factual tasks), Lexical Diversity distinct-2 (creative tasks)
+- **Secondary**: Reasoning token count, semantic novelty (embedding distance), human creativity ratings (subset)
+
+**Statistical Tests:**
+- **Detection Accuracy**: Paired t-test comparing CACM F1 vs. Fixed-Strict F1 on factual tasks (H0: no difference, expect p>0.05)
+- **Creativity**: Paired t-test comparing CACM diversity vs. Fixed-Strict diversity on creative tasks (H0: no difference, expect p<0.001)
+- **Safety**: Chi-square test for misclassification-induced errors (expected <5%)
+
+**Confound Controls:**
+- **Model Fixed**: Use same foundation model (e.g., GPT-3.5-turbo) across all conditions
+- **Temperature Fixed**: 0.8 for all generations
+- **Domain Balanced**: Equal samples from medical, legal, creative writing, brainstorming
+- **Human Annotation**: Blind annotation for hallucinations and creativity ratings
+
+**Validation Datasets:**
+- **Factual**: MedQA (medical), LegalBench (legal)
+- **Creative**: WritingPrompts (stories), CrowdSourced brainstorming sessions
+- **Analytical**: GSM8K (math), LogicBench (inference)
+
+**Success Criteria (Confirmatory):**
+- Hallucination F1 on factual tasks: non-inferior to Fixed-Strict (equivalence margin = -0.05, one-sided test)
+- Creativity on creative tasks: superior to Fixed-Strict (difference ≥ 40%, two-sided test p<0.05)
+- Misclassification errors < 5% (descriptive statistic)
+
+---
+
+## 2. Contribution Summary
+
+**Theoretical Contribution:**
+First framework to formally link **pragmatic task classification** with **hallucination detection thresholds**, establishing a principled foundation for context-dependent safety-creativity trade-offs in generative AI. Extends NLP pragmatics (context-driven interpretation) and cognitive psychology (task-dependent creativity) to hallucination detection, demonstrating cross-domain applicability of human creativity regulation mechanisms to LLM safety.
+
+**Methodological Contribution:**
+Novel **context-aware confidence modulation (CACM)** architecture combining:
+1. Lightweight BERT-based task classifier (pragmatic feature extraction)
+2. ROC-derived learned thresholds (empirical, not hard-coded)
+3. Confidence-gated safety fallback (mitigates misclassification risk)
+4. Creativity preservation metrics (lexical diversity, semantic novelty, reasoning tokens)
+
+This is the first hallucination detection method to explicitly measure and preserve creative capability alongside detection accuracy.
+
+**Practical Contribution:**
+Enables foundation models to **safely support diverse applications** spanning high-stakes factual domains (medical diagnosis, legal analysis) and creative applications (brainstorming, writing assistance) **without sacrificing safety or capability**. Addresses the current binary choice between "conservative (safe but uncreative)" and "permissive (creative but risky)" by making this choice adaptive and task-dependent.
+
+**Impact on Gap 2 (Hallucination Detection Preserving Creative Capabilities):**
+Directly resolves the gap identified in Phase 1 research: existing methods (SelfCheckGPT, MIND, MetaQA, SEAL) treat hallucination as uniformly harmful, applying fixed thresholds that either over-suppress creativity or under-protect factual accuracy. CACM is the first method to dynamically balance this trade-off based on inferred task intent.
+
+**Novelty Differentiation:**
+- **vs. SelfCheckGPT**: Adds context-awareness (uniform → adaptive thresholds)
+- **vs. SEAL**: Preserves creativity (50% token reduction → measured preservation)
+- **vs. MIND**: Adds formal safety mechanism (internal states → confidence fallback)
+- **vs. MetaQA**: Adds creativity metrics (binary detection → detection + preservation)
+
+---
+
+## 3. Key Related Work
+
+**Hallucination Detection (Base Methods):**
+
+1. **SelfCheckGPT (Manakul et al., 2023)** - 697 citations
+   - Semantic Scholar ID: 7c1707db9aafd209aa93db3251e7ebd593d55876
+   - **Contribution**: Sampling-based zero-resource hallucination detection
+   - **Limitation**: Fixed threshold (typically 0.7), no creativity consideration
+   - **How CACM Extends**: Integrates SelfCheckGPT as base detector, adds context-aware threshold selection
+
+2. **Hallucination Survey (Huang et al., 2023)** - 2009 citations
+   - Semantic Scholar ID: 1e909e2a8cdacdcdff125ebcc566f37cb869a1c8
+   - **Contribution**: Comprehensive hallucination taxonomy
+   - **Limitation**: Taxonomy doesn't distinguish "creative divergence" from "factual fabrication"
+   - **How CACM Extends**: Uses taxonomy to inform task classifier (factual errors in factual tasks = hallucination, creative divergence in creative tasks = acceptable)
+
+3. **MetaQA (Yang et al., 2025)** - 20 citations
+   - Semantic Scholar ID: 425d16205b28ce175c8429965a964d19b6f390c1
+   - **Contribution**: Metamorphic testing, 112.2% F1 improvement
+   - **Limitation**: Binary detection without context awareness
+   - **How CACM Extends**: Could replace SelfCheckGPT with MetaQA as base detector, still adds context layer
+
+**Calibration & Confidence:**
+
+4. **SEAL (Chen et al., 2025)** - 38 citations
+   - Semantic Scholar ID: b5e43268320b197c1530daefe6cdfdf8b07d3857
+   - **Contribution**: Steerable calibration reducing reasoning tokens 50%
+   - **Limitation**: Token reduction may harm creativity
+   - **How CACM Extends**: Measures creativity explicitly (lexical diversity, reasoning tokens), preserves rather than reduces
+
+5. **Mind the Confidence Gap (Chhikara, 2025)** - 18 citations
+   - Semantic Scholar ID: 420e69f655b8974f8d6f47869d6e0497bb060fcb
+   - **Contribution**: Analyzes calibration failures
+   - **Limitation**: Doesn't measure creativity impact
+   - **How CACM Extends**: Incorporates calibration metrics into context classifier
+
+**Uncertainty Quantification Foundations:**
+
+6. **UQ Survey (Shorinwa et al., 2024)** - 70 citations
+   - Semantic Scholar ID: eac37c416c89a8eafd655dee639344379e2df33e
+   - **Contribution**: Taxonomy of UQ methods for LLMs
+   - **Limitation**: Focuses on technical methods, not task-context adaptation
+   - **How CACM Extends**: Applies UQ principles (confidence estimation) to task-adaptive hallucination detection
+
+**Cross-Domain Foundations:**
+
+7. **Cognitive Psychology - Creative Cognition (Ward, 2004)**
+   - **Contribution**: Task-dependent creativity thresholds in human cognition
+   - **How CACM Applies**: Borrows task taxonomy framework for LLM task classification
+
+8. **Pragmatics - Context Interpretation (Geurts, 2010)**
+   - **Contribution**: Pragmatic features determine interpretation intent
+   - **How CACM Applies**: Pragmatic feature extraction (hedging, domain markers) for context classifier
+
+**Implementation Resources:**
+
+9. **cvs-health/uqlm** - 1,100+ GitHub stars
+   - **Contribution**: Production-ready UQ library for LLMs
+   - **Limitation**: Binary hallucination detection
+   - **How CACM Extends**: Could integrate CACM as additional detection mode in uqlm
+
+10. **potsawee/selfcheckgpt** - 593 GitHub stars
+    - **Contribution**: Official SelfCheckGPT implementation
+    - **How CACM Uses**: Base implementation for consistency scoring
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**Main Hypothesis (H):** Context-aware modulation achieves hallucination suppression + creativity preservation
+
+**SH1 (Existence): Context Classification Capability**
+*Can a BERT-based classifier accurately categorize LLM tasks from prompt + output context?*
+
+**Sub-hypothesis**: A BERT-based classifier fine-tuned on 10k labeled prompt-task pairs can achieve ≥80% accuracy on task categorization {Factual, Analytical, Creative, Mixed} from 100-token context windows.
+
+**Experiment Preview**: Train BERT classifier on collected prompts with human-labeled task categories, evaluate on held-out test set. Measure accuracy, confusion matrix (identify problematic pairs), confidence calibration (via reliability diagram).
+
+**Success Metric**: Accuracy ≥80%, confidence-accuracy correlation r≥0.7
+
+---
+
+**SH2 (Mechanism): Threshold Modulation Impact**
+*Does varying detection thresholds by task category improve the safety-creativity trade-off?*
+
+**Sub-hypothesis**: Task-dependent thresholds learned via ROC analysis will produce superior Pareto frontier (hallucination F1 vs. creativity) compared to any single fixed threshold.
+
+**Experiment Preview**: For each task category, perform ROC analysis to find optimal threshold maximizing F1 while preserving ≥90% baseline creativity. Plot Pareto curves comparing CACM (adaptive) vs. fixed thresholds (0.5, 0.7, 0.9).
+
+**Success Metric**: CACM Pareto-dominates fixed thresholds (no fixed threshold achieves both F1≥0.85 factual + 40% diversity gain creative)
+
+---
+
+**SH3 (Comparison): Superiority Over Baselines**
+*Does CACM outperform SOTA baselines on the safety-creativity trade-off?*
+
+**Sub-hypothesis**: On multi-domain benchmark, CACM achieves non-inferior hallucination detection (F1≥0.83) AND superior creativity preservation (≥40% diversity improvement) compared to SelfCheckGPT fixed-threshold baseline.
+
+**Experiment Preview**: Run controlled experiment with 4 conditions (CACM, Fixed-Strict, Fixed-Moderate, Fixed-Permissive) on 1000 prompts across 4 domains. Measure paired differences in F1 (factual tasks) and diversity (creative tasks).
+
+**Success Metric**:
+- Non-inferiority test: CACM F1 vs Fixed-Strict F1, margin=-0.05, p<0.05
+- Superiority test: CACM diversity vs Fixed-Strict diversity, difference≥40%, p<0.05
+
+### Readiness Checklist
+
+- [x] **Hypothesis Clarity**: Core statement is testable with quantitative success criteria
+- [x] **Variable Specification**: All independent, dependent, moderator, control variables defined with measurement methods
+- [x] **Causal Mechanism**: Chain from context → classifier → threshold → detection/creativity is explicit
+- [x] **Assumptions Documented**: 6 key assumptions identified with justification and risk mitigation
+- [x] **Scope Boundaries**: In-scope and out-of-scope clearly delineated
+- [x] **Predictions**: Primary prediction (F1≥0.85 + 40% diversity) is falsifiable
+- [x] **Baselines Identified**: SelfCheckGPT, MetaQA, MIND, SEAL with comparison plan
+- [x] **Statistical Design**: Sample size (1000 prompts), tests (paired t-test), controls (model, temperature, domain) specified
+- [x] **Sub-hypothesis Preview**: SH1 (classification), SH2 (mechanism), SH3 (comparison) sketched
+- [x] **Related Work Traced**: 10 key papers with differentiation vs. CACM
+- [x] **Implementation Resources**: GitHub repos (selfcheckgpt, uqlm) identified for Phase 4
+
+### Open Questions
+
+1. **Context Window Optimization**: Is 100 tokens sufficient, or should we test 50/100/200 token windows?
+   - **Impact**: Affects classifier accuracy and computational cost
+   - **Resolution Strategy**: Ablation study in SH1 experiments
+
+2. **Creativity Metric Validity**: Do lexical diversity + semantic novelty adequately capture "beneficial creativity"?
+   - **Impact**: Primary outcome validity depends on this
+   - **Resolution Strategy**: Include human creativity ratings on 200-prompt subset for validation
+
+3. **Threshold Transferability**: Do learned thresholds generalize across models (GPT-3.5 vs GPT-4 vs LLaMA)?
+   - **Impact**: Affects practical deployment (need per-model calibration?)
+   - **Resolution Strategy**: Test threshold transfer in SH2 across 2+ model families
+
+4. **Adversarial Robustness**: Can users game the system by inserting "imagine" to trigger permissive mode for factual queries?
+   - **Impact**: Safety concern for production deployment
+   - **Resolution Strategy**: Adversarial evaluation in Phase 4 (not Phase 2B critical path)
+
+5. **Mixed Task Granularity**: Should mixed-task handling use sentence-level windowing or segment-based classification?
+   - **Impact**: Implementation complexity and mixed-task performance
+   - **Resolution Strategy**: Specify in Phase 3 implementation design (not Phase 2B blocker)
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-06*

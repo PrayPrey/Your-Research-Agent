@@ -1,0 +1,41 @@
+# Introduction
+
+We set out to validate that incremental SMT verification achieves 2-5x speedup over batch re-verification for LLM code repair in statically-typed languages. Instead, our validation pipeline failed before generating a single line of code, revealing that infrastructure robustness—not just theoretical soundness—determines whether a hypothesis can be tested. This paper presents our hypothesis, the implemented experimental pipeline, and the lessons learned from a complete validation failure due to API authentication errors.
+
+**The Problem: LLM Code Generation Needs Formal Verification**
+
+Large language models (LLMs) have demonstrated remarkable capabilities in code generation, yet they lack correctness guarantees. While test suites catch obvious bugs, they miss edge cases that formal verification methods—static analysis and SMT solvers—can detect. However, batch SMT verification scales poorly: re-verifying entire programs on each repair iteration becomes prohibitively expensive for iterative LLM-based debugging workflows.
+
+**Deeper Challenge: Incremental Verification for Neural Code**
+
+Prior work on SMT-guided program repair (Angelix, Prophet) targets small human-written patches, not full LLM-generated programs. Meanwhile, neural code generation systems (AlphaCode, CodeT5) eschew formal verification entirely, relying solely on test-suite validation. The gap is clear: can incremental SMT verification—re-verifying only modified functions and their dependencies—provide 2-5x speedup for LLM code repair in typed languages?
+
+This hypothesis builds on established components: (1) static analyzers (Prusti for Rust, Pyre for Python) extract SMT constraints from type annotations, (2) Z3 supports incremental solving via push/pop contexts, and (3) neural repair literature shows 80%+ of repairs touch 1-3 lines. However, transferability to LLM-generated code remains empirically unverified.
+
+**Our Approach: Validate on Typed Python with Pydantic**
+
+We designed a four-hypothesis validation chain: (h-e1) static analyzers can extract SMT constraints from LLM-generated typed code (≥90% extraction rate), followed by three mechanism hypotheses testing constraint extraction (h-m1), dependency analysis (h-m2), and speedup measurement (h-m3: median ≥2x, 75th percentile ≥3x). The experimental protocol required extending HumanEval with Pydantic type annotations to create a typed benchmark suitable for SMT constraint extraction.
+
+**What Happened: Infrastructure Failure Blocked Validation**
+
+Our validation attempt encountered an invalid Anthropic API key, blocking all 48 LLM code generation attempts with HTTP 401 authentication errors. Without generated code, the constraint extraction pipeline could not test whether type annotations enable SMT predicate mapping. The hypothesis remains theoretically plausible but empirically unvalidated—all three predictions (P1: 2-5x speedup, P2: speedup scales with size, P3: soundness maintained) are untested.
+
+**The Verified Contribution: Dataset Extension Methodology**
+
+Despite generation failure, the dataset extension pipeline succeeded: HumanEval was mechanically extended with 100 Pydantic-annotated prompts, demonstrating that typed benchmarks can be created from existing code generation datasets without manual annotation. The constraint extraction architecture (DatasetExtender → LLMGenerator → PyreExtractor → Z3Validator → MetricsEngine) was validated on error files, confirming architectural soundness on negative cases.
+
+**Contributions**
+
+Building on this validation attempt, we contribute:
+
+1. **HumanEval + Pydantic Type Extensions:** 100 mechanically-generated type-annotated prompts suitable for SMT constraint extraction research, addressing the gap in typed benchmarks for formal verification of LLM code.
+
+2. **Constraint Extraction Pipeline Architecture:** A modular pipeline ready for retry, with components independently validated on error cases.
+
+3. **Lessons from Infrastructure Failure:** Analysis of failure modes (API authentication errors, retry logic gaps) and recommendations for pre-flight validation in experimental design.
+
+The primary contribution is methodological: we demonstrate that infrastructure reliability is a prerequisite to hypothesis testing, not an afterthought. Experimental pipelines must address failure modes explicitly—pre-flight API key validation, fast-fail on auth errors, checkpoint/resume for long-running experiments—or risk perpetual blockage at theoretical stage.
+
+**Paper Structure**
+
+Section 2 positions our work against SMT-guided repair for human code and neural code generation without verification. Section 3 describes the hypothesis, experimental design, and modular pipeline architecture. Section 4 presents results: dataset extension succeeded (100 prompts), LLM generation failed (100% API auth errors), hypothesis untested. Section 5 discusses implications—the dataset artifact is reusable, the hypothesis awaits retry, and infrastructure failure is a generalizable lesson. Section 6 concludes with future work: retry h-e1 with valid API key, extend to Rust + Prusti for language generalization, and standardize typed benchmarks for formal verification research.

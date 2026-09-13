@@ -1,0 +1,405 @@
+version: "1.1"
+schema_version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m1"
+  hypothesis_type: "MECHANISM"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-05-12"
+  phase3_source:
+    prd: "h-m1/03_prd.md"
+    architecture: "h-m1/03_architecture.md"
+    logic: "h-m1/03_logic.md"
+    config: "h-m1/03_config.md"
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 9
+  subtasks: 16
+  failsafe: 1
+  total: 27
+
+tasks:
+  # ── Environment Setup ──────────────────────────────────────────────────────
+  - id: "T-ENV"
+    type: "setup"
+    title: "Environment setup: extend youra-h-e1 conda env"
+    description: >
+      Activate conda env youra-h-e1 and install new dependency:
+      pip install uncertainty-calibration
+      Verify import: import calibration as cal; cal.get_ece
+    priority: 94
+    complexity: null
+    reference_files:
+      - file: "h-m1/03_prd.md"
+        section: "## 7. Dependencies"
+    acceptance_criteria:
+      - "uncertainty-calibration importable in youra-h-e1 env"
+      - "import calibration as cal succeeds"
+
+  # ── Epic Tasks ─────────────────────────────────────────────────────────────
+  - id: "A-1"
+    type: "setup"
+    title: "Project scaffold, config.py, requirements.txt"
+    description: >
+      Create h-m1/code/ directory structure. Write config.py with all H-M1
+      constants (SEED=42, N_BOOTSTRAP=10000, RHO_THRESHOLD=0.4,
+      P_THRESHOLD=0.05, FAMILY_SIGN_THRESHOLD=2, TARGET_FAMILIES,
+      MIN_FAMILY_SIZE=5, VIF_THRESHOLD=5.0, H_E1_OUTPUTS_DIR, RESULTS_DIR,
+      FIGURES_DIR). Write requirements.txt.
+    priority: 93
+    complexity: 5
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## Config Module"
+      - file: "h-m1/03_architecture.md"
+        section: "### Config"
+    acceptance_criteria:
+      - "h-m1/code/config.py exists with all constants"
+      - "h-m1/code/requirements.txt lists all packages"
+
+  - id: "A-2"
+    type: "data-pipeline"
+    title: "DataLoader: load H-E1 CSVs + merge ECE"
+    description: >
+      Implement DataLoader class in data_loader.py.
+      Methods: load_model_matrix(), load_ri_scores(), merge_with_ece(ece_series),
+      validate(df). Reads from ../h-e1/code/outputs/. Returns merged DataFrame
+      (30, 11) with no NaN in [RI, ECE, PC1, mean_confidence].
+    priority: 92
+    complexity: 8
+    reference_files:
+      - file: "h-m1/03_architecture.md"
+        section: "### DataLoader"
+      - file: "h-m1/03_logic.md"
+        section: "## External Dependencies API"
+    acceptance_criteria:
+      - "DataLoader.load_model_matrix() returns DataFrame(30, >=7)"
+      - "merge_with_ece() returns DataFrame(30, 11), no NaN"
+      - "validate() asserts shape and ECE in [0,1]"
+
+  - id: "A-3"
+    type: "model"
+    title: "ECEComputer: ECE per model via uncertainty-calibration"
+    description: >
+      Implement ECEComputer class in ece_computer.py.
+      Methods: compute_ece(), compute_ece_ci(), compute_per_model(),
+      load_or_compute(). Uses cal.get_ece(probs, labels).
+      Fallback: Gaussian mock ECE~N(0.12,0.04) clipped [0.05,0.25].
+    priority: 91
+    complexity: 14
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-3: ECEComputer"
+      - file: "h-m1/03_prd.md"
+        section: "### FR-2: ECE Computation Module"
+    acceptance_criteria:
+      - "ECE computed for all 30 models"
+      - "ECE values in [0.0, 1.0], no NaN"
+      - "Bootstrap 95% CI computed (10K resamples)"
+      - "Mock fallback works when logits unavailable"
+
+  - id: "A-4"
+    type: "model"
+    title: "PartialCorrAnalyzer: Spearman partial corr + Holm"
+    description: >
+      Implement PartialCorrAnalyzer class in partial_corr.py.
+      Methods: full_partial_corr(), family_partial_corr(), holm_correction(),
+      bootstrap_rho_ci(), run(). Uses pg.partial_corr(x=RI, y=ECE,
+      covar=[PC1, mean_confidence], method=spearman). Applies Holm correction
+      across 3 family tests.
+    priority: 90
+    complexity: 15
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-4: PartialCorrAnalyzer"
+      - file: "h-m1/03_prd.md"
+        section: "### FR-3: Spearman Partial Correlation Analysis"
+    acceptance_criteria:
+      - "full_partial_corr() returns {rho, p_val, ci95, n=30}"
+      - "family_partial_corr() computed for LLaMA/Mistral/Qwen (n>=5)"
+      - "Holm correction applied across family p-values"
+      - "bootstrap_rho_ci() returns (lower, upper) from 10K resamples"
+      - "Results exported as results/partial_corr_results.yaml"
+
+  - id: "A-5"
+    type: "evaluation"
+    title: "GateEvaluator: baseline corr + VIF + Cook's + Fisher z + gate"
+    description: >
+      Implement GateEvaluator class in evaluate.py.
+      Methods: baseline_corr(), check_vif(), cooks_distance(), fisher_z_test(),
+      evaluate_gate(), run_all_secondary(). Gate logic: PASS if rho>=0.4 AND
+      p<0.05 AND consistent_positive>=2; PARTIAL if rho>=0.3 AND p<0.10;
+      FAIL otherwise.
+    priority: 89
+    complexity: 13
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-5: GateEvaluator"
+      - file: "h-m1/03_prd.md"
+        section: "### FR-4: Secondary Statistical Tests"
+    acceptance_criteria:
+      - "evaluate_gate() returns PASS/PARTIAL/FAIL with gate_results.yaml schema"
+      - "VIF < 5.0 confirmed for [RI, PC1, mean_confidence]"
+      - "Cook's distance flagged models identified"
+      - "Fisher z-test computed for high-PC1 vs low-PC1 split"
+
+  - id: "A-6"
+    type: "evaluation"
+    title: "Visualizer: 6 figures (partial regression, residuals, family, reliability, bar, gate)"
+    description: >
+      Implement Visualizer class in visualize.py.
+      6 figures saved to h-m1/figures/ at 300 DPI:
+      fig1_ri_ece_scatter.png, fig2_residuals_scatter.png,
+      fig3_family_subplots.png, fig4_reliability_diagram.png,
+      fig5_rho_comparison_bar.png, fig6_gate_summary.png.
+    priority: 88
+    complexity: 12
+    reference_files:
+      - file: "h-m1/03_architecture.md"
+        section: "### Visualizer"
+      - file: "h-m1/03_config.md"
+        section: "## A-6: Visualizer Configuration"
+    acceptance_criteria:
+      - "Minimum 5 figures generated"
+      - "All figures saved as PNG at 300 DPI"
+      - "Fig 1 (gate scatter) is mandatory and annotates rho + p-value"
+
+  - id: "A-7"
+    type: "evaluation"
+    title: "Results Export: YAML/CSV for partial_corr, ece_scores, model_matrix_m1, gate_results"
+    description: >
+      Implement export functions: write partial_corr_results.yaml,
+      ece_scores.csv, model_matrix_m1.csv, gate_results.yaml to results/.
+      Follows gate_results.yaml schema from PRD FR-6.
+    priority: 87
+    complexity: 7
+    reference_files:
+      - file: "h-m1/03_prd.md"
+        section: "### FR-6: Results Export"
+      - file: "h-m1/03_config.md"
+        section: "## YAML Output Schemas"
+    acceptance_criteria:
+      - "All 4 result files written to results/"
+      - "gate_results.yaml matches schema: gate, result, rho_full, p_full, etc."
+      - "ece_scores.csv has columns: model_id, ECE, ECE_ci_lower, ECE_ci_upper"
+
+  - id: "A-8"
+    type: "training"
+    title: "RunExperiment: CLI entry point + end-to-end orchestration"
+    description: >
+      Implement run_experiment.py with parse_args() and main().
+      Orchestrates: ECEComputer -> DataLoader -> PartialCorrAnalyzer ->
+      GateEvaluator -> Visualizer -> export. Exit code 0=PASS, 1=FAIL/PARTIAL.
+      CLI: --data-dir, --output-dir, --figures-dir, --seed, --no-compute-ece.
+    priority: 86
+    complexity: 9
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-8: RunExperiment"
+      - file: "h-m1/03_prd.md"
+        section: "### FR-7: Entry Point Integration"
+    acceptance_criteria:
+      - "python run_experiment.py --data-dir ../h-e1/code/outputs/ runs end-to-end"
+      - "Exit code 0 on PASS gate, 1 on FAIL/PARTIAL"
+      - "All FR-1 through FR-6 outputs generated"
+
+  - id: "A-9"
+    type: "evaluation"
+    title: "Test Suite: unit tests >= 80% coverage"
+    description: >
+      Implement test suite in tests/: test_data_loader.py, test_ece_computer.py,
+      test_partial_corr.py, test_evaluate.py. Use mock fixtures for 30-model
+      DataFrame. Target >=80% line coverage via pytest-cov.
+    priority: 85
+    complexity: 10
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## A-9: Test Suite Configuration"
+      - file: "h-m1/03_prd.md"
+        section: "## 5. Non-Functional Requirements"
+    acceptance_criteria:
+      - "All test files exist and pass"
+      - ">=80% line coverage on new modules"
+      - "Mock fixtures use correct 30-model schema"
+
+  # ── Logic Subtasks ─────────────────────────────────────────────────────────
+  - id: "L-3-1"
+    type: "subtask"
+    parent: "A-3"
+    title: "compute_ece(): ECE scalar via cal.get_ece"
+    description: "Implement compute_ece(probs, labels) -> float using cal.get_ece(probs, labels). Validate probs in [0,1], shapes match, return ECE in [0,1]."
+    priority: 49
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "### Subtasks (A-3)"
+
+  - id: "L-3-2"
+    type: "subtask"
+    parent: "A-3"
+    title: "compute_ece_ci(): Bootstrap 95% CI on ECE (10K resamples)"
+    description: "Implement bootstrap CI: 10K resamples with np.random.default_rng(seed), call cal.get_ece per resample, return (p2.5, p97.5)."
+    priority: 48
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "### Pseudo-code: compute_ece_ci"
+
+  - id: "L-3-3"
+    type: "subtask"
+    parent: "A-3"
+    title: "compute_per_model(): ECE + CI for all 30 models"
+    description: "Iterate 30 model_ids, call compute_ece + compute_ece_ci, return DataFrame(30, 3): [model_id, ECE, ECE_ci_lower, ECE_ci_upper]. Assert no NaN."
+    priority: 47
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-3: ECEComputer"
+
+  - id: "L-3-4"
+    type: "subtask"
+    parent: "A-3"
+    title: "load_or_compute(): cache check + mock fallback"
+    description: "Priority: 1) load cache_path CSV, 2) compute from lmeval_logits_dir, 3) Gaussian mock fallback ECE~N(0.12,0.04) clipped [0.05,0.25] with family-correlated structure."
+    priority: 46
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "### Pseudo-code: load_or_compute mock fallback"
+
+  - id: "L-4-1"
+    type: "subtask"
+    parent: "A-4"
+    title: "full_partial_corr(): pg.partial_corr on N=30"
+    description: "Implement pg.partial_corr(data=df, x=RI, y=ECE, covar=[PC1, mean_confidence], method=spearman). Return {rho, p_val, ci95, n=30}."
+    priority: 45
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-4: PartialCorrAnalyzer"
+
+  - id: "L-4-2"
+    type: "subtask"
+    parent: "A-4"
+    title: "family_partial_corr(): per-family Spearman partial corr"
+    description: "Subset df by model_family for LLaMA/Mistral/Qwen. Skip families with n<5. Call pg.partial_corr per family. Return {family: {rho, p_val, n}}."
+    priority: 44
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-4: PartialCorrAnalyzer"
+
+  - id: "L-4-3"
+    type: "subtask"
+    parent: "A-4"
+    title: "holm_correction(): multipletests Holm correction"
+    description: "Implement multipletests(p_values, method=holm) from statsmodels. Count consistent_positive (rho>0). Return corrected p-array."
+    priority: 43
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-4: PartialCorrAnalyzer"
+
+  - id: "L-4-4"
+    type: "subtask"
+    parent: "A-4"
+    title: "bootstrap_rho_ci(): 10K bootstrap on full Spearman partial rho"
+    description: "Resample rows with replacement 10K times, call pg.partial_corr per resample, collect rho_boot. Return (np.percentile(2.5), np.percentile(97.5))."
+    priority: 42
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "### Pseudo-code: bootstrap_rho_ci"
+
+  - id: "L-5-1"
+    type: "subtask"
+    parent: "A-5"
+    title: "evaluate_gate(): PASS/PARTIAL/FAIL logic"
+    description: "PASS: rho>=0.4 AND p<0.05 AND consistent_positive>=2. PARTIAL: rho>=0.3 AND p<0.10. FAIL: otherwise. Return gate_results.yaml schema dict."
+    priority: 41
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "### Pseudo-code: evaluate_gate"
+
+  - id: "L-5-2"
+    type: "subtask"
+    parent: "A-5"
+    title: "run_all_secondary(): baseline_corr + VIF + Cook's + Fisher z"
+    description: "Orchestrate: baseline_corr (rho(PC1,ECE)), check_vif ([RI,PC1,mean_confidence] all <5.0), cooks_distance (flag D>4/30), fisher_z_test (high vs low PC1 split). Return consolidated dict."
+    priority: 40
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-5: GateEvaluator"
+
+  - id: "L-6-1"
+    type: "subtask"
+    parent: "A-6"
+    title: "Figure configuration: DPI, sizes, color palette"
+    description: "Configure FIGURE_DPI=300, per-figure size tuples, SEABORN_THEME=whitegrid, 3-color family palette. Define FIG1..FIG6 filename constants."
+    priority: 39
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## A-6: Visualizer Configuration"
+
+  - id: "L-6-2"
+    type: "subtask"
+    parent: "A-6"
+    title: "Output paths config: figures_dir structure + filename conventions"
+    description: "Define figures/ subdirectory, filename conventions (fig1_ri_ece_scatter.png .. fig6_gate_summary.png). Ensure figures_dir created by Visualizer.__init__."
+    priority: 38
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## A-6: Visualizer Configuration"
+
+  - id: "L-8-1"
+    type: "subtask"
+    parent: "A-8"
+    title: "parse_args(): argparse CLI"
+    description: "Implement argparse with: --data-dir (default ../h-e1/code/outputs), --output-dir (default results), --figures-dir (default figures), --seed (default 42), --no-compute-ece, --lmeval-logits-dir."
+    priority: 37
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "## A-8: RunExperiment"
+
+  - id: "L-8-2"
+    type: "subtask"
+    parent: "A-8"
+    title: "main(): sequential orchestration + exit code"
+    description: "Sequential: ECEComputer -> DataLoader -> PartialCorrAnalyzer -> GateEvaluator -> Visualizer -> export_all_results. Return 0 if PASS, 1 if FAIL/PARTIAL."
+    priority: 36
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "### Pseudo-code: main"
+
+  - id: "L-9-1"
+    type: "subtask"
+    parent: "A-9"
+    title: "Test fixtures: mock DataFrame for 30 models"
+    description: "Create conftest.py with pytest fixtures: mock_model_df (30 models, correct column schema), mock_ece_series, mock_partial_corr_results. Family split: 12 LLaMA / 10 Mistral / 8 Qwen."
+    priority: 35
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## A-9: Test Suite Configuration"
+
+  - id: "L-9-2"
+    type: "subtask"
+    parent: "A-9"
+    title: "Coverage configuration: pytest-cov >= 80%"
+    description: "Create pytest.ini with --cov=code --cov-fail-under=80 --cov-report=term-missing. Configure test discovery for tests/ directory."
+    priority: 34
+    reference_files:
+      - file: "h-m1/03_config.md"
+        section: "## A-9: Test Suite Configuration"
+
+  # ── Failsafe ───────────────────────────────────────────────────────────────
+  - id: "T-FAILSAFE"
+    type: "failsafe"
+    title: "Pipeline continuation checkpoint"
+    description: >
+      Final checkpoint: verify all outputs exist (ece_scores.csv,
+      partial_corr_results.yaml, gate_results.yaml, model_matrix_m1.csv,
+      >= 5 figures). Write gate result to verification_state.yaml.
+      This task marks H-M1 Phase 4 as complete regardless of gate outcome.
+    priority: 1
+    reference_files:
+      - file: "h-m1/03_prd.md"
+        section: "## 6. Success Criteria"
+    acceptance_criteria:
+      - "All 4 result files exist in results/"
+      - "At least 5 figures exist in figures/"
+      - "gate_results.yaml result field is PASS, PARTIAL, or FAIL"

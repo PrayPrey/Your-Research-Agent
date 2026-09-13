@@ -1,0 +1,102 @@
+\section{Results}
+\label{sec:results}
+
+The central finding is unambiguous: projection-only LoRA on Mamba-130m does not produce classification learning.
+
+\subsection{Zero-Shot GLUE Baselines}
+
+\begin{table}[h]
+\centering
+\caption{Zero-shot Mamba-130m baselines on GLUE.}
+\label{tab:zeroshot}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Task} & \textbf{Zero-Shot Acc.} & \textbf{Random Baseline} & \textbf{Interpretation} \\
+\midrule
+SST-2 & 0.4908 & $\sim$0.50 & Near random; no classification prior \\
+MNLI  & 0.3463 & $\sim$0.33 & Marginally above chance; no NLI prior \\
+QNLI  & 0.5056 & $\sim$0.50 & Near random \\
+QQP   & 0.0000 & $\sim$0.50 & Systematic minority-class prediction \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The SST-2 and MNLI zero-shot results confirm expected behavior for a causal language model with no classification instruction tuning. The QQP result (0.0000) is documented for reproducibility: Mamba-130m predicts the ``not paraphrase'' class for every QQP sample, most plausibly due to a tokenization or prompt-format incompatibility with the lm-evaluation-harness QQP template. It does not affect our primary conclusions.
+
+\subsection{Primary Result: SST-2 Fine-Tuning}
+
+\begin{table}[h]
+\centering
+\caption{SST-2 accuracy across three fine-tuning epochs (MUST\_WORK gate: $> 0.70$).}
+\label{tab:sst2}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Evaluation Point} & \textbf{Accuracy} & \textbf{vs.\ Zero-Shot} & \textbf{vs.\ Gate} \\
+\midrule
+Zero-shot baseline & 0.4908 & --- & $-0.2092$ \\
+After Epoch 1 & 0.5092 & $+0.0184$ & $-0.1908$ \\
+After Epoch 2 & 0.5092 & $+0.0184$ & $-0.1908$ \\
+After Epoch 3 & 0.5092 & $+0.0184$ & $-0.1908$ \\
+\textbf{Gate result} & --- & --- & \textbf{FAIL} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three consecutive identical accuracy values of 0.5092 are the clearest possible indicator of zero learning. If any learning were occurring, the model's predictions would shift from epoch to epoch, producing different accuracy values. Three identical values across three independent epochs, evaluated on 872 validation examples, indicate the model's prediction distribution has not changed at all.
+
+The net improvement over zero-shot is $+1.84$ percentage points. On $n=872$ validation samples with $p \approx 0.5092$, the binomial standard error is $\text{SE} = \sqrt{p(1-p)/n} \approx 0.017$ (1.7pp). The observed gain is approximately 1 SE above the zero-shot baseline --- within statistical noise. The 19.1 percentage-point gap between the observed 0.5092 and the gate criterion of 0.70 represents the gap between majority-class prediction and meaningful classification ability.
+
+\subsection{Secondary Result: MNLI Fine-Tuning and Negative Transfer}
+
+\begin{table}[h]
+\centering
+\caption{MNLI accuracy across fine-tuning epochs (halted after epoch 2 due to monotonically worsening trend).}
+\label{tab:mnli}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Evaluation Point} & \textbf{Accuracy} & \textbf{vs.\ Zero-Shot} \\
+\midrule
+Zero-shot baseline & 0.3463 & --- \\
+After Epoch 1 & 0.3326 & $-0.0137$ ($-1.4$pp) \\
+After Epoch 2 & 0.3234 & $-0.0229$ ($-2.3$pp) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Both epochs show accuracy \emph{below} the zero-shot baseline --- negative transfer. This result rules out the ``locally stable prediction regime'' interpretation of the SST-2 result. Something is moving: the model's MNLI predictions are shifting with each epoch, but in the wrong direction. The gradient updates are coherent enough to steer the model but not coherent enough to move it toward correct classification labels.
+
+The most plausible interpretation is classifier degeneracy: the classification head, updated without effective task-discriminative gradient, collapses predictions toward a single NLI class. The trajectory from 0.3463 toward 0.3234 is consistent with convergence toward the minority-class fraction.
+
+The cross-task consistency --- flat SST-2, degrading MNLI --- strongly argues against any task-specific explanation.
+
+\subsection{LoRA Installation Verification}
+
+\begin{table}[h]
+\centering
+\caption{LoRA installation verification checks (all PASS).}
+\label{tab:lora_verify}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Check} & \textbf{Expected} & \textbf{Observed} & \textbf{Status} \\
+\midrule
+\texttt{lora\_A} keys in state dict & Present at all target paths & Present & PASS \\
+\texttt{lora\_B} keys in state dict & Present at all target paths & Present & PASS \\
+Trainable parameter count & $\sim$1.14\% of 130M & 1.14\% (1,484,288) & PASS \\
+LoRA weights non-zero post-training & Non-zero (updated by gradient) & Non-zero & PASS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+LoRA is installed correctly. The combination of Table~\ref{tab:sst2} (zero classification learning) and Table~\ref{tab:lora_verify} (correct LoRA installation) is the core finding: \textbf{API compatibility does not imply gradient compatibility}.
+
+\subsection{Loss Oscillation Pattern}
+
+Cross-entropy loss on SST-2 training batches oscillates between 0.65 and 0.73 across all three training epochs with no monotonic decrease trend. By comparison, a model successfully learning binary classification with cross-entropy loss and Adam typically shows consistent decrease from $\ln(2) \approx 0.693$ within the first epoch.
+
+The oscillation range $[0.65, 0.73]$ centered near $\ln(2)$ is consistent with a model whose prediction distribution is not departing from near-50/50 confidence. The diagnostic signature of SSM gradient barrier failure is: loss oscillates in the range $[\ln(2) - \delta, \ln(2) + \delta]$ with no monotonic trend, while per-epoch accuracy remains flat or degrades.
+
+\subsection{Comparison to MambaPEFT Literature}
+
+Our SST-2 result (0.5092) contrasts with alxndrTL/mamba-peft (2024), which reports 90--92\% SST-2 accuracy with LoRA r=8. The $\sim$40 percentage-point gap cannot be attributed to statistical noise.
+
+We do not interpret this as a contradiction. Our ranked hypothesis about the discrepancy source: the checkpoint type (base \texttt{mamba-130m-hf} vs.\ any instruction-tuned derivative) is our top candidate; the classification head design is second-most-likely; other training recipe details are lower-priority suspects. Our result establishes what a practitioner who applies the standard community LoRA configuration to the \emph{base} Mamba checkpoint will observe.

@@ -1,0 +1,13 @@
+# Conclusion
+
+We began with a counterintuitive observation: semantic entropy, celebrated for capturing meaning-level uncertainty, underperforms a simple confidence score by 24 AUROC points on multiple-choice hallucination detection. Our controlled comparison methodology—evaluating token entropy, choice entropy, and semantic entropy on identical TruthfulQA mc1 conditions—revealed that this gap stems not from implementation error but from format mismatch.
+
+The key insight is straightforward: UQ method effectiveness depends on task format. Token-level methods extract discriminative signals directly from logits, working regardless of answer length or semantic content. Semantic entropy's NLI-based clustering requires responses with meaningful semantic content to compare—a requirement MC's single-letter answers cannot satisfy. The mechanism functions correctly (4.92 clusters from 5 samples, non-zero entropy variance), but the resulting signal does not correlate with hallucination status on this format.
+
+Our contributions are threefold. First, we provide the first controlled head-to-head comparison of UQ methods for hallucination detection, revealing format-specific effects masked by prior heterogeneous evaluations. Second, we demonstrate that max probability (AUROC = 0.81) and choice entropy (AUROC = 0.77) effectively detect MC hallucinations while semantic entropy (AUROC = 0.56) fails. Third, we introduce mechanism verification as a methodological tool to separate implementation correctness from format suitability.
+
+Several directions remain for future work. Testing semantic entropy on free-form generation tasks (e.g., HaluEval QA with open-ended answers) would validate our format-dependency hypothesis: if AUROC improves substantially on free-form tasks, the hypothesis is confirmed. Cross-model validation on Mistral-7B and larger models would establish generalization bounds. Full-scale validation on all 817 TruthfulQA questions would tighten confidence intervals on our estimates.
+
+For practitioners, our findings yield a simple recommendation: match UQ method to task format. For multiple-choice or short-answer tasks, simple confidence-based methods suffice—and in fact outperform sophisticated alternatives. Save semantic entropy and multi-sample methods for free-form generation where semantic comparison is meaningful.
+
+The 0.24 AUROC gap we observed is not a failure of semantic entropy per se, but a reminder that method assumptions must align with task characteristics. As the field develops increasingly sophisticated UQ methods, controlled comparison studies like ours will be essential to map the conditions under which each method excels.

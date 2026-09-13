@@ -1,0 +1,58 @@
+
+\subsubsection{Problem Formulation}
+
+Let M\_base denote an unaligned language model and M\_aligned its counterpart produced by one alignment procedure. For a multiple-choice question item i with answer options {A, B, C, D}, let \textbf{v}$_{base}$(i) $\in \mathbb{R}^4$ and \textbf{v}$_{aligned}$(i) $\in \mathbb{R}^4$ denote the log-probability vectors over answer tokens under M\_base and M\_aligned, respectively.
+
+The \textbf{argmax flip indicator} is defined as:
+
+> flip\_i = $\mathbb{1}$[argmax(\textbf{v}$_{base}$(i)) $\neq$ argmax(\textbf{v}$_{aligned}$(i))]
+
+This is a binary outcome: 1 if the top-predicted answer changes after alignment, 0 otherwise. The prediction task is: given only \textbf{v}$_{base}$(i), predict flip\_i before M\_aligned is applied.
+
+The \textbf{pre-alignment confidence margin} for item i is:
+
+> margin\_i = ($v_{base}^{(1)}(i) - v_{base}^{(2)}(i)$) / $\sigma$
+
+where $v_{base}^{(1)}(i)$ and $v_{base}^{(2)}(i)$ are the top-1 and top-2 logits sorted in decreasing order, and $\sigma$ is the standard deviation of all raw margins within the model pair (z-scoring over the full evaluation set). Z-scoring removes scale differences between model pairs and centers the predictor so that regression coefficients reflect effects per standard-deviation change in margin.
+
+\subsubsection{Datasets and Model Pairs}
+
+Three 4-choice MCQ benchmarks are used. \textbf{MMLU} (cais/mmlu, all subjects, test split, N=14,042 for pair 2) provides the primary predictor training benchmark. \textbf{TruthfulQA} (truthful\_qa, multiple\_choice, validation split, N=817) and \textbf{ARC-Challenge} (allenai/ai2\_arc, ARC-Challenge, test split, N=1,172) are held-out evaluation benchmarks: the predictor is trained on MMLU and evaluated on TruthfulQA and ARC-Challenge without retraining or threshold adjustment.
+
+Two model pairs are evaluated:
+
+\begin{itemize}
+\item \textbf{Pair 2 (primary, DPO):} allenai/tulu-2-7b (base) $\rightarrow$ allenai/tulu-2-dpo-7b (DPO-aligned).
+\item \textbf{Pair 4 (secondary, SFT):} EleutherAI/pythia-6.9b (base) $\rightarrow$ dvruette/oasst-pythia-6.9b-4000-steps (SFT-aligned).
+\end{itemize}
+
+Two additional planned model pairs were excluded due to infrastructure failures: pair 1 (allenai/tulu-2-7b $\rightarrow$ allenai/tulu-2-ppo-7b) returned HTTP 404 from HuggingFace, and pair 3 (EleutherAI/pythia-1.4b $\rightarrow$ reciprocate/ppo\_hh\_pythia-1B) produced a tokenizer error (\texttt{AttributeError: 'NoneType' object has no attribute 'endswith'}). No PPO-aligned model pairs were available; all algorithmic comparisons are therefore between DPO and SFT rather than between DPO and PPO as originally designed.
+
+All logit extraction was run on a single NVIDIA H100 NVL GPU (95 GB, CUDA\_VISIBLE\_DEVICES=0), in conda environment \texttt{youra-h-e1} (Python 3.10).
+
+\subsubsection{Margin-Based Predictor (H-E1)}
+
+A \textbf{mixed-effects logistic regression} is fitted:
+
+> logit(P(flip\_i = 1)) = $\beta _0 + \beta _1 \cdot$ margin\_i + $u_{d(i)}$
+
+where $u_{d(i)}$ is a random intercept for benchmark d(i) $\in$ {MMLU, TruthfulQA, ARC-Challenge}. The mixed-effects structure absorbs baseline differences in flip rates and item difficulty across benchmarks, allowing $\beta _1$ to reflect the within-benchmark relationship. Significance is assessed via the Wald statistic for $\beta _1$ (threshold $\alpha$ = 0.005, conservative given N). Effect size is reported as partial $\eta^2$ (variance in flip\_i explained by margin\_i). Predictive performance is evaluated by AUROC (threshold 0.75 for gate passage) computed separately per benchmark.
+
+\subsubsection{Non-Isotropy Analysis (H-M1)}
+
+The \textbf{logit delta} for each item is:
+
+> $\Delta _i$ = \textbf{v}$_{aligned}$(i) - \textbf{v}$_{base}$(i) $\in \mathbb{R}^4$
+
+The sample covariance matrix $\Sigma$ = Cov(${\Delta _{i}})$ is computed across all items in a benchmark, and eigendecomposition (numpy.linalg.eigh) yields $\lambda _1 \geq \lambda _2 \geq \lambda _3 \geq \lambda _4$. The \textbf{anisotropy ratio} is:
+
+> $\rho = \lambda _1$ / mean($\lambda _2, \lambda _3, \lambda _{4})$
+
+Under an isotropic Gaussian null model (N(0, $I_{4}))$, all eigenvalues are equal in expectation. An empirical isotropic control (N=1,000, seed=1) yields $\rho$ = 1.13, confirming the null yields ratios near 1. Statistical significance is assessed via a one-tailed permutation test (1,000 shuffles); gate threshold is $\alpha$ = 0.05 for at least 2 of 3 model families evaluated.
+
+\subsubsection{DPO vs. SFT Quintile Analysis (H-M2)}
+
+Items are stratified into five equal-sized quintiles (Q1--Q5) by pre-alignment margin, with Q1 the lowest-margin (least confident) quintile. For each quintile, the variance of logit delta magnitudes --- var($\|\Delta _{i}\|)$ within quintile --- is computed after KL-divergence residualization (OLS per quintile) to remove alignment-magnitude confounds. The directional hypothesis is that DPO produces higher mean logit delta variance in Q1 than SFT. Statistical comparison uses one-tailed Welch's t-test with n\_bootstrap = 5,000 confidence intervals.
+
+\textbf{Note on PPO scope:} Because PPO-aligned models were unavailable, the quintile analysis compares DPO to SFT only.
+

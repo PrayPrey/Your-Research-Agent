@@ -1,0 +1,69 @@
+
+\subsubsection{3.1 Normalized Per-Sample Last-Layer Gradient Norm}
+
+For a model with a fully connected last layer W $\in \mathbb{R}^(C\times d)$, the per-sample gradient with respect to W for cross-entropy loss satisfies:
+
+$\nabla _W \ell _i = (p_i - y_{i}\_onehot) \otimes h(x_{i})$
+
+where $p_i$ = softmax(W $\cdot$ h($x_{i}))$ is the predicted probability vector, $y_{i}\_onehot$ is the one-hot label vector, and h($x_{i}) \in \mathbb{R}^d$ is the input feature vector to the FC layer. The Frobenius norm of this outer-product gradient is:
+
+$\|\nabla _W \ell _{i}\|_F = \|p_i - y_{i}\_onehot\|_2 \cdot \|h(x_{i})\|_2$
+
+The normalized per-sample gradient norm is defined as:
+
+\textbf{$\tilde{g}_i = \|\nabla _W \ell _{i}\|_F / \|h(x_{i})\|_2 = \|p_i - y_{i}\_onehot\|_2$}
+
+For ResNet architectures with BatchNorm layers, feature norms $\|h(x_{i})\|$ are approximately equalized across samples. Dividing by $\|h(x_{i})\|$ isolates the prediction-error residual $\|p_i - y_{i}\|$ as the informative component.
+
+\textbf{Mechanistic prediction.} Under ERM training on spuriously correlated data, majority-group samples that exploit the spurious feature converge to low prediction residuals early. Minority-group samples that cannot exploit the shortcut maintain elevated residuals. Because $\tilde{g}_i = \|p_i - y_{i}\|$ directly, any asymmetry in prediction residuals between groups immediately produces a corresponding asymmetry in normalized gradient norms. This prediction follows from the outer-product decomposition alone, without additional theoretical assumptions, provided BatchNorm approximately equalizes feature norms (verified empirically in Section 5.4).
+
+\subsubsection{3.2 Efficient Computation via FC Forward Hook}
+
+Gradient norms are computed without performing backward passes. A forward hook is registered on the FC layer to capture the input feature vector h($x_{i})$ for each sample during a forward pass in eval mode. The normalized gradient norm $\tilde{g}_i = \|p_i - y_{i}\_onehot\|$ is then computed directly from the softmax outputs.
+
+\textbf{Algorithm 1: $\tilde{g}$ Computation}
+
+\begin{verbatim}
+Input:  model f, dataloader D (eval mode), epoch T_id
+Output: {g̃ᵢ}_{i=1}^N
+
+1. Register forward hook on model.fc → captures h(xᵢ) ∈ ℝ^{B×d}
+2. Set model.eval() (no BatchNorm updates)
+3. For each batch (x_b, y_b) in D:
+   a. logits = f(x_b)          [hook captures h(x_b)]
+   b. p_b = softmax(logits)
+   c. residual_b = p_b − one_hot(y_b)
+   d. g̃_b = ‖residual_b‖₂     [row-wise L2 norm]
+4. Return concat(all g̃ batches)
+\end{verbatim}
+
+Computational complexity is O(N) beyond standard inference; no additional backward passes are required. Features captured by the hook are stored on CPU to avoid GPU memory accumulation over full-dataset passes.
+
+\subsubsection{3.3 Pseudo-Minority Subset Construction}
+
+After computing ${\tilde{g}_{i}}$ at epoch T\_id, a minority-enriched subset is constructed by ranking samples by $\tilde{g}$:
+
+\begin{itemize}
+\item \textbf{Pseudo-minority subset:} S\_min = top-k\% of samples by $\tilde{g}$ (high prediction error $\rightarrow$ minority-enriched)
+\item \textbf{Pseudo-majority subset:} S\_maj = bottom-k\% of samples by $\tilde{g}$ (low prediction error $\rightarrow$ majority-enriched)
+\item \textbf{Combined subset:} S = S\_min $\cup$ S\_maj
+\end{itemize}
+
+The primary configuration uses k = 25\% and T\_id = 5. Gradient norms were collected at T\_id $\in$ {1, 3, 5, 10} to assess temporal robustness.
+
+\subsubsection{3.4 Proposed Full Pipeline: Stage 2 Last-Layer Retraining (Not Executed)}
+
+The full two-stage pipeline --- referred to as GNR-LLR (Gradient-Norm-Informed Last-Layer Retraining) --- proposes the following Stage 2 procedure as future work:
+
+\begin{verbatim}
+Stage 1 (executed in this work):
+  ERM training → g̃ collection at T_id → subset S construction
+
+Stage 2 (proposed, not executed):
+  Freeze feature extractor; retrain model.fc on S
+  (proposed configuration: SGD, lr=0.01, 100 epochs)
+  → Evaluate WGA on test set
+\end{verbatim}
+
+Stage 2 follows the DFR principle \citep{Kirichenko2022Last}: ERM features are assumed to encode class-relevant information, and retraining the classifier head on a minority-enriched subset is expected to reorient the decision boundary away from the spurious feature. The key difference from DFR is that subset construction uses $\tilde{g}$ rather than group-annotated samples. \textbf{Stage 2 was not implemented or evaluated in the reported experiments. No WGA results exist for this pipeline.}
+

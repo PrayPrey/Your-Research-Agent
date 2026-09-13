@@ -1,0 +1,111 @@
+
+\subsubsection{3.1 Overview}
+
+Our methodology consists of a three-phase pipeline applied to a random sample of Python files:
+
+\begin{itemize}
+\item \textbf{Phase A (Pattern):} Does the file contain any \texttt{>>>} substring?
+\item \textbf{Phase B (AST):} Does the file contain AST-parseable doctest examples?
+\item \textbf{Phase C (Subprocess):} Do the doctest examples pass subprocess execution in a clean environment?
+\end{itemize}
+
+\subsubsection{3.2 Data Source and Sampling}
+
+\textbf{Dataset:} \texttt{codeparrot/codeparrot-clean-valid}, a curated Python-only corpus publicly
+accessible on HuggingFace Hub. Used as a proxy for \texttt{bigcode/the-stack-dedup}, which requires
+HuggingFace Hub access approval and was unavailable in the execution environment. Both datasets
+use the same \texttt{content} field schema and contain Python-only code. The fallback is confirmed in
+the experiment log (\texttt{experiment.log}): ''the-stack-dedup unavailable (gated). Falling back to
+codeparrot/codeparrot-clean-valid.''
+
+\textbf{Sample:} 10,000 randomly sampled Python files (streaming + first-N from shuffled stream,
+\texttt{seed=42}), consistent with The Stack paper's own analysis methodology \citep{Kocetkov2022}.
+
+\textbf{Quality Pre-filter:} The Stack paper quality filters applied prior to sampling: average
+line length $\leq$ 100 characters, maximum line length $\leq$ 1,000 characters, alphanumeric fraction
+$\geq$ 0.25.
+
+\subsubsection{3.3 Three-Phase Filtering Pipeline}
+
+\textbf{Phase A: Pattern Detection.} \texttt{''>>>'' in source\textbackslash \_code} --- O(n) substring check providing
+an upper bound on doctest-bearing files. Files without \texttt{>>>} are immediately excluded.
+
+\textbf{Phase B: AST Extraction.}
+
+\begin{verbatim}
+# Inside check_phase_b(source_code: str) -> bool
+tree = ast.parse(source_code)
+parser = doctest.DocTestParser()
+for node in ast.walk(tree):
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
+        docstring = ast.get_docstring(node)
+        if docstring and ">>>" in docstring:
+            examples = parser.get_examples(docstring)
+            if examples:
+                return True  # Phase B positive
+\end{verbatim}
+
+Phase B eliminates files with syntax errors and non-doctest \texttt{>>>} occurrences (e.g., shell
+prompts in comments), filtering approximately 35\% of Phase A positives before the expensive
+subprocess step.
+
+\textbf{Phase C: Subprocess Execution.} Source code is base64-encoded and executed in an isolated
+subprocess with a 5-second timeout:
+
+\begin{verbatim}
+# base64 encoding eliminates shell quoting errors across all 10,000 files
+encoded = base64.b64encode(source.encode("utf-8")).decode("ascii")
+wrapper = (
+    "import base64, types, doctest, sys\n"
+    f"src = base64.b64decode('{encoded}').decode('utf-8')\n"
+    "mod = types.ModuleType('__scanned__')\n"
+    "exec(compile(src, '__scanned__', 'exec'), mod.__dict__)\n"
+    "results = doctest.testmod(mod, verbose=False)\n"
+    "sys.exit(0 if results.failed == 0 else 1)\n"
+)
+result = subprocess.run([sys.executable, "-c", wrapper],
+                        capture_output=True, timeout=5)
+\end{verbatim}
+
+\textbf{Parallelism:} \texttt{ProcessPoolExecutor} with 4 workers for Phase C. Only Phase B positive
+files are submitted, limiting subprocess overhead.
+
+\textbf{Error Classification:} Failed Phase C files are classified by error type: \texttt{import\textbackslash \_error}
+(ImportError or ModuleNotFoundError in stderr), \texttt{assertion\textbackslash \_error} (AssertionError or
+''Failed example''), \texttt{wrong\textbackslash \_output} (DocTestFailure or UnexpectedException), or \texttt{exception}
+(all other non-zero exit codes).
+
+\subsubsection{3.4 Gate Evaluation}
+
+Gate thresholds determine the downstream SFT experiment design:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Result & `doctest\_executable\_rate` & Decision \\
+\midrule
+**PASS** & $\geq$ 3.0\% & 3-condition H-E1 (unfiltered / compile-only / doctest) \\
+**SCOPE** & 1.0--3.0\% & Reduced token budget \\
+**PIVOT** & < 1.0\% & 2-condition H-E1 (unfiltered / compile-only) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The gate type is SHOULD\_WORK: gate failure does not block the pipeline but instead scopes
+the downstream SFT experiment design.
+
+\subsubsection{3.5 Planned SFT Comparison (H-E1, Pending)}
+
+Based on the H-C1 PIVOT result, the SFT experiment is designed with two conditions and
+pending execution:
+
+\begin{itemize}
+\item \textbf{Model:} Qwen2.5-Coder-1.5B \citep{Hui2024}
+\item \textbf{Conditions:} Unfiltered random subsample vs. compile()-filtered subsample, equal 500M-token budget
+\item \textbf{Training:} AdamW, lr=2e-5, batch=32, 3 epochs, seed=42
+\item \textbf{Evaluation:} HumanEval pass@1 and MBPP pass@1 (greedy decoding, lm-evaluation-harness \citep{EvalHarness2021})
+\end{itemize}
+

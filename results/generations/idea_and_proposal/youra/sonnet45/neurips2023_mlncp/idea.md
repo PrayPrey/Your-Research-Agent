@@ -1,0 +1,8 @@
+# Title
+Neuromorphic Deep Equilibrium Models: Ultra-Low-Power Implicit Inference via Spike-Based Recurrent Dynamics
+
+# Motivation
+Generative AI's explosive compute demand threatens sustainability, while digital hardware approaches fundamental limits. Deep Equilibrium Models (DEQs)—which solve for fixed points instead of stacking layers—offer constant memory but remain energy-intensive on GPUs. Neuromorphic hardware (SpiNNaker2, Intel Loihi) promises radical energy efficiency through sparse, event-driven computation, yet lacks models exploiting their recurrent dynamics. No prior work bridges implicit models with neuromorphic computing, leaving a critical gap in sustainable edge AI.
+
+# Main Idea
+We hypothesize that mapping DEQ fixed-point iterations to neuromorphic recurrent dynamics achieves **10-27× energy reduction** with **<2% accuracy loss**. The causal mechanism: DEQ's iterative solver z_{t+1}=f(z_t) naturally maps to spiking neural network recurrence, where sparse spike events (14.4 fJ/spike) and local memory eliminate GPU data transfer overhead. We introduce **Quantization-Aware Implicit Differentiation (QA-ID)**—hybrid-precision training simulating neuromorphic noise in forward passes while using FP16 gradients with surrogate differentiation. Testing on CIFAR-10 (≤10 μJ energy, ≥88% accuracy) and medical imaging, we validate against baselines (pruning, distillation). Success enables constant-memory edge deployment for portable MRI, drones, and IoT sensors, establishing computational equivalence between continuous optimization and discrete neuromorphic dynamics.

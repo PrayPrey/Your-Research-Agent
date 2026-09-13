@@ -1,0 +1,15 @@
+# Conclusion
+
+We opened with a structural paradox: the best-performing method for spurious correlation robustness achieves WGA = 0.91 without changing the backbone at all. Our diagnostic study resolves this paradox not as an anomaly but as a structural feature of the robustification landscape. WGA improvement comes from two mechanistically distinct pathways — head recalibration on unchanged backbone features (DFR), and backbone-level spurious encoding reduction (GroupDRO) — and both are effective in the Waterbirds WILDS setting.
+
+For GroupDRO, we verify a three-step causal chain: minority group upweighting (5.01% of training data, exponentiated gradient ascent) → group-balanced gradient propagating through all backbone layers (backbone/head L2 ratio = 6.47–7.03) → significantly reduced background linear decodability in layer4 features (ERM 0.9838 → GroupDRO 0.9530, p = 0.0039, Cohen's d = 6.48, CONFIRMED). This is not post-hoc interpretation — it is a pre-registered causal chain, verified at each step with independent experiments.
+
+For DFR, we provide the first quantitative confirmation that its backbone is numerically identical to ERM at matching seeds (cosine similarity = 1.000000 ± 1e-14), establishing the head-recalibration pathway as a structurally clean alternative to backbone modification.
+
+**The backbone-vs-head typology matters because** it changes how we think about method selection, transfer learning, and future method design. When test-time group labels enable head retraining, DFR's simpler intervention may be preferred. When backbone-level change is desired — for multi-task transfer scenarios, or when group annotations are unavailable at inference time — GroupDRO's backbone modification offers a substantively different form of robustification.
+
+**What remains open.** The suppression-vs-dilution mechanistic ambiguity — whether GroupDRO actively reduces spurious feature dimensions or merely dilutes their proportion among richer representations — requires directional subspace analysis beyond linear probes. The WGA correlation (H-P2, r=−0.504 SUGGESTIVE at n=9) needs per-seed WGA measurements or a larger method pool for full confirmation. Layer-wise spurious encoding profiles (layer1 through layer4) would characterize where in the backbone the GroupDRO effect is localized. CelebA and MultiNLI replications would test generalization beyond ResNet-50 on Waterbirds.
+
+**A diagnostic framework for the community.** The probe protocol we establish — frozen layer4 features, sklearn L-BFGS C=1e9, full test set, paired t-test across matched seeds — is low-cost, reproducible, and directly interpretable. Applied systematically across checkpoints, it provides a backbone spurious encoding "fingerprint" for any robustification method with publicly available checkpoints. We hope this framework enables principled mechanistic comparison across the growing family of WGA-improving methods.
+
+The backbone-vs-head distinction is not a limitation of existing methods — it is a resource. Two pathways exist; understanding when each operates is the first step toward choosing or combining them wisely.

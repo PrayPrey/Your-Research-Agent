@@ -1,0 +1,331 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-20T01:51:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent Controller Ablation - Claude Self-Play)"
+  schema_version: "10.0.0"
+  gap_id: "gap3"
+  gap_title: "Attribution effectiveness for unknown spurious features"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 12
+  convergence_reason: "All personas reached consensus on testable hypothesis with clear predictions, mechanism, and feasibility validation. Prof. Rex's concerns addressed through implementation fixes."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Gradient attribution methods (Grad-CAM, Integrated Gradients) fail to detect unknown spurious correlations"
+      status: "BUILD_ON"
+      evidence: "Adebayo et al. 2022 (109 cites) - empirical validation + user study showed practitioners cannot detect unknown spurious using attribution results"
+    - claim: "Gradient abnormality (GAIA) detects OOD samples via zero-deflation and channel-wise variance"
+      status: "BUILD_ON"
+      evidence: "Chen et al. 2023 - FPR95 reduction of 23.10% on CIFAR10, 45.41% on CIFAR100"
+    - claim: "Models trained on spurious correlations achieve lower worst-group accuracy on minority groups"
+      status: "BUILD_ON"
+      evidence: "Established spurious correlation literature (GroupDRO, JTT, SCER)"
+    - claim: "Gradient abnormality detects minority groups within ID distribution (spurious reliance)"
+      status: "PROVE_NEW"
+      evidence: "Hypothesis to be validated - extends GAIA from OOD to subpopulation shift"
+    - claim: "Spatial gradient regularization improves worst-group accuracy without group annotations"
+      status: "PROVE_NEW"
+      evidence: "Novel intervention - no prior work on gradient-based regularization for spurious mitigation"
+  scope_reduction_percentage: 60
+  phase2b_4_instructions: |
+    BUILD_ON claims (Adebayo 2022, GAIA, spurious correlation theory) do not require re-verification.
+    Phase 4 implementation should focus on:
+    1. Validating PROVE_NEW claim #1 (minority gradient abnormality detection)
+    2. Validating PROVE_NEW claim #2 (spatial regularization mitigation)
+    3. Comparing to reproducible baselines (GroupDRO, JTT)
+
+    Skip re-implementing GAIA metrics (use existing code). Skip proving spurious correlation exists (use established benchmarks).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-GradAbn-v1"
+  confidence_level: 0.78
+  core_hypothesis_statement: |
+    Under deep neural networks trained on datasets with spurious correlations (e.g., Waterbirds with 90% background-class correlation),
+    if we compute gradient abnormality metrics (GAIA zero-deflation, channel-wise variance) for test samples,
+    then minority group samples (waterbird-land, landbird-water) will exhibit significantly higher abnormality scores than majority group samples (waterbird-water, landbird-land),
+    because spurious reliance creates gradient scattering when the spurious shortcut conflicts with core features in minority samples.
+  alternative_hypothesis_h0: |
+    There is no significant difference in gradient abnormality scores (GAIA-Z, GAIA-A) between majority and minority group samples.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Model training condition"
+      type: "categorical"
+      operationalization: "Train ResNet-50 on Waterbirds dataset with varying spurious correlation rates"
+      levels: ["80% correlation", "90% correlation", "95% correlation"]
+    - name: "Test sample group membership"
+      type: "categorical"
+      operationalization: "Waterbirds test set split by class (landbird/waterbird) and background (land/water)"
+      levels: ["Majority (landbird-land, waterbird-water)", "Minority (landbird-water, waterbird-land)"]
+  dependent:
+    - name: "Gradient abnormality score (GAIA-Z)"
+      type: "continuous"
+      operationalization: "Zero-deflation ratio: sparsity of attribution gradient matrix (∂Sc/∂A). Range [0,1], higher = more abnormal (denser gradients)"
+      primary: true
+    - name: "Gradient abnormality score (GAIA-A)"
+      type: "continuous"
+      operationalization: "Channel-wise average variance: std dev of GradCAM channel weights. Higher = noisier, more abnormal"
+      primary: false
+    - name: "Worst-group accuracy"
+      type: "continuous"
+      operationalization: "min(accuracy across 4 groups). Range [0,100%]. Measured after training with/without spatial gradient regularization"
+      primary: false
+  controlled:
+    - name: "Model architecture"
+      operationalization: "ResNet-50 (standard backbone), consistent across all experiments"
+    - name: "Training hyperparameters"
+      operationalization: "SGD optimizer, lr=0.001, batch_size=128, epochs=100 (standard Waterbirds setup)"
+    - name: "Image complexity"
+      operationalization: "Use only Waterbirds dataset (controlled background complexity), avoid uncontrolled wild images"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 4
+  steps:
+    - step: 1
+      description: "Model learns spurious shortcut during training due to majority group correlation (landbird→land 90%, waterbird→water 90%)"
+      evidence: "Established spurious correlation literature (Sagawa et al. 2020 GroupDRO). Models exploit statistical correlations even when non-causal."
+      falsifier: "If baseline model achieves >85% worst-group accuracy without intervention, spurious shortcut not learned"
+    - step: 2
+      description: "When minority sample encountered at test time (waterbird-land), spurious shortcut (land→landbird) conflicts with core feature (waterbird appearance)"
+      evidence: "SPROD 2025 showed minority samples misclassified more often. GAIA 2023 showed conflicting signals cause gradient abnormality for OOD."
+      falsifier: "If minority samples classified with same confidence as majority, no conflict exists"
+    - step: 3
+      description: "Conflict manifests as gradient scattering: attribution gradients attempt to attribute prediction simultaneously to spurious region (background) and core region (bird), resulting in dense, noisy gradients"
+      evidence: "GAIA's theoretical framework: Taylor expansion error term diverges when model uncertain. Minority samples create 'conditional OOD' from spurious perspective."
+      falsifier: "If minority gradient patterns identical to majority, scattering hypothesis false"
+    - step: 4
+      description: "Gradient abnormality metrics (zero-deflation, channel-wise variance) quantify this scattering, enabling unsupervised detection"
+      evidence: "GAIA metrics successfully detected OOD (FPR95 -23% on CIFAR10). Same metrics should detect subpopulation shift if scattering mechanism holds."
+      falsifier: "If GAIA scores do not separate majority/minority groups (p>0.05), abnormality not detectable"
+  key_tension: "GAIA detects distribution shift (ID vs OOD), but minority groups are WITHIN ID distribution. The 'conditional OOD' argument (minority is OOD from spurious perspective) is untested and could be circular reasoning (Prof. Rex's Flaw #1)."
+  evidence_summary: |
+    Chain relies on: (1) spurious learning (established), (2) conflict in minority (inferred from SPROD misclassification), (3) gradient scattering (analogous to GAIA OOD), (4) GAIA metrics (proven for OOD).
+    Weakest link: Step 3 (scattering mechanism) lacks direct empirical validation for minority groups. MNIST toy experiment will validate.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Minority groups are correctly classified often enough (≥60% accuracy) for GradCAM difference maps to highlight core features"
+    supporting_evidence: "SPROD 2025 showed minority misclassified MORE but not exclusively (some correct). Assumption needs empirical check."
+    consequence_if_violated: "If minority accuracy <60%, GradCAM for minority samples highlights spurious regions (what drove wrong prediction), not core features. Spatial masking breaks down. Fallback: global gradient regularization instead of spatial."
+  - id: "A2"
+    assumption: "Adaptive penalty scaling via percentile normalization (75th percentile) avoids majority bias in calibration"
+    supporting_evidence: "Prof. Rex identified mean-based calibration would be majority-dominated. Percentile approach mitigates this."
+    consequence_if_violated: "If percentile still majority-biased, penalty too weak on minority samples. Regularization fails to improve WGA. Fallback: fixed λ with manual tuning (violates no-hyperparameter constraint)."
+  - id: "A3"
+    assumption: "Gradient scattering on minority samples is CAUSED by spurious conflict, not other factors (image complexity, class imbalance)"
+    supporting_evidence: "GAIA controlled for image complexity in OOD experiments. We use Waterbirds (controlled backgrounds). Class imbalance addressed via per-class normalization."
+    consequence_if_violated: "If abnormality correlates with complexity not spurious reliance, detection gives false positives. Must validate via augmentation test (Vera's Prediction 3): background swap should reduce abnormality."
+  - id: "A4"
+    assumption: "Spatial gradient regularization reduces spurious reliance (not just smooths gradients) during training"
+    supporting_evidence: "Theoretical link: penalizing divergence in spurious regions forces model to seek alternative (core) features. No direct prior work validating this for spurious mitigation."
+    consequence_if_violated: "If regularization only homogenizes gradients without changing feature reliance, WGA unchanged. MNIST toy experiment will reveal this. Fallback: detection-only contribution."
+  - id: "A5"
+    assumption: "SCER code unavailability does not prevent valid comparison — GroupDRO/JTT baselines are sufficient and reproducible"
+    supporting_evidence: "GroupDRO (294 GitHub stars, well-maintained), JTT (72 stars, 2024 updates). Both have Waterbirds evaluation scripts."
+    consequence_if_violated: "Without SCER comparison, cannot claim SOTA. But contribution remains valid as 'gradient-based alternative to embedding methods.' Tier 2 ceiling instead of Tier 1."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Deep neural networks trained on image classification datasets with spurious correlations (background, color, texture)
+    - Scenarios where minority groups exist (spurious correlation <100%)
+    - Datasets with group annotations available for evaluation (Waterbirds, CelebA, UrbanCars) or synthetic settings (MNIST+Color)
+    - Standard supervised learning (not self-supervised, reinforcement learning, or other paradigms)
+  does_not_apply_to: |
+    - Datasets without spurious correlations (random background assignment) — no minority groups to detect
+    - Datasets with 100% spurious correlation (no minority groups exist)
+    - Non-image modalities (text, audio, time-series) — GAIA gradient abnormality theory developed for vision
+    - Scenarios where spurious feature is UNKNOWN at evaluation time — we can detect BUT position as 'diagnostic tool', not automatic fix
+  known_limitations: |
+    1. Requires training data access for prototype computation (not test-time only detection)
+    2. Spatial masking requires ≥60% minority classification accuracy (Assumption A1)
+    3. SCER code unavailable, cannot claim to beat current SOTA (Pax's Blocker #2)
+    4. Computational budget: ~250 GPU-hours for full pipeline (Waterbirds + CelebA + UrbanCars)
+    5. Generalization to non-vision modalities untested
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Minority group samples (waterbird-land, landbird-water) exhibit GAIA-Z scores ≥0.2 higher than majority group samples (waterbird-water, landbird-land) on Waterbirds dataset (p<0.01, two-sample t-test)"
+    test_method: "Train ResNet-50 on Waterbirds 90% correlation. Compute GAIA-Z for all test samples. Statistical test: t-test comparing minority vs majority scores."
+    success_criterion: "Mean GAIA-Z difference ≥0.2, p<0.01. Effect size (Cohen's d) ≥0.8 (large effect)"
+    falsification: "If p≥0.01 OR mean difference <0.1, gradient abnormality hypothesis false. Pivot to detection-only or abandon approach."
+  - id: "P2"
+    primary: true
+    statement: "GAIA divergence (minority-majority score gap) correlates with worst-group accuracy across models with varying spurious correlation strength (ρ>0.7)"
+    test_method: "Train 10 models with correlation rates [50%, 60%, ..., 95%]. For each, measure (1) worst-group accuracy, (2) mean GAIA-Z minority-majority gap. Compute Pearson correlation."
+    success_criterion: "ρ>0.7, p<0.05. Stronger spurious reliance (lower WGA) → larger gradient abnormality gap."
+    falsification: "If ρ<0.5, abnormality unrelated to spurious strength. Detection works but not mechanistically linked to robustness."
+  - id: "P3"
+    primary: false
+    statement: "Background augmentation (swapping minority→majority background via image editing) reduces GAIA-Z score by ≥30% for minority samples"
+    test_method: "Select 100 minority test samples. Augment: waterbird-land → waterbird-water, landbird-water → landbird-land (background swap). Measure GAIA-Z before/after."
+    success_criterion: "Mean GAIA-Z reduction ≥30%. Demonstrates abnormality CAUSED by spurious mismatch, not image properties."
+    falsification: "If reduction <10%, abnormality not caused by spurious conflict. Alternative explanations (complexity, class) dominate."
+  - id: "P4"
+    primary: true
+    statement: "Spatial gradient regularization (MNIST toy) improves worst-group accuracy by ≥10% over baseline (color-only masking vs all-pixels regularization)"
+    test_method: "MNIST+Color 80% correlation. Train 4 conditions: (1) baseline, (2) regularize all pixels, (3) regularize color-only, (4) regularize digit-only. Compare WGA."
+    success_criterion: "Condition 3 WGA ≥ Baseline+10%, Condition 3 WGA ≥ Condition 2+5%, Condition 4 WGA ≤ Baseline-5% (regularizing core harms)"
+    falsification: "If Condition 3 WGA < Baseline+5%, regularization ineffective even in controlled setting. Mitigation approach fails. Pivot to detection-only."
+  - id: "P5"
+    primary: false
+    statement: "Waterbirds spatial gradient regularization improves worst-group accuracy by ≥5% over GroupDRO baseline"
+    test_method: "Train models with spatial gradient regularization (GradCAM-based masking, adaptive penalty). Compare to GroupDRO (official code) on Waterbirds."
+    success_criterion: "WGA ≥ GroupDRO+5%, average accuracy drop ≤2%. Demonstrates mitigation effectiveness on real dataset."
+    falsification: "If WGA improvement <3%, regularization marginal. Reframe as 'gradient-based alternative' not 'superior method'. Tier 3 contribution."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "Waterbirds (primary), MNIST+Color (toy validation), CelebA (generalization)"
+    type: "standard (Waterbirds, CelebA), synthetic (MNIST+Color)"
+    source: "Waterbirds via Wilds benchmark (pip install wilds), MNIST via torchvision, CelebA via Wilds"
+    path: "Waterbirds: wilds.get_dataset('waterbirds'), MNIST: torchvision.datasets.MNIST, CelebA: wilds.get_dataset('celebA')"
+    hypothesis_fit: "Waterbirds: canonical spurious correlation benchmark (background-class), 4 groups (2 majority, 2 minority), group annotations for evaluation. MNIST+Color: controlled spurious (color), known ground truth for validation. CelebA: different spurious type (gender), tests generalization."
+  model:
+    name: "ResNet-50 (Waterbirds, CelebA), ResNet-18 (MNIST toy)"
+    type: "Standard CNN backbone"
+    source: "torchvision.models.resnet50(pretrained=True) for Waterbirds/CelebA, torchvision.models.resnet18() for MNIST"
+    hypothesis_fit: "ResNet standard for Waterbirds/CelebA evaluation (all baselines use it). Enables direct comparison to GroupDRO, JTT, SPROD results."
+  baselines:
+    - name: "GroupDRO"
+      method: "Distributionally robust optimization, minimizes worst-group loss. Requires group annotations during training."
+      source: "github.com/kohpangwei/group_DRO (294 stars)"
+      performance: "Waterbirds WGA ~85-88% (from Sagawa et al. 2020)"
+    - name: "JTT (Just Train Twice)"
+      method: "Two-stage: identify misclassified samples in stage 1, upsample in stage 2. No group annotations during training."
+      source: "github.com/anniesch/jtt (72 stars)"
+      performance: "Waterbirds WGA ~88% (from Liu et al. 2021)"
+    - name: "SCER (Embedding Regularization)"
+      method: "Regularizes embedding space to suppress spurious features. Theoretical WGA bounds."
+      source: "arXiv:2511.04401 (Park et al. 2025) — code NOT available"
+      performance: "Estimated WGA ~90% from paper (cannot reproduce directly)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First application of gradient abnormality (GAIA framework) to minority group detection within ID distribution. First gradient-based regularization for spurious mitigation. Automatic spurious localization via GradCAM difference maps without feature engineering."
+  key_innovation: "Extends GAIA from distribution shift (ID vs OOD) to subpopulation shift (majority vs minority). Spatial masking discovers spurious regions automatically by comparing majority/minority gradient patterns. Unified framework: same abnormality mechanism for both OOD and spurious detection."
+  differentiation:
+    - prior_work: "Adebayo 2022 — Gradient attribution fails for unknown spurious"
+      difference: "We use gradient ABNORMALITY (process disruption), not gradient ATTRIBUTION (result interpretation). GAIA-style metrics detect minority groups without knowing spurious feature."
+    - prior_work: "GAIA 2023 — Gradient abnormality for OOD detection"
+      difference: "We extend to subpopulation shift (minority groups) within ID distribution. Add mitigation (spatial regularization), not just detection."
+    - prior_work: "SPROD 2025 — Prototype refinement for SP-OOD detection"
+      difference: "We operate on gradient space (not prototype space). Provide mitigation (regularization), not just detection. Complementary approaches."
+    - prior_work: "SCER 2025 — Embedding regularization for WGA"
+      difference: "We operate on gradient space (not embedding space). Spatial masking via GradCAM (not embedding constraints). Complementary intervention points."
+    - prior_work: "GroupDRO, JTT — Robust learning methods"
+      difference: "GroupDRO requires group annotations. JTT two-stage, we single-stage. We provide diagnostic (gradient abnormality) + mitigation."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "GroupDRO"
+      performance: "85-88% WGA on Waterbirds"
+      dataset: "Waterbirds, CelebA, MultiNLI"
+      why_insufficient: "Requires group annotations during training. We achieve annotation-free robust learning."
+    - method: "JTT"
+      performance: "~88% WGA on Waterbirds"
+      dataset: "Waterbirds, CelebA"
+      why_insufficient: "Two-stage training, requires identifying misclassified samples in stage 1. We provide single-stage + diagnostic."
+    - method: "SCER"
+      performance: "~90% WGA on Waterbirds (estimated)"
+      dataset: "Waterbirds, CelebA"
+      why_insufficient: "Embedding-based (we're gradient-based). Code unavailable for direct comparison. Complementary, not competitive."
+  best_baseline_performance: "SCER ~90% WGA (estimated), JTT ~88% WGA (reproducible)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Baseline models trained on Waterbirds must exhibit <80% worst-group accuracy (confirms spurious reliance). Minority group GAIA scores must be computable (requires test samples, model, gradient backprop infrastructure)."
+  sh2_mechanism: "Validate that minority groups exhibit gradient abnormality (P1). If true, mechanism (spurious conflict → gradient scattering) is empirically supported. MNIST toy validates regularization mechanism (P4)."
+  sh3_comparison: "Compare spatial gradient regularization WGA to GroupDRO and JTT baselines (P5). If WGA ≥GroupDRO+5%, claim validated. Deferred SCER comparison to Phase 5 (code may become available)."
+  open_questions:
+    - "Does spatial masking assumption hold? (Minority correctly classified ≥60% — empirical check in Phase 2B Step 1)"
+    - "What if MNIST toy fails (WGA <+5%)? Pivot to detection-only contribution"
+    - "Can we beat GroupDRO by ≥5% on Waterbirds? (Determines Tier 2 vs Tier 3 positioning)"
+    - "Does method generalize to CelebA (different spurious type)? (Week 5 optional validation)"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "Converged after 12 exchanges. All 6 personas participated. Prof. Rex's concerns addressed via implementation fixes (percentile normalization, minority classification check, spurious alignment metric). Three decision gates defined for experimental validation."
+  clarity_verified: true
+  remaining_objections:
+    - objection: "GradCAM difference may fail if minority accuracy <60%"
+      severity: "MODERATE"
+      mitigation: "Empirical check in Phase 2B. Fallback: global gradient regularization"
+    - objection: "SCER code unavailable — cannot claim Tier 1 SOTA"
+      severity: "LOW"
+      mitigation: "Position as Tier 2 'gradient-based alternative to embedding methods'"
+    - objection: "Conditional OOD argument potentially circular (Flaw #1)"
+      severity: "MODERATE"
+      mitigation: "Activation clustering analysis (t-SNE) in Phase 2B to validate minority representation as 'between-class'"
+
+discussion_context:
+  total_exchanges: 12
+  agent_participation:
+    dr_nova: 3
+    prof_vera: 2
+    dr_sage: 2
+    prof_pax: 2
+    dr_ally: 2
+    prof_rex: 2
+  paper_citations: 3
+  convergence_type: "qualitative"
+  key_discussion_points:
+    - "Dr. Nova proposed gradient abnormality extension from GAIA (OOD) to minority groups (spurious)"
+    - "Prof. Vera designed 3 falsifiable predictions + MNIST toy protocol"
+    - "Dr. Sage positioned contribution as detection+mitigation, Tier 2-3 target"
+    - "Prof. Pax validated feasibility, identified SCER blocker, defined timeline"
+    - "Dr. Ally synthesized into execution-ready hypothesis with 3 decision gates"
+    - "Prof. Rex identified 3 critical flaws, all addressed via implementation fixes"

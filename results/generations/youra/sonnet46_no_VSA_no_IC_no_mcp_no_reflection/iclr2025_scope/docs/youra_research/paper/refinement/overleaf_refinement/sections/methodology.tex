@@ -1,0 +1,84 @@
+
+Given the gap between the PEFT community's assumptions and Mamba's architecture, we designed experiment h-e1 as a \textbf{MUST\_WORK existence check} --- a protocol that gives projection-only LoRA every possible advantage and treats failure as an unambiguous signal rather than a tuning problem. The design philosophy is: if LoRA is going to work on Mamba for classification at all, it should work under the conditions we construct.
+
+The key diagnostic insight that shaped the methodology: we measured \textbf{per-epoch accuracy alongside loss} at every training epoch. Loss curves can look plausible --- oscillating, non-zero, apparently ''doing something'' --- while accuracy reveals complete learning failure. Three consecutive identical accuracy values across epochs cannot be rationalized as slow convergence or unlucky initialization.
+
+\subsubsection{3.1 Mamba Architecture: Selective State Space Scan and Gradient Flow}
+
+Mamba-130m (model identifier: \texttt{state-spaces/mamba-130m-hf}) is a 24-layer causal language model with hidden dimension \texttt{d\textbackslash \_model = 768}, inner dimension \texttt{d\textbackslash \_inner = 1536} (expansion factor 2), state dimension \texttt{d\textbackslash \_state = 16}, and discrete-time rank \texttt{dt\textbackslash \_rank = 48}. Each layer contains a MambaBlock with the following \texttt{nn.Linear} projection layers: \texttt{in\textbackslash \_proj} (768 $\rightarrow$ 3072), \texttt{out\textbackslash \_proj} (1536 $\rightarrow$ 768), \texttt{x\textbackslash \_proj} (1536 $\rightarrow$ 112), and \texttt{dt\textbackslash \_proj} (48 $\rightarrow$ 1536).
+
+The MambaBlock also contains a \texttt{conv1d} layer and, critically, the \textbf{selective SSM scan}: the computation \texttt{h\textbackslash \_t = Ā(\$\textbackslash Delta\$, A)\$\textbackslash cdot h\_\{t-1\}\$ + B̄(\$\textbackslash Delta\$, B)\$\textbackslash cdot x\_t\$}, \texttt{y\textbackslash \_t = \$C\textbackslash cdot h\_t\$}. This scan is implemented either as a custom CUDA parallel associative scan (\texttt{selective\textbackslash \_scan\textbackslash \_cuda}) when the Mamba CUDA extensions are installed, or as a sequential Python fallback using standard PyTorch operations. Our experimental environment used the sequential fallback, as confirmed by the runtime warning logged at the start of every experimental run.
+
+\textbf{Implementation note on gradient flow:} Because our experiments used the sequential implementation, the SSM scan was executed via standard PyTorch autograd operations rather than a custom CUDA kernel's backward pass. This means gradient flow through the scan was mediated by autograd in the standard manner. The failure of projection-layer LoRA to produce classification learning in this environment suggests that the gradient barrier effect is not solely attributable to custom CUDA kernel backward-pass limitations, and may instead reflect the geometric properties of gradients propagating through a pretrained SSM scan for a classification objective that diverges sharply from the pretraining task.
+
+The gradient path for a classification loss placed on the final hidden state runs: \texttt{classification\textbackslash \_head \$\textbackslash rightarrow\$ final hidden state \$\textbackslash rightarrow\$ (through scan and projection layers of all 24 layers) \$\textbackslash rightarrow\$ LoRA weight matrices}. The SSM scan sits \textit{between} the classification head and the LoRA targets in every layer.
+
+The \texttt{conv1d} layer is excluded from LoRA targets because it is not \texttt{nn.Linear}. The \texttt{dt\textbackslash \_proj} layer was excluded from the primary configuration as consistent with the standard community configuration.
+
+\subsubsection{3.2 LoRA Application to Mamba-130m}
+
+We applied LoRA using the HuggingFace PEFT library (v0.9+) with the following configuration, matching the community reference (alxndrTL/mamba-peft, 2024):
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Hyperparameter & Value & Rationale \\
+\midrule
+Target modules & `in\_proj`, `out\_proj`, `x\_proj` & Standard Mamba-1 projection LoRA; community reference configuration \\
+Rank (r) & 8 & Standard for classification fine-tuning; referenced in MambaPEFT \\
+Alpha ($\alpha )$ & 16 & 2r; standard scaling factor \\
+Dropout & 0.05 & Standard regularization \\
+Trainable parameters & 1,489,920 (1.14\% of 130M) & Confirmed by PEFT `print\_trainable\_parameters()` \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The LoRA adapters are installed into all 24 MambaBlocks. The classification head is a single \texttt{nn.Linear(768, num\textbackslash \_labels)} layer, applied to the last-token hidden state from the final MambaBlock output. The head is randomly initialized; no special initialization is applied.
+
+\subsubsection{3.3 GLUE Fine-Tuning Setup}
+
+We fine-tune separately on each GLUE task using the following shared training protocol:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+Hyperparameter & Value \\
+\midrule
+Optimizer & AdamW \\
+Learning rate & $3\times 10^{-4}$ \\
+Weight decay & 0.01 \\
+Batch size & 32 \\
+Epochs & 3 \\
+LR schedule & Linear warmup (6\%) + linear decay \\
+Seed & 42 \\
+Training samples & 4,000 (subsampled from train split) \\
+Max sequence length & 128 tokens \\
+Tokenizer & GPT-NeoX-20B tokenizer (50k vocab) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+All four GLUE tasks (SST-2, MNLI, QNLI, QQP) were evaluated in experiment v8, which completed successfully. An earlier partial run (v8 first attempt) was interrupted before per-epoch evaluation completed for SST-2 due to an OOM error in a subsequent experiment version (v9) that attempted to add \texttt{dt\textbackslash \_proj} to the LoRA target modules; v8 was re-run and completed all four tasks.
+
+\textbf{MUST\_WORK gate criterion:} We defined a conservative pass criterion: SST-2 accuracy > 70\% after three epochs. The conservatism is deliberate. The community reference reports 90--92\% --- a 70\% gate gives LoRA substantial benefit of the doubt, allowing for differences in training setup that might cost up to 20 percentage points of performance.
+
+\subsubsection{3.4 Diagnostic Methodology}
+
+Our core diagnostic design choice was \textbf{per-epoch accuracy measurement}, not just loss monitoring. Accuracy is the authoritative criterion because it measures task performance directly. Three consecutive identical accuracy values across epochs eliminate all alternative explanations:
+\begin{itemize}
+\item Slow convergence would produce monotonically increasing (if slow) accuracy
+\item Lucky initialization plateau would not survive three consecutive identical values
+\item Seed sensitivity would produce variation across epochs
+\item Evaluation bug (same checkpoint evaluated repeatedly) was ruled out by confirming that evaluation was run as a per-epoch callback and that LoRA weight values differ between epochs confirming distinct model states were evaluated
+\end{itemize}
+
+We evaluate accuracy on the full validation split at the end of each epoch: SST-2 validation (872 examples), MNLI matched validation (872 examples, subsampled from 9,815), QNLI validation (872 examples), QQP validation (872 examples). We also log cross-entropy loss per training batch at every 20 steps.
+
+\textbf{Zero-shot evaluation as baseline:} Before any fine-tuning, we evaluate the base Mamba-130m model on each GLUE task using lm-evaluation-harness with multiple-choice prompting. Zero-shot baselines are established in the same experimental environment as fine-tuning experiments.
+

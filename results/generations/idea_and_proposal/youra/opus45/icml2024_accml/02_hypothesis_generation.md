@@ -1,0 +1,324 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-BioHomeoAL-v1
+**Confidence Level:** 0.78
+
+**Main Hypothesis:**
+Under resource-constrained biological discovery conditions (limited GPU, experimental budget), if a bio-inspired homeostatic active learning framework (BioHomeoAL) coordinates foundation model fine-tuning through uncertainty-as-feedback control, then experimental cost can be reduced by 30-50% (task-dependent) while maintaining task performance, because the control-theoretic framework enables principled multi-objective optimization of sample selection, adaptive LoRA configuration, and resource scheduling that random or standard active learning approaches cannot achieve.
+
+**Alternative Hypothesis (H0):**
+The homeostatic control framework provides no advantage over standard active learning approaches; random sampling or simple uncertainty-based selection achieves comparable sample efficiency and task performance without the complexity of adaptive LoRA configuration and feedback-based resource scheduling.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Model epistemic uncertainty | Independent | MC Dropout (n=50 samples) or Deep Ensemble (k=5 models) uncertainty score | 0.0-1.0 normalized entropy |
+| Sample informativeness | Independent | Multi-objective acquisition score (uncertainty × diversity × cost⁻¹) | Pareto-ranked score |
+| Task performance | Dependent | Spearman ρ (protein fitness), AUROC (drug binding), MAE (genomics) | ρ≥0.7, AUROC≥0.8, MAE≤15% baseline |
+| Sample efficiency | Dependent | Area Under Learning Curve (AULC) - performance vs samples used | Higher is better (normalized 0-1) |
+| Convergence speed | Dependent | Iterations to reach target performance threshold | Lower is better (target: <50 iterations) |
+| Homeostatic stability | Dependent | Performance variance across AL iterations | σ²≤0.5× standard AL variance |
+| Adaptive LoRA configuration | Controlled | Dynamic rank selection r∈{8,16,32} based on uncertainty feedback | Discrete set, rank adjusted per iteration |
+| Resource budget | Controlled | Fixed GPU-hours and experimental assay budget enforced by scheduler | Constant across conditions |
+
+### 1.3 Causal Mechanism
+
+**5-Step Causal Chain (N=5, Very Complex):**
+
+```
+[Uncertainty Measurement] → [Feedback Signal] → [Adaptive LoRA Config] → [Efficient Model Update] → [Improved Sample Selection] → [Cost Reduction Outcome]
+```
+
+**Step 1: Uncertainty Measurement → Feedback Signal**
+MC Dropout (n=50) or Deep Ensemble (k=5) quantifies model epistemic uncertainty as a numerical score that serves as continuous feedback for the control system. High uncertainty indicates regions where the model lacks knowledge.
+
+**Step 2: Feedback Signal → Adaptive LoRA Configuration**
+Uncertainty magnitude triggers dynamic rank selection (r∈{8,16,32}) and learning rate modulation. High uncertainty regions receive higher rank (more capacity) while stable regions use lower rank (efficiency).
+
+**Step 3: Adaptive LoRA Configuration → Efficient Model Update**
+LoRA enables parameter-efficient fine-tuning with 3 orders of magnitude fewer parameters than full fine-tuning, enabling rapid adaptation cycles within resource constraints.
+
+**Step 4: Efficient Model Update → Improved Sample Selection**
+Updated model has reduced uncertainty in known regions, directing the multi-objective acquisition function to select truly informative samples (high uncertainty + high diversity + low cost).
+
+**Step 5: Improved Sample Selection → Cost Reduction Outcome**
+Fewer samples are needed to achieve target performance when each sample is maximally informative, yielding 30-50% experimental cost reduction compared to random or naive active learning.
+
+**Evidence for Causal Links:**
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | Mosquera Rojas 2025 (OpenReview) | MCD produces calibrated uncertainty when properly tuned (dropout rate, n samples) | Strong |
+| Step2 → Step3 | AdaLoRA (2303.10512), ICML 2025 Control-LoRA | Importance-based rank allocation; control-theoretic perspective validated | Strong |
+| Step3 → Step4 | Sledzieski 2023 | LoRA achieves competitive performance with 3 orders of magnitude fewer parameters | Strong |
+| Step4 → Step5 | Antoniuk 2025, Balsa-Canto 2025 | 79% OOD improvement with uncertainty-guided selection; optimal experimental design | Strong |
+| Step5 → Outcome | DeepChem active learning, domain extrapolation | Active learning efficiency validated; 30-50% extrapolated from literature | Medium |
+
+**Key Tension:**
+**Tension:** Sledzieski 2023 shows fixed-rank LoRA (r=8) achieves competitive performance, but the hypothesis proposes adaptive rank modulation adds value. If fixed-rank suffices universally, the adaptive mechanism is unnecessary complexity.
+
+**Resolution:** Phase 2B will test whether adaptive LoRA configuration provides statistically significant improvement (≥10% AULC gain) over fixed-rank LoRA across multiple biological tasks. Task-dependent variation is expected.
+
+### 1.4 Key Assumptions
+
+| Assumption | Supporting Evidence | Consequence if Violated |
+|------------|---------------------|-------------------------|
+| **A1:** Foundation models (ESM-2, DNABERT-2) contain transferable biological knowledge | Sledzieski 2023: LoRA competitive with 3 orders fewer parameters | Hypothesis fails entirely; no foundation to adapt |
+| **A2:** Epistemic uncertainty correlates with sample informativeness | Antoniuk 2025: 79% OOD improvement with uncertainty-guided AL | Feedback signal is noise; random sampling would be equivalent |
+| **A3:** LoRA rank 8-32 is sufficient for biological tasks | HuggingFace PEFT docs, Sledzieski 2023 protein results | Need full fine-tuning; parameter efficiency claim fails |
+| **A4:** Lab experiments provide labels with ≤10% noise, days-weeks turnaround | DeepChem workflows, domain standard | High noise corrupts feedback loop; need denoising step |
+| **A5:** Control-theoretic framework provides value over ad-hoc approaches | Hirashima 2022 tissue homeostasis, ICML 2025 control-LoRA | Framework is unnecessary overhead; simpler AL suffices |
+| **A6:** Homeostatic stability improves through negative feedback | Hirashima 2022: mechanical feedback maintains tissue setpoints | Oscillation or divergence instead of stability |
+
+### 1.5 Scope & Boundaries
+
+**Applies To:**
+- Biological discovery tasks: protein engineering, drug discovery, genomics
+- Labs with limited GPU resources (single RTX 3090/4090 class)
+- Experimental pipelines with days-weeks turnaround
+- Tasks where foundation models (ESM-2, DNABERT-2) provide useful representations
+
+**Does NOT Apply To:**
+- Non-biological domains (initially; core principles may generalize)
+- Real-time inference optimization
+- Federated or distributed training settings
+- Full fine-tuning approaches (framework assumes LoRA)
+- Generative model design (focus is discriminative tasks)
+
+**Known Limitations:**
+- 30-50% cost reduction is task-dependent, extrapolated from analogous studies
+- Biological homeostasis is more complex than ML uncertainty feedback (analogy has limits)
+- Generalization across biological modalities requires validation
+- Hyperparameter tuning (LoRA rank thresholds, acquisition weights) may require task-specific calibration
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1 (Sample Efficiency - AULC Target):**
+BioHomeoAL will achieve ≥30% improvement in sample efficiency (AULC) compared to random sampling baseline.
+
+*Measurement:*
+- AULC_BioHomeoAL > 1.30 × AULC_random with p < 0.05
+- Statistical test: Paired t-test across 3+ biological tasks, n ≥ 20 runs per condition
+
+*Basis:*
+- Antoniuk 2025: 79% OOD improvement suggests 30% efficiency gain is conservative
+- Domain standard for meaningful active learning improvement: 10-30%
+- 30% threshold accounts for task-dependent variation
+
+*Success Criteria for Phase 2B:*
+- Primary: AULC improvement > 30% (p < 0.05)
+- Falsification: AULC improvement ≤ 10% triggers rejection
+
+**Secondary Predictions:**
+**P2 (Adaptive LoRA Value):**
+Adaptive LoRA configuration (dynamic rank r∈{8,16,32}) will achieve ≥10% better sample efficiency than fixed-rank LoRA (r=16) across biological tasks.
+
+*Measurement:* AULC_adaptive > 1.10 × AULC_fixed with p < 0.05
+
+**P3 (Homeostatic Stability):**
+BioHomeoAL will achieve ≤50% performance variance compared to standard active learning (BALD, entropy sampling).
+
+*Measurement:* Var(performance)_BioHomeoAL ≤ 0.5 × Var(performance)_standard_AL
+
+**P4 (Task Generalization):**
+BioHomeoAL will achieve meaningful improvements (>20% AULC gain over random) on at least 2 of 3 biological modalities: protein fitness (ρ≥0.7), drug binding (AUROC≥0.8), genomics (MAE≤15% baseline).
+
+*Measurement:* Success on ≥2/3 modalities
+
+**Falsification Criteria:**
+The hypothesis will be **REJECTED** if any of the following occur:
+
+1. **Primary Failure:** AULC improvement ≤ 10% over random sampling
+   - Interpretation: Uncertainty-guided selection provides minimal value
+
+2. **Mechanism Failure:** Adaptive LoRA shows no advantage over fixed-rank
+   - Interpretation: Control-theoretic adaptation is unnecessary complexity
+
+3. **Stability Failure:** Performance variance ≥ standard AL variance
+   - Interpretation: Homeostatic regulation fails to provide stability
+
+4. **Baseline Failure:** Performance worse than random sampling on any task
+   - Interpretation: Framework introduces harmful overhead
+
+5. **Generalization Failure:** Success on <2 of 3 biological modalities
+   - Interpretation: Approach is task-specific, not a general framework
+
+### 1.7 SOTA Baseline (Optional - If SOTA Comparison Mode)
+
+*Not applicable - Absolute Performance Mode (not targeting SOTA comparison)*
+
+This hypothesis focuses on sample efficiency improvement (30-50% cost reduction) rather than outperforming specific SOTA methods. Comparison is against random sampling and standard active learning baselines (BALD, entropy sampling, BatchBALD).
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Target effect size (Cohen's d): 0.8 (large effect for 30% improvement)
+- Required runs: n ≥ 20 per condition (based on power analysis, α=0.05, power=0.8)
+- Tasks: 3 biological modalities (protein, drug, genomics)
+
+**Test Specification:**
+- Primary test: Paired t-test (same random seeds, same initial data)
+- Significance level: α = 0.05 (two-tailed for comparisons, one-tailed for improvement claims)
+- Multiple comparison correction: Bonferroni for 4 predictions (adjusted α = 0.0125)
+
+**Report Format:**
+- Mean ± Std Dev for all metrics
+- 95% Confidence Intervals
+- Cohen's d effect size
+- Exact p-values
+
+**Reproducibility:**
+- Fixed random seeds across conditions
+- All code and data to be released
+- Computational requirements documented
+
+---
+
+## 2. Contribution Summary
+
+**Primary Contribution:**
+- **Type:** Theoretical + Methodological
+- **Statement:** We introduce BioHomeoAL, the first control-theoretic framework that formalizes epistemic uncertainty as a homeostatic feedback signal to coordinate foundation model adaptation, uncertainty-guided sample selection, and resource management for biological discovery tasks.
+- **Novelty:** Unlike existing active learning approaches that treat model adaptation, sample selection, and resource constraints as separate optimization problems, BioHomeoAL provides a unified bio-inspired framework with formal multi-objective optimization, adaptive LoRA parameter modulation, and stability guarantees derived from homeostatic control principles.
+
+**Secondary Contributions:**
+- **Methodological:** Adaptive LoRA configuration mechanism with uncertainty-driven rank selection (r∈{8,16,32}) and dynamic learning rate modulation
+- **Methodological:** Multi-objective acquisition function with Pareto optimization balancing uncertainty, diversity, and experimental cost
+- **Practical:** Reference implementation integrating DeepChem, TorchUncertainty, and HuggingFace PEFT for resource-constrained biology labs
+
+---
+
+## 3. Key Related Work
+
+### Foundation Sources (MUST CITE)
+
+1. **"Democratizing Protein Language Models with Parameter-Efficient Fine-Tuning"** (2023)
+   - Authors: Sledzieski et al.
+   - SS ID: 3410f44b7ce4f5af80a383340aefd554d811b25c
+   - Key Finding: LoRA achieves competitive performance with 3 orders of magnitude fewer parameters; PEFT outperforms traditional fine-tuning for PPI prediction
+
+2. **"Active Learning Enables Extrapolation in Molecular Generative Models"** (2025)
+   - Authors: Antoniuk et al.
+   - SS ID: 5abf5ef07a723acfe2913447eb7bfea821fe6670
+   - Key Finding: Closed-loop active learning achieves 79% improvement in OOD classification
+
+3. **"Mechanical Feedback Control for Multicellular Tissue Size Maintenance"** (2022)
+   - Authors: Hirashima
+   - SS ID: 7409749bffb898a70d9eff23b4c1386da65a4c3f
+   - Key Finding: Biological homeostasis through mechanical feedback provides paradigm for control-theoretic framework
+
+4. **"Multi-modal Transfer Learning between Biological Foundation Models"** (2024)
+   - Authors: Garau-Luis et al.
+   - SS ID: c94cf63c86cbeefe668b6cb6b118506e8e144b7a
+   - Key Finding: Cross-modal DNA/RNA/protein transfer feasible with LoRA fine-tuning
+
+### Comparison Baselines
+
+5. **BALD (Bayesian Active Learning by Disagreement)**
+   - Reference: Houlsby et al., 2011
+   - Baseline for uncertainty-based active learning comparison
+
+6. **BatchBALD**
+   - Reference: Kirsch et al., 2019
+   - Baseline for batch-mode active learning with diversity
+
+7. **DeepChem Active Learning Pipelines**
+   - URL: https://github.com/deepchem/deepchem
+   - Baseline implementation for drug discovery active learning
+
+### Gap Evidence
+
+8. **"Quantifying and managing uncertainty in systems biology"** (2025)
+   - Authors: Balsa-Canto et al.
+   - URL: https://doi.org/10.1016/j.coisb.2025.100557
+   - Gap Evidence: Reviews active learning + UQ for biology; no unified framework combining efficient FMs
+
+9. **"Combining Bayesian and Evidential UQ for Improved Bioactivity Modeling"** (2025)
+   - Authors: Khalil et al.
+   - PMCID: PMC12728939
+   - Gap Evidence: UQ methods for drug discovery exist separately from active learning frameworks
+
+10. **AdaLoRA: Adaptive Budget Allocation for Parameter-Efficient Fine-Tuning** (2023)
+    - arXiv: 2303.10512
+    - Gap Evidence: Importance-based LoRA rank allocation exists; not connected to active learning or biology
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does uncertainty-guided sample selection using MC Dropout/Deep Ensemble improve sample efficiency (AULC) over random sampling for biological foundation model adaptation?"
+- Maps to: Primary prediction P1
+- Verification type: Empirical
+- Critical: MUST PASS for hypothesis to proceed
+- Phase 2B ID: H-BioHomeoAL-E1
+
+**SH2 (Mechanism):**
+"Is the 5-step homeostatic control mechanism (Uncertainty → Feedback → Adaptive LoRA → Model Update → Sample Selection → Cost Reduction) the actual cause of improved sample efficiency?"
+- Maps to: 5-link causal chain (N=5)
+- Phase 2B will decompose into 5 sub-hypotheses:
+  - **H-M1:** Does MC Dropout/Deep Ensemble produce calibrated uncertainty feedback?
+  - **H-M2:** Does uncertainty magnitude appropriately trigger adaptive LoRA rank modulation?
+  - **H-M3:** Does adaptive LoRA enable efficient model updates within resource constraints?
+  - **H-M4:** Do efficient updates improve acquisition function sample selection?
+  - **H-M5:** Does improved sample selection translate to measurable cost reduction?
+- Verification type: Causal/ablation analysis
+- Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does BioHomeoAL outperform standard active learning baselines (BALD, entropy sampling, BatchBALD) and achieve lower performance variance (homeostatic stability)?"
+- Maps to: Secondary predictions P2-P4
+- Verification type: Comparative empirical
+- Critical: Determines practical value
+- Phase 2B ID: H-BioHomeoAL-C1
+
+**Total Sub-Hypotheses for Phase 2B:** 2 + 5 = **7 sub-hypotheses**
+
+### Readiness Checklist
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| Hypothesis in "Under [C], if [X], then [Y] because [Z]" format | ✅ | Section 1.1 Core Statement |
+| Hypothesis ID assigned | ✅ | H-BioHomeoAL-v1 |
+| Confidence level specified | ✅ | 0.78 |
+| Alternative hypothesis (H0) defined | ✅ | Section 1.1 |
+| All variables have operationalization | ✅ | Section 1.2 Variables Table (8 variables) |
+| Causal mechanism has evidence at each step | ✅ | Section 1.3 Evidence Table (5 links, all Strong/Medium) |
+| Causal chain length (N) determined | ✅ | N=5 (Very Complex) |
+| Key tension identified and resolution proposed | ✅ | Fixed vs adaptive LoRA tension |
+| Key assumptions list consequences | ✅ | Section 1.4 (6 assumptions with consequences) |
+| At least 2 testable predictions exist | ✅ | 4 predictions (P1-P4) with P1 primary |
+| Falsification criteria defined | ✅ | 5 falsification conditions |
+| Baselines identified for comparison | ✅ | Random sampling, BALD, entropy, BatchBALD |
+| SH1, SH2, SH3 starting points clear | ✅ | Section 4 Decomposition Preview |
+
+**Overall Readiness: ✅ READY FOR PHASE 2B**
+
+### Open Questions
+
+1. **Compute Requirements:** What GPU resources are needed for ESM-2/DNABERT-2 with LoRA + MC Dropout (n=50)? Can single RTX 3090/4090 handle batch sizes needed for practical active learning cycles?
+
+2. **Dataset Availability:** Are suitable benchmark datasets readily available for all 3 modalities (protein fitness, drug binding, genomics)? Consider: ProteinGym, MoleculeNet, Genomic Benchmarks.
+
+3. **Verification Priority:** Should SH1 (Existence) be tested first to establish baseline value before investing in mechanism verification (SH2)? Recommend SH1 → SH3 → SH2 order for efficient resource allocation.
+
+4. **Hyperparameter Sensitivity:** How sensitive is the adaptive LoRA rank selection to threshold choices? Phase 2B should include sensitivity analysis as part of mechanism verification.
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-12*

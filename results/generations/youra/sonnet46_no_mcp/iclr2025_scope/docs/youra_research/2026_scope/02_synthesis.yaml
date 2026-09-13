@@ -1,0 +1,124 @@
+# 02_synthesis.yaml - Phase 2A Synthesis (v10.0.0 Free-Parse)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-05-04T00:00:00"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop (Fallback Mode)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Eviction-Aware LoRA: Joint KV Cache Budget Simulation and Adapter Fine-Tuning for Long-Context LLMs"
+  hypothesis_id: "H-EvictionAwareLoRA-v1"
+  core_claim: |
+    Training LoRA adapters under simulated H2O KV cache eviction constraints
+    (eviction-aware fine-tuning) produces adapters that outperform the sequential
+    baseline (standard LoRA + post-hoc H2O eviction) on LongBench per-category
+    accuracy at matched KV budget ratios, because joint training eliminates the
+    training-inference distribution mismatch created by applying eviction to
+    adapters trained on full KV cache.
+  mechanism: |
+    Token-scarcity regularization: during eviction-aware LoRA training, H2O hard-mask
+    eviction removes low-cumulative-attention token positions from the KV cache in the
+    forward pass. Adapters exposed to systematic token absence learn attention patterns
+    that extract maximum information from surviving (high-attention) token positions.
+    At inference under the same eviction policy, eviction-aware adapters face no
+    distribution mismatch, while sequential-baseline adapters — trained on full KV
+    cache — face a novel token-absence distribution that degrades their accuracy.
+  predictions:
+    - P1: "≥2% LongBench per-category accuracy improvement over sequential baseline at r=50% KV retention in ≥4/6 task categories on both LLaMA-2-7B and Mistral-7B-v0.1 (primary)"
+    - P2: "Accuracy advantage increases monotonically as r decreases — larger benefit under tighter budget constraints (Spearman ρ < -0.8)"
+    - P3: "≥1.8× inference throughput improvement at r=50% vs. full-cache baseline on A100 GPU"
+
+variables_summary:
+  independent: "Training eviction simulation (eviction-aware vs. sequential) × KV budget ratio r ∈ {25%, 50%, 75%} × Base model (LLaMA-2-7B, Mistral-7B-v0.1)"
+  dependent_primary: "LongBench per-category accuracy (6 categories, 21 tasks total)"
+  controlled: "Fine-tuning dataset (LongAlpaca-12k), eviction policy (H2O fixed), LoRA hyperparameters (rank=16, alpha=32)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no statistically significant difference in per-category LongBench accuracy
+    between eviction-aware LoRA fine-tuning and sequential baseline (standard LoRA +
+    H2O eviction at inference) at matched KV cache budget ratio r, across LongBench
+    task categories on LLaMA-2-7B and Mistral-7B-v0.1.
+  statistical_test: "Paired t-test across LongBench tasks within each category; Bonferroni correction for 6 category comparisons"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First systematic study integrating KV cache eviction simulation into PEFT fine-tuning — training adapters to be eviction-robust rather than applying eviction post-hoc to eviction-unaware adapters"
+  differentiation_summary: |
+    Existing KV cache methods (H2O, SnapKV, StreamingLLM) are deployment-time
+    techniques applied to pre-trained or sequentially fine-tuned models. Existing
+    PEFT methods (LoRA, AdaLoRA, DoRA) assume full KV cache at inference. No prior
+    work closes the gap by making fine-tuning aware of deployment-time KV constraints.
+    This hypothesis targets precisely that gap, establishing whether joint optimization
+    is superior to sequential application — a question with direct practical relevance
+    for deploying instruction-tuned LLMs under memory budget constraints.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "LLaMA-2-7B (meta-llama/Llama-2-7b-hf)"
+    - "Mistral-7B-v0.1 (mistralai/Mistral-7B-v0.1)"
+  datasets:
+    - "LongBench (THUDM/LongBench) — evaluation"
+    - "LongAlpaca-12k (Yukang/LongAlpaca) — fine-tuning"
+    - "Alpaca-52k — sanity check fine-tuning (optional, Prof. Rex recommendation)"
+  baselines:
+    - "Sequential baseline: standard LoRA fine-tuning + H2O eviction at inference"
+    - "Full-cache baseline: standard LoRA fine-tuning + no eviction at inference"
+    - "Pre-trained model + H2O eviction (no fine-tuning)"
+
+measurement_plan:
+  data_collection:
+    - source: "LongBench evaluation harness (THUDM GitHub) — outputs per-task scores for all 21 tasks"
+    - source: "HuggingFace PEFT library — LoRA adapter training with custom attention mask injection for eviction simulation"
+    - source: "FMInference/H2O implementation — H2O eviction policy for both training simulation and inference"
+  procedure:
+    - step: "1. Download LLaMA-2-7B and Mistral-7B-v0.1 base model weights from HuggingFace Hub"
+    - step: "2. Fine-tune both models with standard LoRA on LongAlpaca-12k (sequential baseline)"
+    - step: "3. Fine-tune both models with eviction-aware LoRA on LongAlpaca-12k — inject H2O hard-mask at ratios r ∈ {25%, 50%, 75%} during each forward pass"
+    - step: "4. Evaluate all variants on LongBench 21 tasks with matched H2O eviction at each ratio r"
+    - step: "5. Report per-category accuracy (6 categories), aggregate LongBench score, and throughput (tokens/sec on A100)"
+    - step: "6. Apply paired t-test within each category; Bonferroni correction across 6 categories"
+    - step: "7. (Optional) Sanity check: repeat steps 2-4 with Alpaca-52k to test data distribution confound"
+  success_criteria:
+    - "P1: ≥2% per-category LongBench improvement in ≥4/6 categories on both models at r=50% (p<0.05)"
+    - "P2: Monotonically increasing accuracy gap as r decreases (Spearman ρ < -0.8)"
+    - "P3: ≥1.8× throughput at r=50% vs. full-cache baseline on A100"
+
+validation:
+  internal_validity:
+    - "Single-variable manipulation: eviction mask during training is the only difference between eviction-aware and sequential variants; all other hyperparameters held constant"
+    - "Policy consistency: H2O eviction policy fixed across training simulation and inference evaluation — no policy mismatch"
+    - "Data control: LongAlpaca-12k used identically for both variants; random seed fixed for reproducibility"
+    - "Statistical rigor: paired t-test with Bonferroni correction prevents false positives across 6 category comparisons"
+  external_validity:
+    - "Two base models (LLaMA-2-7B, Mistral-7B-v0.1) test generality across different transformer implementations"
+    - "LongBench 21 tasks across 6 categories provide broad coverage of long-context task types"
+    - "KV budget range r ∈ {25%, 50%, 75%} covers practical compression scenarios from aggressive to conservative"
+    - "All components (models, datasets, eviction implementation) are publicly available for replication"
+
+discussion_synthesis:
+  key_insights:
+    - "The field has developed KV eviction and PEFT independently — joint optimization is the logical next step that has not been systematically studied"
+    - "The dropout analogy (token-position eviction as token-level regularization) provides a theoretical basis for why eviction-aware training might improve generalization"
+    - "Distribution mismatch between training (full KV cache) and inference (evicted cache) is the mechanistic root cause that eviction-aware training addresses"
+    - "Per-category LongBench reporting is essential — aggregate scores can mask task-specific regression that would undermine the practical value of the method"
+  breakthrough_moments:
+    - "Prof. Vera's separation of two sub-hypotheses (eviction-robust adapters vs. rank-budget coupling) prevented experiment confounding and sharpened the core claim"
+    - "Prof. Pax's confirmation that H2O hard-mask eviction is mathematically valid as structured attention masking removed the primary feasibility concern"
+    - "Prof. Rex's three unstated assumptions (model dependence, task distribution, training data confound) were all addressable within the experimental design — no new data required"
+  resolved_tensions:
+    - "Tension: dropout analogy may not hold for token-position eviction (breaks sequence structure). Resolution: acknowledged as a limitation; the mechanism is distribution-mismatch elimination, not neuron-level regularization"
+    - "Tension: rank-budget coupling (AdaLoRA rank guided by eviction scores) is theoretically attractive but adds confounds. Resolution: demoted to optional ablation; core hypothesis focuses on eviction simulation only"
+    - "Tension: results may be specific to LongAlpaca-12k data distribution. Resolution: Alpaca-52k sanity check added as optional experiment; does not require new data collection"

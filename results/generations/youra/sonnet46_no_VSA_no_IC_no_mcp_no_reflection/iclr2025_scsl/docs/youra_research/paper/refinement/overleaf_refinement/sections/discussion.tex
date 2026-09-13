@@ -1,0 +1,42 @@
+
+\subsubsection{Mechanistic Diagnosis: Batch Contamination}
+
+The inversion effect requires a mechanistic explanation. We propose \textbf{batch contamination} as the primary candidate: under standard ERM, minority samples incur high loss and large gradient norms. With batch size $B=32$ and ~5\% minority prevalence, 1--2 minority samples per batch carry disproportionately large gradient magnitudes. These pull the within-batch mean gradient toward the minority gradient direction, increasing minority samples' measured cosine similarity with the mean --- producing the observed inversion.
+
+Formally, if minority gradients have magnitude $k > 1$ times majority gradient magnitude, the minority contribution to the batch mean is $\propto k \cdot n_\text{min} / B$. With $k$ potentially large at epoch 1 due to high minority loss (empirically, loss ROC-AUC = 0.930 on Waterbirds at epoch 1 indicates minority samples incur substantially higher loss than majority, consistent with large $k$, though $k$ is not directly measured here) and $n_\text{min} = 1$, a single minority sample's gradient contribution to the mean may be comparable to the combined majority contribution.
+
+\textbf{Prevalence evidence:} CelebA's weaker inversion (0.246 vs. 0.150) at much lower minority prevalence (~0.8\%) is quantitatively consistent with contamination being proportional to $k \cdot n_\text{min} / B$.
+
+\subsubsection{Alternative Explanations}
+
+\textbf{Gradient compression at last layer:} The Linear(2048, 2) projects to 2 class logits; group-discriminative signal in earlier 2048-dim representations may be destroyed. Penultimate-layer alignment experiments would distinguish this from batch contamination --- this is an immediate next step.
+
+\textbf{ImageNet pretraining:} At epoch 1, both majority and minority samples may produce similar fine-tuning gradients, reducing directional discriminability. This may compound with contamination at early epochs.
+
+These alternatives are not ruled out by the current experiments. The batch contamination hypothesis is supported by the prevalence-dependent pattern across datasets, but definitive separation from these alternatives requires additional ablations.
+
+\subsubsection{The Expected Corrective Direction}
+
+A \textbf{two-pass global mean gradient} is expected to address the root cause:
+\begin{itemize}
+\item Pass 1: Standard ERM training
+\item $Pass 2: Compute \bar{g}_\text{global} = \frac{1}{N}\sum_{i=1}^N g_i over full training set$
+\item Align each sample's gradient against $\bar{g}_\text{global}$ (not per-batch mean)
+\end{itemize}
+
+The global mean is stable, majority-dominated across thousands of samples, and robust to per-batch minority gradient spikes. The annotation-free property is preserved. Computational cost: one additional full-dataset pass per epoch. Whether this correction resolves the inversion remains to be empirically validated.
+
+\subsubsection{Limitations}
+
+\begin{itemize}
+\item \textbf{Single seed (42):} Appropriate for a proof-of-concept existence test; the failure margin (0.27--0.78 gap) is replication-grade.
+\item \textbf{CelebA 16K subsample:} Group composition ratios are preserved by stratified sampling; the conclusion is unchanged.
+\item \textbf{Last layer only:} Cannot conclude alignment fails at all layers; penultimate-layer alignment is untested.
+\item \textbf{Global mean gradient untested:} Identified as the expected corrective direction, but not yet empirically validated.
+\item \textbf{Batch contamination not directly isolated:} The prevalence-dependent pattern across datasets is consistent with contamination, but does not rule out last-layer gradient compression or ImageNet pretraining as alternative or contributing explanations.
+\end{itemize}
+
+\subsubsection{Broader Implications}
+
+The batch contamination failure mode may affect any method using within-batch gradient statistics for minority identification in imbalanced settings. Methods should prefer globally computed gradient reference directions over per-batch statistics when minority prevalence is low and minority samples have high loss.
+

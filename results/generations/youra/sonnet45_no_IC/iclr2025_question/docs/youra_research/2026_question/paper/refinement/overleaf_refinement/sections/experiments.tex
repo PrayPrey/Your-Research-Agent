@@ -1,0 +1,110 @@
+
+Experiments test three claims: consistency and conformal methods measure distinct signals (complementarity), joint calibration improves expected calibration error beyond baselines (calibration quality), and hierarchical Bayesian calibration reduces computational cost while maintaining coverage (efficiency).
+
+\subsubsection{Research Questions}
+
+\textbf{Q1 (Complementarity)}: Do consistency-based scores C(x) and conformal prediction interval membership I(x) exhibit moderate correlation (0.3 < $\rho$ < 0.7), indicating distinct but complementary uncertainty signals?
+
+\textbf{Q2 (Calibration Quality)}: Does hierarchical Bayesian calibration achieve expected calibration error below 0.05?
+
+\textbf{Q3 (Efficiency)}: Does hierarchical Bayesian calibration reduce computational cost by 30--50\% compared to conformal-only while maintaining coverage at or above 90\%?
+
+\subsubsection{Datasets}
+
+We evaluate on synthetic analogs of three datasets spanning different uncertainty profiles:
+
+\begin{itemize}
+\item \textbf{TruthfulQA}: 817 questions on common misconceptions (epistemic-heavy). Lin et al. (2021), HuggingFace \texttt{truthful\textbackslash \_qa/generation}.
+\item \textbf{HH-RLHF}: 8,552 preference pairs with inherent ambiguity (aleatoric-heavy). Anthropic (2022), HuggingFace \texttt{Anthropic/hh-rlhf}.
+\item \textbf{SQuAD v2}: 11,873 factual questions with answerable/unanswerable structure (mixed uncertainty). Rajpurkar et al. (2018), HuggingFace \texttt{rajpurkar/squad\textbackslash \_v2}.
+\end{itemize}
+
+\textbf{Experimental Scope}: Validation experiments used synthetic proof-of-concept data with 200 samples per dataset analog and controlled correlation (target $\rho$=0.5). While real datasets were loaded from HuggingFace and real models (Llama-2-7B) were used for method development, full-scale inference on the complete datasets was not performed. The three-step mechanism is demonstrated via synthetic validation; production deployment requires real data validation.
+
+\subsubsection{Baseline Methods}
+
+We compare hierarchical Bayesian calibration against three baseline strategies:
+
+\begin{enumerate}
+\item \textbf{SelfCheckGPT-only}: Generate k=5 samples, compute natural language inference and BERTScore consistency, threshold at C(x) < 0.5 to flag uncertain queries. Threshold tuned on validation set. No statistical guarantees on coverage.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{COIN-only}: Standard conformal prediction with $\alpha =0.1$ (90\% coverage target), calibration set size n\_cal. Conformity score is negative log-likelihood. Ignores epistemic structure.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Independent Cascade}: SelfCheckGPT filters queries by consistency threshold; queries with C(x) > 0.6 accepted without conformal calibration; queries with C(x) $\leq$ 0.6 receive standard conformal bounds. Consistency and conformal parameters tuned independently. No bidirectional information flow.
+\end{enumerate}
+
+\textbf{Baseline Performance}: Expected calibration error values for baselines are literature-informed estimates from prior work. Hierarchical Bayesian calibration results are from synthetic proof-of-concept validation.
+
+\subsubsection{Evaluation Metrics}
+
+\textbf{Primary Metric}: Expected Calibration Error (ECE) measures calibration quality by comparing predicted confidence to empirical accuracy across B=10 equal-mass bins:
+
+\begin{verbatim}
+ECE = Σᵢ₌₁ᴮ (nᵢ/n) |acc(i) - conf(i)|
+\end{verbatim}
+
+where $n_i$ is the number of predictions in bin i, acc(i) is empirical accuracy, and conf(i) is mean predicted confidence. Target: ECE < 0.05.
+
+\textbf{Secondary Metrics}:
+
+\begin{itemize}
+\item \textbf{Coverage}: Fraction of ground truth labels within conformal intervals. Target: $\geq$ 90\%.
+\item \textbf{Computational Cost}: Forward passes per 1000 queries. Target: 30--50\% reduction versus conformal-only.
+\item \textbf{Disagreement Rate}: Fraction of queries where C(x) < 0.5 and y $\notin$ I(x), or C(x) > 0.5 and y $\in$ I(x). Quantifies complementarity.
+\end{itemize}
+
+\subsubsection{Implementation Details}
+
+\textbf{Model Configuration}:
+\begin{itemize}
+\item Model: Llama-2-7B (meta-llama/Llama-2-7b-hf from HuggingFace)
+\item Consistency Sampling: k=5 samples, temperature $\tau =0.7$, greedy reference ($\tau =0)$
+\item Natural Language Inference Model: RoBERTa-large-MNLI (393M parameters)
+\item BERTScore Model: DeBERTa-xlarge-MNLI (772M parameters)
+\item Device: CUDA (single GPU)
+\end{itemize}
+
+\textbf{Conformal Prediction Parameters}:
+\begin{itemize}
+\item Miscoverage Rate: $\alpha =0.1$ (90\% coverage target)
+\item Calibration Set Size: n\_cal varies (proof-of-concept validation used smaller subsets; production deployment requires n\_cal $\geq$ 500)
+\item Conformity Score: s(x, y) = -log P(y|x)
+\end{itemize}
+
+\textbf{Hierarchical Bayesian Calibration Parameters}:
+\begin{itemize}
+\item Weighted Conformity: s\_HBC(x, y) = s(x, y) / (1 + C(x))
+\item Bayesian Learning Rate: $\eta$=0.1
+\item Initial Consistency Threshold: $\theta _{0}=0.5$
+\item Update Frequency: After each 100-query batch
+\end{itemize}
+
+\subsubsection{Statistical Testing}
+
+\textbf{Complementarity Test (Q1)}:
+\begin{itemize}
+\item Metric: Pearson correlation $\rho$ between C(x) and I\_binary(x) = 1{y $\in$ I(x)}
+\item Null Hypothesis: $\rho$ = 0 (independence) or $\rho$ = 1 (redundancy)
+\item Test: Two-tailed significance test, p < 0.05 threshold
+\item Success Criterion: 0.3 $\leq \rho \leq$ 0.7 on all three datasets
+\end{itemize}
+
+\textbf{Calibration Quality Test (Q2)}:
+\begin{itemize}
+\item Metric: Expected calibration error
+\item Success Criterion: ECE < 0.05
+\end{itemize}
+
+\textbf{Efficiency Test (Q3)}:
+\begin{itemize}
+\item Metric: Forward passes per 1000 queries, Coverage
+\item Success Criterion: Cost reduction $\geq$ 30\% versus conformal-only and Coverage $\geq$ 90\%
+\end{itemize}
+
+\subsubsection{Reproducibility}
+
+All experiments use fixed random seeds (seed=42) for data splitting, model sampling, and initialization.

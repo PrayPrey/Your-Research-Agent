@@ -1,0 +1,59 @@
+
+\subsubsection{3.1 Overview}
+
+The methodology operationalizes a three-step causal mechanism linking hallucination type to optimal aggregation function. Rather than treating aggregation as a hyperparameter to tune empirically, a testable prediction is derived from the mechanism's structure, and four nested experiments verify the mechanism at increasing levels of specificity.
+
+\subsubsection{3.2 Mechanism Hypothesis}
+
+\textbf{Step 1: Hallucination type determines token probability distribution shape.}
+
+Two hallucination types are defined:
+
+\begin{itemize}
+\item \textit{Recall-failure hallucination} (TriviaQA): The model fails to retrieve a specific fact, concentrating uncertainty at the incorrect fact-token. The per-token log-probability sequence is \textit{peaked}: high variance, with a sharp minimum at the fact-token.
+\item \textit{Imitative-falsehood hallucination} (TruthfulQA): The model generates a confidently wrong pattern learned from training. The sequence is \textit{flat}: low variance, uniformly high probability throughout.
+\end{itemize}
+
+Peakedness is measured as: \texttt{peakedness(x) = max(|x|) / mean(|x|)}, where \texttt{x} is the vector of per-token log-probability values.
+
+\textbf{Step 2: Distribution shape determines aggregation function sensitivity.}
+
+\begin{itemize}
+\item \textit{Minimum log-probability} captures the worst-case token. Maximally discriminative for peaked distributions; unreliable for flat ones.
+\item \textit{Mean log-probability} integrates across all tokens. Appropriate for flat distributions; dilutes peaked signals.
+\item \textit{Raw sum log-probability} (unnormalized): equals log P(sequence). Captures length $\times$ per-token confidence jointly.
+\end{itemize}
+
+\textbf{Step 3: Aggregation-distribution alignment produces AUROC differentials.}
+
+Directional predictions:
+\begin{itemize}
+\item \textbf{P1:} AUROC(min) > AUROC(mean) on TriviaQA (factual recall) by $\geq$ 0.02, 95\% CI excluding zero, both models.
+\item \textbf{P2:} AUROC(mean) > AUROC(min) on TruthfulQA (imitative falsehood) by $\geq$ 0.02, 95\% CI excluding zero, both models.
+\item \textbf{P3 (original):} AUROC(raw\_sum) < AUROC(min) and < AUROC(mean) across all benchmarks --- \textit{this prediction was refuted}; see Section 5.4.
+\end{itemize}
+
+\subsubsection{3.3 Models}
+
+Two frozen open-weight LLMs at 7B scale:
+\begin{itemize}
+\item \textbf{LLaMA-2-7B} (\texttt{meta-llama/Llama-2-7b-hf})
+\item \textbf{Mistral-7B-v0.1} (\texttt{mistralai/Mistral-7B-v0.1})
+\end{itemize}
+
+Cross-architecture replication across models with different pretraining corpora and tokenization provides the strongest available generalizability evidence within the 7B parameter scale.
+
+\subsubsection{3.4 Inference Protocol}
+
+Single greedy forward pass: \texttt{do\textbackslash \_sample=False}, \texttt{max\textbackslash \_new\textbackslash \_tokens=30}, \texttt{batch\textbackslash \_size=1}. Batch size 1 is mandatory for numerical correctness under flash\_attention\_2. Per-token log-probabilities are extracted via \texttt{model.generate()} with \texttt{output\textbackslash \_scores=True}; the log-softmax of each step's score tensor at the generated token index provides the log-probability. Scores are negated before AUROC computation (higher negated score = more uncertain = predicted hallucinated). A custom implementation (22/22 unit tests passing) is used in place of lm-polygraph due to hardware and dependency compatibility constraints; all aggregation functions (min, mean, sum) are validated against unit tests. Bootstrap: n=1000, seed=42, percentile method.
+
+\subsubsection{3.5 Hypothesis Design}
+
+Four nested hypotheses verify the mechanism at increasing specificity:
+\begin{itemize}
+\item \textbf{h-e1} (Existence): Do aggregation methods produce different AUROC on any pair? --- \textit{Must-work gate; passed.}
+\item \textbf{h-m1} (Distributional): Do recall-failure hallucinations produce peaked token distributions? --- \textit{Must-work gate; passed on LLaMA-2-7B.}
+\item \textbf{h-m2} (Rank-correlation): Does Spearman $\rho$ confirm the directional advantage at the signal level? --- \textit{Should-work gate; passed.}
+\item \textbf{h-m3} (AUROC threshold): Do P1 and P2 hold at AUROC threshold level? --- \textit{Should-work gate; partial pass (P2 confirmed; P1 confirmed on TriviaQA; NQ data unavailable; P3 refuted).}
+\end{itemize}
+

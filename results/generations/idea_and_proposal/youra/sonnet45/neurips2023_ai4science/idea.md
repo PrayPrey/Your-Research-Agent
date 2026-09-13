@@ -1,0 +1,10 @@
+# Title
+Meta-Learning Physics-Informed Priors for Few-Shot Dynamics Prediction from Sparse, Noisy Observations
+
+# Motivation
+Scientific discovery and robotic deployment often face severe data scarcity: rare physical phenomena yield <100 observations, new robots allow limited safe interactions, and patient-specific biomechanics require expensive motion capture. Current physics-informed learning methods require 1000+ observations per system, while pure meta-learning lacks physical consistency. This creates a critical gap: how can we build accurate dynamics models from <100 noisy measurements while respecting universal physical laws like energy conservation?
+
+# Main Idea
+We propose Meta-PIP (Meta-Learning Physics-Informed Priors), which meta-trains on 100 diverse physical simulations (pendulums, springs, collisions, etc.) to learn universal conservation laws and interaction patterns as reusable initialization parameters. The core innovation combines MAML meta-learning with Hamiltonian neural ODEs that structurally encode energy conservation and dissipation. This creates "artificial core knowledge"—meta-learned priors that constrain the hypothesis space to physically plausible dynamics, enabling rapid specialization.
+
+When deployed on new systems, Meta-PIP adapts from <100 noisy observations (SNR 10-20dB) in <20 gradient steps, achieving <10% trajectory error—a 10× data reduction versus training from scratch. The causal mechanism: diverse meta-training encodes universal physics → constrained search space → few-shot adaptation of system-specific parameters (masses, friction). We validate through controlled experiments comparing Meta-PIP against from-scratch baselines on held-out test systems, measuring trajectory accuracy, adaptation speed, and noise robustness. Applications include rapid robot calibration, rare event modeling, and personalized rehabilitation.

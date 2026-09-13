@@ -1,0 +1,15 @@
+# Conclusion
+
+We opened by asking which uncertainty method practitioners should use for detecting language model errors. Our answer: semantic entropy for factual question answering, with a 13% relative improvement over simpler baselines. But more fundamentally, the question itself needs reframing—from "which method wins" to "what mechanisms explain performance when."
+
+Through controlled ablation with matched computational budgets, we demonstrated that semantic clustering contributes measurably beyond multiple sampling (9-point AUROC improvement). Through systematic correlation analysis, we showed that uncertainty methods capture orthogonal dimensions (maximum correlation 0.21), validating that they measure distinct aspects of model uncertainty. Through honest engagement with a null result, we revealed that error-type characterization requires instance-level features rather than dataset labels.
+
+These findings establish a mechanistic framework for uncertainty estimation research. Rather than proliferating methods without understanding relationships, the field should focus on characterizing when and why existing methods work. Rather than assuming methods are redundant, we should measure independence explicitly. Rather than treating datasets as proxies for error types, we should analyze instance-level signatures.
+
+The immediate path forward includes multi-model validation (testing whether semantic clustering generalizes across GPT, LLaMA, Gemini), full-scale evaluation (moving from 100-sample pilots to complete test sets), and instance-level error partitioning (using model features like verbalized confidence rather than dataset labels). These extensions would strengthen claims and broaden applicability while maintaining the mechanistic approach.
+
+The longer-term vision is more ambitious: adaptive uncertainty estimation that selects methods based on detected error signatures, hybrid approaches that combine orthogonal signals for robust uncertainty quantification, and extension to reasoning tasks and multimodal models. Each advance should be grounded in mechanistic understanding rather than empirical tuning alone.
+
+For practitioners navigating the proliferation of uncertainty methods, our work provides validated guidance: semantic entropy with clustering outperforms simpler baselines, methods measure complementary signals that can be combined, and method selection should match your specific use case rather than assuming results transfer from benchmarks. For researchers developing the next generation of uncertainty estimation, our work provides a template: design ablations that isolate mechanisms, measure independence explicitly, embrace honest negative results, and prioritize understanding over proliferation.
+
+The field's next frontier isn't inventing more methods but understanding when and why existing ones work. This work takes a step toward that goal by moving from "which wins" to "what works where." The mechanistic framework we establish provides a foundation for principled uncertainty estimation—essential as language models move into high-stakes applications where reliability is not optional but critical.

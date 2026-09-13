@@ -1,0 +1,8 @@
+# Title
+Tensor-Train Decomposition for Memory-Efficient Neural Operators: Enabling High-Resolution PDE Solving on Single GPUs
+
+# Motivation
+Fourier Neural Operators (FNOs) revolutionized PDE solving with resolution-invariant learning, but face critical memory bottlenecks at high resolutions. Current FNO implementations require ~32GB for 512³ grids, limiting accessibility to multi-GPU systems and hindering practical deployment in climate modeling, fluid dynamics, and scientific simulations. Existing compression methods like Tucker decomposition suffer from O(R³) scaling that becomes prohibitive in 3D. This research addresses the fundamental challenge of democratizing high-resolution scientific computing by making state-of-the-art neural PDE solvers accessible on standard hardware.
+
+# Main Idea
+We propose TT-FNO: applying Tensor-Train (TT) decomposition to FNO spectral kernels to achieve 8-10x memory reduction (32GB→<5GB) while maintaining <3% accuracy degradation. The core mechanism exploits low-rank structure in spectral convolution kernels through sequential TT-cores, reducing parameters from O(modes³·channels²) to O((modes+channels)·r²) at rank r=40—a 290x reduction avoiding Tucker's cubic bottleneck. We will validate this through: (1) singular value analysis confirming spectral kernel low-rank structure across 3D Navier-Stokes, heat, and wave equations; (2) controlled experiments at 64³-512³ resolutions measuring memory, L² error, and resolution invariance; (3) direct comparison with Tucker FNO at memory-matched configurations. Success enables 512³ simulations on single 16GB GPUs, democratizing high-fidelity scientific ML while preserving FNO's resolution-invariant advantages.

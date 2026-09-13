@@ -1,0 +1,180 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-muPC-Hybrid-v1
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Under conditions where scientific models (PDEs/ODEs) are differentiable or can be approximated differentiably, if bidirectional predictive coding dynamics are applied between scientific models and neural networks with μPC parameterization, then prediction accuracy will improve over unidirectional methods (PINNs, Neural ODEs) AND model parameters will be enhanced bidirectionally, because the symmetric gradient flow via prediction-error dynamics enables mutual co-evolution of both components through iterative equilibration.
+
+**Alternative Hypothesis (H0):**
+Bidirectional predictive coding dynamics between scientific models and neural networks provide no significant improvement over unidirectional methods (PINNs, Neural ODEs) in prediction accuracy or model parameter enhancement, and the additional computational overhead of PC iterations negates any potential benefits.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Scientific Model Component | Independent | Differentiable PDE/ODE solver (torchdiffeq, DeepXDE) encoding physics equations | Heat equation, Burgers equation, Navier-Stokes |
+| Neural Network Component | Independent | μPC-parameterized network (100+ layers feasible) computing prediction errors | 10-100 layers, standard MLP/CNN architectures |
+| Bidirectional Gradient Flow | Independent | Symmetric error propagation with bounded PC iterations per training step | 5-10 iterations, gradient clipping max norm 1.0 |
+| Prediction Accuracy | Dependent | MSE on forward PDE problems | 10-50% improvement over baselines |
+| Model Enhancement | Dependent | Parameter estimation accuracy for inverse problems | 15-30% improvement in parameter recovery |
+| Generalization | Dependent | Out-of-distribution test accuracy on unseen initial/boundary conditions | 10-25% improvement on OOD test sets |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=4 steps):**
+
+```
+Step 1: Scientific Model Prediction
+    ↓
+Step 2: Error Computation & Bidirectional Propagation (μPC)
+    ↓
+Step 3: Iterative Equilibration (5-10 iterations)
+    ↓
+Step 4: Converged Updates → Outcome (Improved Accuracy + Enhanced Parameters)
+```
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Rao & Ballard 1999, Gütlin 2025 | PC's generative model framework maps directly to scientific-ML | Strong |
+| Step 2 → Step 3 | Innocenti 2025 (μPC thesis) | μPC enables stable deep PC training with trust-region-like dynamics | Strong |
+| Step 3 → Step 4 | van Zwol et al. 2024, ICLR 2026 submission | Energy minimization converges with precision-weighted optimization | Medium |
+| Step 4 → Outcome | Free energy principle, DeepXDE benchmarks | Bidirectional error minimization improves both components | Medium |
+
+**Key Tension:**
+- **Tension:** Innocenti 2025 suggests μPC provides competitive performance on "simple tasks," but complex PDEs (turbulent Navier-Stokes) may require more sophisticated handling.
+- **Resolution:** This verification plan tests μPC specifically on progressively complex PDEs to determine if the parameterization maintains stability at scale.
+
+### 1.4 Key Assumptions
+
+| # | Assumption | Evidence | Consequence if Violated |
+|---|------------|----------|------------------------|
+| A1 | Scientific model is differentiable or can be approximated via smooth relaxations | torchdiffeq, DeepXDE demonstrate differentiable physics | Must use surrogate models or REINFORCE-style gradients |
+| A2 | Prediction error signal is informative for both components | PC theory (Rao & Ballard), free energy principle | Falls back to unidirectional method |
+| A3 | μPC dynamics converge within 5-10 iterations per training step | Innocenti 2025 demonstrates 100+ layer convergence | Computational overhead may exceed benefits |
+| A4 | Gradient clipping (max norm 1.0) prevents optimization instability | Standard practice in deep learning | Requires adaptive learning rates or second-order methods |
+
+### 1.5 Scope & Boundaries
+
+**Applies to:**
+- PDE-based scientific models (heat, Burgers, advection-diffusion, laminar Navier-Stokes)
+- ODE systems (dynamical systems, chemical kinetics)
+- Differentiable simulators (robotics, molecular dynamics)
+
+**Does NOT apply to:**
+- Discrete-event simulations
+- Highly stochastic systems
+- Non-differentiable physics without smooth approximations
+- Extremely stiff ODEs
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Prediction Accuracy vs Baselines)**:
+μPC-Hybrid will achieve lower prediction MSE than PINNs on forward PDE problems by at least 15% with statistical significance.
+
+*Measurement*: MSE reduction > 15% with p < 0.05 (paired t-test), n ≥ 20 runs
+*Success Criteria*: MSE reduction > 15% (p < 0.05)
+*Falsification*: MSE reduction ≤ 0% or statistically worse than PINNs
+
+**Secondary Predictions:**
+
+**P2 (Bidirectional Enhancement)**:
+Parameter estimation accuracy on inverse problems will exceed Neural ODE baselines by at least 20%.
+
+**P3 (Generalization)**:
+Out-of-distribution generalization will improve by at least 10% compared to unidirectional methods.
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any occur:
+1. **Primary Failure**: Prediction MSE equal to or worse than PINN baselines
+2. **Mechanism Failure**: μPC iterations fail to converge within budget
+3. **Comparative Failure**: No advantage on ANY dimension
+4. **Stability Failure**: Training becomes unstable despite gradient clipping
+
+### 1.8 Statistical Verification Design
+
+**Sample Size**: n ≥ 20 runs per condition
+**Statistical Test**: Paired t-test, α = 0.05 (one-tailed), Bonferroni correction
+**Effect Size Target**: Cohen's d > 0.8
+**Report Format**: Mean ± Std Dev, 95% CI, Cohen's d, p-value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does bidirectional prediction-error dynamics exist and operate as proposed when μPC-parameterized networks are coupled with differentiable scientific models?"
+- Maps to: Primary prediction (P1)
+- Verification type: Empirical demonstration
+- Critical: MUST PASS for Phase 2B to proceed
+
+**SH2 (Mechanism):**
+"Is the proposed 4-step causal mechanism the actual cause of performance improvement?"
+- Maps to: Causal mechanism (N=4 causal links)
+- Will decompose into 4 sub-hypotheses (H-M1 to H-M4):
+  - H-M1: Physics predictions are correctly generated and differentiable
+  - H-M2: μPC error propagation provides informative gradients to both components
+  - H-M3: Iterative equilibration converges within budget (5-10 iterations)
+  - H-M4: Converged updates improve both scientific model and neural network
+- Verification type: Causal analysis with ablation studies
+
+**SH3 (Comparison):**
+"Does μPC-Hybrid outperform PINNs and Neural ODEs across prediction accuracy, parameter estimation, and generalization?"
+- Maps to: Secondary predictions (P2, P3)
+- Verification type: Comparative empirical evaluation
+
+**Total Sub-Hypotheses for Phase 2B:** 6 (1 + 4 + 1)
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-muPC-Hybrid-v1
+- [x] Confidence level specified: 0.85
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (N=4 steps)
+- [x] Causal chain length (N=4) determined and documented
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist with primary marked
+- [x] Falsification criteria are defined
+- [x] Baselines are identified for comparison
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:** How many GPU-hours for full validation? (Est: 100-500 on A100)
+2. **Implementation Complexity:** μPC + torchdiffeq/DeepXDE integration is novel - engineering challenges?
+3. **Verification Priority:** Recommended order: SH1 (heat eq) → SH2 ablations → SH1 (Burgers) → SH3 comparison
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-12*

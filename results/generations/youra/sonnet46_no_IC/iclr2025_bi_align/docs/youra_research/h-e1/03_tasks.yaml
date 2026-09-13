@@ -1,0 +1,326 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-08-04T08:10:00Z"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ── Priority 94: Environment Setup ──────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Install Python dependencies"
+    description: |
+      Install all required Python packages for the statistical analysis pipeline.
+      Packages: pandas>=1.5, numpy>=1.22, scipy>=1.9, pingouin>=0.5.3,
+      statsmodels>=0.13, matplotlib>=3.5, seaborn>=0.12
+      Verify: import each package and check version; assert pingouin.partial_corr is callable.
+      No GPU or CUDA required — pure CPU statistical analysis.
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - python -c "import pandas, numpy, scipy, pingouin, statsmodels, matplotlib, seaborn; print('OK')"
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#dependencies-pinned"
+
+  # ── Priority 93-50: Epic Implementation Tasks ────────────────────────────────
+  - id: "task-002"
+    epic: "E1-1"
+    title: "Implement data_loader.py: CSV load, NaN drop, N>=200 assert"
+    description: |
+      Implement docs/youra_research/h-e1/code/data_loader.py.
+      Function: load_and_validate(csv_path: str) -> pd.DataFrame
+      Steps:
+        1. pd.read_csv(csv_path)
+        2. df.dropna(subset=['win_rate', 'length_controlled_winrate', 'avg_length'])
+        3. assert len(df) >= 200, f"Expected >=200 models, got {len(df)}"
+        4. return clean df
+      CSV is pre-cached at: docs/data_AlpacaEval_2/weighted_alpaca_eval_gpt4_turbo_leaderboard.csv
+    feature_tag: "data-pipeline"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 5
+    test_requirements: |
+      - Load CSV and assert len >= 200
+      - Assert required columns present: win_rate, length_controlled_winrate, avg_length
+    reference_files:
+      architecture: "03_architecture.md#DataLoader"
+      logic: null
+      config: "03_config.md#constants-inline-in-runexperimentpy"
+
+  - id: "task-003"
+    epic: "E1-2"
+    title: "Implement statistical_analysis.py: VIF + Spearman partial corr + bootstrap"
+    description: |
+      Implement docs/youra_research/h-e1/code/statistical_analysis.py.
+      Three functions:
+        1. compute_vif(df) -> dict[str, float|bool]
+           - statsmodels.stats.outliers_influence.variance_inflation_factor
+           - Returns: {'win_rate': float, 'avg_length': float, 'any_high_vif': bool}
+        2. spearman_partial_corr(df) -> dict
+           - pingouin.partial_corr(x='win_rate', y='length_controlled_winrate',
+             covar='avg_length', method='spearman', alternative='greater')
+           - Returns: {'r_partial': float, 'p_val': float, 'ci95': list, 'n': int}
+        3. bootstrap_partial_corr(df, n_bootstrap=1000, random_state=42) -> tuple
+           - 1000 resamples with replacement via np.random.default_rng(42)
+           - Returns: (ci_lower, ci_upper, boot_rs)
+           - See 03_logic.md for full pseudo-code
+    feature_tag: "evaluation"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - assert 'r_partial' in spearman_partial_corr(df)
+      - assert len(bootstrap_partial_corr(df)[2]) == 1000
+      - assert 'any_high_vif' in compute_vif(df)
+    reference_files:
+      architecture: "03_architecture.md#StatisticalAnalysis"
+      logic: "03_logic.md#subtask-l-2-1-compute_vif"
+      config: "03_config.md#constants-inline-in-runexperimentpy"
+
+  - id: "task-004"
+    epic: "E1-3"
+    title: "Implement gate_evaluator.py: AND-gate logic"
+    description: |
+      Implement docs/youra_research/h-e1/code/gate_evaluator.py.
+      Function: evaluate_gate(r_partial: float, p_val: float, boot_ci_lower: float) -> dict
+      Gate logic: passes = (r_partial > 0) AND (p_val < 0.05) AND (abs(r_partial) >= 0.15)
+      Returns: {'passes_gate': bool, 'r_partial': float, 'p_val': float,
+                'boot_ci_lower': float, 'r_threshold': 0.15, 'alpha': 0.05}
+      No external dependencies — pure boolean logic.
+    feature_tag: "evaluation"
+    priority: 83
+    source_document: "03_architecture.md"
+    complexity: 4
+    test_requirements: |
+      - assert evaluate_gate(0.3, 0.01, 0.1)['passes_gate'] == True
+      - assert evaluate_gate(-0.1, 0.01, 0.1)['passes_gate'] == False
+      - assert evaluate_gate(0.3, 0.06, 0.1)['passes_gate'] == False
+    reference_files:
+      architecture: "03_architecture.md#GateEvaluator"
+      logic: null
+      config: "03_config.md#constants-inline-in-runexperimentpy"
+
+  - id: "task-005"
+    epic: "E1-4"
+    title: "Implement visualizer.py: 5 figures saved to figures/"
+    description: |
+      Implement docs/youra_research/h-e1/code/visualizer.py.
+      Function: save_all_figures(df, boot_rs, vif, corr_result, output_dir) -> list[str]
+      Creates directory docs/youra_research/h-e1/figures/ if not exists.
+      Generate and save 5 figures:
+        fig1: scatter win_rate vs LC_winrate, color by avg_length quartile
+              -> fig1_scatter_winrate_lc.png
+        fig2: partial regression plot (OLS residuals of win_rate and LC_winrate against avg_length)
+              -> fig2_partial_regression.png  (see 03_logic.md L-4-1)
+        fig3: bootstrap histogram of 1000 r_partial values with CI bands
+              -> fig3_bootstrap_distribution.png
+        fig4: VIF bar chart: VIF(win_rate), VIF(avg_length) with threshold line at 5.0
+              -> fig4_vif_diagnostic.png
+        fig5: delta scatter (LC_winrate - win_rate) vs win_rate with trend line
+              -> fig5_delta_scatter.png  (see 03_logic.md L-4-2)
+      Use plt.close(fig) after each save to prevent memory accumulation.
+    feature_tag: "evaluation"
+    priority: 78
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - assert all 5 PNG files exist in figures/ after run
+      - assert each file size > 0 bytes
+    reference_files:
+      architecture: "03_architecture.md#Visualizer"
+      logic: "03_logic.md#subtask-l-4-1-partial-regression-plot"
+      config: "03_config.md#constants-inline-in-runexperimentpy"
+
+  - id: "task-006"
+    epic: "E1-5"
+    title: "Implement report_writer.py: write 04_validation.md"
+    description: |
+      Implement docs/youra_research/h-e1/code/report_writer.py.
+      Function: write_validation_report(gate_result, corr_result, boot_ci, vif, figure_paths, output_path) -> None
+      Output: docs/youra_research/h-e1/04_validation.md
+      Required sections:
+        - Gate Result: PASS or FAIL (prominently at top)
+        - Partial Correlation: r_partial, p_val, CI95, n
+        - Bootstrap CI: [lower, upper] from 1000 resamples
+        - VIF Diagnostic: values for win_rate and avg_length
+        - Figure Paths: list of 5 generated figures
+        - Interpretation: whether H-E1 gate passed and what it means
+        - Routing: if FAIL -> route to Phase 0 per MUST_WORK gate
+    feature_tag: "experiment"
+    priority: 73
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: |
+      - assert Path(OUTPUT_PATH).exists() after run
+      - assert 'PASS' or 'FAIL' in first 200 chars of output
+    reference_files:
+      architecture: "03_architecture.md#ReportWriter"
+      logic: null
+      config: "03_config.md#constants-inline-in-runexperimentpy"
+
+  - id: "task-007"
+    epic: "E1-6"
+    title: "Implement run_experiment.py: wire all modules, CLI entry point"
+    description: |
+      Implement docs/youra_research/h-e1/code/run_experiment.py.
+      Constants (inline at top of file — see 03_config.md):
+        CSV_PATH, FIGURES_DIR, OUTPUT_PATH, N_BOOTSTRAP, RANDOM_STATE, ALPHA, R_THRESHOLD, VIF_WARN
+      main() function pipeline:
+        1. df = load_and_validate(CSV_PATH)
+        2. vif = compute_vif(df)
+        3. corr_result = spearman_partial_corr(df)
+        4. ci_lower, ci_upper, boot_rs = bootstrap_partial_corr(df, N_BOOTSTRAP, RANDOM_STATE)
+        5. gate_result = evaluate_gate(corr_result['r_partial'], corr_result['p_val'], ci_lower)
+        6. figure_paths = save_all_figures(df, boot_rs, vif, corr_result, FIGURES_DIR)
+        7. write_validation_report(gate_result, corr_result, (ci_lower, ci_upper), vif, figure_paths, OUTPUT_PATH)
+        8. print(f"Gate: {'PASS' if gate_result['passes_gate'] else 'FAIL'}")
+        9. sys.exit(0 if gate_result['passes_gate'] else 1)
+      if __name__ == '__main__': main()
+    feature_tag: "experiment"
+    priority: 68
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - python run_experiment.py exits with code 0 or 1
+      - 04_validation.md exists after run
+      - 5 figures exist in figures/ after run
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md"
+      config: "03_config.md#constants-inline-in-runexperimentpy"
+
+  # ── Logic subtasks ───────────────────────────────────────────────────────────
+  - id: "task-008"
+    epic: "E1-2"
+    title: "L-2-1: Implement compute_vif() with multicollinearity guard"
+    description: |
+      Subtask of E1-2 (Statistical Analysis). Implement compute_vif() in statistical_analysis.py.
+      See 03_logic.md#subtask-l-2-1-compute_vif for full pseudo-code.
+      Key: X = df[['win_rate', 'avg_length']].values (numpy array required)
+      Handle math.isinf edge case for perfect collinearity.
+      Return dict: {'win_rate': float, 'avg_length': float, 'any_high_vif': bool}
+    feature_tag: "evaluation"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - assert isinstance(compute_vif(df)['win_rate'], float)
+      - assert 'any_high_vif' in compute_vif(df)
+    reference_files:
+      architecture: "03_architecture.md#StatisticalAnalysis"
+      logic: "03_logic.md#subtask-l-2-1-compute_vif"
+      config: null
+
+  - id: "task-009"
+    epic: "E1-2"
+    title: "L-2-2: Implement bootstrap_partial_corr() with NaN guard"
+    description: |
+      Subtask of E1-2 (Statistical Analysis). Implement bootstrap_partial_corr() in statistical_analysis.py.
+      See 03_logic.md#subtask-l-2-2-bootstrap_partial_corr for full pseudo-code.
+      Use np.random.default_rng(42) (modern numpy API).
+      Do NOT pass alternative='greater' in bootstrap loop — CI is from percentiles.
+      Guard NaN returns from degenerate resamples (skip and log count).
+      Return: (ci_lower, ci_upper, boot_rs) where boot_rs is list of ~1000 floats.
+    feature_tag: "evaluation"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - assert len(bootstrap_partial_corr(df)[2]) >= 990  # allow up to 10 skipped
+      - assert bootstrap_partial_corr(df)[0] < bootstrap_partial_corr(df)[1]
+    reference_files:
+      architecture: "03_architecture.md#StatisticalAnalysis"
+      logic: "03_logic.md#subtask-l-2-2-bootstrap_partial_corr"
+      config: null
+
+  - id: "task-010"
+    epic: "E1-4"
+    title: "L-4-1: Implement partial regression plot (OLS residuals)"
+    description: |
+      Subtask of E1-4 (Visualization). Implement plot_partial_regression() in visualizer.py.
+      See 03_logic.md#subtask-l-4-1-partial-regression-plot for full pseudo-code.
+      Residualize win_rate and LC_winrate against avg_length via statsmodels OLS.
+      sm.add_constant required for proper intercept.
+      Scatter residuals, add OLS trend line via np.polyfit.
+      Annotate with Spearman r and p-value from scipy.stats.spearmanr on residuals.
+      Save to: figures/fig2_partial_regression.png
+    feature_tag: "evaluation"
+    priority: 44
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - assert Path('figures/fig2_partial_regression.png').exists()
+    reference_files:
+      architecture: "03_architecture.md#Visualizer"
+      logic: "03_logic.md#subtask-l-4-1-partial-regression-plot"
+      config: null
+
+  - id: "task-011"
+    epic: "E1-4"
+    title: "L-4-2: Implement delta scatter plot (alignment gap)"
+    description: |
+      Subtask of E1-4 (Visualization). Implement plot_delta_scatter() in visualizer.py.
+      See 03_logic.md#subtask-l-4-2-delta-scatter-plot for full pseudo-code.
+      Compute delta = LC_winrate - win_rate.
+      scipy.stats.linregress for trend line (unpack all 5 return values).
+      axhline(0) as reference for interpreting sign of delta.
+      Annotate slope significance in legend.
+      Save to: figures/fig5_delta_scatter.png
+    feature_tag: "evaluation"
+    priority: 42
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - assert Path('figures/fig5_delta_scatter.png').exists()
+    reference_files:
+      architecture: "03_architecture.md#Visualizer"
+      logic: "03_logic.md#subtask-l-4-2-delta-scatter-plot"
+      config: null
+
+  # ── Priority 1: Failsafe ─────────────────────────────────────────────────────
+  - id: "task-012"
+    epic: "Failsafe"
+    title: "Pipeline continuation checkpoint"
+    description: |
+      Verify Phase 4 experiment completed and update verification_state.yaml.
+      Check: docs/youra_research/h-e1/04_validation.md exists and is non-empty.
+      Update verification_state.yaml:
+        sub_hypotheses.h-e1.validation.status = COMPLETED
+        sub_hypotheses.h-e1.validation.result = PASS or FAIL (from gate)
+        sub_hypotheses.h-e1.completed = true (if PASS)
+      Report gate result to pipeline orchestrator.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks: 4
+  failsafe: 1
+  total: 12

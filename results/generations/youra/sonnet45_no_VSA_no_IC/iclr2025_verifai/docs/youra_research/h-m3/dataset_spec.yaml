@@ -1,0 +1,198 @@
+# Dataset Specification for H-M3
+# Random Mathlib Tactic Sampling Baseline
+
+hypothesis_id: h-m3
+generated: 2026-08-20
+
+dataset:
+  name: miniF2F Lean 4 Test Set
+  type: standard
+  source: google-deepmind/miniF2F
+  repository: https://github.com/google-deepmind/miniF2F
+  version: alphaproof-eval
+
+  size:
+    total: 244
+    split: test
+    validation_available: 244
+
+  problem_sources:
+    AMC: ~73  # 30% - American Mathematics Competition
+    AIME: ~98  # 40% - American Invitational Mathematics Exam
+    IMO: ~73  # 30% - International Mathematical Olympiad
+
+  characteristics:
+    domain: formal_mathematics
+    difficulty: olympiad_level
+    formalization: Lean 4
+    verification_status: fully_verified
+    unprovable_statements: 0
+
+  preprocessing:
+    infrastructure:
+      - Reuse H-E1 setup (already validated)
+      - miniF2F repo cloned and built
+      - Mathlib dependencies cached
+
+    loading:
+      - Parse Minif2f/Test.lean for theorem statements
+      - Extract 244 theorem names
+      - No premise selection (zero-shot)
+
+    excluded: []  # All 244 problems included
+
+  metadata_extraction:
+    source_stratification: optional
+    extraction_method: filename_or_docstring
+    fields:
+      - problem_id
+      - source (AMC/AIME/IMO)
+      - formal_statement
+      - natural_language_docstring
+
+baseline_configuration:
+  prover: Random Mathlib Tactic Sampler
+  implementation: custom
+  lean_version: "4.15.0"
+
+  tactic_distribution:
+    # Empirical weights from Mathlib corpus analysis
+    simp: 0.35
+    rfl: 0.15
+    intro: 0.08
+    intros: 0.04
+    cases: 0.06
+    induction: 0.04
+    ring: 0.04
+    linarith: 0.02
+    omega: 0.02
+    norm_num: 0.03
+    apply: 0.07
+    constructor: 0.03
+    exact: 0.04
+    have: 0.02
+    calc: 0.01
+
+  sampling:
+    method: weighted_random
+    tactic_budget: 15  # From H-E1 recommendation (mean=9.2, buffer=15)
+    goal_selection: random  # When tactic creates multiple subgoals
+    rng_seeding: deterministic  # problem_index → seed
+
+  premise_selection: none  # Zero-shot baseline
+
+  resources:
+    timeout: 300  # seconds per problem
+    memory: 16384  # MB per worker
+    cpu_cores: 8  # Per worker
+    workers: 8  # Parallel execution
+
+metrics:
+  primary:
+    - name: success_rate
+      definition: problems_solved / 244
+      target_range: [0.18, 0.25]
+      predicted: 0.20
+
+    - name: delta_vs_lean_auto
+      definition: success_rate - h_e1_success_rate
+      target_range: [0.03, 0.10]
+      predicted: 0.044
+
+  secondary:
+    - name: tactic_consumption
+      definition: Average evaluations per solved problem
+      range: [1, 15]
+
+    - name: solve_time
+      definition: wall-clock seconds to proof
+      range: [0, 300]
+
+    - name: failure_modes
+      categories:
+        - budget_exhausted
+        - timeout
+        - error
+
+logging:
+  per_problem:
+    - problem_id
+    - source
+    - outcome
+    - wall_clock_time
+    - tactics_used
+    - tactic_sequence
+    - rng_seed
+
+  aggregate:
+    - success_rate
+    - confidence_interval_95
+    - delta_vs_lean_auto
+    - mean_tactic_consumption
+    - median_tactic_consumption
+    - budget_exhausted_count
+    - timeout_count
+    - error_count
+
+expected_outcomes:
+  success_rate:
+    point_estimate: 0.20
+    ci_95: [0.153, 0.255]
+    solved_count: 49
+    budget_exhausted_count: 146
+    timeout_count: 44
+    error_count: 5
+
+  delta_vs_lean_auto:
+    point_estimate: 0.044  # 4.4 percentage points
+    range: [0.03, 0.10]
+    statistical_significance: p < 0.05
+
+  tactic_consumption:
+    mean: 10.0
+    median: 8.0
+    cv: 0.60  # High variance (random sampling)
+    range: [1, 15]
+
+  stratification_by_source:
+    AMC: 0.22  # Easier problems
+    AIME: 0.19
+    IMO: 0.18  # Harder problems
+
+validation:
+  reproducibility:
+    rerun_subset: 24  # 10% of 244
+    match_rate: 1.00  # Deterministic (seeded RNG)
+
+  quality_gates:
+    error_rate_max: 0.05
+    infrastructure_stability: reuses_h_e1
+
+comparison_baseline:
+  h_e1_results:
+    success_rate: 0.156
+    ci_95: [0.115, 0.203]
+    solved_count: 38
+    tactic_count_mean: 9.2
+
+  statistical_test:
+    test: one_proportion_z_test
+    alternative: greater  # Random > lean-auto
+    alpha: 0.05
+
+falsification_criteria:
+  reject_if:
+    - success_rate < 0.15  # No corpus benefit
+    - success_rate > 0.30  # Corpus contribution >> predicted
+    - p_value > 0.05  # Not statistically significant
+
+  pass_if:
+    - success_rate in [0.18, 0.25]
+    - delta in [0.03, 0.10]
+    - p_value < 0.05
+
+references:
+  - miniF2F benchmark (Zheng et al. 2021)
+  - Tidy baseline (Han et al. 2021 PACT)
+  - LeanDojo tactic statistics (Yang & Song 2023)
+  - H-E1 baseline results (verification_state.yaml)

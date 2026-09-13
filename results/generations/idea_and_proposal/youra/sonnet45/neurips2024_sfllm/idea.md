@@ -1,0 +1,8 @@
+# Title
+Entropy-Calibrated Conformal Prediction for Uncertainty Quantification in Auto-Regressive LLM Generation
+
+# Motivation
+Current conformal prediction methods for LLMs (like COPU) assume i.i.d. calibration sets and use static nonconformity measures, failing to handle auto-regressive dependencies in text generation. This limits reliable uncertainty quantification for deployed LLM systems. Existing approaches either require model internals access or provide no coverage guarantees for sequential generation. We need black-box statistical methods that provide valid uncertainty bounds for production LLM APIs while accounting for sequential dependencies.
+
+# Main Idea
+We propose Entropy-Calibrated Conformal Prediction (ECCP), which uses sequential Shannon entropy accumulation as a nonconformity measure under exchangeability assumptions (weaker than i.i.d.). The core mechanism: (1) compute token-wise entropy H(p_t) at each generation step, (2) accumulate entropy along generation paths S(y) = Σ_t H(p_t), (3) calibrate threshold τ via validation set quantiles, (4) construct prediction sets C(x) = {y: S(y) ≤ τ}. This naturally captures generation uncertainty while maintaining O(n) computational complexity. We test on 1000+ samples across summarization, translation, and QA tasks, predicting 90%±2% coverage with ≤10 candidate outputs. The approach requires only token probabilities from LLM APIs, enabling practical deployment with formal coverage guarantees.

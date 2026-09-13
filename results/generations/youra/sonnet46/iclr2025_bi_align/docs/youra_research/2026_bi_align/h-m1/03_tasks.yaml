@@ -1,0 +1,687 @@
+version: "1.1"
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_id_upper: H-M1
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-03-15T00:05:00Z"
+  source_documents:
+    - 03_prd.md
+    - 03_architecture.md
+    - 03_logic.md
+    - 03_config.md
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ── Environment Setup (priority 100) ──────────────────────────────────────
+  - id: task-001
+    epic: Environment Setup
+    title: Setup h-m1 development environment
+    description: |
+      Create h-m1/code/ directory structure. Copy h-e1 modules as base:
+        cp h-e1/code/data_loader.py h-m1/code/
+        cp h-e1/code/embedder.py h-m1/code/
+        cp h-e1/code/controls.py h-m1/code/  (reuse as-is)
+        cp h-e1/code/accommodation.py h-m1/code/
+        cp h-e1/code/statistics.py h-m1/code/
+        cp h-e1/code/visualize.py h-m1/code/
+
+      Verify all packages present (all from h-e1 env, no new installs):
+        sentence-transformers>=2.2.0, datasets>=2.0.0, scipy>=1.7.0,
+        numpy>=1.21, scikit-learn>=1.0, matplotlib>=3.5, seaborn>=0.11,
+        pyyaml>=5.4, torch>=1.9, statsmodels>=0.13, tqdm>=4.62
+
+      Create output directories:
+        mkdir -p h-m1/figures h-m1/embeddings h-m1/outputs
+
+      Set env var: export OPENBLAS_NUM_THREADS=4
+    feature_tag: setup
+    priority: 100
+    source_document: 03_prd.md
+    complexity: null
+    test_requirements: Environment setup does not require tests.
+    reference_files:
+      architecture: "03_architecture.md#File-Organization"
+      logic: null
+      config: "03_config.md#Inherited-Configuration"
+
+  # ── Epic Tasks (priority 99 down) ─────────────────────────────────────────
+  - id: task-002
+    epic: A-1 Per-Tier Data Loading
+    title: Extend data_loader.py with split_by_tier()
+    description: |
+      Extend h-e1 data_loader.py to load 3 RLHF tiers separately.
+      Add split_by_tier(cache_dir: str) -> dict[str, dict] function that:
+        - Loads each of 3 tiers via load_dataset('Anthropic/hh-rlhf', data_dir=tier,
+          verification_mode='no_checks', cache_dir=cache_dir)
+        - Calls existing extract_pairs() per tier
+        - Gates: assert len(pairs['h_next']) >= 1000 per tier (raise ValueError if fails)
+        - Returns {tier_name: {h_next, a_actual, h_prompt, token_counts, jaccard_overlaps}}
+      Tiers: ['helpful-base', 'helpful-rejection-sampled', 'helpful-online']
+      Use verification_mode='no_checks' (REQUIRED — avoids NonMatchingSplitsSizesError)
+    feature_tag: data-pipeline
+    priority: 99
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_data_loader.py
+      - Test split_by_tier() returns 3-key dict
+      - Test each tier has n_pairs >= 1000
+      - Test gate raises ValueError if tier too small
+    reference_files:
+      architecture: "03_architecture.md#DataLoader"
+      logic: "03_logic.md#Epic-A-3-Tier-C_sem-Matrix"
+      config: "03_config.md#DataConfig"
+
+  - id: task-003
+    epic: A-2 Tier-Aware Embedder
+    title: Extend embedder.py with encode_tier()
+    description: |
+      Extend h-e1 embedder.py to add tier-namespaced cache keys.
+      Add encode_tier(texts, prefix, tier, n_pairs) -> np.ndarray method that:
+        - Constructs cache key: f"{prefix}_{model_slug}_{tier}_{n_pairs}"
+          (CRITICAL: include tier slug to prevent stale cache from h-e1)
+        - Tier slugs: helpful-base→"base", helpful-rejection-sampled→"rs", helpful-online→"online"
+        - Delegates to existing encode(texts, cache_key)
+      Note: model_slug derived from self.model_name (e.g., all-MiniLM-L6-v2→"minilm")
+    feature_tag: data-pipeline
+    priority: 98
+    source_document: 03_architecture.md
+    complexity: 8
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_embedder.py
+      - Test encode_tier() cache key includes tier slug
+      - Test different tiers produce different cache keys
+      - Test cache hit/miss behavior
+    reference_files:
+      architecture: "03_architecture.md#Embedder"
+      logic: "03_logic.md#L-3-1"
+      config: "03_config.md#DataConfig"
+
+  - id: task-004
+    epic: A-3 Tier C_sem Matrix
+    title: Extend accommodation.py with compute_tier_csem_matrix()
+    description: |
+      Extend h-e1 accommodation.py to compute C_sem per tier for one SBERT model.
+      Add compute_tier_csem_matrix(tier_pairs, embedder, controls_fn_random,
+                                    controls_fn_topic, seed=42) -> dict[str, dict]:
+        For each tier in TIER_ORDER:
+          1. embedder.encode_tier(h_next, prefix="h", tier=tier, n_pairs=N)
+          2. embedder.encode_tier(a_actual, prefix="a", tier=tier, n_pairs=N)
+          3. embedder.encode_tier(h_prompt, prefix="p", tier=tier, n_pairs=N)
+          4. a_random = controls_fn_random(a_emb, seed=seed)
+          5. a_topic = controls_fn_topic(p_emb, a_emb)
+          6. cos_dict = compute_cosine_similarities(h_emb, a_emb, a_topic, a_random)
+          7. c_sem = compute_c_sem(cos_dict['cos_actual'], cos_dict['cos_random'])
+          8. Log: f"Tier {tier} C_sem computed: {c_sem:.4f}" (REQUIRED for FR-E3)
+        Returns {tier: {c_sem, cos_actual_mean, cos_random_mean, raw_cos_actual,
+                        raw_cos_random, n_pairs}}
+      CRITICAL: raw_cos_actual/raw_cos_random are full arrays (not means) for J-T test
+    feature_tag: model
+    priority: 97
+    source_document: 03_architecture.md
+    complexity: 12
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_accommodation.py
+      - Test compute_tier_csem_matrix() returns 3-tier dict
+      - Test raw_cos_actual is ndarray (not scalar)
+      - Test FR-E3 log message emitted per tier
+    reference_files:
+      architecture: "03_architecture.md#Accommodation"
+      logic: "03_logic.md#L-3-1-compute_tier_csem_matrix"
+      config: "03_config.md#StatisticsConfig"
+
+  - id: task-005
+    epic: A-4 Jonckheere-Terpstra + Bonferroni
+    title: Extend statistics.py with J-T test and Bonferroni Mann-Whitney
+    description: |
+      Extend h-e1 statistics.py with monotonicity test battery.
+      Add jonckheere_terpstra_test(tier_results, tier_order) -> dict:
+        - Extracts raw_cos_actual arrays per tier in tier_order
+        - Calls scipy.stats.jonckheere_terpstra(*ordered_cos, alternative='increasing')
+        - Returns {'jt_statistic': float, 'jt_pvalue': float}
+        - CRITICAL: use raw cosine arrays, NOT OLS residuals (zero mean by construction)
+      Add bonferroni_mannwhitney(tier_results, tier_order, n_bootstrap=1000, seed=42):
+        - 3 pairs: (T1,T2), (T2,T3), (T1,T3)
+        - scipy.stats.mannwhitneyu(alternative='two-sided') per pair
+        - Bonferroni threshold: alpha/3 = 0.0167
+        - bootstrap_cohen_d (existing) per pair
+        - Returns {pair_key: {mw_statistic, mw_pvalue, bonferroni_significant, cohen_d, cohen_d_ci}}
+      Add bootstrap_cohens_d_all_pairs(tier_results, models_results, n=1000, seed=42):
+        - All tier pairs × all models
+    feature_tag: evaluation
+    priority: 96
+    source_document: 03_architecture.md
+    complexity: 14
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_statistics.py
+      - Test J-T returns jt_statistic and jt_pvalue
+      - Test Bonferroni threshold = 0.0167
+      - Test bonferroni_mannwhitney returns 3 pair results
+    reference_files:
+      architecture: "03_architecture.md#Statistics"
+      logic: "03_logic.md#L-4-1-jonckheere_terpstra_test"
+      config: "03_config.md#StatisticsConfig"
+
+  - id: task-006
+    epic: A-5 KS Test + IPW Robustness
+    title: Extend statistics.py with KS test, IPW, consistency check, and activation verifier
+    description: |
+      Add ks_test_tier_distributions(tier_prompt_embeddings, tier_order) -> dict:
+        - Project prompt embeddings to 1D via PCA first component for KS test
+        - scipy.stats.ks_2samp for all 3 tier pairs
+        - Returns {pair_key: {ks_statistic, ks_pvalue, ipw_triggered: bool}}
+        - ipw_triggered = True if ks_pvalue < 0.05
+      Add compute_ipw_csem(tier_results, tier_prompt_embeddings) -> dict[str, float]:
+        - Logistic regression propensity scores for tier membership
+        - Truncate weights at p99
+        - Recompute weighted C_sem per tier
+        - Only called if any KS p < 0.05
+      Add check_model_consistency(all_model_results, jt_alpha=0.05, d_threshold=0.1):
+        - Count models with J-T p < jt_alpha AND max-tier Cohen's d >= d_threshold
+        - Returns {consistent_count, consistent_models, gate_passed: consistent_count >= 2}
+      Add verify_mechanism_activated_m1(all_model_results, experiment_log) -> tuple[bool, dict]:
+        - 5 indicators: tier_logs_found, all_tiers_have_pairs, csem_differs_across_tiers,
+          jt_computed, all_models_ran
+    feature_tag: evaluation
+    priority: 95
+    source_document: 03_architecture.md
+    complexity: 13
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Test KS test returns 3 pair results
+      - Test check_model_consistency gate_passed logic (threshold=2)
+      - Test verify_mechanism_activated_m1 returns tuple (bool, dict)
+    reference_files:
+      architecture: "03_architecture.md#Statistics"
+      logic: "03_logic.md#L-5-1-ks_test_tier_distributions"
+      config: "03_config.md#StatisticsConfig"
+
+  - id: task-007
+    epic: A-6 Tier Visualization Suite
+    title: Extend visualize.py with 7 tier-comparison plot functions
+    description: |
+      Add 7 new plot functions to h-e1 visualize.py:
+      1. plot_tier_csem_bars(all_model_results, figures_dir): 3 subplots, C_sem per tier
+         per model, error bars=bootstrap 95% CI, annotate J-T p-value. FR-V1 MANDATORY.
+         Saves: tier_csem_bars.png
+      2. plot_tier_monotonicity_lines(all_model_results, figures_dir): Line plot
+         C_sem(T1/T2/T3) across 3 models. Saves: tier_monotonicity_lines.png
+      3. plot_cohend_heatmap(pairwise_results, figures_dir): Heatmap tier_pairs × models.
+         Color threshold at d=0.1. Saves: cohend_heatmap.png
+      4. plot_tier_violin(tier_results, primary_model, figures_dir): Violin of raw cosines
+         per tier. Saves: tier_violin.png
+      5. plot_bootstrap_kde_tiers(tier_results, primary_model, figures_dir): KDE of
+         bootstrap C_sem per tier. Saves: bootstrap_kde_tiers.png
+      6. plot_ipw_comparison(raw_csem, ipw_csem, figures_dir): Raw vs IPW C_sem per tier.
+         Only generated if KS triggered. Saves: ipw_comparison.png
+      7. plot_ks_summary(ks_results, figures_dir): KS statistics bar chart.
+         Saves: ks_summary.png
+      All figures save to figures_dir (positional arg, not keyword — verified from h-e1)
+    feature_tag: evaluation
+    priority: 94
+    source_document: 03_architecture.md
+    complexity: 14
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Test plot_tier_csem_bars() saves tier_csem_bars.png (FR-V1 mandatory)
+      - Test plot functions accept figures_dir as positional arg
+      - Use tmp_path fixture for output dir
+    reference_files:
+      architecture: "03_architecture.md#Visualize"
+      logic: "03_logic.md#Epic-A-6-Visualization"
+      config: "03_config.md#VisualizationConfig"
+
+  - id: task-008
+    epic: A-7 Multi-Model Orchestrator
+    title: Implement run_experiment.py — 3-model × 3-tier orchestrator
+    description: |
+      Create new h-m1/code/run_experiment.py (full rewrite of h-e1 pattern):
+      Constants: HYPOTHESIS_ID="h-m1", TIER_ORDER, TIER_SLUGS, MODEL_CONFIGS (3 models)
+      Implement run_experiment(config: dict) -> dict:
+        1. split_by_tier(cache_dir) → tier_pairs
+        2. ks_test_tier_distributions() on prompt embeddings → ipw if triggered
+        3. For each model in MODEL_CONFIGS:
+           a. Init Embedder(model['name'])
+           b. compute_tier_csem_matrix(tier_pairs, embedder, ...)
+           c. jonckheere_terpstra_test() + bonferroni_mannwhitney()
+           d. bootstrap CI per tier
+        4. check_model_consistency() → gate result
+        5. verify_mechanism_activated_m1()
+        6. All 7 visualization plots
+        7. write_results_yaml() + generate_validation_report()
+      Implement run_dry_run(config, n_per_tier=500):
+        - Truncate each tier to first n_per_tier pairs
+        - Run full pipeline on small subset
+      Implement evaluate_gate(all_model_results) -> dict
+      Implement generate_validation_report(results, gate, output_path) -> None
+        - Writes 04_validation.md with gate result, metrics table, per-model details
+      main(): argparse --cache-dir, --output-dir, --dry-run, --n-samples
+      Set OPENBLAS_NUM_THREADS=4 at top (os.environ)
+    feature_tag: experiment
+    priority: 93
+    source_document: 03_architecture.md
+    complexity: 16
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Test run_dry_run() completes without error (n_per_tier=50)
+      - Test evaluate_gate() gate_passed logic (>=2/3 models)
+      - Test generate_validation_report() creates 04_validation.md
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md#L-7-1-run_tier_experiment"
+      config: "03_config.md#ExperimentConfig"
+
+  # ── Logic Subtasks (priority 49 down) ─────────────────────────────────────
+  - id: task-009
+    epic: A-7 subtask
+    title: "L-7-1: Implement run_tier_experiment() API"
+    description: |
+      Implement run_tier_experiment(config: dict) -> dict main entry point.
+      config keys: cache_dir, output_dir, n_samples_dry_run, dry_run (bool).
+      Returns all_model_results: {model_slug: {tier_results, jt, pairwise, consistency}}.
+      Nested loop: outer=MODEL_CONFIGS, inner=TIER_ORDER.
+      Collect all before gate evaluation.
+    feature_tag: experiment
+    priority: 49
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: |
+      Covered by task-008 (run_experiment parent epic).
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md#L-7-1-run_tier_experiment"
+      config: null
+
+  - id: task-010
+    epic: A-7 subtask
+    title: "L-7-2: Implement evaluate_gate() → GateResult"
+    description: |
+      Implement evaluate_gate(all_model_results: dict) -> dict (GateResult):
+        Returns {gate_passed: bool, consistent_count: int,
+                 consistent_models: list[str], details: dict}
+        Gate: consistent_count >= 2 (>=2/3 models pass J-T p<0.05 AND d>=0.1)
+        Details include per-model J-T p-value and max Cohen's d.
+    feature_tag: evaluation
+    priority: 48
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-008.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-7-2-evaluate_gate"
+      config: "03_config.md#StatisticsConfig"
+
+  - id: task-011
+    epic: A-7 subtask
+    title: "L-7-3: Implement generate_validation_report()"
+    description: |
+      Implement generate_validation_report(results, gate, output_path) -> None.
+      Writes 04_validation.md (FR-E5) with:
+        - Gate result header (PASS/FAIL)
+        - C_sem per tier per model table
+        - J-T statistic and p-value per model
+        - Cohen's d per tier pair per model
+        - Model consistency summary
+        - Mechanism activation indicators (5 indicators)
+        - Key findings bullets
+      Output path: {output_dir}/04_validation.md
+    feature_tag: evaluation
+    priority: 47
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-008.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-7-3-generate_validation_report"
+      config: null
+
+  - id: task-012
+    epic: A-7 subtask
+    title: "L-7-4: Implement run_dry_run()"
+    description: |
+      Implement run_dry_run(config: dict, n_per_tier: int = 500) -> dict.
+      Truncates each tier to first n_per_tier pairs before running full pipeline.
+      Uses same config as run_experiment() but with smaller data subset.
+      Purpose: fast pre-flight check (~2-5 min vs ~60 min full).
+      Returns same structure as run_experiment() for validation.
+    feature_tag: experiment
+    priority: 46
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-008.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-7-4-run_dry_run"
+      config: "03_config.md#ExperimentConfig"
+
+  - id: task-013
+    epic: A-4 subtask
+    title: "L-4-1: Implement jonckheere_terpstra_test()"
+    description: |
+      Implement jonckheere_terpstra_test(tier_results, tier_order) -> dict:
+        ordered_cos = [tier_results[t]['raw_cos_actual'] for t in tier_order]
+        jt = scipy.stats.jonckheere_terpstra(*ordered_cos, alternative='increasing')
+        return {'jt_statistic': jt.statistic, 'jt_pvalue': jt.pvalue}
+      CRITICAL: use raw_cos_actual arrays (NOT OLS residuals).
+      Requires scipy >= 1.7.0 (jonckheere_terpstra added in 1.7).
+    feature_tag: evaluation
+    priority: 45
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-005.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-4-1-jonckheere_terpstra_test"
+      config: "03_config.md#StatisticsConfig"
+
+  - id: task-014
+    epic: A-4 subtask
+    title: "L-4-2: Implement bonferroni_mannwhitney()"
+    description: |
+      Implement bonferroni_mannwhitney(tier_results, tier_order, n_bootstrap=1000, seed=42):
+        BONFERRONI_ALPHA = 0.05 / 3  # = 0.0167
+        pairs = [(T1,T2), (T2,T3), (T1,T3)]
+        For each pair:
+          mw = scipy.stats.mannwhitneyu(arr_a, arr_b, alternative='two-sided')
+          d, d_ci = bootstrap_cohen_d(arr_a, arr_b, n_bootstrap, seed)
+          bonferroni_significant = mw.pvalue < BONFERRONI_ALPHA
+        Returns {f"{t1}_vs_{t2}": {mw_statistic, mw_pvalue, bonferroni_significant,
+                                    cohen_d, cohen_d_ci}}
+    feature_tag: evaluation
+    priority: 44
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-005.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-4-2-bonferroni_mannwhitney"
+      config: "03_config.md#StatisticsConfig"
+
+  - id: task-015
+    epic: A-4 subtask
+    title: "L-4-3: Implement bootstrap_cohens_d_all_pairs()"
+    description: |
+      Implement bootstrap_cohens_d_all_pairs(tier_results, models_results, n=1000, seed=42):
+        For each model_slug × tier_pair combination:
+          d, d_ci = bootstrap_cohen_d(arr_a['raw_cos_actual'], arr_b['raw_cos_actual'],
+                                      n_bootstrap=n, seed=seed)
+        Returns nested dict: {model_slug: {pair_key: {cohen_d, cohen_d_ci}}}
+        Used for cross-model consistency reporting.
+    feature_tag: evaluation
+    priority: 43
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-005.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-4-3-bootstrap_cohens_d_all_pairs"
+      config: null
+
+  - id: task-016
+    epic: A-3 subtask
+    title: "L-3-1: Implement compute_tier_csem_matrix() with FR-E3 logging"
+    description: |
+      Full implementation of compute_tier_csem_matrix() as specified in task-004.
+      Key FR-E3 requirement: emit log message per tier:
+        logging.info(f"Tier {tier} C_sem computed: {c_sem:.4f}")
+      Return structure must include raw_cos_actual (ndarray) per tier —
+      required for jonckheere_terpstra_test() downstream.
+    feature_tag: model
+    priority: 42
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-004.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-3-1-compute_tier_csem_matrix"
+      config: "03_config.md#DataConfig"
+
+  - id: task-017
+    epic: A-3 subtask
+    title: "L-3-2: Implement aggregate_model_results()"
+    description: |
+      Implement aggregate_model_results(all_model_results: dict) -> dict:
+        Creates summary matrix [3 models × 3 tiers] of C_sem values.
+        Returns {
+          'csem_matrix': {model_slug: {tier: c_sem}},
+          'mean_csem_per_tier': {tier: mean across models},
+          'tier_order_consistent': bool  (all models show T1 < T2 < T3 direction)
+        }
+        Used in validation report generation.
+    feature_tag: evaluation
+    priority: 41
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-004.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-3-2-aggregate_model_results"
+      config: null
+
+  - id: task-018
+    epic: A-5 subtask
+    title: "L-5-1: Implement ks_test_tier_distributions() with PCA-1 projection"
+    description: |
+      Implement ks_test_tier_distributions(tier_prompt_embeddings, tier_order):
+        PCA projection: reduce each tier's prompt embeddings to 1D (first component)
+          pca = sklearn.decomposition.PCA(n_components=1)
+          pca.fit(np.vstack([tier_prompt_embeddings[t] for t in tier_order]))
+          proj = {t: pca.transform(emb).ravel() for t, emb in tier_prompt_embeddings.items()}
+        3 pair KS tests: ks_2samp(proj[t1], proj[t2]) for all pairs
+        ipw_triggered = any(ks_result.pvalue < 0.05)
+        Returns {pair_key: {ks_statistic, ks_pvalue, ipw_triggered}}
+    feature_tag: evaluation
+    priority: 40
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-006.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-5-1-ks_test_tier_distributions"
+      config: "03_config.md#StatisticsConfig"
+
+  - id: task-019
+    epic: A-5 subtask
+    title: "L-5-2: Implement compute_ipw_csem() with logistic propensity"
+    description: |
+      Implement compute_ipw_csem(tier_results, tier_prompt_embeddings) -> dict[str, float]:
+        Fit logistic regression for each tier vs others (one-vs-rest).
+        Propensity score = P(tier=t | prompt_embedding).
+        IPW weight per sample = 1 / P(tier=t | x); truncate at 99th percentile.
+        Recompute C_sem: weighted_mean(cos_actual) - weighted_mean(cos_random).
+        Returns {tier_name: ipw_c_sem}.
+        Only called when any KS p < 0.05 (triggered flag from ks_test results).
+    feature_tag: evaluation
+    priority: 39
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-006.
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#L-5-2-compute_ipw_csem"
+      config: "03_config.md#StatisticsConfig"
+
+  # ── Config Subtasks (priority 38 down) ────────────────────────────────────
+  - id: task-020
+    epic: A-6 subtask
+    title: "C-6-1: Implement VisualizationConfig dataclass"
+    description: |
+      Add VisualizationConfig dataclass to config.py (or top of visualize.py):
+      @dataclass
+      class VisualizationConfig:
+          figure_size: tuple = (12, 5)
+          figure_size_wide: tuple = (18, 6)
+          dpi: int = 150
+          font_size_title: int = 14
+          font_size_label: int = 11
+          font_size_tick: int = 9
+          ci_alpha: float = 0.3        # transparency for CI shading
+          save_format: str = "png"
+          figures_dir: str = "figures"
+    feature_tag: evaluation
+    priority: 38
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: Covered by task-007.
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#VisualizationConfig"
+
+  - id: task-021
+    epic: A-6 subtask
+    title: "C-6-2: Implement tier color mapping config"
+    description: |
+      Add tier color and label constants (module-level in visualize.py or config.py):
+      TIER_COLORS = {
+          'helpful-base': '#4878CF',         # blue (T1 lowest)
+          'helpful-rejection-sampled': '#6ACC65',  # green (T2 middle)
+          'helpful-online': '#D65F5F',       # red (T3 highest)
+      }
+      TIER_LABELS = {
+          'helpful-base': 'T1: Base',
+          'helpful-rejection-sampled': 'T2: Rejection-Sampled',
+          'helpful-online': 'T3: Online',
+      }
+      TIER_ORDER = ['helpful-base', 'helpful-rejection-sampled', 'helpful-online']
+      MODEL_DISPLAY_NAMES = {
+          'minilm': 'MiniLM-L6-v2',
+          'paraphrase': 'Paraphrase-MiniLM',
+          'mpnet': 'MPNet-base-v2',
+      }
+    feature_tag: evaluation
+    priority: 37
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: Covered by task-007.
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#VisualizationConfig"
+
+  - id: task-022
+    epic: A-6 subtask
+    title: "C-6-3: Implement plot output path helper"
+    description: |
+      Add get_figure_path(figures_dir: str, plot_type: str, model_slug: str = None) -> str:
+        if model_slug:
+            return os.path.join(figures_dir, f"{plot_type}_{model_slug}.png")
+        else:
+            return os.path.join(figures_dir, f"{plot_type}.png")
+      Naming convention:
+        tier_csem_bars.png, tier_monotonicity_lines.png, cohend_heatmap.png,
+        tier_violin.png, bootstrap_kde_tiers.png, ipw_comparison.png, ks_summary.png
+      Create figures_dir if not exists (os.makedirs(figures_dir, exist_ok=True))
+    feature_tag: evaluation
+    priority: 36
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: Covered by task-007.
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#VisualizationConfig"
+
+  - id: task-023
+    epic: A-1 subtask
+    title: "C-1-1: Implement DataConfig dataclass"
+    description: |
+      Add DataConfig dataclass:
+      @dataclass
+      class DataConfig:
+          cache_dir: str = ".data_cache/datasets/hh-rlhf"
+          embeddings_dir: str = "embeddings"
+          tier_names: list = field(default_factory=lambda: [
+              'helpful-base', 'helpful-rejection-sampled', 'helpful-online'])
+          tier_ranks: dict = field(default_factory=lambda: {
+              'helpful-base': 1, 'helpful-rejection-sampled': 2, 'helpful-online': 3})
+          tier_slugs: dict = field(default_factory=lambda: {
+              'helpful-base': 'base', 'helpful-rejection-sampled': 'rs',
+              'helpful-online': 'online'})
+          min_n_pairs_per_tier: int = 1000
+          batch_size: int = 256         # verified from h-e1 embedder.py
+          knn_k: int = 5               # verified from h-e1 run_experiment.py line 151
+          knn_n_jobs: int = 1          # CRITICAL — never change (OpenBLAS crash)
+          shuffle_seed: int = 42       # verified from h-e1 controls.py
+          verification_mode: str = "no_checks"  # required for HH-RLHF loading
+    feature_tag: data-pipeline
+    priority: 35
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: Covered by task-002.
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#DataConfig"
+
+  - id: task-024
+    epic: A-1 subtask
+    title: "C-1-2: Implement ExperimentConfig top-level dataclass"
+    description: |
+      Add top-level ExperimentConfig combining all sub-configs:
+      @dataclass
+      class StatisticsConfig:
+          bootstrap_n: int = 1000      # verified from h-e1
+          bootstrap_seed: int = 42
+          significance_level: float = 0.05
+          bonferroni_n_tests: int = 3
+          bonferroni_alpha: float = field(init=False)  # = 0.05/3 = 0.0167
+          cohen_d_threshold: float = 0.1
+          jt_p_threshold: float = 0.05
+          ks_p_threshold: float = 0.05   # trigger IPW if any KS p < this
+          model_consistency_threshold: int = 2  # >=2/3 models must pass
+
+      @dataclass
+      class ExperimentConfig:
+          hypothesis_id: str = "h-m1"
+          data: DataConfig = field(default_factory=DataConfig)
+          stats: StatisticsConfig = field(default_factory=StatisticsConfig)
+          viz: VisualizationConfig = field(default_factory=VisualizationConfig)
+          output_dir: str = "outputs"
+          dry_run: bool = False
+          dry_run_n_per_tier: int = 500
+          models: list = field(default_factory=lambda: [
+              {"name": "all-MiniLM-L6-v2", "slug": "minilm", "role": "primary"},
+              {"name": "paraphrase-MiniLM-L6-v2", "slug": "paraphrase", "role": "robustness1"},
+              {"name": "all-mpnet-base-v2", "slug": "mpnet", "role": "robustness2"},
+          ])
+    feature_tag: data-pipeline
+    priority: 34
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: Covered by task-002.
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#ExperimentConfig"
+
+  # ── Failsafe (priority 1) ─────────────────────────────────────────────────
+  - id: task-025
+    epic: Pipeline Management
+    title: Pipeline Continuation Checkpoint
+    description: /full-pipeline-unattended - FAILSAFE CONTINUATION TASK
+    feature_tag: pipeline-continue
+    priority: 1
+    source_document: system
+    complexity: null
+    test_requirements: Failsafe task does not require tests.
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 7
+  subtasks: 16
+  failsafe: 1
+  total: 25

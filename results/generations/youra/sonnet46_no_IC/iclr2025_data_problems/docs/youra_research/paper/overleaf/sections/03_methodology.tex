@@ -1,0 +1,69 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Our approach is motivated by the insight that scale-dependent optimal curation can only be detected through a factorial experiment that simultaneously varies model scale and curation aggressiveness. Single-scale ablations are structurally unable to detect the interaction. We describe our experimental pipeline in three components: data curation, model training, and evaluation.
+
+\subsection{Experimental Design}
+
+We employ a fully factorial design:
+
+\begin{itemize}
+\item \textbf{Perplexity filtering thresholds:} $\tau \in \{20, 35, 50\}$ (GPT-2 reference model)
+\item \textbf{Deduplication levels:} $J \in \{0.7 \text{ (strict)}, 0.9 \text{ (loose)}\}$ (MinHash Jaccard similarity threshold)
+\item \textbf{Model scales:} $\{14\text{M}, 31\text{M}\}$ parameters (Pythia architecture)\footnote{Following the Pythia nomenclature; actual parameter counts are approximately 7.9M and 18.1M respectively. The scale ratio based on actual counts is approximately 2.29$\times$, consistent with the nominal 2.2$\times$ figure used throughout.}
+\item \textbf{Seeds:} $\{1, 2\}$
+\end{itemize}
+
+This yields $3 \times 2 \times 2 \times 2 = 24$ training runs. All runs share the same base corpus, architecture family, optimizer, and training protocol --- isolating curation configuration as the sole independent variable.
+
+\textbf{Design Rationale:} The 14M/31M scale pair was chosen after scope reduction from the originally planned 70M/160M $\times$ 50B tokens experiment. The 7M/16M proxy models used in the initial proof-of-concept (h-e1) produced no statistical signal --- establishing empirically that scale-dependent effects require a minimum capacity threshold. A 2.2$\times$ scale ratio at 14M/31M provides sufficient separation for the capacity-quality trade-off to manifest at tractable compute (approximately 2--3 days on H100 GPU).
+
+\subsection{Data Curation Pipeline}
+
+\textbf{Corpus:} FineWeb~\cite{Penedo2025FineWeb2} (HuggingFace: \texttt{HuggingFaceFW/fineweb}, \texttt{sample-10BT} subset). We stream 50,000 documents from FineWeb and apply GPT-2 perplexity scoring. For computing retention statistics and the curation pool used in ablation, we score a representative sample of 5,000 documents:
+
+\textbf{Perplexity Filtering:} We compute document-level perplexity using GPT-2 (117M parameters) as the reference model. Documents with perplexity above threshold $\tau$ are discarded. Applied to the 5,000-document scored sample, this yields:
+
+\begin{itemize}
+\item $\tau{=}20$: 176/5,000 documents retained (3.5\%)
+\item $\tau{=}35$: approximately 800/5,000 documents retained ($\sim$16\%)
+\item $\tau{=}50$: 2,074/5,000 documents retained (41.5\%)
+\end{itemize}
+
+The full 50,000-document stream is used to build each training corpus, with filtered documents repeat-sampled to reach the 1B token budget. \textbf{Note:} At $\tau{=}20$, the filtered corpus contains approximately 350K tokens; reaching the 1B-token training budget requires approximately 2,800$\times$ repetition of this filtered data. The effect of this extreme repetition on representation diversity is not controlled for in this experiment (see L5, Section~\ref{sec:discussion}).
+
+\textbf{Deduplication:} We apply MinHash-based near-duplicate removal at $J{=}0.7$ (strict) and $J{=}0.9$ (loose) via NeMo-Curator (with exact-substring dedup as fallback when GPU deduplication is unavailable).
+
+\textbf{Token budget:} 1 billion tokens per training run (repeat-sampled from the filtered corpus).
+
+\subsection{Model Training}
+
+We train Pythia-architecture transformer models~\cite{Biderman2023Pythia} at two scales (14M and 31M parameters, nominal) with identical configuration:
+
+\begin{table}[h]
+\centering
+\caption{Training Hyperparameters}
+\label{tab:hyperparams}
+\begin{tabular}{ll}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+Optimizer & AdamW \\
+Learning rate & 1e-3 \\
+LR schedule & Cosine decay to 1e-4 \\
+Batch size & 131,072 tokens \\
+Training steps & 500 \\
+Warmup steps & 50 \\
+Context length & 2048 tokens \\
+Total tokens & $\sim$1B (repeat-sampled) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evaluation}
+
+\textbf{Metric:} HellaSwag 0-shot accuracy (\texttt{acc\_norm}), evaluated using lm-evaluation-harness~\cite{Gao2021Harness} on the full 10,003-example validation set. Random baseline $= 0.25$.
+
+\textbf{Why HellaSwag:} MMLU 4-shot accuracy equals the random baseline for all sub-100M models at 200--500 training steps (confirmed in h-e1 proof-of-concept). HellaSwag 0-shot shows variance above random at 14M--31M parameters at this training duration.
+
+\textbf{Gate criteria:} \texttt{direction\_confirmed} ($\tau^*(14\text{M}) \leq \tau^*(31\text{M})$), \texttt{above\_random} (all \texttt{acc\_norm} $> 0.25$), \texttt{interaction\_exists} ($\tau^*(14\text{M}) \neq \tau^*(31\text{M})$).

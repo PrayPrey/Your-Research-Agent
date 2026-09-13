@@ -1,0 +1,23 @@
+# 1. Introduction
+
+Machine learning reproducibility faces a fundamental challenge: datasets evolve, but researchers often work with outdated versions without realizing it. When ImageNet classifiers trained on the original dataset were tested on ImageNet-v2, accuracy dropped by 11-14% [Recht et al., 2019]—not because the models were flawed, but because subtle distribution shifts between dataset versions went undetected. This "silent failure" mode wastes researcher time and undermines scientific validity, contributing to reproducibility rates as low as 60-70% in ML research [Gundersen & Kjensmo, 2018].
+
+Existing dataset versioning tools provide infrastructure for tracking changes—DVC offers Git-like snapshots, HuggingFace uses revision IDs—but these systems treat versions as opaque identifiers without semantic meaning. A researcher encountering version `rev=a3f7b2d` has no way to know whether this represents a breaking change requiring model retraining or a minor documentation update. Software engineering solved this problem decades ago with semantic versioning (MAJOR.MINOR.PATCH), where version numbers convey impact: MAJOR versions break backward compatibility, MINOR versions add features, PATCH versions fix bugs. Could we adapt this framework to datasets, where "breaking changes" are distribution shifts that degrade model performance rather than API incompatibilities?
+
+**Our hypothesis:** Statistical drift detection—comparing dataset versions with Kolmogorov-Smirnov (KS) tests and Maximum Mean Discrepancy (MMD)—can automatically classify version changes as MAJOR, MINOR, or PATCH using fixed thresholds derived from computer vision literature. Specifically, we test whether thresholds of 7% (MAJOR), 2% (MINOR), and 0.5% (PATCH) drift, calibrated from ImageNet studies, can generalize across datasets to achieve ≥85% classification accuracy with ≥70% precision.
+
+**Spoiler:** They fail catastrophically. Our experiments on 9 real dataset pairs (1 vision, 8 NLP) achieve only 44.4% accuracy—barely above random chance for 3 classes. More strikingly, we observe a **100% false positive rate on PATCH-level changes**: all 5 datasets labeled as minor updates exceeded the MAJOR threshold, misclassified as breaking changes. This surprising failure mode reveals a fundamental insight: drift magnitude is dataset-relative, not absolute. A 0.79 drift score means "breaking change" for one dataset but "patch-level tweak" for another, invalidating the assumption that universal thresholds can exist.
+
+**Why this negative result matters:** We provide the first empirical evidence that ImageNet-derived thresholds do not transfer to NLP benchmarks, with quantitative evidence of systematic failure (16.7% precision vs 70% target, -53.3 percentage point gap). This falsifies the intuitive hypothesis that statistical drift magnitude alone can determine version severity and redirects future research toward adaptive per-dataset calibration, supervised learning from labeled version pairs, or performance-based ground truth rather than purely statistical approaches.
+
+**Contributions:**
+
+1. **Empirical falsification** of fixed-threshold semantic versioning: We demonstrate that thresholds derived from ImageNet literature (7%/2%/0.5%) fail on NLP datasets, achieving random-level accuracy (44.4%) and 100% false positive rate on PATCH labels.
+
+2. **Quantitative evidence** of cross-modality mis-calibration: We measure 20× variance in drift scores (0.04-0.79) across datasets with similar ground truth severity labels, showing that "high drift" is relative rather than absolute.
+
+3. **Mechanistic insight** into why fixed thresholds fail: Frozen feature extractors (ResNet-50, BERT-base) optimized for transfer learning are too robust to detect version-level distribution shifts, and dataset-specific drift baselines vary by orders of magnitude.
+
+4. **Constructive redirection** of future work: We propose three alternative approaches—adaptive threshold calibration with performance-based validation, supervised classification from labeled version pairs, or using actual model performance degradation as ground truth—each addressing specific failure modes identified in our experiments.
+
+**Paper organization:** Section 2 surveys related work on dataset versioning, drift detection, and semantic versioning systems. Section 3 describes our SVAD (Semantic Versioning with Adaptive Drift-Based Deprecation) system design and experimental protocol. Section 4 details our dataset selection and evaluation metrics. Section 5 presents results including the 100% PATCH misclassification finding. Section 6 analyzes root causes and discusses implications. Section 7 concludes with lessons learned and future directions.

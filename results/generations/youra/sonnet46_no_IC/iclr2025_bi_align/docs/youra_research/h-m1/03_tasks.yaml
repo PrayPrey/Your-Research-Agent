@@ -1,0 +1,412 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  base_hypothesis: h-e1
+  created_at: "2026-08-04"
+  description: "Standardized OLS dominance analysis: |β_win_rate_std| > |β_avg_length_std| on AlpacaEval 2.0 (N=222)"
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 11
+  subtasks: 14
+  failsafe: 1
+  total: 27
+
+tasks:
+  # ── Environment Setup ──────────────────────────────────────────────────────
+  - id: ENV-1
+    title: "Environment Setup"
+    type: setup
+    priority: 94
+    description: |
+      Install Python dependencies for h-m1.
+      pip install pandas numpy scipy statsmodels scikit-learn matplotlib seaborn
+      Note: scikit-learn added vs h-e1; pingouin NOT needed.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "## Environment Setup"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "## 7. Dependencies"
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "statsmodels.stats.outliers_influence.variance_inflation_factor importable"
+      - "sklearn.inspection.permutation_importance importable"
+
+  # ── Epic Tasks ─────────────────────────────────────────────────────────────
+  - id: A-1
+    title: "Project Setup"
+    type: setup
+    priority: 93
+    complexity: 4
+    description: |
+      Create h-m1 directory structure and constants file.
+      Directories: docs/youra_research/h-m1/code/, docs/youra_research/h-m1/figures/
+      Constants (inline in run_experiment.py): CSV_PATH, FIGURES_DIR, OUTPUT_PATH,
+      RANDOM_STATE=42, ALPHA=0.05, VIF_THRESHOLD=5.0, N_REPEATS=30, N_MIN=200
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_architecture.md"
+        section: "## File Organization"
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "## h-m1 Constants"
+    acceptance_criteria:
+      - "code/ and figures/ directories exist"
+      - "constants defined in run_experiment.py"
+
+  - id: A-2
+    title: "Data Loader"
+    type: data-pipeline
+    priority: 92
+    complexity: 6
+    description: |
+      Implement data_loader.py with load_and_validate() and standardize().
+      load_and_validate: read CSV with index_col=0, dropna on 3 columns, assert N>=200.
+      standardize: add win_rate_std and avg_length_std via separate StandardScaler instances.
+      Assert mean~0, std~1 for each standardized column.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-2: Data Loader"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "## 4. Data Specification"
+    acceptance_criteria:
+      - "load_and_validate returns DataFrame with N>=200"
+      - "standardize adds win_rate_std and avg_length_std"
+      - "mean of standardized cols < 1e-10, std within 1e-6 of 1.0"
+
+  - id: A-3
+    title: "VIF Diagnostic"
+    type: model
+    priority: 91
+    complexity: 5
+    description: |
+      Implement compute_vif() in ols_analysis.py.
+      Uses standardized columns (win_rate_std, avg_length_std).
+      Returns: {win_rate: float, avg_length: float, any_high_vif: bool}
+      Handles inf VIF edge case via math.isinf check.
+      Expected from h-e1: win_rate≈1.764, avg_length≈1.764 → any_high_vif=False.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-3: VIF Diagnostic"
+      - file: "docs/youra_research/h-m1/02c_experiment_brief.md"
+        section: "### Exa GitHub Implementations"
+    acceptance_criteria:
+      - "Returns dict with win_rate, avg_length, any_high_vif keys"
+      - "VIF values match h-e1 result (~1.764) within 0.1"
+      - "any_high_vif=False for expected VIF<5"
+
+  - id: A-4
+    title: "Baseline OLS"
+    type: model
+    priority: 90
+    complexity: 7
+    description: |
+      Implement fit_baseline_ols() in ols_analysis.py.
+      OLS: LC_winrate ~ avg_length_std (verbosity-only null model).
+      Returns: {beta_avg_length: float, r2: float, pvalue: float}
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-4: Baseline OLS"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "### FR-4: Verbosity-Only Baseline"
+    acceptance_criteria:
+      - "Returns dict with beta_avg_length, r2, pvalue"
+      - "R² lower than full model R²"
+
+  - id: A-5
+    title: "Full Standardized OLS"
+    type: model
+    priority: 89
+    complexity: 9
+    description: |
+      Implement fit_full_ols() in ols_analysis.py.
+      OLS: LC_winrate ~ win_rate_std + avg_length_std.
+      Returns: beta_win, beta_len, p_win, p_len, r2, r2_adj, residuals (ndarray), fitted (ndarray), _model.
+      Note: beta_win and beta_len are SIGNED (not abs) — gate_evaluator applies abs().
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-5: Full OLS"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "### FR-5: Standardized OLS"
+    acceptance_criteria:
+      - "Returns all required dict keys"
+      - "|beta_win| >> |beta_len| (expected from h-e1 r_partial=0.9851)"
+      - "residuals shape == (N,)"
+
+  - id: A-6
+    title: "OLS Diagnostics"
+    type: evaluation
+    priority: 88
+    complexity: 8
+    description: |
+      Implement run_ols_diagnostics() in ols_analysis.py.
+      Breusch-Pagan test via statsmodels.stats.diagnostic.het_breuschpagan.
+      Uses ols_result['_model'].model.exog as exogenous matrix.
+      Returns: {bp_stat: float, bp_pvalue: float, heteroscedastic: bool}
+      Also implement run_permutation_fallback() in same file for VIF>=5 path.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-6: OLS Diagnostics"
+    acceptance_criteria:
+      - "Breusch-Pagan stat and p-value are finite floats"
+      - "permutation_fallback returns imp_win and imp_len"
+
+  - id: A-7
+    title: "Permutation Importance Fallback"
+    type: model
+    priority: 87
+    complexity: 7
+    description: |
+      Implement run_permutation_fallback() in ols_analysis.py.
+      Uses sklearn LinearRegression + permutation_importance(n_repeats=30, random_state=42).
+      Returns: {imp_win: float, imp_len: float}
+      Only called when vif['any_high_vif'] is True. Expected to be unused (VIF~1.764).
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "run_permutation_fallback"
+    acceptance_criteria:
+      - "imp_win and imp_len are non-negative floats"
+
+  - id: A-8
+    title: "Gate Evaluator"
+    type: evaluation
+    priority: 86
+    complexity: 6
+    description: |
+      Implement evaluate_gate() in gate_evaluator.py.
+      VIF-contingent: if not any_high_vif → OLS path (abs(beta_win) > abs(beta_len) AND p_win < 0.05).
+      Else → permutation path (imp_win > imp_len).
+      Returns: passes_gate, path, beta_win, beta_len, p_win, dominant.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-8: Gate Evaluator"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "### FR-8: Gate Evaluation"
+    acceptance_criteria:
+      - "path is 'OLS_beta' or 'permutation_importance'"
+      - "passes_gate is bool"
+      - "dominant is 'win_rate' or 'avg_length'"
+
+  - id: A-9
+    title: "Visualizations (6 Figures)"
+    type: evaluation
+    priority: 85
+    complexity: 14
+    description: |
+      Implement visualizer.py with save_all_figures() and 6 private helpers.
+      fig1: dominance_bar — |beta_win| vs |beta_len| bar chart with p-value annotations
+      fig2: coef_plot — horizontal bar with 95% CI error bars
+      fig3: vif_bar — VIF values with threshold line at 5.0
+      fig4: residuals_vs_fitted — scatter for heteroscedasticity check
+      fig5: qq_plot — scipy.stats.probplot on OLS residuals
+      fig6: scatter_by_length_quartile — win_rate_std vs LC_winrate, color by avg_length quartile
+      All figures saved to docs/youra_research/h-m1/figures/
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-9: Visualizations"
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "### FR-9: Visualizations"
+    acceptance_criteria:
+      - "save_all_figures returns list of 6 file paths"
+      - "All 6 .png files exist in figures/ directory"
+      - "plt.close(fig) called after each save"
+
+  - id: A-10
+    title: "Report Writer"
+    type: evaluation
+    priority: 84
+    complexity: 8
+    description: |
+      Implement write_validation_report() in report_writer.py.
+      Writes docs/youra_research/h-m1/04_validation.md with:
+      Gate result, path, beta_win, beta_len, p_win, p_len, R², R²_adj,
+      VIF values, Breusch-Pagan results, baseline OLS comparison,
+      h-e1 comparison row (r_partial=0.9851), figure paths.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-10: Report Writer"
+    acceptance_criteria:
+      - "04_validation.md written to correct path"
+      - "Contains Gate result (PASS/FAIL)"
+      - "Contains h-e1 comparison row"
+
+  - id: A-11
+    title: "Orchestration (run_experiment.py)"
+    type: training
+    priority: 83
+    complexity: 9
+    description: |
+      Implement main() in run_experiment.py.
+      Sequential flow: load → standardize → vif → baseline_ols → full_ols → diagnostics
+      → [permutation if VIF>=5] → gate → figures → report → sys.exit(0 or 1).
+      Include integration self-check at __main__ block.
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-11: Orchestration"
+      - file: "docs/youra_research/h-m1/03_architecture.md"
+        section: "### RunExperiment"
+    acceptance_criteria:
+      - "main() runs end-to-end without error"
+      - "sys.exit(0) when gate passes"
+      - "04_validation.md written after run"
+      - "6 figures exist in figures/"
+
+  # ── Subtasks ───────────────────────────────────────────────────────────────
+  - id: L-2-1
+    title: "DataLoader: load_and_validate + standardize"
+    type: subtask
+    priority: 72
+    parent: A-2
+    description: "Implement load_and_validate with index_col=0 and standardize with separate scalers and mean/std assertions."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-2: Data Loader"
+
+  - id: L-3-1
+    title: "VIF: compute_vif on standardized columns"
+    type: subtask
+    priority: 71
+    parent: A-3
+    description: "Implement compute_vif using win_rate_std/avg_length_std. Handle inf VIF via math.isinf."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-3: VIF Diagnostic"
+
+  - id: L-4-1
+    title: "BaselineOLS: verbosity-only null model"
+    type: subtask
+    priority: 70
+    parent: A-4
+    description: "OLS: LC_winrate ~ avg_length_std. Access params by column name 'avg_length_std'."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-4: Baseline OLS"
+
+  - id: L-5-1
+    title: "FullOLS: fit_full_ols with all return keys"
+    type: subtask
+    priority: 69
+    parent: A-5
+    description: "Return beta_win, beta_len (signed), p_win, p_len, r2, r2_adj, residuals, fitted, _model."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-5: Full OLS"
+
+  - id: L-6-1
+    title: "Diagnostics: Breusch-Pagan + permutation fallback"
+    type: subtask
+    priority: 68
+    parent: A-6
+    description: "het_breuschpagan via _model.model.exog. permutation_importance with n_repeats=30, random_state=42."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-6: OLS Diagnostics"
+
+  - id: L-8-1
+    title: "GateEval: VIF-contingent dominance decision"
+    type: subtask
+    priority: 67
+    parent: A-8
+    description: "OLS path: abs(beta_win) > abs(beta_len) AND p_win < ALPHA. Permutation path: imp_win > imp_len."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-8: Gate Evaluator"
+
+  - id: L-9-1
+    title: "Figures 1-3: dominance_bar, coef_plot, vif_bar"
+    type: subtask
+    priority: 66
+    parent: A-9
+    description: "fig1 dominance bar with p-value annotations. fig2 horizontal coef plot with 95% CI. fig3 VIF bar with threshold line at 5.0."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "### L-9-1"
+
+  - id: L-9-2
+    title: "Figures 4-6: residuals_vs_fitted, qq_plot, scatter_by_quartile"
+    type: subtask
+    priority: 65
+    parent: A-9
+    description: "fig4 residuals vs fitted scatter. fig5 Q-Q via scipy.stats.probplot. fig6 win_rate_std vs LC_winrate colored by avg_length quartile."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "### L-9-2"
+
+  - id: L-10-1
+    title: "ReportWriter: write 04_validation.md"
+    type: subtask
+    priority: 64
+    parent: A-10
+    description: "Write markdown report with gate, betas, R², VIF, Breusch-Pagan, baseline comparison, h-e1 row (r_partial=0.9851), figure paths."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-10: Report Writer"
+
+  - id: L-11-1
+    title: "main(): sequential pipeline with sys.exit"
+    type: subtask
+    priority: 63
+    parent: A-11
+    description: "load→standardize→vif→baseline→full_ols→diagnostics→[perm if VIF>=5]→gate→figures→report→sys.exit."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "## A-11: Orchestration"
+
+  - id: L-11-2
+    title: "Integration self-check"
+    type: subtask
+    priority: 62
+    parent: A-11
+    description: "Assert-based smoke test in __main__: run load+standardize, check columns, run VIF, assert VIF<10, call main()."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_logic.md"
+        section: "### L-11-2"
+
+  - id: C-1
+    title: "Config: constants block in run_experiment.py"
+    type: subtask
+    priority: 61
+    parent: A-1
+    description: "Add CSV_PATH, FIGURES_DIR, OUTPUT_PATH, RANDOM_STATE=42, ALPHA=0.05, VIF_THRESHOLD=5.0, N_REPEATS=30, N_MIN=200 as module-level constants."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "## h-m1 Constants"
+
+  - id: C-2
+    title: "Config: YAML experiment metadata"
+    type: subtask
+    priority: 60
+    parent: A-1
+    description: "Write docs/youra_research/h-m1/experiment_meta.yaml from schema in 03_config.md."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "## Experiment Metadata"
+
+  - id: C-3
+    title: "Config: requirements.txt"
+    type: subtask
+    priority: 59
+    parent: A-1
+    description: "Write docs/youra_research/h-m1/requirements.txt with pinned ranges from 03_config.md."
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_config.md"
+        section: "## Environment Setup"
+
+  # ── Failsafe ───────────────────────────────────────────────────────────────
+  - id: FAILSAFE-1
+    title: "Pipeline Continuation Checkpoint"
+    type: failsafe
+    priority: 1
+    description: |
+      Final checkpoint before Phase 4 handoff.
+      Verify: 04_validation.md exists, gate result recorded, 6 figures exist.
+      If gate PASS → continue to h-m2.
+      If gate FAIL → document as scope limitation (h-e1 result still valid).
+    reference_files:
+      - file: "docs/youra_research/h-m1/03_prd.md"
+        section: "## 8. Success Criteria"
+    acceptance_criteria:
+      - "04_validation.md contains Gate: PASS or Gate: FAIL"
+      - "figures/ contains 6 .png files"

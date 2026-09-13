@@ -1,0 +1,134 @@
+
+\subsubsection{5.1 H-E1: Adapter Weight Divergence}
+
+\textbf{Gate: MUST_WORK — PASS}
+
+All 24 LoRA layers of the GPT-2 proxy model showed cosine similarity below the 0.95 gate threshold after 30 training steps with kv_budget_ratio=0.50.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Metric & Value & Gate Threshold & Status \\
+\midrule
+Minimum cosine similarity & −0.578 & < 0.95 & PASS \\
+Mean cosine similarity & 0.053 & (reference) & — \\
+Layers below threshold & 24/24 & ≥ 1 & PASS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Per-layer cosine similarity ranged from −0.578 (transformer.h.6.attn.c_attn.lora_B) to +0.469 (transformer.h.9.attn.c_attn.lora_B). The mean of 0.053 is near zero, indicating no systematic alignment between eviction-aware and sequential adapter weights. All lora_A layers showed similarities close to zero (absolute values < 0.03), while lora_B layers showed higher variance (range approximately −0.578 to +0.469).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/cosine_similarity_smoke_test.png}
+\caption{Per-layer cosine similarity between eviction-aware and sequential LoRA adapter weights. Dashed line at 0.95 indicates gate threshold. All 24 layers fall below threshold.}
+\label{fig:cosine_similarity_smoke_test}
+\end{figure}
+
+\textbf{Figure 1:} Per-layer cosine similarity between eviction-aware and sequential LoRA adapter weights (GPT-2, 30 steps, 200 LongAlpaca-12k samples, kv_budget_ratio=0.50). Dashed line at 0.95 indicates gate threshold.
+
+Training loss decreased normally for both conditions (9.3 → 5.2 across 30 steps), confirming that hook registration did not interfere with the training loop. Loss values diverged slightly between baseline (7.213) and eviction-aware (7.217) conditions at the final step with identical data and seeds, consistent with differing gradient signals.
+
+The mean cosine similarity of 0.053 is substantially below the range typical for same-task LoRA adapters trained from different seeds (>0.95) or for different task domains (>0.8). Two interpretations are considered in Section 6.1.
+
+\subsubsection{5.2 H-M1: Attention Pattern Redistribution}
+
+\textbf{Gate: MUST_WORK — PASS}
+
+Paired t-test analysis on 5 synthetic samples with GPT-2 proxy adapters showed significant attention entropy divergence (p < 0.05) in 8 of 12 transformer layers. Heavy-hitter concentration divergence was not significant in any layer.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Metric & Value & Gate Threshold & Status \\
+\midrule
+Layers significant by entropy (p < 0.05) & 8/12 & — & — \\
+Layers significant by HH concentration (p < 0.05) & 0/12 & — & — \\
+Layers significant by OR criterion & 8/12 (0.667) & ≥ 0.50 & PASS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Significant layers (entropy, p < 0.05): 4, 5, 6, 7, 8, 9, 10, 11. Lower layers 0–3 showed no significant divergence by either metric.
+
+Direction of divergence: eviction-aware adapters show lower mean attention entropy (−0.0199 nats) and higher heavy-hitter concentration (+0.0008) compared to the sequential baseline under matched H2O evaluation conditions. Both H-M1 conditions used \texttt{set_h2o_training_mode(model, True)} during attention extraction, applying H2O masks symmetrically in both conditions.
+
+The concentration of significant divergence in middle transformer layers 4–11 is consistent with prior work showing that middle layers of transformer encoders carry long-range dependency information \citep{Clarketal2019}. Whether this pattern holds for GPT-2's decoder architecture at scale, and whether it generalizes to 7B models on real long-context inputs, was not tested.
+
+These n=5 results constitute preliminary mechanistic evidence. The sample size is insufficient to support quantitative claims at LongBench scale.
+
+\subsubsection{5.3 H-M2: Dose-Response — Proxy Scope Limitation}
+
+\textbf{Gate: SHOULD_WORK — LIMITATION_RECORDED (gate not satisfied)}
+
+The dose-response hypothesis could not be evaluated at GPT-2 proxy scope.
+
+The sequential GPT-2 adapter completed 63 task evaluations (21 LongBench tasks × 3 budget ratios). All task scores were 0.0: GPT-2's 1024-token context window cannot accommodate LongBench tasks, which require 2,000–10,000 tokens. The eviction-aware adapter encountered a CUDA gather kernel crash after 63 sequential-adapter evaluations (H2O+SDPA incompatibility; see Section 6.3), producing NaN scores.
+
+Consequence: the per-category accuracy gap matrix was all zeros (sequential) or null (eviction-aware crash), making Spearman ρ undefined (zero-variance input). The gate threshold (ρ_s < −0.8) was not evaluable.
+
+This is classified as a proxy model limitation, not a refutation of the dose-response hypothesis. The SHOULD_WORK gate is non-blocking; the pipeline continued per protocol.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/absolute_curves.png}
+\caption{Absolute LongBench task scores for sequential GPT-2 adapter across budget ratios. All scores 0.0.}
+\label{fig:absolute_curves}
+\end{figure}
+
+\textbf{Figure 2:} Absolute LongBench task scores for sequential GPT-2 adapter across budget ratios (0.25, 0.50, 0.75). All scores are 0.0, reflecting GPT-2's insufficient context window for LongBench tasks.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/gap_heatmap.png}
+\caption{Heatmap of per-category accuracy gap across 21 LongBench tasks and 3 budget ratios.}
+\label{fig:gap_heatmap}
+\end{figure}
+
+\textbf{Figure 3:} Per-category accuracy gap heatmap across 21 LongBench tasks and 3 budget ratios. All cells are 0.0 or null due to proxy model limitations.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/gap_vs_budget.png}
+\caption{Mean accuracy gap vs. KV budget ratio.}
+\label{fig:gap_vs_budget}
+\end{figure}
+
+\textbf{Figure 4:} Mean accuracy gap vs. KV budget ratio. Flat at 0.0 for available (sequential) data.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/spearman_bar.png}
+\caption{Spearman correlation bar chart.}
+\label{fig:spearman_bar}
+\end{figure}
+
+\textbf{Figure 5:} Spearman correlation bar chart. ρ is undefined (zero-variance gap matrix).
+
+\subsubsection{5.4 H-M3: Primary Accuracy Evaluation — Not Started}
+
+\textbf{Gate: MUST_WORK — NOT STARTED}
+
+The primary accuracy experiment (LongBench evaluation on LLaMA-2-7B and Mistral-7B-v0.1 at r=50\%) was not executed. LLaMA-2-7B (meta-llama/Llama-2-7b-hf) and Mistral-7B-v0.1 require gated HuggingFace access that was unavailable during this study. No LongBench accuracy data exists for either model under either condition.
+
+\subsubsection{5.5 Summary}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+Claim & Gate Type & Result \\
+\midrule
+Eviction masks alter gradient signals (weight divergence, H-E1) & MUST_WORK & PASS \\
+Eviction-aware adapters show different attention entropy (H-M1) & MUST_WORK & PASS \\
+Middle layers (4–11) show significant entropy divergence & Observation & Confirmed (n=5, GPT-2) \\
+HH concentration divergence significant in ≥50\% of layers & — & Not confirmed (0/12 layers) \\
+Dose-response: gap grows as budget tightens (H-M2) & SHOULD_WORK & Not evaluable (proxy limitation) \\
+≥2\% LongBench accuracy gain at r=50\% (H-M3) & MUST_WORK & Not started \\
+\bottomrule
+\end{tabular}
+\end{table}
+

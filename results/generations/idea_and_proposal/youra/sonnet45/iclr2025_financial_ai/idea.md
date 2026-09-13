@@ -1,0 +1,8 @@
+# Title
+ASON: Accelerated Surrogate-based Explanations for Real-Time Financial AI via Knowledge Distillation
+
+# Motivation
+High-frequency financial systems (trading, fraud detection) face a critical bottleneck: regulatory explainability requirements demand XAI methods like SHAP/LIME, but these require 100-1000ms—far too slow for millisecond-latency decisions. This creates an impossible tradeoff between compliance and performance. Existing approaches treat XAI as computationally expensive post-hoc processes without addressing the latency-fidelity tension in real-time financial applications.
+
+# Main Idea
+We propose training lightweight surrogate neural networks via knowledge distillation from traditional XAI methods (SHAP/LIME) to achieve <50ms explanation latency while maintaining regulatory-compliant fidelity. The core mechanism operates through three steps: (1) surrogates learn to predict feature attributions directly by mimicking SHAP outputs during training, bypassing iterative perturbation algorithms; (2) single forward passes replace O(n²) model evaluations, enabling 50-100× speedup; (3) drift detection monitors distribution shifts via KL divergence, triggering retraining to maintain fidelity across market regimes. We validate using financial datasets, measuring explanation latency (<50ms target), fidelity metrics (L2 distance <0.1, rank correlation >0.8 vs SHAP baseline), and drift detection effectiveness (>80% sensitivity, <5% false positives). This enables the previously impossible combination of real-time performance with explainability, unlocking compliant high-frequency financial AI.

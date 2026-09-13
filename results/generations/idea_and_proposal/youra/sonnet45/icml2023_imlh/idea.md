@@ -1,0 +1,8 @@
+# Title
+Bidirectional Uncertainty Propagation in Hybrid Symbolic-Neural Systems for Safe Clinical Decision Support
+
+# Motivation
+Current medical AI systems face critical adoption barriers: black-box models fail silently on unfamiliar patients, lack interpretability for clinicians, and cannot meet multi-stakeholder trust requirements. While existing work demonstrates pairwise integrations—knowledge graphs with deep learning (without uncertainty quantification), hybrid symbolic-neural reasoning (without uncertainty propagation), or deep learning with UQ (without symbolic knowledge)—no framework unifies all three components. This creates a safety gap: models cannot reliably identify when they're uncertain or explain predictions through clinical reasoning pathways.
+
+# Main Idea
+We propose BK-DL, the first framework integrating medical knowledge graphs (UMLS), deep learning (graph neural networks), and uncertainty quantification through variational inference with **bidirectional uncertainty flow**. Neural predictions propagate uncertainty through symbolic reasoning (evidential uncertainty), while symbolic constraints guide neural learning (epistemic uncertainty). This enables: (1) **Enhanced safety** via hybrid out-of-distribution detection combining neural uncertainty signals with symbolic knowledge violations (predicted improvement: ≥8% OOD AUROC), (2) **Better calibration** through probabilistic knowledge constraints (≥15% ECE reduction), and (3) **Dual interpretability** providing both learned patterns and symbolic reasoning traces for multi-stakeholder trust. We validate on MIMIC-III/IV diagnosis tasks against neural-only and hybrid-without-UQ baselines, with clinician user studies measuring explanation usefulness and trust calibration.

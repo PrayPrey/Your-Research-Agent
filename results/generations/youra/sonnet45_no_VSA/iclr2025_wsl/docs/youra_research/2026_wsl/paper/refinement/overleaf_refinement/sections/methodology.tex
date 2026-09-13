@@ -1,0 +1,52 @@
+
+The method extracts two statistical features directly from PyTorch checkpoint files (state\_dict) without requiring model instantiation or forward passes. Features capture structural fingerprints that discriminate architecture families: normalization layer type counts reflect data processing paradigm, while parameter-mass ratio reflects computation style. A logistic regression classifier is trained on these features.
+
+\subsubsection{Feature 1: Normalization Layer Type Counts}
+
+Architecture families impose different data processing paradigms that manifest as normalization layer conventions. CNNs process spatially-structured image tensors benefiting from batch-wise statistics, leading to BatchNorm adoption. Transformers process sequential token representations requiring instance-wise normalization, leading to LayerNorm adoption.
+
+Given a PyTorch checkpoint state\_dict (dictionary mapping layer names to weight tensors), layer types are classified by name pattern matching:
+
+\begin{verbatim}
+bn_count = sum(1 for key in state_dict.keys() if 'bn' in key or 'batch_norm' in key)
+ln_count = sum(1 for key in state_dict.keys() if 'ln' in key or 'layer_norm' in key)
+gn_count = sum(1 for key in state_dict.keys() if 'gn' in key or 'group_norm' in key)
+\end{verbatim}
+
+A binary no\_norm\_flag handles edge cases where architectures intentionally omit normalization layers (e.g., NormFree networks). The flag is set to 1 if bn\_count + ln\_count + gn\_count = 0, otherwise 0.
+
+Normalization layer choice is not arbitrary training convention---it reflects fundamental architectural assumptions. Chun (2026) proved theoretically that LayerNorm reduces linear layer condition numbers by factors proportional to feature dimensionality, making it suited for token representations. BatchNorm enforces spatial normalization suited for image data. Validation confirms CNNs exhibit 0\% violation rate (100\% use BatchNorm), Transformers exhibit 14.29\% violation rate (85.71\% use LayerNorm), both within $\leq 15$\% threshold.
+
+\subsubsection{Feature 2: Parameter-Mass Ratio}
+
+Architecture families allocate parameters differently based on computation paradigm. CNNs allocate predominantly to convolutional kernels (4D tensors representing local spatial filters), while Transformers allocate to large linear projection matrices (2D tensors for global attention mechanisms).
+
+Given state\_dict, total parameter counts for convolutional layers (4D weight tensors) and linear layers (2D weight tensors) are computed, excluding final classifier head:
+
+\begin{verbatim}
+conv_params = sum(tensor.numel() for key, tensor in state_dict.items() 
+                  if tensor.ndim == 4 and 'head' not in key and 'fc' not in key)
+
+linear_params = sum(tensor.numel() for key, tensor in state_dict.items() 
+                    if tensor.ndim == 2 and 'head' not in key and 'fc' not in key)
+
+R = conv_params / (conv_params + linear_params) if (conv_params + linear_params) > 0 else 0.0
+\end{verbatim}
+
+The ratio R ranges from 0 (pure Transformer, all parameters in linear layers) to 1 (pure CNN, all parameters in convolutional layers), with Hybrid architectures in between.
+
+Fang et al. (2024) observed that convolutional and attention layers have diverged parameter importance distributions. This is operationalized: CNNs require many small convolutional kernels for local receptive fields, leading to R $\approx$ 1.0. Transformers require few large linear projections for global token mixing, leading to R $\approx$ 0.0. Validation demonstrates exceptional inter-family separation: CNN R mean = 1.000, Transformer R mean = 0.169, Cohen's d = 3.202 (p < 0.001).
+
+The final classification layer is excluded because both CNNs and Transformers use linear classifiers for ImageNet-1k, contributing identical parameter counts. Including the head would dilute discriminative signal from backbone architecture.
+
+A critical property is scale invariance within architecture families. ResNet architectures scale by stacking more residual blocks with identical convolutional structure, preserving R = 1.0 regardless of depth. Validation confirms perfect scale invariance for ResNet family across $5\times$ parameter range (ResNet-18 to ResNet-152): coefficient of variation = 0.00.
+
+\subsubsection{Classification Protocol}
+
+Logistic regression is deliberately used rather than neural network classifiers to ensure discriminative power comes from features, not learned non-linearities. If linear classifier fails to achieve >80\% accuracy, it indicates features are insufficient.
+
+Standard scaling (zero mean, unit variance) is applied to both features independently to prevent parameter-mass ratio [0,1] from dominating normalization counts [0,100+]. Multi-class logistic regression uses L2 regularization (C = 1.0), LBFGS solver, and balanced class weighting to handle class imbalance. Stratified 70/30 train-validation split ensures all three classes are represented. Macro-averaged accuracy (class-balanced) is reported to avoid bias toward majority classes.
+
+\subsubsection{Computational Efficiency}
+
+Checkpoint-only extraction is CPU-bound and requires no GPU resources. For typical TIMM checkpoint (~200 MB, 25M parameters): load checkpoint ~0.5s, count normalization layers ~0.1s, compute parameter-mass ratio ~0.4s, total ~1.0s per model. For 1000 TIMM models, total extraction time is ~17 minutes on commodity CPU hardware, compared to 50+ hours for graph neural network approaches.

@@ -1,0 +1,9 @@
+﻿# Title: Provenance-Aware Data Attribution via Efficient Embedding Fingerprints for Foundation Models
+
+## Motivation
+As foundation models are trained on massive web-scraped datasets, attributing model outputs to specific training data becomes critical for copyright compliance, fair compensation in data marketplaces, and debugging model behaviors. Existing attribution methods like influence functions are computationally prohibitive at FM scale, while simpler approaches lack precision. There is an urgent need for efficient, scalable attribution techniques that can operate in real-time during inference while maintaining attribution accuracy—especially as legal frameworks increasingly demand transparency about training data provenance.
+
+## Main Idea
+We propose **EmbedPrint**, a lightweight data attribution framework that embeds compact, learnable fingerprints into the representation space during FM training. The key innovation is a two-stage approach: (1) During training, we cluster training data into semantically coherent groups and assign each cluster a unique low-dimensional signature vector that is jointly optimized with model parameters through a contrastive auxiliary loss. (2) At inference time, we decode these signatures from output embeddings using a small attribution head, enabling real-time provenance tracking with minimal computational overhead (<2% inference cost).
+
+We will evaluate EmbedPrint on LLaMA-scale models across text and multimodal settings, measuring attribution precision, recall, and computational efficiency against influence functions and TracIn baselines. Expected outcomes include 100x speedup over existing methods while maintaining >85% attribution accuracy. This enables practical deployment in data marketplaces and copyright compliance systems, directly addressing legal requirements for training data transparency.

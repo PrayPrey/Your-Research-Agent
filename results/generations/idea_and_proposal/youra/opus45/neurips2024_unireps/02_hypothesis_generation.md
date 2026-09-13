@@ -1,0 +1,204 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-13
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-EAS-v1
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Under the condition of multimodal embeddings from vision-language models trained on paired data, if we measure cross-modal alignment using Entropic Alignment Score (EAS = 1 - H(X|Y)/H(X)), then models with lower conditional entropy H(X|Y) will exhibit higher retrieval performance on cross-modal tasks, because entropic forces during SGD training drive representations toward a shared Platonic structure, and lower conditional entropy indicates stronger alignment with this structure.
+
+**Alternative Hypothesis (H0):**
+There is no meaningful relationship between Entropic Alignment Score (conditional entropy reduction) and cross-modal retrieval performance. EAS measurements do not capture alignment-relevant information beyond what existing metrics (CKA, RSA) already provide, and any observed correlation is spurious or explained by confounding factors.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| EAS Score | Dependent | EAS(X,Y) = 1 - H(X|Y)/H(X), estimated via InfoNCE with ensemble of 5 MINE networks on 1024-d embeddings | 0.0 - 1.0 (higher = better alignment) |
+| Retrieval Performance | Dependent | R@1, R@5, R@10 on COCO and Flickr30k image-text retrieval | R@1: 30-80%, R@5: 60-95%, R@10: 70-98% |
+| Model Architecture | Independent | CLIP variants (ViT-B/32, ViT-L/14), BLIP, ALIGN | Categorical: 4-6 model types |
+| Training Data | Controlled | COCO 330K, Flickr30k 30K for evaluation | Fixed evaluation sets |
+| Entropy Estimator | Controlled | InfoNCE estimator, 3-layer MLP, 10K training steps, batch size 512 | Fixed architecture and training |
+
+### 1.3 Causal Mechanism
+
+**Step 1: SGD Entropic Forces → Conditional Entropy Reduction**
+SGD training with stochasticity and discrete-time updates generates entropic forces that systematically break continuous parameter symmetries. According to Neural Thermodynamics (Ziyin et al., 2025), these forces drive representations toward a shared statistical structure (the "Platonic" representation). This manifests as reduced conditional entropy H(X|Y) between modalities, as both converge toward the same underlying structure.
+
+**Step 2: Lower Conditional Entropy → Higher Retrieval Performance**
+When H(X|Y) is low, modality Y contains substantial information about X. In cross-modal retrieval, this means text embeddings are highly predictive of corresponding image embeddings (and vice versa). Lower conditional entropy directly enables more accurate matching, as the embedding spaces become more mutually informative.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 (Entropic Forces) | Neural Thermodynamics (Ziyin et al., 2025) | SGD dynamics produce entropic forces that prove PRH | Strong |
+| Step1 → Step2 (PRH Foundation) | Platonic Representation Hypothesis (Huh et al., 2024) | AI representations converge toward shared reality model | Strong |
+| Step2 → Outcome | Information Theory Fundamentals | Conditional entropy bounds prediction accuracy | Strong |
+| Step2 → Outcome | DecAlign (Qian et al., 2025) | Cross-modal alignment improves downstream tasks | Medium |
+
+**Key Tension:**
+- **Tension:** PRH and Neural Thermodynamics prove convergence occurs, but they focus on *why* representations align, not *how to measure* that alignment in practice. Existing metrics (CKA, RSA) measure correlation, not information-theoretic alignment.
+- **Resolution:** This hypothesis bridges theory and practice by operationalizing PRH's entropic convergence as a measurable quantity (EAS). The verification plan tests whether EAS captures alignment information that CKA/RSA miss.
+
+### 1.4 Key Assumptions
+
+1. **Entropy Estimation Reliability:** Entropy can be reliably estimated in high-dimensional (1024-d) embedding spaces using variational bounds (InfoNCE/MINE).
+   - Evidence: InfoNCE bounds standard in contrastive learning (van den Oord et al., 2018)
+   - If violated: EAS estimates will have high variance, reducing correlation with performance
+
+2. **CLIP as Platonic Reference:** CLIP-ViT-L/14 represents a reasonable approximation of "Platonic" aligned representations.
+   - Evidence: PRH shows CLIP exhibits high cross-modal alignment; most cited multimodal model
+   - If violated: Need alternative reference model; results may not generalize
+
+3. **Meaningful Alignment Signal:** Conditional entropy reduction H(X|Y) indicates meaningful cross-modal alignment, not spurious correlation.
+   - Evidence: Information-theoretic grounding; similar assumptions underpin InfoNCE success
+   - If violated: EAS may capture noise rather than alignment; need additional validation
+
+### 1.5 Scope & Boundaries
+
+**Applies To:**
+- Vision-language multimodal models (CLIP, BLIP, ALIGN, etc.)
+- Models trained on paired image-text data
+- Cross-modal retrieval tasks (image→text, text→image)
+- Embeddings in 512-2048 dimensional spaces
+
+**Does NOT Apply To:**
+- Unimodal representations (image-only, text-only)
+- Modalities without paired training data (e.g., audio-to-smell)
+- Extremely low-dimensional embeddings (<256d) where entropy estimation degrades
+- Models without SGD-based training (e.g., retrieval via pure keyword matching)
+
+**Known Limitations:**
+- Entropy estimation has inherent variance in very high dimensions
+- CLIP as reference may not be optimal for all domain-specific applications
+- Computational overhead of ensemble entropy estimation (~10% additional training time)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1 (EAS-Retrieval Correlation):**
+Across a diverse set of vision-language models (CLIP-B/32, CLIP-L/14, BLIP, ALIGN, etc.), EAS scores will show statistically significant positive correlation (Pearson r > 0.7, p < 0.05) with cross-modal retrieval performance (R@1) on COCO and Flickr30k benchmarks.
+
+*Measurement*:
+- Compute EAS for each model's embeddings
+- Measure R@1 retrieval on held-out test sets
+- Calculate Pearson correlation coefficient
+- Required: r > 0.7 with p < 0.05, n ≥ 15 models
+
+**Secondary Predictions:**
+**P2 (EAS vs CKA/RSA):**
+EAS will show stronger correlation with retrieval performance than CKA or RSA, demonstrating it captures additional alignment-relevant information.
+- Measurement: Compare correlation coefficients (EAS-R@1 vs CKA-R@1 vs RSA-R@1)
+- Success: EAS correlation > CKA correlation AND EAS correlation > RSA correlation
+
+**P3 (EAS as Training Objective):**
+Using EAS as an auxiliary training loss will improve cross-modal alignment in trained models compared to baseline training without EAS loss.
+- Measurement: Train matched models with/without EAS loss, compare R@1
+- Success: R@1 improvement > 1.0 percentage points (p < 0.05)
+
+**Falsification Criteria:**
+The hypothesis will be **REJECTED** if any occur:
+
+1. **Primary Failure:** EAS-retrieval correlation r ≤ 0.5 or p ≥ 0.05
+   - Indicates EAS does not meaningfully capture alignment
+
+2. **Mechanism Failure:** No correlation between model scale and EAS (violates PRH prediction that larger models converge more)
+
+3. **Comparative Failure:** EAS shows weaker correlation than CKA or RSA
+   - Indicates existing metrics are sufficient; EAS adds no value
+
+### 1.7 SOTA Baseline (Optional)
+
+*Not applicable - This hypothesis proposes a new metric, not performance improvement over SOTA methods.*
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Target effect: Correlation r > 0.7
+- Power: 0.8, Alpha: 0.05
+- Required models: n ≥ 15 diverse vision-language models
+
+**Test Specification:**
+- Primary test: Pearson correlation coefficient with Fisher z-transformation for CI
+- Secondary test: Williams' test for comparing dependent correlations (EAS vs CKA)
+- Multiple comparison correction: Bonferroni for 3 predictions
+
+**Report Format:**
+- Correlation: r value with 95% CI
+- Significance: p-value (one-tailed for directional hypothesis)
+- Effect size: r² (variance explained)
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does Entropic Alignment Score (EAS) reliably measure cross-modal alignment in vision-language models?"
+- Maps to: Primary prediction P1 (correlation with retrieval)
+- Verification type: Empirical correlation analysis
+- Critical: MUST PASS for Phase 2B to proceed
+
+**SH2 (Mechanism):**
+"Is the relationship between EAS and retrieval performance mediated by the proposed causal mechanism (entropic forces → entropy reduction → alignment)?"
+- Maps to: Causal mechanism (N=2 steps)
+  - H-M1: SGD training reduces conditional entropy H(X|Y)
+  - H-M2: Lower H(X|Y) correlates with higher retrieval R@1
+- Verification type: Causal analysis with model scale as proxy
+- Phase 2B will decompose into 2 sub-hypotheses
+
+**SH3 (Comparison):**
+"Does EAS outperform existing alignment metrics (CKA, RSA) in predicting cross-modal retrieval performance?"
+- Maps to: Secondary prediction P2
+- Verification type: Comparative correlation analysis
+- Critical: Determines practical value
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-EAS-v1
+- [x] Confidence level specified: 0.85
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (N=2 steps)
+- [x] Causal chain length (N=2) determined
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (3 predictions)
+- [x] Falsification criteria are defined
+- [x] Baselines are identified for comparison (CKA, RSA)
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:** How many vision-language models need to be evaluated? (Targeting 15+; may need 20+ for robust correlation)
+
+2. **Entropy Estimator Architecture:** What is the optimal architecture for InfoNCE estimator? (3-layer MLP proposed)
+
+3. **Reference Model Selection:** Is CLIP-ViT-L/14 the best "Platonic" reference?
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-13*

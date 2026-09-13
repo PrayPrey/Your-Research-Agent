@@ -1,0 +1,275 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e2
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  base_hypothesis: h-e1
+  generated_at: "2026-08-04"
+
+budget_summary:
+  data_prep: 0
+  setup: 1
+  epics: 5
+  subtasks: 4
+  total: 10
+
+tasks:
+  # === ENVIRONMENT SETUP ===
+  - id: "S-0"
+    type: setup
+    title: "Environment setup and H-E1 import verification"
+    description: |
+      Verify youra-h-e1 conda environment has all required packages.
+      Create h-e2/code/ and h-e2/figures/ directories.
+      Test sys.path import of h-e1 modules (data_loader, analysis, clustering).
+      Smoke test: import build_mst, ols_residualize, partial_spearman_matrix.
+      Verify h-e1/experiment_results_phase3.json is loadable and contains rho_partial_matrix, raw_scores, model_metadata.
+    priority: 94
+    status: todo
+    reference_files:
+      - path: "h-e2/03_architecture.md"
+        section: "File Organization"
+      - path: "h-e2/03_config.md"
+        section: "Inherited Configuration"
+
+  # === EPIC TASKS ===
+  - id: "A-1"
+    type: setup
+    title: "Project scaffold — h-e2/code/ structure and H-E1 import wiring"
+    description: |
+      Create h-e2/code/ directory structure.
+      Create h-e2/figures/ directory.
+      Set up sys.path.insert(0, '../../h-e1/code') pattern in mst_analysis.py.
+      Verify all H-E1 imports work: build_mst, build_distance_matrix, ols_residualize, partial_spearman_matrix.
+      Write minimal smoke test asserting imports succeed.
+    priority: 93
+    complexity: 5
+    status: todo
+    reference_files:
+      - path: "h-e2/03_architecture.md"
+        section: "File Organization"
+      - path: "h-e2/03_architecture.md"
+        section: "External Dependencies"
+
+  - id: "A-2"
+    type: implementation
+    title: "Implement mst_analysis.py — MST metrics + bootstrap stability"
+    description: |
+      Implement h-e2/code/mst_analysis.py with three functions:
+
+      1. compute_mst_metrics(mst: nx.Graph, dim_names: List[str]) -> Dict
+         - Extract degrees, leaves (degree==1), min_set (degree>1), min_set_size
+         - Gate primary check: min_set_size <= 4
+
+      2. bootstrap_mst_stability(raw_scores, covariates, dim_names, full_mst_edges,
+                                  n_boot=1000, subsample=14, seed=42) -> Tuple[float, Dict]
+         - Use np.random.default_rng(seed) for reproducibility
+         - 1000x: sample 14/16 rows without replacement (as DataFrames for h-e1 compat)
+         - Call partial_spearman_matrix(sub_scores_df, sub_cov_df) -> rho_boot [index 0]
+         - Build MST via build_mst(rho_boot, dim_names)
+         - Compare frozenset edge sets; track per-edge frequency in same loop
+         - Return (topology_stability, edge_frequencies)
+
+      3. run_mst_analysis(rho_partial, raw_scores, covariates, dim_names, ...) -> Dict
+         - Baseline: raw Spearman via scipy.stats.spearmanr(raw_scores) -> build_mst
+         - Primary: build_mst(rho_partial, dim_names); assert 5 edges
+         - Bootstrap: call bootstrap_mst_stability
+         - Return full results dict for serialization
+
+      CRITICAL: ols_residualize requires pd.DataFrame not ndarray — wrap numpy slices!
+      CRITICAL: build_mst takes rho_partial (correlation), NOT distance matrix.
+    priority: 88
+    complexity: 12
+    status: todo
+    reference_files:
+      - path: "h-e2/03_logic.md"
+        section: "A-2: Implement mst_analysis.py"
+      - path: "h-e2/03_architecture.md"
+        section: "Module Structure"
+      - path: "h-e2/03_architecture.md"
+        section: "External Dependencies"
+
+  - id: "A-3"
+    type: implementation
+    title: "Implement main.py — orchestration, gate check, serialization"
+    description: |
+      Implement h-e2/code/main.py:
+
+      1. ExperimentConfig dataclass (from 03_config.md):
+         h_e1_results_path, out_dir, n_bootstrap=1000, subsample_size=14, seed=42,
+         gate_min_set_threshold=4, gate_stability_threshold=0.90, figure_dpi=300, dim_names=[...]
+
+      2. run_experiment(cfg: ExperimentConfig) -> Dict:
+         - Load h-e1/experiment_results_phase3.json (rho_partial, raw_scores, model_metadata)
+         - Call run_mst_analysis with config params
+         - Call visualize_all(results, cfg)
+         - Call serialize_results(results, cfg.out_dir + '/h-e2/')
+         - Print summary to console + write experiment.log
+         - Return results dict
+
+      3. check_gate(results) -> bool:
+         - gate_primary: results['mst_min_set_size'] <= 4
+         - gate_secondary: results['bootstrap_topology_stability'] >= 0.90
+         - Return both passed
+
+      4. serialize_results(results, out_dir):
+         - Write h-e2/experiment_results_phase3.json
+
+      5. argparse __main__ block (see 03_config.md for args)
+    priority: 82
+    complexity: 8
+    status: todo
+    reference_files:
+      - path: "h-e2/03_config.md"
+        section: "C-4-2: Experiment Config Dataclass"
+      - path: "h-e2/03_architecture.md"
+        section: "Main"
+      - path: "h-e2/03_prd.md"
+        section: "7. Non-Functional Requirements"
+
+  - id: "A-4"
+    type: implementation
+    title: "Implement visualization — 5 figures for MST + bootstrap analysis"
+    description: |
+      Implement h-e2/code/visualization.py with constants and 5 figure functions.
+
+      Constants (from 03_config.md C-4-1):
+      - DPI=300, COLOR_RLHF_SENSITIVE='tomato', COLOR_RLHF_INSENSITIVE='steelblue'
+      - COLOR_LEAF_HIGHLIGHT='gold', FIG_SIZES dict (gate_bar, mst_graph, bootstrap_heatmap, distance_heatmap, mst_comparison)
+      - MST_MIN_SET_THRESHOLD=4, BOOTSTRAP_STABILITY_THRESHOLD=0.90
+
+      Figure 1 (REQUIRED gate_bar): Bar chart comparing mst_min_set_size vs threshold=4,
+        bootstrap_topology_stability vs threshold=0.90. Red dashed threshold lines.
+
+      Figure 2 (mst_graph): NetworkX draw of 6-node MST. Nodes colored by H-E1 cluster
+        (RLHF-sensitive: tomato, insensitive: steelblue). Leaves highlighted gold.
+        Edge labels = d_ij weight. Use nx.spring_layout or nx.kamada_kawai_layout.
+
+      Figure 3 (bootstrap_heatmap): 6x6 heatmap of per-edge bootstrap frequency.
+        Colormap YlOrRd. Full MST edges overlaid with bold borders.
+
+      Figure 4 (distance_heatmap): 6x6 heatmap of d_ij = 1-|rho_partial|.
+        MST edges marked bold. Colormap YlOrRd.
+
+      Figure 5 (mst_comparison): Side-by-side (14,6) figure: raw Spearman MST (left)
+        vs partial Spearman MST (right). Highlight differences.
+
+      Save all to h-e2/figures/ at 300 DPI.
+    priority: 76
+    complexity: 10
+    status: todo
+    reference_files:
+      - path: "h-e2/03_config.md"
+        section: "C-4-1: Visualization Configuration"
+      - path: "h-e2/03_prd.md"
+        section: "FR-6: Visualization"
+
+  - id: "A-5"
+    type: validation
+    title: "End-to-end run + gate validation"
+    description: |
+      Run full experiment end-to-end from h-e2/code/:
+        conda activate youra-h-e1
+        python main.py --h-e1-results ../../h-e1/experiment_results_phase3.json --out-dir ../..
+
+      Assertions to verify:
+      - MST has exactly 5 edges (n-1 for n=6 nodes)
+      - All 5 figures created in h-e2/figures/
+      - h-e2/experiment_results_phase3.json created with all required keys
+      - h-e2/experiment.log created
+      - Gate check: mst_min_set_size <= 4 (primary gate)
+      - Gate check: bootstrap_topology_stability >= 0.90 (secondary gate)
+      - Console prints gate result
+
+      Expected results (based on H-E1 rho_partial):
+      - Robustness expected as leaf (no significant pairs in H-E1)
+      - mst_min_set_size likely 4-5
+      - bootstrap_stability expected high given strong rho values (0.73-0.97)
+    priority: 70
+    complexity: 7
+    status: todo
+    reference_files:
+      - path: "h-e2/03_prd.md"
+        section: "8. Success Criteria"
+      - path: "h-e2/02c_experiment_brief.md"
+        section: "PoC Success Check"
+
+  # === SUBTASKS ===
+  - id: "L-2-1"
+    type: subtask
+    parent: "A-2"
+    title: "compute_mst_metrics — degree/leaf/min_set extraction"
+    description: |
+      Implement compute_mst_metrics(mst: nx.Graph, dim_names: List[str]) -> Dict.
+      degrees = dict(mst.degree())
+      leaves = [n for n, d in degrees.items() if d == 1]
+      min_set = [n for n, d in degrees.items() if d > 1]
+      Return {"degrees": degrees, "leaves": leaves, "min_set": min_set, "min_set_size": len(min_set)}
+    priority: 49
+    status: todo
+    reference_files:
+      - path: "h-e2/03_logic.md"
+        section: "Pseudo-code: compute_mst_metrics"
+
+  - id: "L-2-2"
+    type: subtask
+    parent: "A-2"
+    title: "bootstrap_mst_stability — 1000x subsample bootstrap loop"
+    description: |
+      Implement bootstrap_mst_stability with np.random.default_rng(seed).
+      Key: wrap numpy subsample arrays as pd.DataFrame before calling ols_residualize.
+      Track per-edge frequency in same loop as topology match check.
+      Return (topology_stability: float, edge_frequencies: Dict[str, float]).
+      See 03_logic.md pseudo-code for exact implementation.
+    priority: 48
+    status: todo
+    reference_files:
+      - path: "h-e2/03_logic.md"
+        section: "Pseudo-code: bootstrap_mst_stability"
+
+  - id: "C-4-1"
+    type: subtask
+    parent: "A-4"
+    title: "Visualization constants — figure sizes, colors, thresholds"
+    description: |
+      Implement top-level constants in h-e2/code/visualization.py.
+      Include DPI=300, color constants (tomato/steelblue/gold), FIG_SIZES dict,
+      gate threshold constants, HEATMAP_CMAP='YlOrRd'.
+      See 03_config.md C-4-1 for full constants block.
+    priority: 47
+    status: todo
+    reference_files:
+      - path: "h-e2/03_config.md"
+        section: "C-4-1: Visualization Configuration"
+
+  - id: "C-4-2"
+    type: subtask
+    parent: "A-3"
+    title: "ExperimentConfig dataclass — full hyperparameter schema"
+    description: |
+      Implement ExperimentConfig dataclass in h-e2/code/main.py.
+      Fields: h_e1_results_path, out_dir, n_bootstrap=1000, subsample_size=14,
+      seed=42, gate_min_set_threshold=4, gate_stability_threshold=0.90,
+      figure_dpi=300, dim_names=[...6 TrustLLM dims...].
+      See 03_config.md C-4-2 for full dataclass definition.
+    priority: 46
+    status: todo
+    reference_files:
+      - path: "h-e2/03_config.md"
+        section: "C-4-2: Experiment Config Dataclass"
+
+  # === FAILSAFE ===
+  - id: "DONE"
+    type: checkpoint
+    title: "Phase 3 complete — ready for Phase 4"
+    description: |
+      All Phase 3 outputs verified:
+      - 03_prd.md, 03_architecture.md, 03_logic.md, 03_config.md present
+      - 03_tasks.yaml generated with 10 tasks (LIGHT tier, budget=15)
+      - Archon documents uploaded (5/5)
+      - verification_state.yaml updated: implementation_planning.status=COMPLETED
+      Proceed to Phase 4: /phase4-coding h-e2
+    priority: 1
+    status: todo

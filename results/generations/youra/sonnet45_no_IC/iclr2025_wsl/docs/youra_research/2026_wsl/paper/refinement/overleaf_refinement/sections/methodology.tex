@@ -1,0 +1,71 @@
+
+\subsubsection{3.1 Overview}
+
+CAPE processes model weights W through three sequential stages:
+
+\begin{enumerate}
+\item \textbf{Operation-Specific Encoders} extract architecture-aware representations z\_op $\in \mathbb{R}^256$ using modular encoders: SANE tokenization for convolutions, UNF equivariance for attention, standard set aggregation for MLPs.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Contrastive Projection} maps heterogeneous z\_op embeddings to a shared task-aligned space z\_proj $\in \mathbb{R}^256$ through a two-layer MLP with L2 normalization and InfoNCE loss ($\tau$ = 0.07).
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Architecture GNN Residual} adds computational graph topology signal z\_arch $\in \mathbb{R}^64$ via a 3-layer GCN with learnable residual weight $\alpha$.
+\end{enumerate}
+
+Final embeddings z\_final = z\_proj + $\alpha \cdot z_arch$ feed into a linear probe predicting ImageNet top-1 accuracy. Multi-task training combines InfoNCE contrastive loss ($\lambda _contrast$ = 1.0) with property prediction MSE ($\lambda _property$ = 0.5).
+
+\subsubsection{3.2 Operation-Specific Encoders}
+
+Convolutional, attention, and MLP operations have different mathematical structures requiring specialized encoding.
+
+\textbf{Convolutional Encoder:} For convolutional layers W\_conv $\in \mathbb{R}^(C_out \times$ C\_in $\times$ H $\times$ W), SANE spatial tokenization reshapes to $R^{(C_{out} \times C_r)}$ where $C_r$ = C\_in $\times$ H $\times$ W, chunks to 256 tokens per layer, applies window-based sequential encoding with 3D positional embeddings, and aggregates token sequences via self-attention to produce z\_conv $\in \mathbb{R}^256$.
+
+\textbf{Attention Encoder:} For attention layers with query/key/value matrices $W_Q, W_K, W_V \in \mathbb{R}^(d_model \times$ d\_model), UNF permutation-equivariant encoding constructs valid partition bases via symmetry enumeration, applies equivariant linear maps, and aggregates via SVD-based dimensionality reduction to z\_attn $\in \mathbb{R}^256$.
+
+\textbf{MLP Encoder:} For MLP layers W\_mlp $\in \mathbb{R}^(d_out \times$ d\_in), standard set aggregation flattens to token vectors of dimension min(d\_out $\times$ d\_in, 256), applies Set Transformer mean/max pooling, and projects to z\_mlp $\in \mathbb{R}^256$.
+
+Each model contains multiple layers of each operation type. Layers are encoded individually, then aggregated per-operation: z\_conv = mean([z\_conv$^{(l)}$ for l in conv\_layers]). Final operation embedding: z\_op = mean([z\_conv, z\_attn, z\_mlp]), weighted by layer counts.
+
+\subsubsection{3.3 Contrastive Projection}
+
+A two-layer MLP projects operation embeddings to a shared task-aligned space:
+
+z\_proj = $W_2 \cdot$ ReLU($W_1 \cdot$ z\_op + b\_1) + b\_2  
+z\_proj = z\_proj / ||z\_proj||$_2$
+
+Hidden dimension is 512, output dimension is 256. L2 normalization ensures embeddings lie on a unit hypersphere.
+
+InfoNCE loss pulls same-task models together:
+
+L\_contrast = -log(exp(sim(z\_i, z\_j) / $\tau ) / \Sigma _{k\neq i}$ exp(sim(z\_i, z\_k) / $\tau ))$
+
+where sim($\cdot ,\cdot )$ is cosine similarity, $\tau$ = 0.07 is temperature, and (i,j) are positive pairs (same task). Models with matching task labels from metadata form positive pairs; non-matching models form negative pairs.
+
+\subsubsection{3.4 Architecture GNN Residual}
+
+Architecture is represented as a directed acyclic graph: nodes are operations (conv, attention, MLP, skip connection, pooling), edges are data flow. For ResNet-50: 177 nodes, 176 edges (sequential + skip connections). For ViT-Base: 149 nodes, 148 edges (sequential + residual connections within blocks). Node features encode operation type (one-hot over {conv, attention, MLP, norm, pool, skip}), tensor shape, and parameter count.
+
+A 3-layer Graph Convolutional Network aggregates neighborhood information:
+
+$H^{(l+1)} = \mathrm{ReLU}(D^{-1/2} A D^{-1/2} H^{(l)} W^{(l)})$
+
+where A is adjacency matrix, D is degree matrix, H$^{(l)}$ are node embeddings at layer l, W$^{(l)}$ are learnable weights. Dimensions: 6 $\rightarrow$ 64 $\rightarrow$ 64 $\rightarrow$ 64. Global mean pooling produces z\_arch $\in \mathbb{R}^64$.
+
+Graph embedding is added as a learnable weighted residual:
+
+z\_final = z\_proj + $\alpha \cdot$ z\_arch
+
+where $\alpha \in \mathbb{R}$ is initialized to 0.5 and optimized via backpropagation. If GNN fails to generalize, $\alpha \rightarrow$ 0 provides graceful degradation.
+
+\subsubsection{3.5 Training}
+
+CAPE jointly optimizes contrastive loss and property prediction loss:
+
+L\_total = $\lambda _contrast \cdot$ L\_contrast + $\lambda _property \cdot$ L\_property
+
+where L\_property = (1/N) $\Sigma _i$ (y\_pred,i - y\_true,i)$^2$ is mean squared error between predicted and actual ImageNet top-1 accuracy, with y\_pred,i = Linear(z\_final,i).
+
+AdamW optimizer with learning rate 1e-4, weight decay 1e-4, batch size 16. Cosine annealing schedule with 10\% warmup. Training runs for 10 epochs for proof-of-concept (100 models).

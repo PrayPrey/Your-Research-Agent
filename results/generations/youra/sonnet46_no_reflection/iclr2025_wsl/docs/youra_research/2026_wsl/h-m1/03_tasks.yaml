@@ -1,0 +1,455 @@
+version: "1.1"
+schema_version: "1.1"
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-05-21T02:10:00Z"
+  source_documents:
+    - docs/youra_research/20260521_wsl/h-m1/03_prd.md
+    - docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+    - docs/youra_research/20260521_wsl/h-m1/03_logic.md
+    - docs/youra_research/20260521_wsl/h-m1/03_config.md
+
+tasks:
+  # ── Data Preparation Tasks (priority 100-95) ──────────────────────────────
+
+  - id: D-1
+    title: "Clone AllanYangZhou/nfn and download CNN Zoo checkpoints"
+    type: data-preparation
+    priority: 100
+    status: todo
+    description: |
+      Clone https://github.com/AllanYangZhou/nfn repository and download CNN Zoo checkpoint data.
+      Sample 100 CNN checkpoints (CIFAR-10 + SVHN classifiers) with seed=42.
+      Verify file structure: data/cnn_zoo/**/*.pt
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_prd.md
+        section: "4.1 Primary Dataset: Small CNN Zoo"
+    acceptance_criteria:
+      - "data/cnn_zoo/ contains >=100 .pt checkpoint files"
+      - "torch.load() succeeds on sampled files"
+
+  - id: D-2
+    title: "Clone MathematicalAI-NUS/Transformer-NFN and download Transformer Zoo checkpoints"
+    type: data-preparation
+    priority: 99
+    status: todo
+    description: |
+      Clone https://github.com/MathematicalAI-NUS/Transformer-NFN and download Transformer Zoo data.
+      Sample 100 MNIST Transformer checkpoints with seed=42.
+      Verify file structure: data/transformer_zoo/mnist/**/*.pt
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_prd.md
+        section: "4.2 Secondary Dataset: Small Transformer Zoo"
+    acceptance_criteria:
+      - "data/transformer_zoo/mnist/ contains >=100 .pt checkpoint files"
+      - "torch.load() succeeds on sampled files"
+
+  # ── Environment Setup (priority 94) ──────────────────────────────────────
+
+  - id: E-1
+    title: "Set up Python environment and install dependencies"
+    type: setup
+    priority: 94
+    status: todo
+    description: |
+      Install required packages: torch>=1.12.0, numpy>=1.21.0, matplotlib>=3.5.0,
+      scipy>=1.7.0, pyyaml>=6.0, tqdm>=4.62.0.
+      Install nfn library: pip install -e AllanYangZhou/nfn
+      Install SANE: git clone + pip install -e HSG-AIML/SANE
+      Set CUDA_VISIBLE_DEVICES to lowest-memory GPU (even though device=cpu, GPU available for future use).
+      Create output directories: outputs/, figures/, data/cnn_zoo/, data/transformer_zoo/
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_prd.md
+        section: "8. Dependencies"
+    acceptance_criteria:
+      - "import torch, numpy, matplotlib succeed"
+      - "from nfn.common import state_dict_to_tensors succeeds"
+      - "outputs/ and figures/ directories exist"
+
+  # ── Epic Implementation Tasks (priority 93-50) ───────────────────────────
+
+  - id: A-1
+    title: "Data Setup: verify checkpoint loading pipeline"
+    type: data-pipeline
+    priority: 93
+    status: todo
+    complexity: 8
+    description: |
+      Verify that all 100 CNN + 100 Transformer checkpoints load correctly via torch.load().
+      Confirm state_dict keys include weight parameters for Linear, Conv2d, and MultiheadAttention layers.
+      Smoke-test nfn state_dict_to_tensors on one CNN and one Transformer checkpoint.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+        section: "DataLoader"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_prd.md
+        section: "4. Data Specification"
+    acceptance_criteria:
+      - "100 CNN checkpoints load without error"
+      - "100 Transformer checkpoints load without error"
+      - "All 3 layer types present across checkpoint set"
+
+  - id: A-2
+    title: "Config Module: implement BenchmarkConfig dataclass"
+    type: implementation
+    priority: 88
+    status: todo
+    complexity: 4
+    description: |
+      Implement BenchmarkConfig dataclass in config.py with all fields.
+      Implement load_config() with YAML override support.
+      Key values: n_cnn_checkpoints=100, n_transformer_checkpoints=100, token_dim=64,
+      orbit_embed_dim=64, overhead_threshold=1.2, device="cpu".
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_config.md
+        section: "A-2: Config Module"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+        section: "BenchmarkConfig"
+    acceptance_criteria:
+      - "BenchmarkConfig() instantiates with correct defaults"
+      - "load_config() returns BenchmarkConfig with YAML overrides applied"
+
+  - id: A-3
+    title: "OrbitPEComputer: implement unified orbit-PE nn.Module"
+    type: model
+    priority: 92
+    status: todo
+    complexity: 14
+    description: |
+      Implement OrbitPEComputer(nn.Module) in orbit_pe_computer.py.
+      Core: _flatten_weight(), compute_orbit_id() via argsort(argsort(row_norms)),
+      forward() returning (cout, token_dim) embeddings.
+      Module-level HAS_ARCH_BRANCHES = False flag.
+      compute_orbit_pe_all_layers() dispatch function with logging.
+      CRITICAL: No if/else branches on layer_type in core computation path.
+      Reuse h-e1 _infer_type_from_name() for layer type detection.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-3: OrbitPEComputer"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+        section: "OrbitPEComputer"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_config.md
+        section: "A-3: OrbitPEComputer"
+    acceptance_criteria:
+      - "HAS_ARCH_BRANCHES == False at module level"
+      - "forward() returns shape (cout, token_dim) for all layer types"
+      - "compute_orbit_id() uses argsort(argsort(row_norms)) — no if/else"
+      - "compute_orbit_pe_all_layers() logs OrbitPE computed message per layer"
+
+  - id: A-4
+    title: "SequentialPEBaseline: replicate SANE [n,l,k] sequential positional encoding"
+    type: model
+    priority: 85
+    status: todo
+    complexity: 9
+    description: |
+      Implement SequentialPEBaseline(nn.Module) in sequential_pe_baseline.py.
+      Replicate SANE's 3D position encoding [n, l, k] (global, layer, within-layer).
+      forward() returns per-parameter dict of (cout, token_dim) PE tensors.
+      compute_sequential_pe_all() convenience wrapper.
+      Used ONLY for timing comparison — not for accuracy.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+        section: "SequentialPEBaseline"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_config.md
+        section: "A-4: SequentialPEBaseline"
+    acceptance_criteria:
+      - "forward() returns dict with (cout, token_dim) tensor per weight param"
+      - "Timing runs in under 5 seconds per checkpoint"
+
+  - id: A-5
+    title: "DataLoader Adaptation: copy and adapt h-e1 loaders for n_checkpoints=100"
+    type: data-pipeline
+    priority: 87
+    status: todo
+    complexity: 7
+    description: |
+      Copy CNNZooLoader and TransformerZooLoader from h-e1/code/data_loader.py.
+      CRITICAL: CNNZooLoader default is n_checkpoints=200 — must pass n_checkpoints=100 explicitly.
+      CRITICAL: TransformerZooLoader uses n_mnist kwarg (NOT n_checkpoints).
+      Adapt for h-m1: n_cnn_checkpoints=100, n_transformer_mnist=100.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "External Dependencies (Base Hypothesis)"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+        section: "DataLoader"
+    acceptance_criteria:
+      - "CNNZooLoader(n_checkpoints=100) returns exactly 100 checkpoints"
+      - "TransformerZooLoader(n_mnist=100) returns exactly 100 checkpoints"
+      - "No import errors from h-e1 code"
+
+  - id: A-6
+    title: "Benchmark Loop: implement timing benchmark with CheckpointResult"
+    type: training
+    priority: 84
+    status: todo
+    complexity: 12
+    description: |
+      Implement run_timing_benchmark() in benchmark.py.
+      For each checkpoint: time vanilla sequential-PE, then orbit-PE via time.perf_counter().
+      overhead_ratio = t_orbit / max(t_vanilla, 1e-9).
+      Return List[CheckpointResult] for all 200 checkpoints.
+      Include per-checkpoint error handling (catch exceptions, mark success=False).
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-6: Benchmark Loop"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+        section: "Benchmark"
+    acceptance_criteria:
+      - "Returns 200 CheckpointResult entries (100 CNN + 100 Transformer)"
+      - "overhead_ratio computed for each checkpoint"
+      - "Exceptions caught per checkpoint, success=False on failure"
+
+  - id: A-7
+    title: "Gate Metrics + Validation Report: compute_gate_metrics and generate 04_validation.md"
+    type: evaluation
+    priority: 80
+    status: todo
+    complexity: 10
+    description: |
+      Implement compute_gate_metrics() aggregating List[CheckpointResult] into GateMetrics.
+      computability_rate = count(success=True) / 200.
+      overhead_ratio_mean/std over all results.
+      per_layer_overhead breakdown by layer type.
+      verify_orbit_pe_activated() check.
+      save_metrics() to JSON.
+      generate_validation_report() writing 04_validation.md with PASS/FAIL:
+        PASS if computability_rate==1.0 AND unified_codebase==True AND overhead_ratio_mean<=1.2
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-7: Gate Metrics + Validation"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+        section: "Evaluate"
+    acceptance_criteria:
+      - "GateMetrics contains all required fields"
+      - "04_validation.md written with PASS/FAIL verdict"
+      - "results.json saved to outputs/"
+
+  - id: A-8
+    title: "Visualization: bar chart and box plots"
+    type: evaluation
+    priority: 75
+    status: todo
+    complexity: 8
+    description: |
+      Implement plot_overhead_per_layer_type(): bar chart of overhead_ratio per layer type
+      with 1.2x threshold line (MANDATORY gate figure).
+      Implement plot_overhead_distribution(): box plots of overhead_ratio grouped by CNN vs Transformer.
+      Save all figures to figures/ directory.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+        section: "Visualize"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_prd.md
+        section: "FR-5: Visualization"
+    acceptance_criteria:
+      - "figures/overhead_per_layer_type.png created"
+      - "figures/overhead_distribution.png created"
+      - "Bar chart shows threshold line at 1.2"
+
+  - id: A-9
+    title: "Run Experiment: wire all modules and execute end-to-end"
+    type: training
+    priority: 70
+    status: todo
+    complexity: 12
+    description: |
+      Implement run_experiment.py main() entrypoint wiring all modules.
+      CRITICAL parameter mapping:
+        CNNZooLoader(n_checkpoints=cfg.n_cnn_checkpoints)  — not default 200
+        TransformerZooLoader(n_mnist=cfg.n_transformer_checkpoints)  — use n_mnist kwarg
+      Execute full pipeline: load data -> init models -> benchmark -> metrics -> report -> figures.
+      Fix any runtime errors until experiment completes successfully.
+      Set CUDA_VISIBLE_DEVICES to lowest-memory GPU before running.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-9: Run Experiment"
+      - file: docs/youra_research/20260521_wsl/h-m1/03_architecture.md
+        section: "RunExperiment"
+    acceptance_criteria:
+      - "Experiment runs without unhandled exceptions"
+      - "04_validation.md written with gate verdict"
+      - "results.json contains all GateMetrics fields"
+      - "Both figures generated"
+
+  # ── Logic Subtasks (priority 49-10) ──────────────────────────────────────
+
+  - id: L-3-1
+    title: "_flatten_weight: normalize Conv2d/MHA/Linear to [cout, cin_flat]"
+    type: subtask
+    parent: A-3
+    priority: 49
+    status: todo
+    description: |
+      Implement _flatten_weight(weight, layer_type, n_heads=1) -> Tensor [cout, cin_flat].
+      Conv2d [cout, cin, kH, kW] -> [cout, cin*kH*kW].
+      Linear [cout, cin] -> unchanged.
+      MHA [cout, cin] -> head-flatten if n_heads > 1.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-3: OrbitPEComputer"
+
+  - id: L-3-2
+    title: "compute_orbit_id: row-norm rank as permutation-invariant orbit IDs"
+    type: subtask
+    parent: A-3
+    priority: 48
+    status: todo
+    description: |
+      Implement compute_orbit_id using argsort(argsort(row_norms)).
+      row_norms = w_flat.norm(dim=1); orbit_ids = argsort(argsort(row_norms)).
+      Returns [cout] int64 tensor. Permutation-invariant by construction.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "Pseudo-code (compute_orbit_id)"
+
+  - id: L-3-3
+    title: "OrbitPEComputer.forward: embedding lookup with HAS_ARCH_BRANCHES=False"
+    type: subtask
+    parent: A-3
+    priority: 47
+    status: todo
+    description: |
+      Implement forward(weight, layer_type) -> [cout, token_dim].
+      Use nn.Embedding(max_orbits, token_dim) for orbit_id -> embedding lookup.
+      Module-level HAS_ARCH_BRANCHES = False flag — critical for gate check.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-3: OrbitPEComputer"
+
+  - id: L-3-4
+    title: "compute_orbit_pe_all_layers: state dict iteration + dispatch + logging"
+    type: subtask
+    parent: A-3
+    priority: 46
+    status: todo
+    description: |
+      Iterate all .weight params in state_dict, call orbit_computer.forward() per param.
+      Infer layer type via _infer_type_from_name from h-e1.
+      Log: "OrbitPE computed for layer {name} (type={layer_type}): dim={orbit_dim}".
+      Return (orbit_vecs dict, success_flags dict).
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-3: OrbitPEComputer"
+
+  - id: L-6-1
+    title: "_time_vanilla / _time_orbit: perf_counter wrappers with error handling"
+    type: subtask
+    parent: A-6
+    priority: 40
+    status: todo
+    description: |
+      Implement _time_vanilla(state_dict, baseline) -> float (seconds).
+      Implement _time_orbit(state_dict, orbit_computer, n_heads=1) -> (float, bool, List[str]).
+      Both use time.perf_counter() bookending the PE computation call.
+      Catch exceptions and return (elapsed, False, []) on failure.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-6: Benchmark Loop"
+
+  - id: L-6-2
+    title: "run_timing_benchmark loop: iterate CNN+Transformer, build CheckpointResult list"
+    type: subtask
+    parent: A-6
+    priority: 39
+    status: todo
+    description: |
+      Implement run_timing_benchmark() iterating cnn_checkpoints + transformer_checkpoints.
+      For each: call _time_vanilla + _time_orbit, compute overhead_ratio = t_orbit/max(t_vanilla,1e-9).
+      Build CheckpointResult per checkpoint. Show tqdm progress bar.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-6: Benchmark Loop"
+
+  - id: L-9-1
+    title: "main() entrypoint: wire all modules with correct loader kwargs"
+    type: subtask
+    parent: A-9
+    priority: 35
+    status: todo
+    description: |
+      Implement main() calling all modules in order.
+      MUST use: CNNZooLoader(n_checkpoints=cfg.n_cnn_checkpoints)
+      MUST use: TransformerZooLoader(n_mnist=cfg.n_transformer_checkpoints)
+      Complete pipeline: load -> init -> benchmark -> metrics -> report -> figures.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-9: Run Experiment"
+
+  - id: L-9-2
+    title: "End-to-end error handling and debug run"
+    type: subtask
+    parent: A-9
+    priority: 34
+    status: todo
+    description: |
+      Run experiment end-to-end. Fix any runtime errors.
+      Add try/except per checkpoint to handle malformed state dicts gracefully.
+      Verify 04_validation.md is written and gate pass/fail is correct.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-9: Run Experiment"
+
+  - id: L-7-1
+    title: "compute_gate_metrics + generate_validation_report implementation"
+    type: subtask
+    parent: A-7
+    priority: 30
+    status: todo
+    description: |
+      Implement compute_gate_metrics(results, has_arch_branches) -> GateMetrics.
+      Aggregate computability_rate, overhead_ratio_mean/std, per_layer_overhead, dim_consistent.
+      Implement generate_validation_report() writing 04_validation.md:
+        PASS if computability_rate==1.0 AND unified_codebase==True AND overhead_ratio_mean<=1.2.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_logic.md
+        section: "A-7: Gate Metrics + Validation"
+
+  # ── Config Subtasks ───────────────────────────────────────────────────────
+
+  - id: C-4-1
+    title: "SequentialPEBaseline implementation: SANE [n,l,k] sequential-PE"
+    type: subtask
+    parent: A-4
+    priority: 25
+    status: todo
+    description: |
+      Implement SequentialPEBaseline(nn.Module) replicating SANE's sequential [n,l,k] position encoding.
+      forward(state_dict) returns dict: param_name -> (cout, token_dim) PE tensor.
+      Encoding: n = global position index, l = layer index, k = within-layer position.
+      compute_sequential_pe_all() convenience wrapper.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_config.md
+        section: "A-4: SequentialPEBaseline"
+
+  # ── Failsafe ─────────────────────────────────────────────────────────────
+
+  - id: F-1
+    title: "Pipeline continuation checkpoint"
+    type: failsafe
+    priority: 1
+    status: todo
+    description: |
+      Final checkpoint: verify 04_validation.md exists and contains PASS or FAIL verdict.
+      Record gate metrics to outputs/results.json.
+      This task ensures Phase 4 → Phase 5 transition is properly gated.
+    reference_files:
+      - file: docs/youra_research/20260521_wsl/h-m1/03_prd.md
+        section: "7. Success Criteria"
+    acceptance_criteria:
+      - "04_validation.md exists with gate verdict"
+      - "outputs/results.json exists with computability_rate, overhead_ratio fields"
+
+budget_summary:
+  data_preparation: 2
+  setup: 1
+  epic_tasks: 9
+  logic_subtasks: 9
+  config_subtasks: 1
+  failsafe: 1
+  total: 23
+  budget_max: 30
+  within_budget: true
+  excluded_subtasks: []

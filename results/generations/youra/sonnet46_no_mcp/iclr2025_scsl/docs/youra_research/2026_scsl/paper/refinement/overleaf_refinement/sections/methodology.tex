@@ -1,0 +1,82 @@
+
+\subsubsection{3.1 Problem Setup}
+
+Let $f_{\theta}^{(t)}$ denote a ResNet-50 backbone at training epoch $t$, with parameters obtained by standard ERM training on the Waterbirds training split. Let $\mathcal{V}$ be a held-out validation split with both spurious labels $y_s$ (background type: land or water) and core labels $y_c$ (bird species: landbird or waterbird).
+
+At each checkpoint $t$, two L2-regularized logistic regression probes are trained on frozen features $f_{\theta}^{(t)}(\mathcal{V})$:
+
+$$h_s^{(t)} = \arg\min_h \mathcal{L}(h(f_{\theta}^{(t)}(x)), y_s) + \lambda\|h\|_2^2$$
+
+$$h_c^{(t)} = \arg\min_h \mathcal{L}(h(f_{\theta}^{(t)}(x)), y_c) + \lambda\|h\|_2^2$$
+
+with $\lambda = 1/C = 1.0$ (scikit-learn convention, C=1.0). Probes are evaluated on a held-out 20\% split of the validation set (not the data used for probe fitting).
+
+\subsubsection{3.2 Temporal Gap Metrics}
+
+\textbf{Temporal gap:} $\delta(t) = \text{acc}(h_s^{(t)}) - \text{acc}(h_c^{(t)})$
+
+\textbf{Gap area:} $A = \sum_{t:\delta(t)>0} \delta(t) \cdot \Delta t$, where $\Delta t = 2$ epochs. Measures cumulative spurious dominance over training.
+
+\textbf{Transition epoch:} $t^* = \min\{t : \delta(\tau) < 0.02 \text{ for } \tau \in \{t, t+\Delta t, t+2\Delta t\}\}$. The first epoch at which the temporal gap is consistently negligible for three consecutive checkpoints.
+
+\subsubsection{3.3 Gradient Dominance Ratio}
+
+To characterize the gradient mechanism, the Gradient Dominance Ratio (GDR) is computed per checkpoint: GDR(t) = $\|\nabla_{\text{spurious}} L\|_2 / \|\nabla_{\text{core}} L\|_2$, where gradient norms are computed with respect to parameters in ResNet-50 layer4 corresponding to spurious-aligned and core-aligned spatial activation regions, averaged over batches.
+
+\subsubsection{3.4 Feature Complexity Metrics}
+
+Three metrics are applied to patches extracted from Waterbirds images. Spurious patches are extracted from the top 40\% of each image (capturing background texture); core patches are extracted from the center 60\% (capturing bird appearance). Segmentation masks were not available in the dataset copy used; quadrant-based extraction was used throughout as a fallback.
+
+\textbf{Metric 1 — FFT mean spatial frequency:} The 2D power spectrum is computed for each grayscale patch; mean spatial frequency is weighted by power spectral density. Lower values indicate simpler, more homogeneous texture. Prediction: spurious < core.
+
+\textbf{Metric 2 — Intra-class variance:} Pixel-level variance within each class's patches. Prediction: spurious < core.
+
+\textbf{Metric 3 — Linear separability AUC:} Area under the learning curve of probe accuracy versus number of labeled training samples. Secondary measure: N\_90\%, the minimum samples required for 90\% accuracy. Prediction: spurious AUC > core AUC (fewer samples to separate).
+
+All three metrics are tested with one-sided t-tests. Bonferroni correction at α=0.05/3=0.0167 per metric is reported alongside uncorrected p-values.
+
+\subsubsection{3.5 Five-Hypothesis Causal Chain}
+
+The study is structured as five sub-hypotheses in sequential prerequisite order:
+
+```
+H-E1 (Existence):    δ(t) > 0 for a contiguous window ≥10\% of training epochs
+     ↓ prerequisite
+H-M1 (Gradient):     GDR > 1.0 in early training
+     ↓ prerequisite
+H-M2 (Complexity):   Spurious features simpler on ≥2/3 complexity metrics (p<0.05)
+     ↓ prerequisite
+H-M3 (Stability):    std(t*) < 10 epochs across seeds
+     ↓ prerequisite
+H-M4 (DFR):          Pearson r(DFR improvement, epochs past t*) > 0.7, p<0.05
+```
+
+H-E1, H-M1, H-M3 carry MUST\_WORK gates (required for pipeline continuation). H-M2 and H-M4 carry SHOULD\_WORK gates (important but non-blocking).
+
+\subsubsection{3.6 DFR Evaluation Protocol}
+
+To test H-M4, five ResNet-50 backbones are trained to epoch checkpoints {1, 2, 10, 20, 30}. For each checkpoint, DFR is applied: the final linear layer is refit using 50 class-balanced samples per class from the validation split, following the protocol of Kirichenko et al. [2022]. DFR WGA and improvement (DFR WGA − ERM WGA) are recorded at each checkpoint. Pearson correlation is computed between improvement and epochs-past-t\*.
+
+\subsubsection{3.7 Training Configuration}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+Hyperparameter & Value \\
+\midrule
+Architecture & ResNet-50, ImageNet pretrained (torchvision) \\
+Optimizer & SGD \\
+Learning rate & 1e-3 \\
+Momentum & 0.9 \\
+Weight decay & 1e-4 \\
+Batch size & 64 (H-M1); 128 (H-E1) \\
+Training epochs & 30 (proof-of-concept) \\
+Checkpoint interval & 2 epochs \\
+Random seeds & 3 (seeds 1, 2, 3) \\
+Loss & Cross-entropy (standard ERM) \\
+Hardware & NVIDIA H100 NVL \\
+\bottomrule
+\end{tabular}
+\end{table}
+

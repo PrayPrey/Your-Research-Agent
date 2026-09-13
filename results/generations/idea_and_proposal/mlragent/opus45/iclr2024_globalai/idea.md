@@ -1,0 +1,9 @@
+﻿# Title: Cultural Value Probes: A Scalable Framework for Detecting and Quantifying Cultural Bias in Large Language Models
+
+## Motivation
+Current AI evaluation methods predominantly rely on Western-centric benchmarks, failing to capture how models perform across diverse cultural contexts. While factual accuracy benchmarks exist, there is no systematic methodology to measure how well AI systems respect and represent cultural values, norms, and sensibilities across global populations. This gap is critical because subtle cultural biases—in humor interpretation, social etiquette, religious practices, or family dynamics—can lead to AI systems that alienate or misrepresent billions of users.
+
+## Main Idea
+I propose developing **Cultural Value Probes (CVPs)**—a scalable evaluation framework consisting of carefully designed prompt sets that elicit responses revealing underlying cultural assumptions in LLMs. The methodology involves: (1) collaborating with cultural anthropologists and regional experts to identify key cultural dimensions (e.g., individualism vs. collectivism, communication styles, temporal orientations) across 50+ cultural groups; (2) creating contrastive prompt pairs where culturally-neutral queries should yield context-appropriate responses; (3) developing automated metrics combining semantic similarity to culturally-validated responses with human evaluation from in-culture annotators.
+
+Expected outcomes include a publicly available benchmark suite, quantitative cultural bias scores across major LLMs, and identification of training data gaps. This framework enables systematic comparison of models' cultural competence and guides targeted interventions in training data curation, ultimately advancing globally-inclusive AI deployment.

@@ -1,0 +1,1 @@
+When a task is completed in this project, confirm the relevant experiment artifacts or generated outputs exist, and verify any required JSON/markdown outputs were written to the expected paths. If code changes were made, inspect diffs with git and run the most relevant experiment or analysis command if one is known for the touched area.

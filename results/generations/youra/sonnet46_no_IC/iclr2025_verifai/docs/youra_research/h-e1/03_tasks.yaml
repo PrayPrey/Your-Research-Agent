@@ -1,0 +1,268 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  generated_at: "2026-08-05"
+  description: "Implementation tasks for h-e1 pylint/mypy iterative repair PoC"
+  source_documents:
+    - docs/youra_research/h-e1/03_prd.md
+    - docs/youra_research/h-e1/03_architecture.md
+    - docs/youra_research/h-e1/03_logic.md
+    - docs/youra_research/h-e1/03_config.md
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks: 7
+  failsafe: 1
+  total: 15
+
+tasks:
+  # ── Environment Setup (priority 94) ──────────────────────────────────────
+
+  - id: "T-ENV"
+    title: "Environment Setup"
+    type: setup
+    priority: 94
+    description: >
+      Create experiments/h-e1/ directory. Install all Python dependencies:
+      groq>=0.9.0, evalplus>=0.3.0, human-eval>=1.0.0, pylint>=3.0.0,
+      mypy>=1.8.0, datasets>=2.20.0, numpy>=1.24.0, matplotlib>=3.7.0,
+      tqdm>=4.65.0, pyyaml>=6.0. Write pinned requirements.txt.
+      Verify GROQ_API_KEY is set. Create results/ and docs/youra_research/h-e1/figures/ dirs.
+    acceptance_criteria:
+      - "experiments/h-e1/ directory exists"
+      - "pip install -r requirements.txt succeeds"
+      - "import evalplus, groq, pylint, mypy succeeds"
+      - "GROQ_API_KEY env var set"
+      - "results/ and docs/youra_research/h-e1/figures/ directories exist"
+    reference_files:
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "## 7. Dependencies"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "## File Structure"
+    complexity: low
+
+  # ── Epic Tasks (priority 93-50) ──────────────────────────────────────────
+
+  - id: "E-1"
+    title: "Data & Model Setup"
+    type: data-pipeline
+    priority: 93
+    description: >
+      Implement data_loader.py: load HumanEval (164 problems) via evalplus.data.get_human_eval_plus()
+      and MBPP (374 problems) via evalplus.data.get_mbpp_plus(). Return dicts {task_id -> problem_dict}.
+      Implement model_client.py: Groq API wrapper for llama-3.1-8b-instant with temperature=0.0,
+      seed=42. generate(prompt, max_tokens) returns (text, tokens_used). count_tokens(text) heuristic fallback.
+    acceptance_criteria:
+      - "load_humaneval() returns dict with exactly 164 entries"
+      - "load_mbpp() returns dict with exactly 374 entries"
+      - "ModelClient.generate() returns (str, int) tuple"
+      - "temperature=0.0 confirmed in API call"
+    reference_files:
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### DataLoader"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### ModelClient"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "## 4. Data Specification"
+    complexity: low
+    complexity_score: 8
+
+  - id: "E-2"
+    title: "Code Execution Sandbox"
+    type: model
+    priority: 85
+    description: >
+      Implement code_executor.py with sandboxed subprocess execution (15s timeout per test case).
+      execute_humaneval(code, problem) runs problem["test"] in isolated subprocess.
+      execute_mbpp(code, test_list) executes test_list assertions in namespace.
+      extract_code(raw_output, entry_point) strips markdown fences, extracts function body,
+      handles unclosed fences and chain-of-thought traces (per Johin2 pattern).
+    acceptance_criteria:
+      - "execute_humaneval returns True for correct code, False for wrong/crash"
+      - "execute_mbpp returns True when all test_list assertions pass"
+      - "subprocess timeout enforced at 15 seconds"
+      - "extract_code handles markdown fences and raw code"
+    reference_files:
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### CodeExecutor"
+    complexity: medium
+    complexity_score: 10
+
+  - id: "E-3"
+    title: "Static Analyzer"
+    type: model
+    priority: 80
+    description: >
+      Implement static_analyzer.py. run_pylint_mypy(code, timeout=30) writes code to temp file,
+      runs pylint --output-format=text --score=no and mypy --ignore-missing-imports,
+      returns formatted feedback string or None if no issues. Cleans up temp file in finally block.
+      get_pylint_categories(code) returns dict {"error": n, "warning": n, "convention": n, "refactor": n}
+      for pylint coverage metric.
+    acceptance_criteria:
+      - "run_pylint_mypy returns None for syntactically valid Python with no issues"
+      - "run_pylint_mypy returns non-empty string when pylint finds issues"
+      - "temp file cleaned up even if pylint crashes"
+      - "subprocess timeout enforced at 30 seconds"
+    reference_files:
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### StaticAnalyzer"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "### FR-2: Pylint/Mypy Iterative Repair Condition"
+    complexity: medium
+    complexity_score: 9
+
+  - id: "E-4"
+    title: "Repair Loop"
+    type: model
+    priority: 75
+    description: >
+      Implement repair_loop.py. pylint_repair_loop() runs iterative repair within token budget B=1000.
+      Round 0: initial generation from problem prompt. Rounds 1-3: generate repair using pylint/mypy
+      feedback. Stop when: tokens_used >= B, remaining < 100, or no pylint issues found.
+      Per-round RoundResult logged (round_num, code, tokens_generated, passed, feedback_given).
+      build_initial_prompt() and build_repair_prompt() construct prompts per FR-2 template.
+    acceptance_criteria:
+      - "pylint_repair_loop always runs round 0 regardless of budget"
+      - "tokens_used never exceeds B by more than one round's tokens"
+      - "early exit when feedback=None"
+      - "round_results list contains all rounds including round 0"
+    reference_files:
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "## Epic E-4: Repair Loop"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### RepairLoop"
+    complexity: high
+    complexity_score: 13
+    subtasks:
+      - id: "L-4-1"
+        title: "count_tokens() implementation"
+        description: "Implement token counter. Prefer Groq usage.completion_tokens; fallback len(text)//4 heuristic."
+        reference_files:
+          - file: docs/youra_research/h-e1/03_logic.md
+            section: "### L-4-1: count_tokens()"
+      - id: "L-4-2"
+        title: "build_repair_prompt() and build_initial_prompt()"
+        description: "Implement prompt constructors per INITIAL_PROMPT_TEMPLATE and REPAIR_PROMPT_TEMPLATE."
+        reference_files:
+          - file: docs/youra_research/h-e1/03_logic.md
+            section: "### L-4-2: build_repair_prompt()"
+      - id: "L-4-3"
+        title: "pylint_repair_loop() main function"
+        description: "Full iterative repair loop with token budget, per-round logging, early exit conditions."
+        reference_files:
+          - file: docs/youra_research/h-e1/03_logic.md
+            section: "### L-4-3: pylint_repair_loop()"
+      - id: "L-4-4"
+        title: "RoundResult dataclass"
+        description: "Dataclass with round_num, code, tokens_generated, passed, feedback_given."
+        reference_files:
+          - file: docs/youra_research/h-e1/03_logic.md
+            section: "### L-4-4: RoundResult Dataclass"
+
+  - id: "E-5"
+    title: "Evaluator + Results"
+    type: evaluation
+    priority: 70
+    description: >
+      Implement evaluator.py. run_baseline_condition() runs single-shot generation for all 538 problems,
+      writes baseline_{benchmark}.jsonl incrementally with resume support (skip completed task_ids).
+      run_pylint_condition() runs pylint_repair_loop per problem, writes pylint_{benchmark}.jsonl.
+      compute_metrics() aggregates pass@1, delta_pylint, per-round trajectory, coverage fraction,
+      token distribution. Writes results/metrics.json and results/summary.md.
+    acceptance_criteria:
+      - "baseline JSONL contains exactly 164 HumanEval + 374 MBPP entries"
+      - "pylint JSONL contains round_results per problem"
+      - "metrics.json contains delta_pylint_humaneval and delta_pylint_mbpp (finite, non-NaN)"
+      - "resume: re-run skips completed task_ids"
+    reference_files:
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "## Epic E-5: Evaluator + Results"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### Evaluator"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "### FR-3: Metric Computation"
+    complexity: high
+    complexity_score: 14
+    subtasks:
+      - id: "L-5-1"
+        title: "run_baseline_condition()"
+        description: "Single-shot baseline evaluator with incremental JSONL writes and resume support."
+        reference_files:
+          - file: docs/youra_research/h-e1/03_logic.md
+            section: "### L-5-1: run_baseline_condition()"
+      - id: "L-5-2"
+        title: "run_pylint_condition()"
+        description: "Pylint repair evaluator with full round_results per problem, resume support."
+        reference_files:
+          - file: docs/youra_research/h-e1/03_logic.md
+            section: "### L-5-2: run_pylint_condition()"
+      - id: "L-5-3"
+        title: "compute_metrics()"
+        description: "Aggregate all metrics: pass@1, delta, per-round trajectory, coverage fraction."
+        reference_files:
+          - file: docs/youra_research/h-e1/03_logic.md
+            section: "### L-5-3: compute_metrics()"
+
+  - id: "E-6"
+    title: "Visualization + Orchestration"
+    type: evaluation
+    priority: 60
+    description: >
+      Implement visualizer.py: generate 4 figures to docs/youra_research/h-e1/figures/.
+      Figure 1 (mandatory): 4-bar pass@1 comparison. Figure 2: per-round trajectory line plot.
+      Figure 3: token budget histogram. Figure 4: pylint coverage stacked bar.
+      Implement run_experiment.py: argparse CLI, end-to-end orchestration calling all modules in order.
+      Args: --model, --backend, --token-budget, --max-repair-rounds, --seed, --output-dir, --resume.
+    acceptance_criteria:
+      - "All 4 PNG files created in docs/youra_research/h-e1/figures/"
+      - "run_experiment.py --help shows all required args"
+      - "Full pipeline runs end-to-end: load → baseline → pylint → metrics → figures"
+    reference_files:
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "## C-6-1: CLI Arguments Schema"
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "## C-6-2: Figure Configuration"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### Visualizer"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### Orchestrator"
+    complexity: high
+    complexity_score: 12
+    subtasks:
+      - id: "C-6-1"
+        title: "argparse CLI configuration"
+        description: "Full parse_args() with all required args, choices guards, validation."
+        reference_files:
+          - file: docs/youra_research/h-e1/03_config.md
+            section: "## C-6-1: CLI Arguments Schema"
+      - id: "C-6-2"
+        title: "Figure configuration dicts"
+        description: "FIGURE_RC + FIG1-4_CONFIG dicts for matplotlib figure generation."
+        reference_files:
+          - file: docs/youra_research/h-e1/03_config.md
+            section: "## C-6-2: Figure Configuration"
+
+  # ── Failsafe (priority 1) ────────────────────────────────────────────────
+
+  - id: "T-FAILSAFE"
+    title: "Pipeline Continuation Checkpoint"
+    type: failsafe
+    priority: 1
+    description: >
+      MUST_WORK gate check: verify Δ_pylint is finite and computable on all 538 problems.
+      If pylint subprocess crashes on ≥50% of problems: pivot to custom 50-100 line
+      pylint wrapper (per Phase 2B fallback plan). Write final validation report to
+      docs/youra_research/h-e1/04_validation.md confirming PoC pass/fail status.
+    acceptance_criteria:
+      - "metrics.json exists with finite delta_pylint values"
+      - "Completion rate ≥95% for both baseline and pylint conditions"
+      - "04_validation.md written with gate status"
+    reference_files:
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "## 6. Success Criteria"

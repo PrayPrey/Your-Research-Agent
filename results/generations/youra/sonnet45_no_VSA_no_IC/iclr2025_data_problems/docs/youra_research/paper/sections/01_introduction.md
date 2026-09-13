@@ -1,0 +1,21 @@
+# Introduction
+
+Data curation for foundation model training combines quality filtering and diversity sampling, but optimal ordering remains an open question. When filtering 70% of data by quality (V-Information) before sampling 49% for diversity (Feature Activation Coverage), or applying these steps in reverse, which strategy wins? Conventional wisdom suggests quality-first (QD) dominates at small scale while diversity-first (DQ) should take over at large scale as quality saturates—but our experiments with GPT-2 training across 10K–10M tokens reveal quality-first wins at ALL scales.
+
+This finding matters because practitioners deploying multi-stage curation pipelines need prescriptive guidance on ordering, not just quality and diversity metric selection. Training on 10M tokens with DQ ordering (diversity-first) yields models 1.8 percentage points worse than QD despite intuition that diversity should dominate at large scale. Incorrect ordering wastes training compute and produces suboptimal models even when final dataset size remains constant.
+
+The core challenge is compositional interaction: sequential curation strategies create non-additive effects that prior work assumes to be order-invariant. Quality metrics show diminishing returns as dataset scale increases—DATAMASK (ByteDance 2025) qualitatively observed this saturation—while diversity metrics persist. Yet existing approaches like Data Mixing Laws and RegMix assume data sources mix independently with additive contributions, missing the sequential dependency. No prior work quantifies quality saturation and diversity persistence trajectories as continuous functions of scale, nor tests whether ordering (QD vs DQ) produces statistically different outcomes.
+
+Our key insight is that **quality-first filtering acts as a diversity-preserving prior** by removing low-value noise before diversity selection, while diversity-first sampling amplifies uninformative variation when applied to unfiltered noisy corpora. Think of quality filtering as removing static from a radio signal before applying equalization (diversity sampling). If you equalize first, you amplify both signal and noise. The quality-first approach maximizes signal-to-noise before pattern coverage optimization.
+
+Building on this insight, we make the following contributions:
+
+1. **Quantified saturation and persistence trajectories**: We measure quality-only improvement decreasing from +11pp (10K tokens) to +3.3pp (10M tokens) with slope −2.62pp/log-scale (p=0.008), while diversity-only improvement increases from +2pp to +8pp with slope +2.5pp/log-scale (p=0.002). This provides statistical rigor to DATAMASK's qualitative observations.
+
+2. **Demonstration of compositional ordering effects**: Through systematic GPT-2 training experiments, we show quality-first (QD) outperforms diversity-first (DQ) by +1.5pp to +5.0pp across all tested scales (Cohen's d=0.76–2.48), contradicting Data Mixing Laws' order-invariance assumption. This is the first work to demonstrate that sequential ordering (QD ≠ DQ) produces statistically significant compositional interactions in data curation.
+
+3. **Evidence for quality-first universality**: Contrary to our initial hypothesis predicting reversal (DQ > QD at 10M scale), we find quality-first curation remains superior even when diversity coefficient (α_D=0.74) exceeds quality coefficient (α_Q=0.36) at large scale. This reveals a quality-gated diversity mechanism where diversity sampling is only beneficial on quality-filtered subsets.
+
+4. **Prescriptive guidance for practitioners**: Our findings provide actionable recommendations—apply quality filtering before diversity sampling regardless of dataset scale (10K–10M tokens)—saving compute on DQ experiments and improving model performance.
+
+Our work challenges the assumption that data sources mix independently and introduces compositional interaction analysis to data curation research. We organize the paper as follows: Section 2 discusses related work in data curation metrics and mixing strategies; Section 3 describes our experimental methodology; Section 4 presents results on saturation trajectories and ordering effects; Section 5 discusses implications and limitations; Section 6 concludes with future directions.

@@ -1,0 +1,52 @@
+
+\subsubsection{Theoretical Framework}
+
+For layer ℓ with residual connections h_ℓ = h_{ℓ-1} + f_ℓ(h_{ℓ-1}), the Jacobian J_ℓ = ∂h_ℓ/∂h_{ℓ-1} = I + ∂f_ℓ/∂h_{ℓ-1}. The residual-corrected Jacobian J̃_ℓ = J_ℓ - I isolates the learned transformation. Stable rank is defined as:
+
+sr_ℓ^res = ||J̃_ℓ||_F^2 / ||J̃_ℓ||_2^2
+
+\subsubsection{Hutchinson Trace Estimation}
+
+For Frobenius norm squared ||J̃_ℓ||_F^2 = Tr(J̃_ℓ^T J̃_ℓ), we used Hutchinson's estimator with 10 Rademacher vectors:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+J̃_ℓ &  & _F^2 ≈ (1/10) Σ_{i=1}^{10} z_i^T (J̃_ℓ^T J̃_ℓ) z_i \\
+\midrule
+\bottomrule
+\end{tabular}
+\end{table}
+
+where z_i are random ±1 vectors. Each probe required computing Jacobian-vector products via PyTorch autodiff with create_graph=True and retain_graph=True.
+
+\subsubsection{Power Iteration for Spectral Norm}
+
+For spectral norm ||J̃_ℓ||_2, we used 5 iterations of power iteration starting from random unit vector v_0:
+
+v_{k+1} = (J̃_ℓ^T J̃_ℓ v_k) / ||(J̃_ℓ^T J̃_ℓ v_k)||
+
+The spectral norm was estimated as ||J̃_ℓ v_5||.
+
+\subsubsection{Regularization Loss}
+
+The total loss combined causal language modeling with stable rank regularization:
+
+L_total = L_CLM + λ · (1/L) Σ_{ℓ=1}^{L} sr_ℓ^res
+
+where L = 12 layers. Lambda was initialized at 0.01 and adjusted adaptively: if perplexity exceeded 1.01 × baseline, λ was multiplied by 0.9; if below 0.99 × baseline, multiplied by 1.1.
+
+\subsubsection{Implementation Details}
+
+\begin{itemize}
+\item \textbf{Architecture}: GPT-2 (125M parameters, 12 layers, 768 hidden dimensions, 12 attention heads)
+\item \textbf{Dataset}: C4 English subset, 10B token budget, streaming mode
+\item \textbf{Training}: 5000 steps (~320M tokens), batch size 32 with gradient accumulation to effective 128
+\item \textbf{Optimizer}: AdamW (lr=3e-4, β=(0.9,0.95), weight_decay=0.1)
+\item \textbf{Schedule}: Cosine decay with 2000-step warmup
+\item \textbf{Hardware}: Single NVIDIA A100 GPU
+\item \textbf{Seed}: 42 (fixed)
+\end{itemize}
+
+Two variants were trained: baseline (λ=0) and regularized (λ adaptive, initialized at 0.01).

@@ -1,0 +1,70 @@
+
+\subsubsection{3.1 Overview}
+
+Two uncertainty signals are computed for each question-answer pair:
+
+\begin{enumerate}
+\item \textbf{Token Entropy:} Mean entropy over generated tokens, computed from logit distributions during greedy decoding
+\item \textbf{N-Sample Consistency:} Mean pairwise cosine similarity of response embeddings across multiple sampled generations
+\end{enumerate}
+
+\subsubsection{3.2 Token Entropy Computation}
+
+For a generated response with tokens $t_1, \ldots, t_n$, token entropy is computed as:
+
+$H(t_{i}) = -\sum_{v \in V} p(v | t_{<i}) \log p(v | t_{<i})$
+
+where $V$ is the vocabulary and $p(v | t_{<i})$ is the softmax probability from the model's logits.
+
+\textbf{Aggregation:} Mean entropy over response tokens:
+
+$H_{\text{response}} = \frac{1}{n} \sum_{i=1}^{n} H(t_{i})$
+
+\textbf{Implementation:} Greedy decoding with output\_scores=True to access logits. Numerical stability maintained via clamp(min=1e-10) before log computation. Maximum response length: 100 tokens.
+
+\subsubsection{3.3 N-Sample Consistency Computation}
+
+For N independently sampled responses to the same question:
+
+\begin{enumerate}
+\item Generate N responses with temperature sampling (T=1.0)
+\item Encode each response using a sentence embedding model
+\item Compute pairwise cosine similarity
+\item Average to obtain consistency score
+\end{enumerate}
+
+$C = \frac{2}{N(N-1)} \sum_{i < j} \cos(e_i, e_j)$
+
+where $e_i$ is the embedding of response i.
+
+\textbf{Parameters:}
+\begin{itemize}
+\item N = 5 samples (following SelfCheckGPT)
+\item Temperature = 1.0
+\item Embedding model: sentence-transformers/all-MiniLM-L6-v2
+\end{itemize}
+
+\subsubsection{3.4 Ground Truth Labels}
+
+TruthfulQA's generation split (817 questions) is used with factuality labels derived from BERTScore comparison between model response and reference answers:
+
+\begin{itemize}
+\item \textbf{Correct:} BERTScore F1 $\geq$ 0.5 with best\_answer
+\item \textbf{Incorrect:} BERTScore F1 < 0.5 with best\_answer
+\end{itemize}
+
+\subsubsection{3.5 Orthogonality Analysis}
+
+\textbf{Correlation Analysis:} Pearson r between entropy and (1-consistency) across all questions. Threshold: r < 0.3 indicates orthogonal signals (< 9\% shared variance).
+
+\textbf{Discordant Case Analysis:} Questions where entropy rank differs from consistency rank by >50 percentile points. Threshold: >15\% discordant cases.
+
+\subsubsection{3.6 Statistical Validation}
+
+\begin{itemize}
+\item \textbf{Effect size:} Cohen's d with pooled standard deviation
+\item \textbf{Significance testing:} Mann-Whitney U test (one-sided) for group comparisons
+\item \textbf{Confidence intervals:} 95\% CI via bootstrap (1000 iterations)
+\item \textbf{AUROC:} Area under ROC curve
+\end{itemize}
+

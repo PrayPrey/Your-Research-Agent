@@ -1,0 +1,1 @@
+When finishing a task in this workspace, verify any written JSON/CSV parses cleanly and check that referenced experiment artifacts exist. There was no repo-wide test or lint command surfaced during inspection, so validation is usually script-level or artifact-level.

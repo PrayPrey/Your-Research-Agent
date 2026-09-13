@@ -1,0 +1,126 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-05T06:30:00Z"
+  workflow: "phase2a-dialogue "
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "GAP-001"
+
+hypothesis_draft:
+  title: "Depth-Resolved Logit-Lens Uncertainty Signals for Architecture-Robust Hallucination Detection"
+  hypothesis_id: "H-LayerLensUQ-v2"
+  core_claim: |
+    Per-layer logit-lens uncertainty statistics (Shannon entropy, max-token probability,
+    adjacent-layer KL divergence) computed from a single greedy forward pass, with
+    (layer, signal, direction) selected per model on a held-out selection split, achieve
+    hallucination-detection AUROC >= 0.60 on TriviaQA and TruthfulQA for LLaMA-2-7B,
+    Mistral-7B-v0.1, and LLaMA-3-8B-Instruct — including a CI-separated within-model
+    rescue of LLaMA-2-7B, where the final-layer entropy readout failed at 0.5186.
+  mechanism: |
+    Calibration suppression, three falsifiable steps: (1) factual answers resolve
+    next-token candidate competition at intermediate depth while hallucinations remain
+    unresolved (elevated entropy, contested leader, persistent inter-layer revision —
+    grounded in Entropy-Lens's validated expansion/pruning reading); (2) final-layer
+    output calibration (tokenizer/tuning-dependent) suppresses the separation at layer
+    32; (3) suppression severity is architecture-dependent — worst in base LLaMA-2-7B —
+    so per-model depth selection restores robustness. Retrodicts both h-e1 anomalies
+    (llama2 miss and direction inversion).
+  predictions:
+    - P1: "LLaMA-2-7B rescue: selected intermediate layer reaches AUROC >= 0.60 on both datasets AND beats final-layer entropy with 95% paired-bootstrap CI excluding zero on TriviaQA (primary falsification gate)"
+    - P2: "Cross-dataset layer transfer: TriviaQA↔TruthfulQA transferred layer within 0.05 AUROC of native selection and >= 0.60, both directions, per model (genuinely uncertain; separable claim)"
+    - P3: "KL-entropy complementarity: 2-parameter logistic fusion gains >= 0.02 AUROC over best single signal with CI excluding zero (trained combiner, quarantined)"
+
+variables_summary:
+  independent: "readout_layer (1-32, per-model selected vs final-layer baseline); signal_type (entropy | max_token_probability | adjacent_layer_KL); model_family (3 levels); dataset (2 levels)"
+  dependent_primary: "AUROC_corrected on locked test split (direction sign frozen from selection split); supporting: paired ΔAUROC_rescue, transfer_AUROC_gap, fusion_gain"
+  controlled: "greedy decoding, h-e1-verbatim prompts/labels, stratified 50/50 selection/test split (seed 42, test locked), fp16 weights + float32 statistics, answer_length logged"
+
+null_hypothesis:
+  h0_statement: |
+    Per-layer logit-lens statistics carry no separation the final layer lacks: for every
+    screened intermediate layer of LLaMA-2-7B, the 95% paired-bootstrap CI of
+    ΔAUROC(intermediate − final-layer entropy) contains zero; no model achieves test-split
+    AUROC >= 0.60 on both datasets beyond final-layer performance; cross-dataset transfer
+    is no better than chance layer choice.
+  statistical_test: "Paired percentile bootstrap (n=1000, example-level resampling, both scores per resample) for AUROC differences; per-cell corrected AUROC with direction sign estimated on selection split and frozen on test"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Reading uncertainty BEFORE final-layer calibration: per-layer logit-lens statistics as training-free single-pass detection scores with per-model held-out selection — the empty cell between Entropy-Lens (feature without task) and FEPoID (task without this method)"
+  differentiation_summary: |
+    Entropy-Lens computes the identical feature as a computation signature, never for
+    detection AUROC. FEPoID confirms intermediate>final but selects via intrinsic
+    dimension inside a supervised probing framework. Kim et al. 2025's negative result
+    concerns final-prediction-token trajectories (tuned lens, MCQ) — a strictly narrower
+    measurement, answered by scope. SAPLMA requires a trained probe. END/DoLa use
+    cross-layer shifts only at decoding time. h-e1 (own failure) read one scalar at the
+    final layer only. HalluShift overlap: formal novelty check scheduled in Phase 2B.
+    Cross-dataset layer-transfer matrix is measured nowhere in the corpus.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "meta-llama/Llama-2-7b-hf (rescue stress test)"
+    - "mistralai/Mistral-7B-v0.1 (regression guard)"
+    - "meta-llama/Meta-Llama-3-8B-Instruct (regression guard; only instruct model — R3)"
+  datasets:
+    - "TriviaQA mandarjoshi/trivia_qa rc.nocontext validation[:1000]"
+    - "TruthfulQA truthfulqa/truthful_qa generation validation (817)"
+  baselines:
+    - "Final-layer mean token entropy (h-e1 anchor, must reproduce ±0.03)"
+    - "Final-layer max-token probability"
+    - "FEPoID + hidden-state probing (supervised skyline, deferred to Phase 5)"
+
+measurement_plan:
+  data_collection:
+    - source: "Single greedy pass per example with output_hidden_states=True; teacher-forced re-forward on generated sequence; per-layer lm_head(model.norm(h_l)) in float32; 3 signals x 32 layers, mean over answer tokens; per-token statistics cached (FST-style ablation); streaming scalar CSV (no hidden-state stacks); reuse v1 871/1000 llama2/TriviaQA cache where protocol-identical"
+  procedure:
+    - step: "Load datasets, h-e1-verbatim prompts/labels; stratified 50/50 selection/test split per dataset, seed 42; write and lock test split"
+    - step: "Smoke run (10 examples/model, shape + memory assert) before each full sweep"
+    - step: "Full sweep: 1,817 examples x 3 models; stream per-example scalars"
+    - step: "Selection split ONLY: degeneracy screen (drop layers with entropy within 1% of ln|V| OR top-1 agreement with final layer < 5%), select (layer, signal, direction) per model, freeze direction signs, fit P3 fusion"
+    - step: "Test split: corrected AUROC per cell; paired bootstrap n=1000 for ΔAUROC_rescue, transfer gaps, fusion gains"
+    - step: "Diagnostics: h-e1 baseline reproduction ±0.03 (halt on failure — A2); raw-direction pattern report (Chi/familiarity flag); length-stratified AUROC on selected layers"
+  success_criteria:
+    - "Tier 1 (rescue, falsification gate): LLaMA-2-7B CI-separated ΔAUROC > 0 vs final-layer entropy on TriviaQA AND selected layer AUROC >= 0.60 on both datasets"
+    - "Tier 2 (robustness): all six model x dataset cells >= 0.60 AND no-regression clause (mistral/llama3 intermediate >= final − 0.02)"
+    - "Protocol validity: h-e1 references reproduced within ±0.03; mechanism-activation indicators (depth variation of AUROC across layers std > 0.01) all TRUE"
+
+validation:
+  internal_validity:
+    - "All selection-sensitive operations (screen, selection, direction freezing, fusion fitting) confined to selection split; test split locked and read once"
+    - "Paired bootstrap on differences (not marginal-CI comparison); direction correction estimated on selection, frozen on test — 192-candidate selection bias controlled"
+    - "Within-model rescue structure cancels tokenizer/tuning/calibration confounds by construction"
+    - "Length-stratified AUROC check guards against non-uniform EM label noise becoming spurious signal"
+  external_validity:
+    - "Claims bounded to two QA datasets, three 7-8B families, greedy decoding (R4); base/instruct asymmetry documented (R3)"
+    - "Cross-dataset transfer measured explicitly (P2) rather than assumed; both outcomes pre-interpreted"
+    - "Recall-vs-truthfulness causal question scoped out (R1) with direction-pattern diagnostic reported"
+
+discussion_synthesis:
+  key_insights:
+    - "The h-e1 failure is best explained as calibration suppression at the final layer, not absence of signal — the mechanism retrodicts both the 0.5186 miss and the direction inversion"
+    - "Kim et al.'s adversarial alignment result is answered by measurement scope: single-token trajectories ≠ full-distribution statistics; their own 97%-positive PD correlations show residual signal"
+    - "Within-model rescue framing (intermediate vs final on the same checkpoint) cancels the base/instruct confound by construction — the single best design decision of the discussion"
+    - "Honest vocabulary matters: 'training-free scoring, label-efficient selection'; fusion quarantined as the only trained component"
+    - "P1 and P2 are separable claims: transfer failure must not contaminate the rescue verdict"
+  breakthrough_moments:
+    - "Exchange 6: Dr. Ally's within-model restructure of the rescue claim, dissolving Rex's confound objection by construction"
+    - "Exchange 7: Dr. Nova's unresolved-candidate-competition mechanism, converting Entropy-Lens's expansion/pruning reading into a hallucination account that makes all three signals natural"
+    - "Exchange 8: Prof. Vera's leak-closing protocol (direction sign frozen from selection split; paired bootstrap on differences) — turning a 192-candidate fishing risk into a disciplined selection"
+    - "Exchange 13: mechanism upgraded to three falsifiable steps that retrodict both h-e1 anomalies"
+  resolved_tensions:
+    - "Kim 2025 alignment vs Entropy-Lens richness → resolved by measurement-scope boundary (final-token trajectory vs full-distribution statistics); the experiment adjudicates the remaining question"
+    - "'Training-free' claim vs label-consuming selection → resolved by vocabulary split (training-free scoring, label-efficient selection) and fusion quarantine"
+    - "FEPoID cross-dataset layer variability vs deployability → resolved by demoting transfer to measured prediction P2 with pre-stated tolerance and pre-interpreted outcomes"
+    - "Rex's 0.57 ambiguity scenario → resolved by two-tier frozen gates (Tier 1 rescue / Tier 2 robustness), making partial outcomes well-defined"

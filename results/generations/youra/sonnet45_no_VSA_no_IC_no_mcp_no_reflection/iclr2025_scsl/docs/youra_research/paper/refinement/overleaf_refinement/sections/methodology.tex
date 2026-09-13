@@ -1,0 +1,40 @@
+
+If spurious features are simpler and converge earlier due to gradient descent's implicit bias, then ablation training---isolating spurious-only and core-only feature types---should reveal measurable temporal separation via per-epoch gradient norm tracking. This methodology tests this by training three network variants (spurious-only, core-only, baseline) on CMNIST benchmark, measuring convergence epoch $E$ for each variant, and computing temporal gap $\Delta = E_{\text{core}} - E_{\text{spurious}}$. The prediction is $\Delta \geq 2$ epochs.
+
+\subsubsection{Ablation Training}
+
+\textbf{Rationale.} Direct gradient convergence measurement requires isolating feature types without attribution ambiguity. GradCAM and Integrated Gradients provide spatial attribution but introduce methodological complexity (which pixels correspond to ''spurious'' vs ''core''?) and fail on global corruptions like CMNIST color (applied uniformly across the entire image, not spatially localized). Ablation training sidesteps attribution entirely: inputs are modified to remove one feature type, then convergence on the ablated variant is measured.
+
+\textbf{CMNIST spurious-only variant.} Gaussian blur ($\sigma=3$) is applied to grayscale MNIST digits, removing shape edges while preserving smooth color gradients. The network trained on blurred inputs cannot use digit shape (destroyed by blur) and must rely on color bias (digit 0 $\rightarrow$ red with 75\% probability, digit 1 $\rightarrow$ green with 75\% probability). Convergence epoch $E_{\text{spurious}}$ measures when color-based gradients stabilize.
+
+\textbf{CMNIST core-only variant.} Colored MNIST is converted to grayscale, removing color information entirely. The network must use digit shape (edges, stroke patterns) to classify. Convergence epoch $E_{\text{core}}$ measures when shape-based gradients stabilize.
+
+\textbf{Baseline variant.} Standard CMNIST training with both color and shape available. Convergence epoch $E_{\text{baseline}}$ lies between $E_{\text{spurious}}$ and $E_{\text{core}}$, as the network exploits both feature types (biased toward earlier-converging spurious features).
+
+\textbf{Architecture.} ResNet-18 pretrained on ImageNet, final FC layer replaced with binary classification head (10 classes for CMNIST digits). Standard SGD optimizer with momentum 0.9, learning rate 0.01, batch size 256. Training proceeds for 30 epochs to ensure post-convergence observation window.
+
+\subsubsection{Convergence Criterion}
+
+\textbf{Definition.} Convergence epoch $E$ is the first epoch where accuracy reaches 90\% and remains above threshold for 3 consecutive epochs. This threshold-based criterion is robust to transient accuracy dips (single-epoch drops followed by recovery), while the 3-epoch window ensures stable convergence rather than momentary plateau.
+
+\textbf{Rationale.} The 90\% threshold balances sensitivity (too high $\rightarrow$ few variants converge within training budget) and specificity (too low $\rightarrow$ premature convergence declaration). The 3-epoch window prevents false convergence detection from temporary plateaus.
+
+\subsubsection{Layer-Wise Neuron Correlation}
+
+\textbf{Rationale.} If temporal gap arises from feature complexity hierarchy (simpler spurious features in early layers, complex core features in late layers), then early layers should exhibit higher neuron-spurious correlation than late layers. This validates the mechanism: temporal ordering is not just a dataset artifact but reflects architectural processing hierarchy.
+
+\textbf{Neuron-spurious correlation $\rho_j$.} For each neuron $j$ in the network, Pearson correlation is computed between neuron activation magnitudes (averaged over spatial dimensions for conv layers, scalar for FC layers) and spurious feature presence (1 if spurious-only input, 0 if core-only input):
+
+$$\rho_j = \text{corr}(|a_j(x)|, \mathbb{1}[\text{spurious}])$$
+
+where $a_j(x)$ is neuron $j$'s activation on input $x, \mathbb{1}[\text{spurious}] = 1$ for spurious-only variant images, $0$ for core-only variant images. High $|\rho_j|$ indicates neuron strongly responds to spurious features.
+
+\textbf{Layer-wise aggregation.} Neurons are grouped by layer (conv1, layer1, layer2, layer3, layer4 for ResNet-18), mean $|\rho_j|$ per layer is computed. Statistical test: independent samples t-test comparing early layers (conv1, layer1) vs late layers (layer3, layer4). Hypothesis: $\bar{\rho}_{\text{early}} > \bar{\rho}_{\text{late}}$.
+
+\subsubsection{Forgetting Rate Analysis}
+
+\textbf{Rationale.} If spurious features converge to simpler, more stable decision boundaries, spurious-trained networks should exhibit lower prediction forgetting (fewer flip-flops between correct and incorrect predictions across epochs) than core-trained networks.
+
+\textbf{Forgetting metric.} For each training example $x_i$, prediction correctness $c_i^{(t)} \in \{0, 1\}$ is tracked at each epoch $t$. A forgetting event occurs when $c_i^{(t)} = 1$ (correct) and $c_i^{(t+1)} = 0$ (incorrect). Forgetting rate $F = \frac{1}{N} \sum_{i=1}^N f_i$, where $f_i$ is the number of forgetting events for example $i$ across all epochs.
+
+\textbf{Feature-level adaptation.} $F_{\text{spurious}}$ is computed on spurious-only training, $F_{\text{core}}$ on core-only training. Hypothesis: $F_{\text{spurious}} < F_{\text{core}}$ (spurious features more stable).

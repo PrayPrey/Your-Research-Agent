@@ -1,0 +1,25 @@
+# 7. Conclusion
+
+We began by observing that benchmark evaluation produces aggregate scores without explaining why models fail, blocking targeted correction. When an LLM fails a TruthfulQA question, existing tools report the failure but provide no diagnostic signal distinguishing entity-substitution errors from reasoning failures. This gap prevents matched correction strategies — practitioners apply RAG or COT uniformly, missing opportunities to target root causes.
+
+Our work demonstrates that attention entropy over entity spans provides a measurable diagnostic signal (p < 0.001, Cohen's d = -1.13), enabling automated failure-type classification with 86.7% accuracy. Entity-substitution errors exhibit zero entropy in 60% of cases, revealing they are precision errors (model looks at wrong place deterministically) rather than recall errors (absence of focused attention). This mechanistic understanding grounds matched correction routing: RAG retrieves the correct entity for attention re-direction, targeting the entity-level misdirection root cause.
+
+Our main contributions are:
+
+1. **Methodological:** Attention entropy-based failure classification at scale (73 processed samples vs 10-20 manual examples in prior interpretability work), demonstrating that automated diagnostic routing from benchmark to interpretability analysis is tractable.
+
+2. **Empirical:** Robust attention pattern signature (p = 7.5×10⁻⁷, large effect size d = -1.13) with zero-entropy entity-errors revealing precision error mechanism, validated through statistical testing and threshold-based classification.
+
+3. **Framework:** Mock validation of matched routing structure (entity → RAG: +24pp improvement over mismatched entity → COT) demonstrating pipeline feasibility, pending real-world correction effectiveness validation.
+
+We acknowledge principled limitations: GPT-2-only attention patterns (multi-model replication pending FW1), synthetic correction results (real-world RAG validation pending FW2), manual gold labels (automated labeling pending FW4), single failure type (multi-class extension pending FW3), and 27% span alignment sample loss (sub-word-aware alignment pending FW5). These limitations bound our claims to proof-of-concept scope — we validate pattern existence and classification utility, not production-ready correction effectiveness.
+
+## Future Directions
+
+Immediate next steps test pattern generalization and real-world correction effectiveness. **FW1** (HIGH priority) replicates attention pattern detection with Llama-2-7B, GPT-3.5, and GPT-4 to determine if the entropy difference generalizes across architectures or requires model-specific calibration. **FW2** (HIGH priority) implements full RAG pipeline (Wikipedia API + GPT-3.5 generation) and real COT baseline, evaluating correction effectiveness on 50 entity-errors using GPT-judge. This experiment is critical for paper credibility — without real-world validation, we can claim diagnostic classification but not correction routing effectiveness.
+
+Longer-term extensions explore multi-failure-type diagnosis, automated labeling, and cross-benchmark generalization. **FW3** (MEDIUM priority) tests whether reasoning errors and knowledge gaps exhibit distinct attention signatures, enabling multi-class classification (entity vs reasoning vs knowledge-gap) with ≥70% accuracy. **FW4** (MEDIUM priority) trains supervised classifiers on gold-labeled samples to automate failure categorization at scale, removing the manual annotation bottleneck. **FW5** (MEDIUM priority) implements sub-word-aware span alignment to recover the 27% sample loss, strengthening statistical power. **FW6** (LOW priority) analyzes per-head attention patterns to test if specific heads specialize in entity focus, potentially improving classification beyond averaged attention.
+
+Beyond incremental extensions, we envision a systematic improvement workflow where every LLM evaluation automatically routes failures to interpretability analysis, producing diagnostic profiles that guide targeted interventions. The ultimate goal is not just measuring reliability (what benchmarks do) or explaining behavior (what interpretability does) or applying corrections (what RAG/COT do), but systematically integrating all three: measure → diagnose → correct → measure again, forming a closed-loop reliability improvement cycle.
+
+As LLM deployment scales, the gap between "knowing a model failed" and "understanding why it failed" becomes a reliability bottleneck. Attention-based failure routing bridges that gap, scaling interpretability from manual analysis to automated diagnosis. Our framework demonstrates that benchmarks, interpretability, and correction can form an integrated system — transforming evaluation from passive measurement to active improvement guidance. We hope this work encourages further integration efforts, enabling practitioners to move from "our model scores 65% on TruthfulQA" to "our model exhibits entity-substitution errors in 35% of failures, routing to RAG correction targets these precision errors at scale."

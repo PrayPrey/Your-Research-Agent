@@ -1,0 +1,122 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-31T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-2"
+
+hypothesis_draft:
+  title: "State-Aware LoRA (SA-LoRA): Memory-Horizon Adaptation for Mamba SSMs"
+  hypothesis_id: "H-SA-LoRA-v1"
+  core_claim: |
+    Adapting Mamba's recurrent state decay parameters (A_log bias) alongside standard
+    projection-layer LoRA (SA-LoRA) improves downstream NLP task accuracy beyond
+    projection-only LoRA, because A-adaptation controls task-specific memory horizons
+    that projection layers cannot replicate. The gain is larger on longer-range tasks.
+  mechanism: |
+    Step 1: LoRA on in_proj, out_proj, x_proj adapts the input-to-state (B) and
+    state-to-output (C) effective mappings — what information is stored and read.
+    Step 2: A_log bias δ ∈ ℝ^{d_model} shifts the base decay rate α per channel,
+    allowing the model to retain task-relevant information for longer (MNLI, multi-hop QA)
+    or shorter (SST-2 sentiment) durations.
+    Step 3: These two adaptation axes are non-redundant: projections change the channel
+    content; A-adaptation changes the temporal filter. Together they fully parameterize
+    task-specific SSM behavior.
+  predictions:
+    - P1: "State-aware conditions (C, D) improve GLUE average ≥1pp over projection-only LoRA (A) on Mamba-130m"
+    - P2: "Accuracy gain from A-adaptation is larger on LongBench (long-range) than SST-2 (short-range)"
+    - P3: "Learned A_log bias magnitudes are larger for longer-range tasks (MNLI > SST-2) as a diagnostic"
+
+variables_summary:
+  independent: "PEFT configuration (4 conditions: projection-only, +dt_proj, +A_log_bias, full state-aware) × model scale (130m, 370m) × LoRA rank (4, 8, 16)"
+  dependent_primary: "GLUE average accuracy (SST-2, MNLI, QNLI, QQP); LongBench 2WikiMultihopQA F1"
+  controlled: "Training hyperparameters (lr=3e-4, bs=32, epochs=3), random seeds (42,43,44), base model checkpoint"
+
+null_hypothesis:
+  h0_statement: |
+    There is no statistically significant difference in GLUE average accuracy or LongBench F1
+    between State-Aware LoRA (projection LoRA + A_log bias) and projection-only LoRA at
+    matched parameter budget on Mamba-130m and Mamba-370m.
+  statistical_test: "Paired t-test across 3 seeds per condition; Bonferroni correction for 4 GLUE tasks"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First PEFT method targeting SSM state decay parameters (A_log) as a distinct adaptation category — memory-horizon adaptation as new PEFT design axis for recurrent models"
+  differentiation_summary: |
+    All prior PEFT work (LoRA, AdaLoRA, IA³, DoRA) treats Mamba as an architecture with
+    linear projection layers, ignoring the recurrent state dynamics. SA-LoRA is the first
+    method to explicitly adapt the temporal structure of SSM memory (decay rate A_log),
+    motivated by the observation that different tasks require different information retention
+    timescales. This is analogous to attention-span adaptation in transformers but
+    mechanistically distinct (additive bias on decay log vs. learned sparse attention masks).
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "Mamba-130m (state-spaces/mamba-130m-hf)"
+    - "Mamba-370m (state-spaces/mamba-370m-hf)"
+  datasets:
+    - "GLUE: SST-2, MNLI, QNLI, QQP (HuggingFace datasets)"
+    - "LongBench: 2WikiMultihopQA (THUDM/LongBench)"
+  baselines:
+    - "Condition A: projection-only LoRA (r=8)"
+    - "Condition B: projection + dt_proj LoRA (r=8)"
+    - "Condition D (treatment): full state-aware LoRA (projection + dt_proj + A_log bias)"
+    - "Full fine-tuning (accuracy ceiling)"
+
+measurement_plan:
+  data_collection:
+    - source: "GLUE benchmark via lm-evaluation-harness; automatic scoring"
+    - source: "LongBench 2WikiMultihopQA via THUDM/LongBench evaluation scripts; F1 scoring"
+    - source: "Learned A_log bias tensors extracted from model state_dict after fine-tuning"
+  procedure:
+    - step: "For each condition × scale × seed: fine-tune Mamba with specified PEFT config for 3 epochs"
+    - step: "Evaluate GLUE tasks with lm-evaluation-harness; record per-task and average accuracy"
+    - step: "Evaluate LongBench 2WikiMultihopQA; record F1"
+    - step: "Extract A_log bias magnitudes from trained model; compute mean |δ| per task"
+    - step: "Report mean ± std across 3 seeds; run paired t-test for primary comparison (D vs. A)"
+  success_criteria:
+    - "P1: GLUE average(D) - GLUE average(A) ≥ 1.0 pp, p < 0.05"
+    - "P2: LongBench delta(C vs. A) > SST-2 delta(C vs. A) by ≥ 1 pp"
+    - "P3: mean |δ_MNLI| > mean |δ_SST-2| (directional diagnostic)"
+
+validation:
+  internal_validity:
+    - "4-condition ablation isolates each adaptation component (projection, dt_proj, A_log, combined)"
+    - "Matched parameter budget across conditions by adjusting rank or counting bias params"
+    - "3-seed replication prevents single-run artifacts"
+    - "Two model scales (130m, 370m) test scale generalization"
+  external_validity:
+    - "GLUE covers short-range classification tasks representative of standard NLP benchmarks"
+    - "LongBench tests long-context generalization — different regime from GLUE"
+    - "Results at 130m/370m may not fully generalize to >1B parameters without additional experiments"
+    - "Only Mamba-1 architecture tested; Mamba-2 extension depends on checkpoint availability"
+
+discussion_synthesis:
+  key_insights:
+    - "The SSM A matrix is a task-specific memory horizon parameter — its HiPPO initialization is general, not task-optimal"
+    - "A_log bias adaptation is stability-preserving by construction (A = -exp(A_log) is always negative)"
+    - "dt_proj LoRA and A_log bias are mathematically distinct: one adapts input-dependent timescale, the other adapts base decay rate"
+    - "The 4-condition ablation design is the minimal experiment to fully characterize state-aware PEFT"
+    - "Mamba-2 scalar A per head makes state-aware PEFT even simpler (O(num_heads) parameters)"
+  breakthrough_moments:
+    - "Exchange 1 (Dr. Nova): Reframed the question from 'can LoRA work on SSMs?' to 'what does SSM-specific memory require from PEFT?' — opened the memory-horizon framing"
+    - "Exchange 4 (Prof. Pax): Confirmed that A_log bias and dt_proj LoRA are non-redundant via mathematical analysis of y_t = C_t·h_t, h_t = α·h_{t-1} + B_t·x_t"
+    - "Exchange 6 (Prof. Rex): Identified that short-sequence GLUE alone is insufficient — LongBench is needed to validate the memory-horizon claim"
+    - "Exchange 7 (Dr. Nova + Dr. Ally): Resolved all three of Prof. Rex's concerns and finalized 4-condition experimental design"
+  resolved_tensions:
+    - "Stability of A_log adaptation: resolved — A = -exp(A_log) preserves stability automatically"
+    - "dt_proj vs. A_log redundancy: resolved via mathematical argument; design includes both as separate conditions"
+    - "Scale validity: resolved by committing to 130m + 370m evaluation"
+    - "Benchmark scope: resolved by adding LongBench 2WikiMultihopQA to GLUE evaluation"

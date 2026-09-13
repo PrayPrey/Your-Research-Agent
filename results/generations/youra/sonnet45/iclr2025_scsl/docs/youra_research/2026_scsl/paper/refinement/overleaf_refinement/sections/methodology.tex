@@ -1,0 +1,52 @@
+
+\subsubsection{3.1 Problem Formulation}
+
+We consider a dataset D = {(x\_i, y\_i, g\_i)} where x\_i is an input image, y\_i is the class label, and g\_i is the spurious group (unobserved during training). In Waterbirds, y\_i $\in$ {landbird, waterbird}, the background type is the spurious feature, and there are 4 spurious groups formed by the Cartesian product of 2 bird types and 2 background types. The training distribution exhibits 93\% spurious correlation.
+
+The goal is to test whether SSL embeddings $z = f_\theta(x)$ exhibit discrete clusterability measurable via AMI, and whether this clusterability relates to fairness intervention efficacy.
+
+\subsubsection{3.2 Clusterability Measurement}
+
+\textbf{Adjusted Mutual Information (AMI):} We compute AMI between k-means cluster assignments C and ground-truth spurious groups G:
+
+AMI(C, G) = [I(C, G) - E[I(C, G)]] / [max(H(C), H(G)) - E[I(C, G)]]
+
+where I($\cdot ,\cdot )$ is mutual information and H($\cdot )$ is entropy. AMI ranges from 0 (chance-level agreement) to 1 (perfect agreement). We use k=4 clusters corresponding to the 4 spurious groups in Waterbirds. AMI adjusts for chance agreement, making it suitable for evaluating whether clusters correspond to true group structure.
+
+\textbf{Silhouette Score:} For each sample i, the silhouette score is:
+
+s\_i = (b\_i - a\_i) / max(a\_i, b\_i)
+
+where a\_i is the mean intra-cluster distance and b\_i is the mean nearest-cluster distance. Values range from -1 to 1, with scores $\geq$ 0.3 indicating well-separated clusters.
+
+\subsubsection{3.3 SimCLR Training}
+
+We trained SimCLR \citep{chen2020simclr} on Waterbirds using a ResNet-50 encoder initialized randomly (pretrained=False) with a 2-layer MLP projection head mapping 2048-dimensional representations to 128-dimensional projected embeddings. The NT-Xent (normalized temperature-scaled cross-entropy) contrastive loss was used with temperature $\tau =0.5$ and batch size 32. Data augmentations included RandomResizedCrop(224), RandomHorizontalFlip, ColorJitter(0.4, 0.4, 0.4, 0.1), and RandomGrayscale(0.2). Training used SGD with momentum 0.9. Learning rate and weight decay were selected from grids {0.01, 0.001, 0.0001} and {$10^-4, 10^-5, 10^-6$} respectively.
+
+Proof-of-concept training was conducted for 20 epochs to validate implementation prior to full-scale 100-epoch training. This approach follows standard experimental practice of validating code correctness before committing extensive computational resources.
+
+\subsubsection{3.4 LA-SSL Training}
+
+LA-SSL training followed the procedure described in Zhu et al. (2023). Per-sample learning speed v\_i was computed as the mean absolute loss change over a 10-epoch window. Sampling probability was set proportional to exp(-$\alpha v_{i})$ with $\alpha =0.1$. Learning-speed tracking began at epoch 10, and resampling was activated at epoch 16 after learning speeds stabilized. All other hyperparameters matched the SimCLR baseline.
+
+\subsubsection{3.5 Cluster-Balanced Retraining}
+
+After SSL training, the encoder was frozen and k-means clustering (k=4) was applied to the L2-normalized embeddings. Cluster assignments were used to compute sample weights w\_c = N / (K $\cdot |C_c$|) for balancing cluster representation, where N is the total number of samples, K is the number of clusters, and |$C_c$| is the size of cluster c. A linear classifier (2048 $\rightarrow$ 2) was trained using these weights with cross-entropy loss.
+
+\subsubsection{3.6 Evaluation Metrics}
+
+\textbf{Worst-Group Accuracy (WGA):} $\mathrm{WGA} = \min_{g\in \{0,1,2,3\}} \mathrm{Acc}_g$, where Acc\_g is the accuracy on spurious group g.
+
+\textbf{$\Delta WGA$:} The change in WGA from cluster-balanced retraining compared to baseline linear ERM: $\Delta WGA$ = WGA\_cluster\_balanced - WGA\_baseline.
+
+\textbf{Linear Probe AUC:} Binary classification AUC for distinguishing minority groups (groups 1 and 3) from majority groups (groups 0 and 2) using a linear classifier on frozen embeddings.
+
+\subsubsection{3.7 Success Criteria}
+
+Hypotheses were evaluated against pre-registered thresholds:
+
+\begin{itemize}
+\item \textbf{M1:} AMI $\geq$ 0.4 OR Silhouette $\geq$ 0.3
+\item \textbf{M2:} Pearson correlation (AMI, $\Delta WGA)$ significant at p < 0.05 with positive sign
+\item \textbf{M3:} AMI reduction $\geq$ 30\% AND $\Delta AUC$ < 0.05
+\end{itemize}

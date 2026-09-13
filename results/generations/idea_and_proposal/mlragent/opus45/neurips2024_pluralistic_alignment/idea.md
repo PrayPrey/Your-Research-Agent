@@ -1,0 +1,9 @@
+﻿# Title: Democratic Reward Aggregation via Liquid Democracy for Pluralistic AI Alignment
+
+## Motivation
+Current AI alignment methods typically aggregate human preferences through simple averaging or majority voting, which can marginalize minority viewpoints and fail to capture the nuanced structure of value pluralism. Real-world governance systems have developed sophisticated mechanisms for representing diverse interests while reaching actionable decisions. Liquid democracy—where individuals can either vote directly or delegate their votes to trusted representatives—offers a promising middle ground between direct democracy and representative systems that could better handle the complexity of pluralistic value alignment.
+
+## Main Idea
+We propose a novel reward modeling framework inspired by liquid democracy, where annotators can either provide direct preference labels or delegate their judgments to other annotators they trust on specific topics. The methodology involves: (1) constructing a delegation graph where edges represent trust relationships weighted by topic similarity, (2) developing a graph neural network that propagates preference signals through the delegation network while preserving minority clusters, and (3) training reward models that maintain multiple reward heads representing identified value coalitions rather than collapsing to a single aggregated signal.
+
+Expected outcomes include reward models that better represent structured disagreement and enable controllable generation aligned with specific value coalitions. This approach bridges governance theory with ML practice, offering a scalable mechanism for incorporating diverse stakeholder input while maintaining computational tractability.

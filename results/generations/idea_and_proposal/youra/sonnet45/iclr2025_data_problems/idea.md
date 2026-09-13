@@ -1,0 +1,10 @@
+# Title
+Multi-Channel Behavioral Detection of Cross-Lingual Benchmark Contamination in Multilingual Foundation Models
+
+# Motivation
+Foundation models increasingly rely on multilingual benchmarks for evaluation, yet contamination can propagate across languages through shared representations—evading traditional text-overlap detection methods. Existing approaches fail to detect cross-lingual contamination where models memorize benchmarks in one language (e.g., English) and exploit this during evaluation in another (e.g., Chinese). This creates false performance claims and undermines benchmark reliability. With multilingual models like GPT-4 and mT5 becoming ubiquitous, scalable contamination detection that works without training data access is critical for trustworthy AI evaluation.
+
+# Main Idea
+We propose treating benchmark contamination as a **side-channel information leakage** phenomenon detectable through behavioral signatures. Our multi-channel framework combines three complementary signals: (1) confidence score divergence between language pairs, (2) cross-lingual output consistency patterns, and (3) brittleness to semantic perturbations. Crucially, we integrate **linguistic typology-aware adaptive thresholding** using WALS database features to calibrate detection across typologically distant languages. 
+
+The ensemble method achieves TPR ≥0.85 and FPR ≤0.10 on cross-lingual contamination scenarios—a ≥15 F1-point improvement over single-method baselines. This output-only approach works with closed-source models, costs ~$500 versus ~$50K manual auditing, and provides benchmark maintainers with automated contamination screening. By formalizing contamination detection as multi-channel behavioral analysis, we enable reliable evaluation of multilingual foundation models at scale.

@@ -1,0 +1,135 @@
+# Phase 2A: Stage Configuration
+# Main workflow documentation: workflow.md
+
+
+name: phase2a-dialogue
+architecture: "paper-reading-round0-only-then-mcp-search"
+
+# ═══════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ═══════════════════════════════════════════════════════════════
+
+config_source: "{project-root}/bmad-custom-src/custom/modules/youra-research/module.yaml"
+installed_path: "{project-root}/bmad-custom-src/custom/modules/youra-research/workflows/phase2a-dialogue"
+execution_mode: "UNATTENDED"
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 0: GAP SELECTION
+# ═══════════════════════════════════════════════════════════════
+
+stage0_gap_selection:
+  execution: "AUTOMATIC"
+  input:
+    phase1_output: "{research_folder}/01_targeted_research.md"
+    serena_memory_context: "{project-root}/.serena/memories/*.md (injected directly into the Phase 2A launcher prompt as mandatory hard input)"
+  selection_logic:
+    criteria: "highest_priority_primary"
+    priority_order: ["HIGH+PRIMARY", "HIGH+SECONDARY", "MEDIUM+PRIMARY"]
+    fallback: "first_gap_in_list"
+
+# ═══════════════════════════════════════════════════════════════
+# PAPER PREPARATION
+# ═══════════════════════════════════════════════════════════════
+
+paper_preparation:
+  execution: "SCRIPT"
+  script:
+    path: "{installed_path}/scripts/prepare_papers.py"
+    venv: "youra"
+  processing:
+    download_to: "{research_folder}/papers/"
+    convert_to: "markdown"
+    extract: "before_references"
+  validation:
+    min_md_size_bytes: 1000
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 1: HOOK-ORCHESTRATED DISCUSSION
+# ═══════════════════════════════════════════════════════════════
+
+stage1_discussion:
+  version: "9.0.0"
+  execution: "INLINE_SELF_CONTAINED_LOOP"
+
+  # All 6 personas participate in Tikitaka discussion
+  # Persona definitions loaded from personas.yaml (Single Source of Truth)
+  personas_file: "{installed_path}/personas.yaml"
+  orchestrator_agent: "{installed_path}/agents/research-discussion-orchestrator.md"
+  orchestrator_script: "{installed_path}/scripts/orchestrate_exchange.py"
+
+  # Discussion log detection (no flag file needed — loop state is implicit)
+  detection:
+    discussion_log: "discussion_log.md"
+    completion_marker: "## Final Assessments"
+
+  # Convergence managed by external LLM via orchestrate_exchange.py
+  convergence:
+    mode: "external_llm"
+    criteria:
+      - "SPECIFIC: Clear core claim stated"
+      - "MECHANISM: How it works explained"
+      - "PREDICTIONS: 2-3 testable predictions with criteria"
+      - "NOVELTY: What's new articulated"
+      - "FEASIBILITY: Implementation realistic"
+      - "OBJECTIONS: Major criticisms addressed"
+
+  output:
+    discussion_log: "{research_folder}/discussion_log.md"
+
+# ═══════════════════════════════════════════════════════════════
+# STAGE 2: RESULT STRUCTURING
+# ═══════════════════════════════════════════════════════════════
+
+stage2_structuring:
+  version: "9.0.0" # Phase 2B-Compatible Schema
+  execution: "INLINE"
+
+  # Transforms discussion_log.md into Phase 2B-compatible files
+  input:
+    file: "{research_folder}/discussion_log.md"
+    parse_sections:
+      - "## Final Assessments"
+      - "## Emerged Hypothesis Summary"
+      # ### Core Statement, ### Causal Mechanism, ### Variables,
+      # ### Key Assumptions, ### Null Hypothesis, ### Predictions,
+      # ### Novelty, ### Scope & Boundaries, ### Experimental Setup,
+      # ### Related Work & Baselines, ### Phase 2B Readiness Seeds,
+      # ### Established Facts
+
+  # Phase 2B Compatibility Contract: these EXACT files must be produced
+  output:
+    refinement_file: "{research_folder}/03_refinement.yaml"
+    synthesis_file: "{research_folder}/02_synthesis.yaml"
+    final_opinions_file: "{research_folder}/01_round_table/final_opinions.yaml"
+    summary_file: "{research_folder}/03_refinement.md"
+
+# ═══════════════════════════════════════════════════════════════
+# ORCHESTRATION (Step Files)
+# ═══════════════════════════════════════════════════════════════
+
+orchestration:
+  step_files:
+    stage0: "{installed_path}/steps/step-00-initialize.md"
+    stage1: "{installed_path}/steps/step-01-discussion.md"
+    stage2: "{installed_path}/steps/step-02-structuring.md"
+
+# ═══════════════════════════════════════════════════════════════
+# PIPELINE POSITION
+# ═══════════════════════════════════════════════════════════════
+
+pipeline:
+  position: "Phase 2A-Dialogue"
+  inputs:
+    - from: "Phase 1"
+      file: "01_targeted_research.md"
+    - from: "Cross-phase Serena Memory"
+      file: ".serena/memories/*.md"
+      mode: "launcher_prompt_hard_input"
+  outputs:
+    - "papers/*.md"
+    - "discussion_log.md"
+    - "01_round_table/final_opinions.yaml"
+    - "02_synthesis.yaml"
+    - "03_refinement.yaml"
+    - "03_refinement.md"
+  next_phase: "Phase 2B"

@@ -1,0 +1,8 @@
+# Title
+AuditChain-DP: Blockchain-Anchored Zero-Knowledge Verification for Differential Privacy in Federated Learning
+
+# Motivation
+Production federated learning (FL) systems face a critical trust gap: regulators and third-party auditors cannot independently verify differential privacy (DP) guarantees without accessing sensitive model gradients or trusting server self-reports. This prevents FL adoption in regulated domains (healthcare, finance) requiring GDPR/HIPAA compliance. Current solutions rely on trusted execution environments vulnerable to hardware attacks or lack cryptographic verifiability. Google Research identifies "verifying server-side DP guarantees" as a key unsolved challenge in practical FL deployments.
+
+# Main Idea
+We propose AuditChain-DP, a cryptographically verifiable audit framework combining blockchain-anchored privacy budget ledgers with zero-knowledge proofs. The causal mechanism operates through three steps: (1) FL servers log ε/δ consumption to a consortium blockchain after each training epoch, creating tamper-proof records; (2) servers generate ZK-SNARK proofs cryptographically demonstrating correct Gaussian noise application without revealing model parameters; (3) external auditors verify proofs using lightweight cryptographic checks (~100ms) without data access. We test this using factorial experiments across 18 scenarios (honest/malicious servers, varying privacy budgets). Success requires 100% verification correctness, <60-second proof generation overhead, and >99.9% tamper resistance. This enables regulatory-compliant FL through cryptographic verification rather than hardware trust, addressing a critical barrier to FL adoption in sensitive domains.

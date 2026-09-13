@@ -1,0 +1,25 @@
+# Conclusion
+
+We set out to prove that stable spectral properties indicate model quality — and proved the exact opposite. The coefficient of variation of participation ratio (CV\_PR), hypothesized to correlate negatively with ImageNet accuracy, instead shows a strong positive correlation (r = +0.61, p < 10^{-10}). Models with higher accuracy exhibit more variance in randomized SVD estimates, not less.
+
+## Summary
+
+In this work, we tested whether SVD estimator variance predicts model quality. Our contributions are:
+
+1. **Methodology validation:** CV\_PR can be reliably extracted from 100+ pretrained models using randomized SVD with 20 seeds (100% completion, values in [0.001, 0.033]).
+
+2. **Hypothesis falsification:** The negative correlation hypothesis is decisively rejected. CV\_PR positively correlates with accuracy, with the 95% confidence interval [0.506, 0.703] excluding all negative values.
+
+3. **Interpretive framework:** We identify confounding by model size and richer representations as competing explanations for the unexpected positive correlation.
+
+## Future Directions
+
+This falsification opens several research directions grounded in our experimental findings:
+
+**Confound analysis:** Partial correlation controlling for parameter count would distinguish whether CV\_PR has independent predictive value or merely proxies model complexity. If partial r drops to zero, the observed correlation is spurious; if it remains significant, CV\_PR captures something beyond size.
+
+**Mechanism investigation:** Why does higher spectral variance accompany better generalization? The inverted causal story — diversity rather than stability signals quality — warrants investigation with reformulated hypotheses.
+
+**Architecture stratification:** Within-family versus cross-family analysis may reveal whether the positive correlation varies by architecture type (ResNet, ViT, EfficientNet, ConvNeXt).
+
+Sometimes the most valuable finding is that our intuitions were wrong. The stability-as-quality assumption, plausible in theory, does not hold for CV\_PR in practice. This negative result redirects research toward understanding why higher variance accompanies better models — a question that would not have arisen without rigorous hypothesis testing.

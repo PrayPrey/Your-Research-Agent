@@ -1,0 +1,236 @@
+budget_summary:
+  epics: 9
+  setup_tasks: 2
+  subtasks: 11
+  total: 22
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  version: '1.0'
+tasks:
+- description: pip install lm_eval[hf] torch transformers datasets scipy numpy matplotlib
+    seaborn nltk tqdm pyyaml huggingface_hub
+  id: ENV-1
+  priority: 94
+  reference_files:
+  - docs/youra_research/h-m2/03_prd.md#71-python-packages
+  title: Install Python dependencies
+  type: setup
+- description: Verify H-E1 output files exist in docs/youra_research/h-e1/; check
+    shape (154, 22) per model size; verify 22 domain names match Pile taxonomy; check
+    3 model sizes (70m, 1b, 6.9b)
+  id: ENV-2
+  priority: 96
+  reference_files:
+  - docs/youra_research/h-m2/03_prd.md#51-input-data
+  - docs/youra_research/h-m2/03_config.md
+  title: Verify H-E1 domain exposure output
+  type: data-preparation
+- complexity: 5
+  description: Create file structure src/h_m2/; write config.py with CHECKPOINT_STEPS
+    (154 steps), MODEL_IDS, PILE_DOMAINS (22), hyperparameters; write requirements.txt
+  id: A-1
+  priority: 93
+  reference_files:
+  - docs/youra_research/h-m2/03_architecture.md#A-1
+  - docs/youra_research/h-m2/03_config.md
+  title: Project Setup
+  type: setup
+- complexity: 8
+  description: 'Implement data_loader.py: load H-E1 cumulative_domain_fraction arrays
+    for 3 model sizes; verify shape (154, 22); align checkpoint step indices; apply
+    floor filter (threshold=0.30, min_valid=100)'
+  id: A-2
+  priority: 92
+  reference_files:
+  - docs/youra_research/h-m2/03_architecture.md#A-2
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-5-2-extract_focal_correlations--apply_floor_filter
+  title: Data Loader
+  type: data-pipeline
+- complexity: 14
+  description: 'Implement evaluator.py: batch lm-eval-harness runner for 154 checkpoints
+    x 3 model sizes (462 total) with JSON cache resume; fallback to pre-cached Pythia
+    evals; log each checkpoint'
+  id: A-3
+  priority: 91
+  reference_files:
+  - docs/youra_research/h-m2/03_architecture.md#A-3
+  - docs/youra_research/h-m2/03_logic.md#module-a-3-checkpoint-evaluator-4-subtasks
+  title: Checkpoint Evaluator
+  type: model
+- description: evaluate_checkpoint(model_id, step, tasks, cache_dir) → dict[str, float];
+    cache_path=cache_dir/step{N:07d}.json; if is_cache_valid return cached else run
+    lm_eval.simple_evaluate
+  id: A-3-1
+  parent: A-3
+  priority: 48
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-3-1-evaluate_checkpoint
+  title: implement evaluate_checkpoint with cache hit/miss
+  type: subtask
+- description: batch_evaluate_model(model_size, model_id, steps, tasks, config) →
+    dict[int, dict]; iterate 154 steps, call evaluate_checkpoint, log progress
+  id: A-3-2
+  parent: A-3
+  priority: 47
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-3-2-batch_evaluate_model
+  title: implement batch_evaluate_model resume loop
+  type: subtask
+- description: is_cache_valid(cache_path, required_tasks) → bool; load_cached_scores(cache_path)
+    → dict; validate JSON structure has all task keys
+  id: A-3-3
+  parent: A-3
+  priority: 46
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-3-3-is_cache_valid--load_cached_scores
+  title: implement is_cache_valid + load_cached_scores
+  type: subtask
+- description: load_fallback_scores(model_size, pythia_repo_dir, steps) → dict[int,
+    dict]; read from evals/pythia-v1/ pre-cached JSON files
+  id: A-3-4
+  parent: A-3
+  priority: 45
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-3-4-load_fallback_scores
+  title: implement load_fallback_scores from Pythia repo evals
+  type: subtask
+- complexity: 13
+  description: 'Implement decontamination.py: 13-gram overlap check MMLU/HellaSwag
+    test sets vs Pile training docs; compute contamination-adjusted scores if delta
+    > 3pp'
+  id: A-4
+  priority: 88
+  reference_files:
+  - docs/youra_research/h-m2/03_architecture.md#A-4
+  - docs/youra_research/h-m2/03_logic.md#module-a-4-decontamination-audit-2-subtasks
+  title: Decontamination Audit
+  type: model
+- description: build_ngram_set(text, n=13) → set[tuple]; compute_overlap_rate(test_examples,
+    pile_docs, n=13) → float; short-circuit on first hit
+  id: A-4-1
+  parent: A-4
+  priority: 44
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-4-1-n-gram-overlap-utilities
+  title: implement build_ngram_set + compute_overlap_rate
+  type: subtask
+- description: run_decontamination_audit(model_size, raw_scores, pile_idx_dir, config)
+    → DecontaminationReport; flag use_adjusted if delta > 0.03
+  id: A-4-2
+  parent: A-4
+  priority: 43
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-4-2-run_decontamination_audit
+  title: implement run_decontamination_audit
+  type: subtask
+- complexity: 10
+  description: 'Implement correlation_analysis.py: compute Spearman rho matrix (22
+    domains x 2 benchmarks x 3 model sizes = 132 pairs) with 95% CIs; extract focal
+    correlations'
+  id: A-5
+  priority: 85
+  reference_files:
+  - docs/youra_research/h-m2/03_architecture.md#A-5
+  - docs/youra_research/h-m2/03_logic.md#module-a-5-correlation-analysis-2-subtasks
+  title: Correlation Analysis
+  type: training
+- description: compute_spearman_matrix(exposure (T_valid,22), scores dict, domain_names)
+    → CorrelationMatrix; scipy.stats.spearmanr per (domain, benchmark); CI via tanh(atanh(rho)±1.96/sqrt(n-3))
+  id: A-5-1
+  parent: A-5
+  priority: 42
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-5-1-compute_spearman_matrix
+  title: implement compute_spearman_matrix
+  type: subtask
+- description: apply_floor_filter(scores, exposure, floor=0.30, min_valid=100) → (exposure_filtered,
+    scores_filtered, valid_mask); raises ValueError if T_valid < 100
+  id: A-5-2
+  parent: A-5
+  priority: 41
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-5-2-extract_focal_correlations--apply_floor_filter
+  title: implement extract_focal_correlations + apply_floor_filter
+  type: subtask
+- complexity: 9
+  description: 'Implement statistical_test.py: fisher_z_test, apply_holm_bonferroni,
+    verify_mechanism_activated; gate evaluation (p1_directional_count >= 2)'
+  id: A-6
+  priority: 82
+  reference_files:
+  - docs/youra_research/h-m2/03_architecture.md#A-6
+  - docs/youra_research/h-m2/03_logic.md#module-a-6-statistical-tests-1-subtask
+  title: Statistical Tests
+  type: evaluation
+- description: fisher_z_test(rho1, rho2, n) → (z_stat, p_one_tailed); clip rho to
+    [-0.9999, 0.9999]; verify_mechanism_activated per 02c_experiment_brief.md exact
+    spec
+  id: A-6-1
+  parent: A-6
+  priority: 40
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-6-1-fisher-z-test--holm-bonferroni--gate-verification
+  title: implement fisher_z_test + verify_mechanism_activated
+  type: subtask
+- complexity: 11
+  description: 'Implement visualization.py: 5 figures (gate bar chart, domain heatmap,
+    trajectory plots, Fisher forest plot, floor diagnostic); 300 DPI, colorblind-safe
+    palette'
+  id: A-7
+  priority: 78
+  reference_files:
+  - docs/youra_research/h-m2/03_architecture.md#A-7
+  - docs/youra_research/h-m2/03_logic.md#module-a-7-visualization-2-subtasks
+  title: Visualization
+  type: evaluation
+- description: 'plot_gate_metrics: grouped bar chart rho(Wikipedia→MMLU) vs rho(Wikipedia→HellaSwag)
+    x 3 model sizes with 95% CI error bars; plot_heatmap: 3-panel heatmap top-8 domains'
+  id: A-7-1
+  parent: A-7
+  priority: 39
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-7-1-gate-metrics-bar-chart--heatmap
+  title: implement plot_gate_metrics + plot_heatmap
+  type: subtask
+- description: 'plot_trajectories: 6-panel dual-y-axis; plot_fisher_forest: point
+    estimates + 95% CIs; plot_floor_diagnostic: scatter of filtered checkpoints per
+    model size'
+  id: A-7-2
+  parent: A-7
+  priority: 38
+  reference_files:
+  - docs/youra_research/h-m2/03_logic.md#subtask-a-7-2-trajectory--forest--floor-diagnostic-plots
+  title: implement plot_trajectories + plot_fisher_forest + plot_floor_diagnostic
+  type: subtask
+- complexity: 6
+  description: 'Implement reporter.py: serialize correlation_matrix.json, gate_summary.json,
+    fisher_tests.json, decontamination_report.json; generate 04_results_summary.md'
+  id: A-8
+  priority: 70
+  reference_files:
+  - docs/youra_research/h-m2/03_architecture.md#A-8
+  - docs/youra_research/h-m2/03_prd.md#52-output-data
+  title: Reporter
+  type: evaluation
+- complexity: 9
+  description: 'Implement run_experiment.py: wire full pipeline; end-to-end test with
+    3 mock checkpoints; verify gate evaluation runs to completion'
+  id: A-9
+  priority: 65
+  reference_files:
+  - docs/youra_research/h-m2/03_architecture.md#A-9
+  - docs/youra_research/h-m2/03_config.md
+  title: Integration + Run
+  type: training
+- description: 'Verify all output files exist: correlation_matrix.json, gate_summary.json,
+    fisher_tests.json, 5 figures, 04_results_summary.md; run verify_mechanism_activated();
+    report gate pass/fail'
+  id: FAILSAFE-1
+  priority: 1
+  reference_files:
+  - docs/youra_research/h-m2/03_prd.md#6-success-criteria
+  title: Pipeline continuation checkpoint
+  type: failsafe

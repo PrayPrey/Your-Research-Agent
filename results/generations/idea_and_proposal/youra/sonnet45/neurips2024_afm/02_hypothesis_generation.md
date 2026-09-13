@@ -1,0 +1,367 @@
+# Phase 2A Extended: Hypothesis Clarification Summary
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** Round 1 (FEASIBLE, Confidence: 0.82)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-AFM-2025-01
+**Confidence Level:** 0.82 (FEASIBLE)
+
+**Main Hypothesis:**
+
+"Task-similarity routed LoRA ensembles (MLoRA-Ensemble) enable unified multi-objective adaptation of foundation models, achieving continual learning (backward transfer > -5%), parameter efficiency (< 1% active parameters), and personalization (> +10% user-specific gain) simultaneously. This outperforms specialized single-objective baselines across all three dimensions, while maintaining task performance within 5% of full fine-tuning, through modular adapter specialization with zero-shot similarity-based routing and rank-aware weighted composition."
+
+**Alternative Hypothesis (H0):**
+
+"Task-similarity routed LoRA ensembles provide no significant advantage over existing single-objective specialized methods. MLoRA-Ensemble will fail to achieve at least one of the three targets (BWT > -5%, active params < 1%, user gain > +10%), or will achieve targets at the cost of > 5% task performance degradation."
+
+### 1.2 Variables
+
+**Independent Variables:**
+
+| Variable | Type | Range | Operational Definition |
+|----------|------|-------|------------------------|
+| Task Sequence | Categorical | N=5-10 sequential tasks | Fixed permutation controlling for order effects |
+| Task Similarity | Continuous | [0, 1] | cos(E(task_i), E(task_j)) using CLIP/SentenceTransformer |
+| User Profile | Categorical | U=3-10 user profiles | Defined by preferred domain/tasks |
+| Active Adapters | Discrete | k ∈ {1, 3, 5} | Top-k adapters selected by router |
+| Router Temperature | Continuous | τ ∈ [0.1, 1.0] | Softmax temperature: wᵢ = softmax(sᵢ/τ) |
+| Method | Categorical | 5 levels | MLoRA vs 4 baselines |
+
+**Dependent Variables:**
+
+| Variable | Metric | Unit | Target |
+|----------|--------|------|--------|
+| Backward Transfer | BWT = (1/N)Σᵢ(Rᵢ,N - Rᵢ,ᵢ) | Δ accuracy (%) | > -5% |
+| Active Parameter Ratio | (# active / # base) × 100 | % | < 1.0% |
+| User-Specific Gain | (Acc_user - Acc_pop) / Acc_pop × 100 | Δ % | > +10% |
+| Average Task Accuracy | (1/N)Σᵢ Rᵢ,N | % correct | ≥ 95% of full-FT |
+| Forward Transfer | FWT = (1/N)Σᵢ(Rᵢ,ᵢ₋₁ - Rᵢ,base) | Δ accuracy (%) | > 0% |
+
+**Control Variables:** Base model (CLIP ViT-B/32, GPT-2), LoRA rank r=8, training epochs 3-5, learning rate 1e-4 to 3e-4, batch size 32-64
+
+### 1.3 Causal Mechanism
+
+**Mechanistic Steps:**
+
+1. **Modular Adapter Training:** Each LoRA adapter Aᵢ trained on task Tᵢ with frozen base model W₀ → ΔWᵢ = BᵢAᵢ (rank r=8-16, 0.1-0.5% parameters)
+
+2. **Parameter Space Independence:** Independent training → Adapters occupy approximately orthogonal subspaces → No interference
+
+3. **Zero-Shot Task Encoding:** Input x → Task embedding e = E(x) using CLIP/SentenceTransformer
+
+4. **Similarity-Based Selection:** Compute sᵢ = cos(e, tᵢ) → Select top-k adapters with highest similarity
+
+5. **Rank-Aware Composition:** Filter by compatibility matrix C[i,j] → Weighted ensemble ΔW_total = Σᵢ wᵢ · ΔWᵢ
+
+6. **Conflict Detection:** If max_conflict > τc → Fall back to single best adapter (prevents destructive interference)
+
+7. **Continual Growth:** New task Tₙ₊₁ → Train new adapter Aₙ₊₁ with existing adapters frozen → No forgetting
+
+8. **Personalization:** Per-user adapter subsets {Aᵢ | i ∈ Iⱼ} for user uⱼ → User-specific routing
+
+**Evidence for Causal Links:**
+
+- **Independent adapters → No interference:** RanPAC (SCHOLAR: a522efa0) shows parameter limitation prevents forgetting (-20-62% error reduction)
+- **Low-rank updates → Efficiency:** LLM-Adapters (SCHOLAR: bdb68c5e) shows comparable performance with 0.1-2% parameters
+- **Per-user adapters → Personalization:** Federated Adaptation (SCHOLAR: b6a864ca) validates lightweight personalized adapters
+
+**Key Tension Resolution:**
+
+"How can adding complexity (router + multiple adapters) improve over simpler single-adapter baseline?"
+
+**Resolution:** The complexity is *structured modularity* that simplifies per-task optimization:
+- Each adapter specialized for specific tasks (better than one-size-fits-all)
+- No interference from modular training (better than sequential training)
+- Graceful degradation via conflict detection (robust failure modes)
+
+### 1.4 Key Assumptions
+
+**A1: Task Similarity is Measurable via Semantic Embeddings**
+- **Validation:** Measure correlation between embedding similarity and transfer learning performance (expected r > 0.5)
+- **Risk:** Poor routing if violated
+- **Mitigation:** Use gradient-based similarity, ensemble of metrics
+
+**A2: Low-Rank Updates Capture Task-Specific Knowledge**
+- **Validation:** Ablation study varying rank r ∈ {4, 8, 16, 32, 64} (expected r=8-16 achieves ≥ 95% of full-FT)
+- **Risk:** Under-fitting if violated
+- **Mitigation:** Adaptive rank selection per task
+
+**A3: Multiple LoRA Adapters Compose via Linear Combination**
+- **Validation:** Empirical composition matrix testing all pairwise/triplet combinations
+- **Risk:** CRITICAL - core mechanism fails if violated
+- **Mitigation:** Rank compatibility filtering, conflict detection, single-adapter fallback
+
+**A4: Adapter Modularity Prevents Catastrophic Forgetting**
+- **Validation:** Measure BWT across task sequences (expected > -5%)
+- **Risk:** CRITICAL - CL objective fails if violated
+- **Mitigation:** Add regularization (EWC), replay buffers
+
+**A5: Pre-trained Zero-Shot Encoders Generalize to Novel Tasks**
+- **Validation:** Held-out task categories, measure routing accuracy (expected > 75% top-3)
+- **Risk:** Poor generalization limits applicability
+- **Mitigation:** Fine-tune encoder, use ensemble of encoders
+
+**A6: User Preferences are Stable and Measurable**
+- **Validation:** Per-user performance on user-specific test sets (expected > +10% gain)
+- **Risk:** Personalization objective fails if violated
+- **Mitigation:** Online preference learning, fine-grained profiles
+
+**A7: Router Overhead is Negligible**
+- **Validation:** Latency benchmarks (expected < 10% of total inference time)
+- **Risk:** Efficiency gains disappear if violated
+- **Mitigation:** Optimize router, cache routing decisions
+
+### 1.5 Scope & Boundaries
+
+**IN SCOPE:**
+- ✅ Vision-language models (CLIP-based) and text-only LLMs (GPT-2)
+- ✅ Class-incremental continual learning (hardest CL scenario)
+- ✅ Multi-task learning with heterogeneous tasks
+- ✅ Per-user personalization (3-10 user profiles)
+- ✅ Offline batch learning with sequential task arrival
+
+**OUT OF SCOPE:**
+- ❌ RAG integration (orthogonal to parameter-based adaptation)
+- ❌ Online/streaming continual learning (single-example streams)
+- ❌ Domain-incremental or task-incremental CL
+- ❌ Pure CNNs/RNNs without attention layers
+- ❌ Zero-shot learning (new tasks require adapter training)
+- ❌ Few-shot meta-learning (MAML-style rapid adaptation)
+
+**KNOWN LIMITATIONS:**
+- Requires task-labeled data for router training (semi-supervised)
+- Adapter composition may not always preserve performance (mitigated by conflict detection)
+- Router adds inference latency (< 10ms typical)
+- Scaling to >1000 adapters requires ANN search (FAISS)
+- Biological analogies are simplified engineering inspiration (not scientific claims)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction (P1): Multi-Objective Integration**
+
+"MLoRA-Ensemble will simultaneously achieve ALL THREE objectives (BWT > -5%, params < 1%, user gain > +10%), while specialized baselines achieve only their target objective."
+
+**Expected Baseline Performance:**
+
+| Method | BWT (CL) | Active Params | User Gain | Multi-Obj |
+|--------|----------|---------------|-----------|-----------|
+| **MLoRA-Ensemble** | **-4% ✅** | **0.5% ✅** | **+12% ✅** | **3/3 ✅** |
+| Single-LoRA-Seq | -25% ❌ | 0.3% ✅ | 0% ❌ | 1/3 |
+| EWC | -7% ✅ | 100% ❌ | 0% ❌ | 1/3 |
+| Full Fine-tuning | -55% ❌ | 100% ❌ | 0% ❌ | 0/3 |
+| Per-User Full-FT | -55% ❌ | 100% × U ❌ | +15% ✅ | 1/3 |
+
+**Falsification:** Reject if MLoRA fails any ONE target or degrades task performance > 5%
+
+---
+
+**Secondary Prediction (P2): Catastrophic Forgetting Prevention**
+
+"As N tasks increases (2→10), MLoRA-Ensemble maintains BWT ≈ -3% to -5% (approximately constant), while sequential baselines worsen linearly (BWT ≈ -3% per task)."
+
+**Expected Trend:**
+- MLoRA-Ensemble: BWT slope ≈ -0.3% per task (nearly flat)
+- Sequential LoRA: BWT slope ≈ -3% per task (linear degradation)
+
+**Falsification:** Reject if MLoRA BWT < -10% at N=10 or no significant difference from baselines (p > 0.05)
+
+---
+
+**Secondary Prediction (P3): Task Routing Accuracy**
+
+"Zero-shot routing achieves > 75% top-3 accuracy on held-out task types (vs 30% random baseline for N=10 adapters)."
+
+**Quantitative Targets:**
+- Top-1 accuracy: > 60%
+- Top-3 accuracy: > 75%
+- Top-5 accuracy: > 85%
+
+**Falsification:** Reject if top-3 accuracy < 60% (barely better than random)
+
+---
+
+**Secondary Prediction (P4): Adapter Composition Benefits**
+
+"On high-ambiguity inputs (similarity spread < 0.3), weighted ensemble outperforms single best adapter by > 2%."
+
+**Falsification:** Reject if ensemble < single-best on high-ambiguity inputs (mean difference < -1%)
+
+---
+
+**Tertiary Prediction (P5): Personalization Scaling**
+
+"Per-user gain remains > +10% as U scales (3→10 users), with O(U) storage and O(k) computation."
+
+**Falsification:** Reject if per-user gain < +5% at U=10 or significant negative trend (p < 0.05)
+
+### 1.7 SOTA Baseline (Comparison Mode)
+
+**SOTA Positioning:**
+
+| Dimension | Current SOTA | Our Target | Key Difference |
+|-----------|-------------|------------|----------------|
+| **Continual Learning** | RanPAC (BWT -20%) | BWT > -5% | Add efficiency + personalization |
+| **Parameter Efficiency** | LoRA (0.1-2%) | 0.3-0.5% | Add continual learning |
+| **Personalization** | FLoRA (per-example) | Per-user (+10%) | Add CL integration |
+| **Multi-Task Routing** | X-LoRA (winner-take-all) | Soft co-activation | Add personalization |
+
+**Novelty Statement:**
+
+"MLoRA-Ensemble is the first method to achieve SOTA-competitive performance on all three objectives (continual learning, parameter efficiency, personalization) simultaneously within a unified framework, whereas existing SOTA methods optimize only one dimension."
+
+**Key Differentiations:**
+1. vs RanPAC: Adds efficiency + personalization while maintaining CL
+2. vs LoRA: Adds continual learning without catastrophic forgetting
+3. vs FLoRA: Extends to per-user with CL integration
+4. vs X-LoRA: Adds zero-shot routing, continual growth, soft co-activation, personalization
+
+### 1.8 Statistical Verification Design
+
+**Experimental Design:** Mixed Factorial Design with Repeated Measures
+
+**Factors:**
+- Between-subjects: Method (5 levels)
+- Within-subjects: Task Sequence (10 tasks), User Profile (10 users)
+
+**Sample Size:**
+- BWT analysis: n=26 task sequences per method (power=0.80, α=0.05, d=0.8)
+- Personalization: n=45 users per method (power=0.80, α=0.05, d=0.6)
+- Total: ~130 experimental runs + 225 personalization runs
+
+**Primary Statistical Tests:**
+
+**Test 1: Multi-Objective Integration**
+- One-sample t-test for each metric against threshold
+- Bonferroni correction: α_corrected = 0.05/3 = 0.0167
+- Success: All three tests significant at α=0.0167
+
+**Test 2: Catastrophic Forgetting Prevention**
+- Repeated-measures ANOVA: Method × Task position
+- Post-hoc: Tukey HSD for pairwise comparisons
+- Success: F significant (p<0.01), MLoRA > baselines (p<0.05)
+
+**Test 3: Task Routing Accuracy**
+- Chi-square goodness-of-fit test
+- Compare observed routing to uniform random (3/N)
+- Success: χ² significant (p<0.001), accuracy > 75%
+
+**Compute Budget:**
+- Estimated: ~5,000 GPU-hours (includes buffer for failed runs)
+- Hardware: 8× A100 40GB + 4× RTX 3090 24GB
+- Timeline: 2-3 months (parallelizable experiments)
+
+---
+
+## 2. Contribution Summary
+
+**Theoretical Contributions:**
+
+1. **Unified Multi-Objective Framework:** First framework connecting immune clonal selection, cognitive schema theory, and biological modularity to foundation model adaptation, explaining how modular specialization achieves CL + efficiency + personalization simultaneously (addresses Phase 1 Gap 1)
+
+2. **Parameter Space Orthogonality in Modular PEFT:** Formal analysis showing independent LoRA adapters create approximate parameter space orthogonality, preventing catastrophic forgetting (extends neural tangent kernel theory to modular PEFT)
+
+**Methodological Contributions:**
+
+1. **Rank-Aware LoRA Composition Algorithm:** Weighted ensemble with rank compatibility filtering and conflict detection enables safe multi-adapter inference (first systematic study of LoRA composition properties)
+
+2. **Zero-Shot Task Similarity Routing:** Pre-trained encoders route novel task types without task-specific training, combining immune-inspired antigen recognition with cognitive schema co-activation
+
+3. **Conflict-Aware Ensemble Mechanism:** Pairwise cosine similarity-based conflict detection with single-adapter fallback prevents destructive interference (implements biological T-cell regulation analogy)
+
+**Practical Contributions:**
+
+1. **Production-Ready Multi-Objective Adaptive Foundation Models:** First end-to-end system integrating CL + efficiency + personalization with < 1% parameter overhead for real-world deployment
+
+2. **Scalable Personalization for Multi-User Deployments:** Enables serving millions of users with personalized models using per-user adapter subsets (O(U) storage, O(k) computation)
+
+3. **Continual Model Improvement Without Downtime:** New tasks add adapters without modifying base model, enabling continuous deployment in production
+
+---
+
+## 3. Key Related Work
+
+**Foundation Sources from Phase 1:**
+
+| Source | Type | Influence | Relation |
+|--------|------|-----------|----------|
+| **PEFT Library** | [ARCHON] c1fca99a | Modular adapter infrastructure | Foundation |
+| **LoRA** | [ARCHON] c0bcf966 | Core low-rank mechanism ΔW=BA | Foundation |
+| **RanPAC** | [SCHOLAR] a522efa0 (168 citations) | Parameter limitation prevents forgetting | Foundation |
+| **LLM-Adapters** | [SCHOLAR] bdb68c5e (393 citations) | Multi-adapter integration validation | Comparison |
+| **FLoRA** | [SCHOLAR] 61d792bd (28 citations) | Batched heterogeneous LoRA feasibility | Foundation |
+| **CL Survey** | [SCHOLAR] eaac2946 (55 citations) | PEFT methods for continual learning | Foundation |
+| **Federated Adaptation** | [SCHOLAR] b6a864ca (25 citations) | Per-user lightweight adapters | Inspiration |
+| **UniAdapter** | [SCHOLAR] 97fa699c (54 citations) | Cross-modal adapter validation | Extension |
+
+**Cross-Domain Inspiration:**
+- Immune System Biology: Clonal selection → Adapter specialization
+- Cognitive Psychology: Schema theory → Co-activation via weighted ensemble
+- Systems Biology: Modular networks → Independent adapter evolution
+
+**SOTA Comparison:**
+- vs RanPAC: Adds efficiency + personalization
+- vs LoRA: Adds continual learning
+- vs FLoRA: Extends to per-user with CL
+- vs X-LoRA: Soft co-activation, zero-shot routing, personalization focus
+- vs EWC: Better CL with 99% fewer parameters
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence): Multi-Objective Integration Works**
+- **Verify:** Measure BWT, active params, user gain on benchmark
+- **Success:** BWT > -5%, params < 1%, gain > +10%
+
+**SH2 (Mechanism): Parameter Space Orthogonality Prevents Forgetting**
+- **Verify:** Measure adapter weight overlap, correlate with BWT
+- **Success:** Low orthogonality (< 0.3) correlates with high BWT (> -5%)
+
+**SH3 (Comparison): Outperforms Single-Objective Baselines**
+- **Verify:** Compare multi-objective score (3/3 targets) to baselines (≤ 1/3)
+- **Success:** MLoRA is only method achieving 3/3, significantly better (p < 0.01)
+
+### Readiness Checklist
+
+- [x] Hypothesis narrowed from broad research program to specific testable claim
+- [x] Variables precisely defined with operational definitions
+- [x] Causal mechanism articulated with 8-step process and evidence
+- [x] 7 assumptions explicit with testability and validation plans
+- [x] 5 predictions quantitative with falsification criteria
+- [x] Alternative hypothesis (H0) stated with rejection criteria
+- [x] Statistical design specified with power analysis (n=26-45 per method)
+- [x] 4 baselines identified for comparison
+- [x] Scope bounded (IN/OUT, known limitations)
+- [x] Phase 1 evidence integrated (8 sources)
+- [x] SOTA positioned (5 methods compared)
+- [x] Contributions clarified (2 theoretical, 3 methodological, 3 practical)
+- [x] Compute budget estimated (~5,000 GPU-hours feasible)
+- [x] Timeline projected (2-3 months experimental validation)
+
+**ALL CRITERIA MET** ✅ **READY FOR PHASE 2B**
+
+### Open Questions
+
+**Q1:** Composition matrix granularity (pairwise vs triplets)?
+**Q2:** Router training data requirements (ablation needed)?
+**Q3:** User profile operationalization (synthetic vs real users)?
+**Q4:** Conflict detection threshold τc (empirical sweep needed)?
+**Q5:** Scaling beyond 10 tasks (defer to Phase 3)?
+**Q6:** Multimodal extension specifics (shared vs modality-specific routers)?
+**Q7:** Direct X-LoRA comparison (add as baseline if available)?
+
+---
+
+**Generated:** 2026-02-06 | **Workflow:** Phase 2A Extended (YOLO MODE) | **Status:** Complete ✅
+
+*Next Phase: Phase 2B - Verification Planning*

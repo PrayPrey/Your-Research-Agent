@@ -1,0 +1,8 @@
+# Title
+Hierarchical Differentiable Attention Patterns for Genomic Long-Context Modeling (HP-Genome)
+
+# Motivation
+Long-context genomic foundation models (e.g., 98K base pair sequences) require attention patterns that capture multi-scale biological structures—from local regulatory motifs (promoters, enhancers) to chromosome-scale dependencies (topologically associating domains). Current approaches rely on manual pattern engineering (months of domain expertise) or fixed sparse patterns that ignore biological hierarchy. This creates a critical gap: how can we automatically discover biologically interpretable attention patterns that maintain efficiency while matching manually designed baselines?
+
+# Main Idea
+HP-Genome introduces hierarchical differentiable neural architecture search to automatically learn sparse attention patterns for genomic sequences. The framework employs a two-level hierarchy: local patterns (0-4K bp) capture regulatory motifs using learnable window templates, while global patterns (4K-98K bp) capture chromosome-scale dependencies via strided/dilated templates. Pattern selection is optimized end-to-end through gradient descent with a sparsity-regularized objective. We hypothesize learned patterns will: (1) match GENERator baseline performance (±5% perplexity), (2) align with biological annotations (IoU≥0.70 with ENCODE/JASPAR elements), and (3) maintain ≤15% attention density. Validation on 1,000 ENCODE sequences will test whether automated pattern discovery eliminates engineering overhead while preserving interpretability—potentially revealing novel regulatory structures through AI-driven biological discovery.

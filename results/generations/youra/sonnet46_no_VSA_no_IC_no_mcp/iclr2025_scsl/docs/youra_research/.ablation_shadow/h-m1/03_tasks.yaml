@@ -1,0 +1,507 @@
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 9
+  failsafe: 1
+  subtasks: 14
+  total: 26
+metadata:
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+  generated_at: '2026-08-26T10:45:00Z'
+  hypothesis_id: h-m1
+  hypothesis_id_upper: H-M1
+  source_documents:
+  - 03_prd.md
+  - 03_architecture.md
+  - 03_logic.md
+  - 03_config.md
+  tier: FULL
+  total_budget: 30
+tasks:
+- complexity: null
+  description: 'Manually download CUB-200-2011 from http://www.vision.caltech.edu/datasets/cub_200_2011/
+    and extract to ./data/CUB_200_2011/. Verify segmentations/ folder contains per-image
+    binary PNG masks. Required for SimCLR-NoBackground condition. Halt with error
+    if missing.
+
+    '
+  epic: Data Preparation
+  feature_tag: data-preparation
+  id: task-001
+  priority: 100
+  reference_files:
+    prd: 03_prd.md#52-cub-200-2011-segmentation-masks
+  source_document: 03_prd.md
+  test_requirements: Data download tasks do not require tests.
+  title: Download CUB-200-2011 dataset and segmentation masks
+- complexity: null
+  description: 'Install all required Python packages: torch>=2.0.0, torchvision>=0.15.0,
+    wilds>=2.0.0, numpy>=1.24.0, scikit-learn>=1.2.0, scipy>=1.10.0, Pillow>=9.0.0,
+    matplotlib>=3.7.0, tqdm>=4.65.0, pyyaml>=6.0. Verify GPU availability (cuda).
+    Places365 and Waterbirds auto-download via torchvision/wilds on first run.
+
+    '
+  epic: Environment Setup
+  feature_tag: setup
+  id: task-002
+  priority: 99
+  reference_files:
+    prd: 03_prd.md#71-python-packages
+  source_document: 03_prd.md
+  test_requirements: Environment setup does not require tests.
+  title: Setup development environment and install dependencies
+- complexity: 13
+  description: 'Implement WaterbirdsDataset wrapper (WILDS loading, multi-label return),
+    build_mask_index() mapping Waterbirds indices to CUB segmentation paths via metadata.csv,
+    and load_cub_mask() utility. Fail-fast with descriptive error on missing masks.
+
+    '
+  epic: E1 - Data Pipeline
+  feature_tag: data-pipeline
+  id: task-003
+  priority: 93
+  reference_files:
+    architecture: 03_architecture.md#waterbirds-dataset
+    config: 03_config.md#c-e1-1
+    logic: 03_logic.md#subtask-l-e1-2
+  source_document: 03_architecture.md
+  test_requirements: '## Test Requirements (MANDATORY)
+
+    - Create tests/test_data_pipeline.py
+
+    - test_mask_index_builds_correctly: verify all 4795 train indices map to existing
+    paths
+
+    - test_getitem_returns_correct_labels: spot-check bird_label and background_label
+    alignment
+
+    - test_missing_mask_raises_file_not_found: verify fail-fast behavior
+
+    '
+  title: Implement Waterbirds data pipeline with CUB mask alignment
+- complexity: 7
+  description: 'Implement Places365Pool class that pre-loads N=10,000 Places365-Standard
+    images (small=True, auto-download via torchvision) as PIL Images into memory.
+    Expose sample() API for fast random selection during augmentation.
+
+    '
+  epic: E2 - Places365 Pool
+  feature_tag: data-pipeline
+  id: task-004
+  priority: 92
+  reference_files:
+    architecture: 03_architecture.md#places365pool
+    config: 03_config.md#c-e1-1
+  source_document: 03_architecture.md
+  test_requirements: '## Test Requirements (MANDATORY)
+
+    - Create tests/test_places365_pool.py
+
+    - test_pool_loads_n_images: verify len(pool.images) == n_images
+
+    - test_sample_returns_pil_image: type and size check
+
+    '
+  title: Implement Places365 background pool loader
+- complexity: 16
+  description: 'Implement BackgroundReplacementTransform.__call__ (pixel-level mask
+    compositing, two independent Places365 backgrounds per call), verify_mechanism_activated()
+    (asserts pixel_diff > 0.05 in background region), and SimCLRDataset two-view dispatch
+    logic. This is the core novel mechanism of H-M1.
+
+    '
+  epic: E3 - Background Replacement Augmentation
+  feature_tag: model
+  id: task-005
+  priority: 91
+  reference_files:
+    architecture: 03_architecture.md#backgroundreplacementtransform
+    logic: 03_logic.md#subtask-l-e3-1
+  source_document: 03_architecture.md
+  test_requirements: '## Test Requirements (MANDATORY)
+
+    - Create tests/test_background_replace.py
+
+    - test_background_pixels_changed: verify pixel_diff > 0.05 after replacement
+
+    - test_bird_pixels_preserved: foreground region unchanged (pixel_diff ≈ 0)
+
+    - test_two_views_have_different_backgrounds: view1 bg ≠ view2 bg
+
+    - test_verify_mechanism_raises_on_identity: assert raises AssertionError if no
+    replacement
+
+    '
+  title: Implement BackgroundReplacementTransform and mechanism verification
+- complexity: 13
+  description: 'Implement SimCLRModel (ResNet-50 with fc=Identity, 2048-dim backbone
+    output), ProjectionHead (Linear 2048→2048→128 + L2-norm), and NTXentLoss (temperature-scaled
+    NT-Xent with diagonal masking). Both conditions use identical architecture.
+
+    '
+  epic: E4 - SimCLR Model + NT-Xent Loss
+  feature_tag: model
+  id: task-006
+  priority: 90
+  reference_files:
+    architecture: 03_architecture.md#simclrmodel
+    config: 03_config.md#c-e4-1
+    logic: 03_logic.md#subtask-l-e4-1
+  source_document: 03_architecture.md
+  test_requirements: '## Test Requirements (MANDATORY)
+
+    - Create tests/test_simclr_model.py
+
+    - test_backbone_output_shape: (B, 2048) for input (B, 3, 224, 224)
+
+    - test_projection_head_normalized: F.normalize output has unit L2 norm
+
+    - test_ntxent_loss_positive_lower_than_random: loss decreases when positive pairs
+    aligned
+
+    '
+  title: Implement SimCLR model (ResNet-50 backbone + projection head) and NT-Xent
+    loss
+- complexity: 15
+  description: 'Implement SimCLRTrainer.train() with SGD + CosineAnnealingLR, per-epoch
+    logging, mechanism verification gate before NoBackground runs, collapse detection,
+    and checkpoint saving. run_all_seeds_and_conditions() orchestrates 2 conditions
+    × 5 seeds.
+
+    '
+  epic: E5 - SimCLR Training Loop
+  feature_tag: training
+  id: task-007
+  priority: 89
+  reference_files:
+    architecture: 03_architecture.md#simclrtrainer
+    config: 03_config.md#c-e4-1
+    logic: 03_logic.md#subtask-l-e5-1
+  source_document: 03_architecture.md
+  test_requirements: '## Test Requirements (MANDATORY)
+
+    - Create tests/test_trainer.py
+
+    - test_seed_determinism: same seed → same loss trajectory (2 epochs)
+
+    - test_mechanism_verification_halts_on_failure: mock pixel_diff=0.0 → AssertionError
+
+    - test_checkpoint_saved_after_training: verify file exists at config.checkpoint_path()
+
+    '
+  title: Implement SimCLR training loop with two-condition seed-controlled orchestration
+- complexity: 11
+  description: 'Implement extract_features() (batched frozen backbone forward pass,
+    no-grad), train_and_eval_probe() (sklearn LogisticRegression C=1.0), and run_probes()
+    computing spurious_probe_acc, task_probe_acc, and ratio per checkpoint.
+
+    '
+  epic: E6 - Linear Probe Evaluation
+  feature_tag: evaluation
+  id: task-008
+  priority: 88
+  reference_files:
+    architecture: 03_architecture.md#linearprobevaluator
+    logic: 03_logic.md#subtask-l-e6-1
+  source_document: 03_architecture.md
+  test_requirements: '## Test Requirements (MANDATORY)
+
+    - Create tests/test_probes.py
+
+    - test_extract_features_shape: output (N, 2048) matches dataset size
+
+    - test_probe_accuracy_above_chance: on real features, acc > 0.5
+
+    - test_ratio_computation: ratio = spurious/task (float division)
+
+    '
+  title: Implement linear probe evaluation (spurious + task probes)
+- complexity: 9
+  description: 'Implement paired_ttest() (scipy one-sided paired t-test across 5 seeds),
+    confound_check() (task_acc_diff threshold), cohen_d() effect size, and compute_verdict()
+    returning CONFIRMED/INCONCLUSIVE/FAIL per gate conditions.
+
+    '
+  epic: E7 - Statistical Analysis
+  feature_tag: evaluation
+  id: task-009
+  priority: 87
+  reference_files:
+    architecture: 03_architecture.md#statisticalanalysis
+    config: 03_config.md#c-e7-1
+    logic: 03_logic.md#subtask-l-e5-3
+  source_document: 03_architecture.md
+  test_requirements: '## Test Requirements (MANDATORY)
+
+    - Create tests/test_stats.py
+
+    - test_paired_ttest_significant: known significant arrays → p < 0.05
+
+    - test_confound_detected: task_acc_diff=0.08 → is_confounded=True
+
+    - test_verdict_confirmed: ratio_diff=0.06, p=0.02, task_diff=0.03 → CONFIRMED
+
+    '
+  title: Implement paired t-test, Cohen's d, confound check, and verdict logic
+- complexity: 10
+  description: 'Implement plot_gate_metrics_comparison() (bar chart FR-6.1), plot_spurious_task_scatter()
+    (scatter FR-6.2), plot_paired_ratio() (lines FR-6.3), and plot_background_replacement_examples()
+    (qualitative grid FR-6.4). Save to docs/youra_research/h-m1/figures/.
+
+    '
+  epic: E8 - Visualization
+  feature_tag: evaluation
+  id: task-010
+  priority: 86
+  reference_files:
+    architecture: 03_architecture.md#figures
+    config: 03_config.md#c-e8-1
+  source_document: 03_architecture.md
+  test_requirements: '## Test Requirements (MANDATORY)
+
+    - Create tests/test_figures.py
+
+    - test_all_figures_saved: run all 4 with mock results dict, verify files created
+
+    - test_gate_metrics_figure_has_two_conditions: check both bars present
+
+    '
+  title: Implement all 4 required figures
+- complexity: 12
+  description: 'Implement run_experiment.py CLI (--seed, --condition args; saves per-seed
+    JSON), aggregate_results.py (loads all JSONs, runs stats, generates figures, saves
+    probe_results.json with full summary). Handle all NFR-4 failure modes.
+
+    '
+  epic: E9 - Entrypoints + Orchestration
+  feature_tag: experiment
+  id: task-011
+  priority: 85
+  reference_files:
+    architecture: 03_architecture.md#entrypoints
+    logic: 03_logic.md#subtask-l-e9-1
+  source_document: 03_architecture.md
+  test_requirements: '## Test Requirements (MANDATORY)
+
+    - Create tests/test_entrypoints.py
+
+    - test_run_experiment_cli_parses_args: argparse smoke test
+
+    - test_aggregate_results_loads_jsons: mock JSONs → correct aggregation
+
+    '
+  title: Implement run_experiment.py and aggregate_results.py entrypoints
+- complexity: null
+  description: 'Implement pixel-level mask compositing with two independent background
+    samples per call. np.where(mask[:,:,None], img_arr, bg_arr) broadcasting. Each
+    view gets different Places365 bg.
+
+    '
+  epic: E3 - Logic Subtask
+  feature_tag: model
+  id: task-012
+  priority: 49
+  reference_files:
+    logic: 03_logic.md#subtask-l-e3-1
+  source_document: 03_logic.md
+  test_requirements: Covered by task-005 tests.
+  title: 'L-E3-1: BackgroundReplacementTransform.__call__ pixel compositing'
+- complexity: null
+  description: 'Background-region pixel diff computation using boolean mask indexing.
+    Raises AssertionError with descriptive message if pixel_diff < threshold.
+
+    '
+  epic: E3 - Logic Subtask
+  feature_tag: model
+  id: task-013
+  priority: 48
+  reference_files:
+    logic: 03_logic.md#subtask-l-e3-2
+  source_document: 03_logic.md
+  test_requirements: Covered by task-005 tests.
+  title: 'L-E3-2: verify_mechanism_activated() pixel diff assertion'
+- complexity: null
+  description: 'Single-dispatch Dataset wrapping WaterbirdsDataset: routes to BackgroundReplacementTransform
+    or plain simclr_transform by condition. drop_last=True for NT-Xent batch consistency.
+
+    '
+  epic: E3 - Logic Subtask
+  feature_tag: data-pipeline
+  id: task-014
+  priority: 47
+  reference_files:
+    logic: 03_logic.md#subtask-l-e3-3
+  source_document: 03_logic.md
+  test_requirements: Covered by task-005 tests.
+  title: 'L-E3-3: SimCLRDataset two-view DataLoader integration'
+- complexity: null
+  description: 'build_mask_index() using metadata.csv img_filename column (.jpg→.png
+    suffix swap). load_cub_mask() resizes to target_size with NEAREST interpolation
+    to preserve binary values.
+
+    '
+  epic: E3 - Logic Subtask
+  feature_tag: data-pipeline
+  id: task-015
+  priority: 46
+  reference_files:
+    logic: 03_logic.md#subtask-l-e3-4
+  source_document: 03_logic.md
+  test_requirements: Covered by task-003 tests.
+  title: 'L-E3-4: CUB mask loading and resize pipeline'
+- complexity: null
+  description: 'SGD + CosineAnnealingLR loop, per-epoch loss logging, mechanism verification
+    gate, checkpoint save. Seed control via _set_seed() before DataLoader construction.
+
+    '
+  epic: E5 - Logic Subtask
+  feature_tag: training
+  id: task-016
+  priority: 45
+  reference_files:
+    logic: 03_logic.md#subtask-l-e5-1
+  source_document: 03_logic.md
+  test_requirements: Covered by task-007 tests.
+  title: 'L-E5-1: SimCLRTrainer.train() full training loop'
+- complexity: null
+  description: 'Cat z1+z2 to (2B,128), cosine sim matrix (2B,2B), diagonal masking
+    to -inf, labels=[B..2B, 0..B], cross_entropy. Requires L2-normalized inputs.
+
+    '
+  epic: E5 - Logic Subtask
+  feature_tag: model
+  id: task-017
+  priority: 44
+  reference_files:
+    logic: 03_logic.md#subtask-l-e5-2
+  source_document: 03_logic.md
+  test_requirements: Covered by task-006 tests.
+  title: 'L-E5-2: NTXentLoss.forward() pairwise similarity and cross-entropy'
+- complexity: null
+  description: 'check_collapse() logs WARNING and marks seed FAILED in JSON but does
+    not abort. Majority class baseline 0.534 for Waterbirds. Aggregate script filters
+    FAILED seeds.
+
+    '
+  epic: E5 - Logic Subtask
+  feature_tag: training
+  id: task-018
+  priority: 43
+  reference_files:
+    logic: 03_logic.md#subtask-l-e5-3
+  source_document: 03_logic.md
+  test_requirements: Covered by task-007 tests.
+  title: 'L-E5-3: Collapse detection (task_probe_acc < 0.53)'
+- complexity: null
+  description: 'Nested loop: seeds × conditions. Per-seed seed control. Checkpoint
+    and result JSON naming conventions. run_experiment.py wraps single pair for parallelization.
+
+    '
+  epic: E5 - Logic Subtask
+  feature_tag: training
+  id: task-019
+  priority: 42
+  reference_files:
+    logic: 03_logic.md#subtask-l-e5-4
+  source_document: 03_logic.md
+  test_requirements: Covered by task-007 tests.
+  title: 'L-E5-4: Two-condition seed orchestration loop'
+- complexity: null
+  description: 'Parse metadata.csv img_filename, swap .jpg→.png suffix, join with
+    cub_segmentations_dir. Fail-fast FileNotFoundError with download instructions
+    if any mask missing.
+
+    '
+  epic: E1 - Logic Subtask
+  feature_tag: data-pipeline
+  id: task-020
+  priority: 41
+  reference_files:
+    logic: 03_logic.md#subtask-l-e1-1
+  source_document: 03_logic.md
+  test_requirements: Covered by task-003 tests.
+  title: 'L-E1-1: build_mask_index() Waterbirds→CUB path mapping'
+- complexity: null
+  description: 'WILDS subset indexing: (image, bird_label, background_label, group_id).
+    group_id = bird_label * 2 + background_label (0-3 encoding).
+
+    '
+  epic: E1 - Logic Subtask
+  feature_tag: data-pipeline
+  id: task-021
+  priority: 40
+  reference_files:
+    logic: 03_logic.md#subtask-l-e1-2
+  source_document: 03_logic.md
+  test_requirements: Covered by task-003 tests.
+  title: 'L-E1-2: WaterbirdsDataset.__getitem__ multi-label return'
+- complexity: null
+  description: '(B,3,224,224) → backbone → (B,2048) → projection_head → (B,128) L2-normalized.
+    Returns (h, z): h for probe, z for NT-Xent.
+
+    '
+  epic: E4 - Logic Subtask
+  feature_tag: model
+  id: task-022
+  priority: 39
+  reference_files:
+    logic: 03_logic.md#subtask-l-e4-1
+  source_document: 03_logic.md
+  test_requirements: Covered by task-006 tests.
+  title: 'L-E4-1: SimCLRModel.forward() tensor shape flow'
+- complexity: null
+  description: 'Sequential Linear→ReLU→Linear, no BatchNorm (SimCLR-v1 spec). L2-norm
+    inside ProjectionHead so NTXentLoss can assume normalized inputs.
+
+    '
+  epic: E4 - Logic Subtask
+  feature_tag: model
+  id: task-023
+  priority: 38
+  reference_files:
+    logic: 03_logic.md#subtask-l-e4-2
+  source_document: 03_logic.md
+  test_requirements: Covered by task-006 tests.
+  title: 'L-E4-2: ProjectionHead Linear(2048→2048→128) + F.normalize'
+- complexity: null
+  description: 'argparse --seed + --condition. JSON schema: hypothesis_id, condition,
+    seed, epoch, spurious_probe_acc, task_probe_acc, ratio, collapsed, mechanism_verified,
+    pixel_diff, timestamp.
+
+    '
+  epic: E9 - Logic Subtask
+  feature_tag: experiment
+  id: task-024
+  priority: 37
+  reference_files:
+    logic: 03_logic.md#subtask-l-e9-1
+  source_document: 03_logic.md
+  test_requirements: Covered by task-011 tests.
+  title: 'L-E9-1: run_experiment.py CLI and per-seed JSON schema'
+- complexity: null
+  description: 'no_grad context, DataLoader (shuffle=False), accumulate (N,2048) features
+    + labels. Uses eval transform (no augmentation): Resize(256)→CenterCrop(224)→Normalize.
+
+    '
+  epic: E6 - Logic Subtask
+  feature_tag: evaluation
+  id: task-025
+  priority: 36
+  reference_files:
+    logic: 03_logic.md#subtask-l-e6-1
+  source_document: 03_logic.md
+  test_requirements: Covered by task-008 tests.
+  title: 'L-E6-1: extract_features() batched frozen backbone forward pass'
+- complexity: null
+  description: /full-pipeline-unattended - FAILSAFE CONTINUATION TASK
+  epic: Pipeline Management
+  feature_tag: pipeline-continue
+  id: task-026
+  priority: 1
+  source_document: system
+  test_requirements: Failsafe task does not require tests.
+  title: Pipeline Continuation Checkpoint
+version: '1.1'

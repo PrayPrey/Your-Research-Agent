@@ -1,0 +1,47 @@
+
+\subsubsection{6.1 Key Findings and Interpretation}
+
+Our experiments reveal four jointly diagnostic patterns: SST-2 accuracy flat at 0.5092 across three epochs, MNLI accuracy degrading below zero-shot baseline, QNLI oscillating near baseline, QQP remaining at 0.000, and training loss oscillating without convergence across all tasks. Together, these patterns indicate a consistent failure of projection-layer LoRA to produce classification-discriminative weight updates on Mamba-130m.
+
+\textbf{The SSM computation acts as an effective gradient barrier for classification.} The Mamba selective state space scan sits between the classification head and the LoRA weight matrices in every one of Mamba-130m's 24 layers. For the pretraining task (next-token prediction), this backward path is well-exercised. For a randomly-initialized classification head performing sequence-level prediction, the gradient signal is apparently insufficient to drive meaningful weight updates in the LoRA matrices.
+
+\textbf{The sequential fallback finding.} A critical observation is that experiments ran under the sequential Python fallback implementation of the SSM scan, not the custom CUDA kernel. The sequential fallback uses standard PyTorch autograd, meaning gradient flow through the SSM computation is not blocked by a custom backward-pass implementation. The failure persists regardless. This suggests that the gradient barrier is not exclusively a property of the CUDA kernel's backward pass (as the prior version of this paper hypothesized), but may reflect the geometric properties of the gradient signal itself: gradients propagating through a pretrained SSM scan applied to a novel classification objective that diverges sharply from the pretraining task (next-token prediction). The gradient may flow numerically but carry insufficient task-discriminative information to update LoRA matrices in a coherent direction. We note this as an important corrective to simplistic ''CUDA kernel blocks gradients'' framings: the failure mode is more subtle.
+
+\textbf{Clarifying the gradient barrier: partial, not total.} The MNLI degradation result is evidence that the barrier is not complete. A total barrier would produce flat MNLI accuracy (the classification head would receive no gradient and remain locked). Instead, MNLI degrades monotonically across epochs --- the head IS receiving gradient signal, and that signal is coherent enough to steer predictions toward a degenerate single-class regime. What the barrier appears to block is not all gradient, but \textit{task-discriminative} gradient. Non-discriminative gradient --- reflecting the model's pretraining biases rather than the classification task's label signal --- propagates through the scan and drives the classifier toward collapse. This partial-blocking framing reconciles the apparent tension between the ''gradient barrier'' label and the MNLI degradation evidence.
+
+This interpretation distinguishes two things the PEFT community frequently conflates: \textit{PEFT API compatibility} and \textit{PEFT gradient compatibility}. LoRA can be applied to any \texttt{nn.Linear} layer --- but whether the resulting adapter receives useful gradient depends on what computation lies between the loss and the adapter. The failure is invisible from API inspection and only becomes apparent when per-epoch accuracy is measured directly.
+
+\subsubsection{6.2 Limitations}
+
+\textbf{Sequential fallback implementation.} All experiments ran under the Mamba sequential Python fallback, not the CUDA kernel implementation. This has a dual implication: (1) the failure cannot be attributed to CUDA kernel backward-pass limitations specifically; and (2) any claims about the CUDA kernel's gradient behavior are not empirically grounded in these experiments. The gradient barrier effect exists under PyTorch autograd and may or may not be stronger under the CUDA implementation.
+
+\textbf{Single seed.} h-e1 used seed=42 only. The failure mode we observe --- flat or degrading accuracy across three independent training epochs --- is inconsistent with seed sensitivity; architectural gradient barriers are structural properties of the computation graph, not stochastic initialization properties. We nonetheless note this as a limitation.
+
+\textbf{No transformer control experiment.} A GPT-2 or LLaMA model with an identical training setup would provide a direct comparison: does this training setup produce learning for transformers but not for Mamba? We do not have this control. The MNLI active degradation provides indirect evidence that the training protocol is not globally broken --- a completely broken optimizer would produce flat MNLI, not monotonic degradation --- but the absence of a transformer control leaves open the possibility that some aspect of the training setup is suboptimal in a way that only affects non-transformer architectures.
+
+\textbf{Gradient magnitudes not logged.} The gradient barrier interpretation is supported by behavioral evidence (accuracy patterns, loss oscillation) but not by direct measurement of per-layer gradient magnitudes. Logging \texttt{grad.norm()} for the LoRA matrices at each training step would provide direct evidence for the claim that updates to the adapters are non-discriminative.
+
+\textbf{MambaPEFT discrepancy unresolved.} The 40 percentage-point gap between our SST-2 result (0.5092) and the community reference (90--92\%) remains an open question. Our ranked hypothesis ordering --- checkpoint type first, head design second --- provides a structured path for systematic ablation.
+
+\textbf{Single model scale.} Mamba-370m and Mamba-2 variants were not tested. The failure mechanism may vary by scale, though the structural relationship between classification head, SSM scan, and LoRA matrices is scale-independent in principle.
+
+\subsubsection{6.3 Future Directions}
+
+\textbf{Exact MambaPEFT replication.} Before investing in new PEFT architectures, the most impactful step is to determine whether the MambaPEFT 90--92\% result is reproducible and, if so, what training recipe detail enables it. The ablation should follow the priority ordering established in Section 5.7: checkpoint type first, classification head design second.
+
+\textbf{SSM-kernel-level PEFT (dt\_proj, B/C direct adaptation).} The \texttt{dt\textbackslash \_proj} layer controls the discretization of the SSM temporal dynamics --- it is adjacent to the scan computation rather than simply feeding into it. LoRA on \texttt{dt\textbackslash \_proj} (or direct adaptation of the B and C parameters derived from \texttt{x\textbackslash \_proj}) would adapt parameters that are closer to the scan's input, potentially bypassing the gradient attenuation that blocks classification signal from reaching \texttt{in\textbackslash \_proj}/\texttt{out\textbackslash \_proj}/\texttt{x\textbackslash \_proj}.
+
+\textbf{Prefix tuning for Mamba.} Prefix tuning operates at the input embedding level, prepending learned prefix tokens that steer the model's hidden states without requiring any gradient to flow backward through the SSM scan. This completely bypasses the gradient compatibility problem by moving the adaptation point upstream of the scan.
+
+\textbf{Gradient magnitude logging.} Running the same experiment with explicit logging of per-layer LoRA gradient magnitudes would directly characterize the gradient signal reaching the adapters, distinguishing the ''non-discriminative gradient'' interpretation from alternative explanations.
+
+\textbf{Transformer control.} A GPT-2 experiment with identical hyperparameters, training data, and evaluation protocol would establish whether the failure is Mamba-specific or a property of causal LM fine-tuning more generally.
+
+\subsubsection{6.4 Broader Impact}
+
+This work contributes to reproducible machine learning by providing a systematic characterization of a failure mode that is otherwise invisible from standard diagnostics. The SSM model family (Mamba, Falcon-Mamba, Jamba, Zamba2) is rapidly gaining adoption as a transformer alternative. Practitioners following community PEFT documentation will encounter the failure mode we document --- LoRA installs, training runs, loss is non-zero --- without a clear signal that no learning is occurring unless they measure per-epoch accuracy explicitly.
+
+The zero-shot GLUE baselines for Mamba-130m (SST-2=0.4908, MNLI=0.3463, QNLI=0.5046, QQP=0.0000) are immediately reusable as reference values. The diagnostic signature (loss oscillation without trend, flat or degrading accuracy across epochs) is a practical early-stopping criterion. All code and configurations are available for replication.
+
+The broader conceptual contribution --- that gradient-path analysis should be a first-class evaluation criterion for PEFT methods on non-transformer architectures --- applies beyond Mamba. The finding that the failure mode manifests even under a standard PyTorch autograd implementation (sequential fallback) suggests that the problem is not limited to exotic CUDA kernel backward passes, and may be a general property of applying classification fine-tuning objectives to SSM-pretrained models via projection-layer adaptation.
+

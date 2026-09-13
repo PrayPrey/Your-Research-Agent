@@ -1,0 +1,361 @@
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 9
+  failsafe: 1
+  subtasks: 3
+  total: 14
+metadata:
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+  generated_at: '2026-08-21T14:35:00+00:00'
+  hypothesis_id: h-e1
+  hypothesis_id_upper: H-E1
+  source_documents:
+  - 03_prd.md
+  - 03_architecture.md
+  - 03_logic.md
+  - 03_config.md
+  tier: LIGHT
+  total_budget: 15
+tasks:
+- complexity: null
+  description: 'Install all required packages: datasets>=2.14.0, transformers>=4.40.0,
+
+    torch>=2.1.0 (CUDA), numpy>=1.24.0, matplotlib>=3.7.0, tqdm>=4.65.0.
+
+    Create output directories: docs/youra_research/h-e1/results/ and
+
+    docs/youra_research/h-e1/figures/. Verify CUDA availability.
+
+    '
+  epic: Environment Setup
+  feature_tag: setup
+  id: task-001
+  priority: 94
+  reference_files:
+    architecture: 03_architecture.md#A-1
+    config: 03_config.md#ProfileConfig
+    logic: null
+  source_document: 03_prd.md
+  test_requirements: '- import torch; assert torch.cuda.is_available()
+
+    - import datasets, transformers, matplotlib, tqdm
+
+    '
+  title: Install Python dependencies and verify environment
+- complexity: 5
+  description: 'Implement directory creation logic in profile_mbpp.py: results_dir
+    and
+
+    figures_dir from ProfileConfig. Smoke-test all imports. Verify CUDA device.
+
+    This is the first function called in main().
+
+    '
+  epic: 'A-1: Environment & Structure'
+  feature_tag: setup
+  id: task-002
+  priority: 93
+  reference_files:
+    architecture: 03_architecture.md#A-1
+    config: 03_config.md#ProfileConfig
+    logic: null
+  source_document: 03_architecture.md
+  test_requirements: '- Assert results/ and figures/ directories exist after main()
+    init
+
+    - Assert torch.cuda.is_available()
+
+    '
+  title: Create directory structure and smoke-test all imports
+- complexity: 5
+  description: 'Load MBPP training split from HuggingFace Hub (google-research-datasets/mbpp,
+    full, train).
+
+    Assert len == 374. Implement format_mbpp_prompt() using DeepSeek instruction format.
+
+    Validate each problem has task_id, text, test_list fields.
+
+    '
+  epic: 'A-2: Data Loading'
+  feature_tag: data-pipeline
+  id: task-003
+  priority: 90
+  reference_files:
+    architecture: 03_architecture.md#A-2
+    config: 03_config.md#ProfileConfig
+    logic: 03_logic.md#A-2-Data-Loading
+  source_document: 03_architecture.md
+  test_requirements: '- Assert len(load_mbpp_train()) == 374
+
+    - Assert "def " in format_mbpp_prompt(sample_problem) (prompt includes problem
+    text)
+
+    '
+  title: Implement load_mbpp_train() and format_mbpp_prompt()
+- complexity: 6
+  description: 'Load deepseek-ai/deepseek-coder-7b-instruct-v1.5 with torch_dtype=bfloat16,
+
+    device_map="auto". Call model.eval(). Return (model, tokenizer).
+
+    Must not enable gradients.
+
+    '
+  epic: 'A-3: Model Loading'
+  feature_tag: model
+  id: task-004
+  priority: 87
+  reference_files:
+    architecture: 03_architecture.md#A-3
+    config: 03_config.md#ProfileConfig
+    logic: 03_logic.md#A-3-Model-Loading
+  source_document: 03_architecture.md
+  test_requirements: '- Assert model.training == False
+
+    - Assert next(model.parameters()).dtype == torch.bfloat16
+
+    '
+  title: Implement load_frozen_model()
+- complexity: 10
+  description: 'Implement generate_one(model, tokenizer, prompt, seed, max_new_tokens=512,
+
+    temperature=1.0, top_p=0.95). Set torch.manual_seed(seed) before generation.
+
+    Use torch.no_grad(). Return decoded completion string with prompt stripped.
+
+    Input shape: [1, L_prompt]. Output: generated text only.
+
+    '
+  epic: 'A-4: Generation + Execution'
+  feature_tag: model
+  id: task-005
+  priority: 84
+  reference_files:
+    architecture: 03_architecture.md#A-4
+    config: 03_config.md#ProfileConfig
+    logic: 03_logic.md#A4-S1
+  source_document: 03_architecture.md
+  test_requirements: '- Same seed produces same output (determinism test)
+
+    - Output does not contain prompt prefix
+
+    '
+  title: Implement generate_one() with seed management
+- complexity: 10
+  description: 'Implement execute_and_test(code_str, test_cases, timeout=10).
+
+    Write code_str + "\n".join(test_cases) to NamedTemporaryFile.
+
+    Run subprocess.run(["python", fname], timeout=timeout, capture_output=True).
+
+    Return returncode == 0. Cleanup tmpfile in finally block.
+
+    Handle TimeoutExpired → return False.
+
+    '
+  epic: 'A-4: Generation + Execution'
+  feature_tag: evaluation
+  id: task-006
+  priority: 83
+  reference_files:
+    architecture: 03_architecture.md#A-4
+    config: 03_config.md#ProfileConfig
+    logic: 03_logic.md#A4-S2
+  source_document: 03_architecture.md
+  test_requirements: '- execute_and_test("def f(x): return x+1", ["assert f(1)==2"])
+    == True
+
+    - execute_and_test("def f(x): return x", ["assert f(1)==2"]) == False
+
+    - execute_and_test("import time; time.sleep(20)", [], timeout=1) == False
+
+    '
+  title: Implement execute_and_test() subprocess sandbox
+- complexity: 11
+  description: 'Implement profile_all_problems() main loop: iterate 374 problems,
+    generate k=8
+
+    completions each, execute each, count passes, compute p_i=pass_count/k and
+
+    variance_i=p_i*(1-p_i). Use tqdm progress bar. Call torch.cuda.empty_cache()
+
+    every checkpoint_every=50 problems.
+
+    Seed formula: seed_base + problem_idx*k + completion_idx.
+
+    '
+  epic: 'A-5: Profiling Loop + Checkpoint'
+  feature_tag: experiment
+  id: task-007
+  priority: 80
+  reference_files:
+    architecture: 03_architecture.md#A-5
+    config: 03_config.md#ProfileConfig
+    logic: 03_logic.md#A5-S1
+  source_document: 03_architecture.md
+  test_requirements: '- p_i in [0.0, 1.0] for all problems
+
+    - variance_i == p_i*(1-p_i) for all problems
+
+    '
+  title: Implement profiling loop core in profile_all_problems()
+- complexity: 11
+  description: 'Add checkpoint logic: save results dict to results_dir/checkpoint_latest.json
+
+    every checkpoint_every=50 problems. On startup, load checkpoint_latest.json
+
+    if it exists and skip already-profiled task_ids. Enables resume on crash.
+
+    '
+  epic: 'A-5: Profiling Loop + Checkpoint'
+  feature_tag: experiment
+  id: task-008
+  priority: 79
+  reference_files:
+    architecture: 03_architecture.md#A-5
+    config: 03_config.md#ProfileConfig
+    logic: 03_logic.md#A5-S2
+  source_document: 03_architecture.md
+  test_requirements: '- After saving checkpoint, loading it returns same dict
+
+    - Resume skips already-profiled task_ids
+
+    '
+  title: Implement checkpoint save/resume in profile_all_problems()
+- complexity: 12
+  description: 'Implement compute_gate(results, variance_threshold=0.1, min_count=50):
+
+    returns (gate_passed, count_above, top50_task_ids).
+
+    Implement save_results() writing full JSON to results/mbpp_variance_profile.json
+
+    with schema: {gate_passed, metrics, top50_ids, problems}.
+
+    main() exits with sys.exit(0) if gate_passed else sys.exit(1).
+
+    '
+  epic: 'A-6: Gate + Output + Figures'
+  feature_tag: evaluation
+  id: task-009
+  priority: 76
+  reference_files:
+    architecture: 03_architecture.md#A-6
+    config: 03_config.md#ProfileConfig
+    logic: 03_logic.md#A6-S1
+  source_document: 03_architecture.md
+  test_requirements: '- Gate fails when count_above < 50
+
+    - Gate passes when count_above >= 50
+
+    - Results JSON contains required top-level keys
+
+    '
+  title: Implement compute_gate(), select_top50(), and save_results()
+- complexity: 12
+  description: "Implement generate_figures(results, top50_ids, metrics, figures_dir).\n\
+    Fig1 (fig1_gate_metrics.png): bar chart count_nonzero_variance vs threshold 50,\n\
+    \  mean_p_top50 vs [0.25,0.75].\nFig2 (fig2_pass_rate_histogram.png): histogram\
+    \ p_i, shade [0.25,0.75] green.\nFig3 (fig3_variance_histogram.png): histogram\
+    \ variance_i, vline at 0.1.\nFig4 (fig4_top50_scatter.png): scatter all 374 (x=rank,\
+    \ y=p_i), top-50 red, rest gray.\nCall plt.close() after each figure to prevent\
+    \ memory leak.\n"
+  epic: 'A-6: Gate + Output + Figures'
+  feature_tag: evaluation
+  id: task-010
+  priority: 75
+  reference_files:
+    architecture: 03_architecture.md#A-6
+    config: 03_config.md#ProfileConfig
+    logic: 03_logic.md#A6-S2
+  source_document: 03_architecture.md
+  test_requirements: '- All 4 figure files exist after generate_figures() call
+
+    - No matplotlib errors (smoke test with small dummy data)
+
+    '
+  title: Implement generate_figures() — 4 matplotlib figures
+- complexity: 10
+  description: 'Detailed subtask: implement token slicing to strip prompt from output.
+
+    output_ids = model.generate(...)[0][input_ids.shape[1]:]
+
+    decoded = tokenizer.decode(output_ids, skip_special_tokens=True)
+
+    Also implement extract_code() to handle markdown-fenced code blocks.
+
+    '
+  epic: 'A-4: Generation + Execution'
+  feature_tag: model
+  id: task-011
+  priority: 45
+  reference_files:
+    architecture: 03_architecture.md#A-4
+    config: null
+    logic: 03_logic.md#A4-S1
+  source_document: 03_logic.md
+  test_requirements: null
+  title: '[SUBTASK A4-S1] generate_one() — token slicing and decode'
+- complexity: 11
+  description: 'Add tqdm wrapper with desc="Profiling MBPP", unit="problem".
+
+    Log per-problem: task_id, p_i, variance_i, running count above threshold.
+
+    Add torch.cuda.empty_cache() every checkpoint_every iterations.
+
+    '
+  epic: 'A-5: Profiling Loop + Checkpoint'
+  feature_tag: experiment
+  id: task-012
+  priority: 44
+  reference_files:
+    architecture: 03_architecture.md#A-5
+    config: null
+    logic: 03_logic.md#A5-S1
+  source_document: 03_logic.md
+  test_requirements: null
+  title: '[SUBTASK A5-S1] Profiling loop — tqdm and cache management'
+- complexity: 12
+  description: 'Build metrics dict: {count_nonzero_variance, count_intermediate (0.25<p<0.75),
+
+    mean_p_top50, mean_variance_top50, gate_threshold=0.1, min_count=50}.
+
+    Log gate result prominently: PASS or FAIL with count vs threshold.
+
+    '
+  epic: 'A-6: Gate + Output + Figures'
+  feature_tag: evaluation
+  id: task-013
+  priority: 43
+  reference_files:
+    architecture: 03_architecture.md#A-6
+    config: null
+    logic: 03_logic.md#A6-S1
+  source_document: 03_logic.md
+  test_requirements: null
+  title: '[SUBTASK A6-S1] Gate reporting — metrics dict and logging'
+- complexity: null
+  description: 'Failsafe task: verify profile_mbpp.py exists and is executable.
+
+    Run with --dry-run flag (or equivalent) to confirm imports succeed.
+
+    This task confirms Phase 4 implementation is ready for execution.
+
+    '
+  epic: Pipeline
+  feature_tag: pipeline-continue
+  id: task-014
+  priority: 1
+  reference_files:
+    architecture: null
+    config: null
+    logic: null
+  source_document: 03_architecture.md
+  test_requirements: '- python docs/youra_research/h-e1/code/profile_mbpp.py --help
+    (or --dry-run) exits 0
+
+    '
+  title: Pipeline continuation checkpoint
+version: '1.1'

@@ -1,0 +1,1 @@
+After completing a task: inspect changed files, run the smallest relevant Python entrypoint or validation script available for the touched hypothesis or figure pipeline, and confirm whether outputs/files were written as expected. No unified formatter/linter config was discovered during onboarding, so verification is task-specific.

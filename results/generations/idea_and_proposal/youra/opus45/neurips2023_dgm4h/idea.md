@@ -1,0 +1,8 @@
+## Title
+VLM-Augmented Cognitive-Calibrated Validation for Medical Generative AI
+
+## Motivation
+Current validation of medical generative AI relies on single ground-truth benchmarks that treat expert disagreement as noise, yet such disagreement often reflects genuine clinical ambiguity about case difficulty. This mismatch causes AI systems that perform well on benchmarks to fail unpredictably in deployment. The challenge is particularly acute for synthetic medical image generation (e.g., chest X-rays), where no reliable framework exists to predict which systems will fail clinically. We address this gap by treating expert disagreement as meaningful signal rather than annotation error.
+
+## Main Idea
+We propose a validation framework combining three components: (1) Vision-Language Model (VLM) pre-screening to estimate case difficulty before expert annotation, (2) active learning-guided multi-expert annotation focusing resources on high-disagreement cases, and (3) asymmetric hardness-aware metrics (HaPrecision, HaRecall, Brittleness Gap) that weight failures by clinical difficulty. The core mechanism posits that VLM difficulty estimates correlate with expert disagreement patterns, enabling cognitive diagnostic modeling to extract calibrated consensus distributions. We predict this framework will achieve deployment outcome correlation (r>0.70) significantly exceeding single ground-truth approaches (r≈0.45), while reducing annotation costs by 80%. Validation uses 20+ chest X-ray AI systems across 5+ deployment sites. Success enables more reliable regulatory submissions and reduces costly deployment failures in clinical settings.

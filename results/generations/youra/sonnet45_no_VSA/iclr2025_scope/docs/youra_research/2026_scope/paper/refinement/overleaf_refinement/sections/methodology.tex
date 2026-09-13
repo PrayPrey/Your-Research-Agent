@@ -1,0 +1,89 @@
+
+\subsubsection{Overview}
+
+Our central hypothesis is that certain environment-stage API defects violate documented invariants testable before training begins. We stratify these invariants into three classes requiring distinct validation mechanisms:
+
+\textbf{Structural invariants} (tensor shapes, dtypes, device placement) are detectable at import time through static introspection.
+
+\textbf{Metamorphic invariants} (mathematical properties like probability sums, identity relations) require lightweight runtime evaluation on synthetic inputs.
+
+\textbf{Composition invariants} (cross-library consistency in device placement, dtype propagation) arise from multi-library interactions and require validation at framework boundaries.
+
+\subsubsection{Tier 1: Structural Contracts}
+
+\textbf{Invariants Validated}: Structural contracts encode shape, dtype, and device constraints---the interface properties that function signatures specify but Python's type system cannot enforce.
+
+\textbf{Implementation}: Structural contracts are Python decorators that wrap function definitions:
+
+\begin{verbatim}
+@validate_structural(
+    expected_input_channels=3,
+    expected_dtype=torch.float32
+)
+def forward(x: torch.Tensor) -> torch.Tensor:
+    ...
+\end{verbatim}
+
+At import time, decorators intercept the first function call to validate actual arguments against specifications.
+
+\textbf{Design Rationale}: Import-time validation enables fail-fast behavior---researchers discover mismatches immediately upon importing modules rather than during training. Our proof-of-concept demonstrates validation overhead below 0.03 seconds, orders of magnitude faster than training-stage detection.
+
+\subsubsection{Tier 2: Metamorphic Contracts}
+
+\textbf{Invariants Validated}: Metamorphic contracts enforce mathematical properties---softmax outputs must sum to 1.0, dropout must preserve expectation under eval mode, batch normalization must not change distributional statistics during inference.
+
+\textbf{Implementation}: Metamorphic contracts assert input-output relations via lightweight probes:
+
+\begin{verbatim}
+@validate_metamorphic(
+    property='softmax_sum',
+    probe=lambda f, x: torch.allclose(
+        f(x).sum(dim=-1), 
+        torch.ones(...), 
+        atol=1e-5
+    )
+)
+def softmax(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    ...
+\end{verbatim}
+
+Contracts execute probes on synthetic inputs before the first production call.
+
+\textbf{Design Rationale}: By executing probes once at environment-setup on synthetic inputs, we amortize validation cost across the entire training run. If softmax violates probability-sum invariants on synthetic inputs, it will likely violate them on real data.
+
+\textbf{Floating-Point Tolerance}: ML computations involve approximate arithmetic where exact equality fails even for mathematically equivalent expressions. Contracts use \texttt{torch.allclose(atol=1e-5)} for numeric comparisons, with tolerance thresholds derived from IEEE 754 single-precision limits.
+
+\subsubsection{Tier 3: Composition Contracts}
+
+\textbf{Invariants Validated}: Composition contracts validate cross-library consistency---PyTorch tensors passed to framework conversion tools must preserve dtype, shape, and numerical tolerance.
+
+\textbf{Implementation}: Composition contracts intercept cross-library boundaries:
+
+\begin{verbatim}
+with validate_composition(
+    contracts=['dtype_preserved', 'shape_consistent', 'numerical_tolerance'],
+    rtol=1e-5, atol=1e-7
+):
+    target_model = convert_framework(source_model, inputs)
+\end{verbatim}
+
+The validator wraps conversion operations and validates dtype preservation, shape consistency, and numerical equivalence.
+
+\textbf{Design Rationale}: Cross-framework conversion introduces opportunities for dtype corruption, shape mismatches, and numerical drift. Validating these properties at conversion boundaries enables pre-execution defect detection.
+
+\subsubsection{Execution Model}
+
+\begin{verbatim}
+Import Time (0-50ms)
+├─ Structural contracts: Validate tensor shapes, dtypes, devices
+└─ Register metamorphic/composition contracts
+
+Environment Setup (50-500ms)
+├─ Metamorphic contracts: Execute probes on synthetic inputs
+└─ Composition contracts: Validate library bindings
+
+Training Begins (>500ms)
+└─ Contracts dormant; no per-batch overhead
+\end{verbatim}
+
+Contracts incur zero per-batch overhead during training---validation occurs once at environment-setup, then contracts become dormant.

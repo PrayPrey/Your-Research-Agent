@@ -1,0 +1,21 @@
+# Introduction
+
+When does a neural network's reliance on spurious correlations become irreversible? Deep learning models trained on datasets with spurious correlations—where certain features correlate with labels in training data but not in deployment—systematically fail on minority groups where these correlations do not hold. On the Waterbirds benchmark, standard empirical risk minimization (ERM) achieves over 95% average accuracy while worst-group accuracy drops to 60-75%, a gap that persists across vision and language tasks.
+
+We understand *what* causes this failure. Shah et al. (2020) demonstrated that neural networks exhibit simplicity bias, preferring linearly-separable features over more complex ones during early training. Pezeshki et al. (2021) showed that gradient starvation amplifies this preference: as spurious features dominate the loss, gradient flow to core feature pathways diminishes, creating a self-reinforcing feedback loop. Kirichenko et al. (2023) revealed that networks actually learn both spurious and core features in their representations—the problem lies in how the classifier layer weights these features.
+
+Yet we do not know *when* this problematic weighting becomes locked in. Existing work treats shortcut learning as a static phenomenon: models prefer shortcuts, shortcuts persist, interventions correct them. But if there exists a critical window during training where classifier commitment accelerates and becomes irreversible, then intervention timing matters. Training too early wastes compute; training too late misses the window.
+
+We identify this critical window—what we term the "Shortcut Crystallization Zone." Through experiments across three standard spurious correlation benchmarks (Waterbirds, CelebA, ColoredMNIST), we find that classifier commitment to spurious features is not gradual but localized to a narrow phase at 15-40% of training duration. Within this zone, the second derivative of worst-group accuracy (d²WGA/dt²) shows a significant negative peak, indicating accelerating decline. Once this crystallization occurs, the classifier's preference for spurious features does not self-correct under continued ERM training.
+
+Our key insight is that this crystallization can be reliably detected. Using a second derivative analysis with 5-epoch smoothing, we achieve 100% detection rate across benchmarks with a signal-to-noise ratio of 5.64. The gradient ratio between minority and majority group features shows an inflection point that temporally precedes the WGA acceleration, confirming the causal role of gradient starvation in triggering crystallization.
+
+This paper makes three contributions:
+
+First, we provide the first temporal characterization of shortcut learning dynamics. While prior work describes what features are learned and why shortcuts persist, we characterize when classifier commitment accelerates and becomes irreversible. This moves the field from static descriptions ("DNNs prefer simple features") to dynamic temporal characterization ("shortcuts crystallize at epoch X under conditions Y").
+
+Second, we introduce a detection method based on the second derivative of worst-group accuracy. With appropriate smoothing and thresholding, this method reliably identifies the crystallization point in real-time, enabling timing-aware interventions.
+
+Third, we verify the causal mechanism linking gradient starvation to crystallization. We show that gradient ratio inflection temporally precedes WGA acceleration, and that post-crystallization commitment persists—spurious feature probe accuracy does not decrease without external intervention.
+
+These findings have immediate practical implications. Group robustness methods like Group DRO or Just Train Twice apply corrections uniformly throughout training. Our results suggest that timing these interventions to coincide with (or preempt) the crystallization zone could improve efficiency without sacrificing robustness. We leave this intervention design to future work, focusing here on establishing the phenomenon and detection methodology.

@@ -1,0 +1,29 @@
+
+Large language models are routinely fine-tuned with full KV cache access and then deployed under eviction policies that discard a substantial fraction of cached key-value entries. H2O \citep{Zhangetal2023}, SnapKV \citep{Lietal2024}, and StreamingLLM \citep{Xiaoetal2023} have each demonstrated that principled eviction can reduce KV cache memory by 50–75\% with limited accuracy loss. These methods are applied post-hoc to models — including LoRA-adapted models — that were never exposed to eviction constraints during fine-tuning. The resulting mismatch between the full-cache attention distribution encountered during training and the evicted-cache distribution encountered at inference has not been addressed at the fine-tuning stage.
+
+This paper investigates whether applying H2O eviction masks during LoRA fine-tuning — rather than only at inference — produces adapter parameters better calibrated to the evicted-cache distribution. The proposed approach, termed Eviction-Aware LoRA, injects H2O eviction masks via a forward hook on the attention module during training. The hook is removed at inference. The adapter's gradient signal is thereby computed through eviction-masked attention activations throughout training.
+
+The motivation draws an analogy to dropout \citep{Srivastavaetal2014}: both techniques expose the model to structured absence during training to promote robustness at inference. Token-position eviction differs from dropout in granularity (entire KV entries vs. individual activations), determinism (H2O masks are policy-driven and input-dependent), and target (training-inference distribution matching for a specific eviction policy vs. generalization).
+
+This paper makes four contributions:
+
+\begin{enumerate}
+\item \textbf{Problem formalization.} The training-inference distribution mismatch in KV-cache-constrained LoRA deployment is formalized as a first-class design problem. No prior work directly addresses this mismatch at fine-tuning time; LongLoRA \citep{Chenetal2023} modifies attention for computational efficiency during long-context fine-tuning but does not target eviction-policy-induced distribution shift.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Mechanistic existence result (H-E1).} In a GPT-2 proxy experiment (117M parameters, 30 training steps, 200 LongAlpaca-12k samples, kv_budget_ratio=0.50), eviction-aware and sequential-baseline adapters show a mean per-layer cosine similarity of 0.053 (range: −0.578 to +0.469; all 24 LoRA layers below the 0.95 threshold). This confirms that H2O mask injection during training changes the gradient signal reaching LoRA parameters.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Attention pattern redistribution (H-M1).} On 5 synthetic samples with the same GPT-2 proxy, paired t-tests show significant attention entropy divergence (p < 0.05) in 8 of 12 transformer layers (fraction = 0.667, threshold = 0.50). Significant layers are concentrated in middle transformer layers 4–11; lower layers 0–3 show no significant divergence by either entropy or heavy-hitter concentration metrics.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Validated evaluation infrastructure.} The paper provides a validated implementation of BudgetSweepEvaluator, SpearmanAnalyzer, and the H2O training wrapper, verified to run end-to-end at proxy scale. Full-scale evaluation on target 7B models requires \texttt{attn_implementation='eager'} due to an incompatibility between H2O's cumulative-score indexing and PyTorch SDPA kernels (Section 6.3).
+\end{enumerate}
+
+The primary accuracy hypothesis — a per-category LongBench accuracy advantage of ≥2\% at r=50\% on both LLaMA-2-7B and Mistral-7B-v0.1 — was not evaluated. H-M3 (the full accuracy experiment) was not started due to unavailability of gated HuggingFace model access. The dose-response hypothesis (H-M2), which required LongBench evaluation at multiple budget ratios, was also not evaluable at GPT-2 proxy scope because GPT-2's 1024-token context window is insufficient for LongBench tasks (2,000–10,000 tokens).
+
+The paper is organized as follows. Section 2 reviews related work on KV cache eviction and PEFT. Section 3 describes the method. Section 4 details experimental setup. Section 5 reports results. Section 6 discusses findings and limitations. Section 7 concludes.
+

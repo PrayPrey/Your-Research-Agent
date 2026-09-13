@@ -1,0 +1,8 @@
+# Title
+Causal Perturbation Modeling for Biologically Meaningful Representation Learning
+
+# Motivation
+Current biological foundation models optimize for reconstruction or prediction tasks that may not capture causal mechanisms underlying cellular responses to perturbations. This creates representations that perform well on benchmarks but fail to generalize to novel interventions or reveal interpretable biological pathways. As the field develops foundation models for virtual cells and drug discovery, we need representations that encode causal relationships rather than mere correlations, enabling reliable prediction of unseen perturbations and mechanistic understanding of biological processes.
+
+# Main Idea
+We hypothesize that incorporating explicit perturbation modeling during pre-training causally improves the biological meaningfulness of learned representations. The core mechanism operates through three pathways: (1) perturbation prediction forces models to learn intervention-response relationships, (2) counterfactual reasoning enables disentanglement of causal factors, and (3) multi-scale consistency constraints align molecular and phenotypic effects. We will test this by pre-training models on large-scale perturbation datasets (JUMP-CP, Perturb-seq) with perturbation-aware objectives, then evaluate on held-out perturbations, cross-dataset transfer, and pathway recovery tasks. Success requires outperforming reconstruction-based baselines on perturbation prediction while maintaining competitive performance on standard benchmarks. This approach bridges representation learning and causal inference, providing interpretable embeddings for drug discovery and biological simulation.

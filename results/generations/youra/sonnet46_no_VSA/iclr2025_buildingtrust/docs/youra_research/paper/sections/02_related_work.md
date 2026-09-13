@@ -1,0 +1,25 @@
+# Related Work
+
+Our work sits at the intersection of three research lines: adversarial robustness benchmarking, architecture comparison studies, and LLM trustworthiness evaluation. We survey each in turn, identifying the limitations that motivate our contribution.
+
+## Adversarial Robustness Benchmarks
+
+Ribeiro et al. (2020) introduced CheckList, a behavioral testing paradigm that evaluates NLP models across a matrix of linguistic capabilities and perturbation types. CheckList shifts the evaluation frame from aggregate accuracy to structured failure mode analysis, but does not compare architecture families. Building on this, Zeng et al. (2021) released AdvGLUE — a multi-category adversarial benchmark derived from GLUE tasks using 14 attack methods covering character-level noise, word-level substitution, and semantic perturbations. AdvGLUE is the primary evaluation suite in our study. Nie et al. (2020) developed ANLI (Adversarial NLI), where examples are collected via human-model adversarial interaction, providing a benchmark that is resistant to statistical artifacts from automatic perturbation methods. We use ANLI Round 3 (ANLI-R3) as the human-crafted evaluation partition in our design.
+
+A key limitation of these benchmarks in prior use is that they are applied for leaderboard-style comparison — reporting a scalar accuracy number per model, per benchmark. This scalar aggregation discards the multivariate structure across attack categories that is central to our research question. We address this by treating AdvGLUE and ANLI-R3 as sources of per-category Δ* observations and subjecting the resulting attack-category × model matrix to multivariate analysis.
+
+## Architecture Comparison Studies
+
+Several works directly compare transformer architectures on adversarial tasks. Zhao et al. (2023, EMNLP Findings, paper 477) compare BERT, GPT-2, and T5 on GLUE perturbations and find that GPT-2 (decoder-only) shows greater robustness than BERT (encoder-only) and T5 (encoder-decoder). This directional finding is consistent with our η²=0.293 result and the attention-topology hypothesis. However, Zhao et al. evaluate only three models (one per family), report no effect size, apply no multivariate test, and do not use AdvGLUE or ANLI. Our work extends their directional observation with formal effect-size quantification (η²=0.293), a nine-model pool, a six-category Δ*-vector representation, and permutation MANOVA with statistical controls for pretraining objective, tokenizer, and clean accuracy.
+
+More recent work examines robustness in LLM-based retrieval and enterprise NLP settings. Arora et al. (2026) find that decoder-only models show 73% lower explanation flip rates versus encoder baselines in enterprise NLP, and that LLM-based dense retrievers show different robustness profiles under typo and semantic perturbations. These findings are consistent with architecture-family effects on robustness but focus on specific deployment contexts (retrieval, explanation stability) rather than providing controlled family-level effect-size measurements. Yoo et al. (2024) compare LLaMA, OPT, and T5 under white-box attacks and observe that model size and structure affect robustness, but again without formal between-family effect-size quantification or Δ*-vector representation.
+
+## LLM Trustworthiness Evaluation
+
+Sun et al. (2024) release TrustLLM, evaluating 16 LLMs across six trustworthiness dimensions (truthfulness, safety, fairness, robustness, privacy, machine ethics) using over 30 datasets. TrustLLM is the most comprehensive multi-dimension LLM evaluation framework available. Its robustness dimension covers adversarial perturbations relevant to our study. However, TrustLLM does not stratify by architecture family, does not compute per-attack-category Δ*-vectors, and does not apply multivariate tests for between-family effects. Our work can be viewed as providing an architecture-family-stratified analysis of the robustness dimension that TrustLLM evaluates at the model level.
+
+Otmakhova et al. (2025) demonstrate in FLUKE that a model's capability to use a linguistic feature in clean conditions does not predict its robustness to perturbations of that feature — motivation consistent with our approach of measuring Δ* (normalized vulnerability) as distinct from clean accuracy. Cohen (1988) provides the multivariate effect-size conventions (η², f²) and power analysis framework that we apply throughout our statistical methodology.
+
+## Summary
+
+Prior work establishes that architecture families differ in adversarial robustness (directional signals from Zhao et al. 2023), documents this across diverse benchmarks (AdvGLUE, ANLI), and situates robustness within broader trustworthiness frameworks (TrustLLM). What is missing is a formal, effect-size-quantified, scale-matched, multivariate analysis of between-family Δ*-vector clustering under statistical controls — and a validated reusable pipeline enabling the community to replicate and extend this analysis. We provide both.

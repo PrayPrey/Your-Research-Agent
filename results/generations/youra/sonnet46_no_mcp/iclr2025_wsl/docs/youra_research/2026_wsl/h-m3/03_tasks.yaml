@@ -1,0 +1,831 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m3"
+  hypothesis_id_upper: "H-M3"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-05-05T15:20:00Z"
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ─────────────────────────────────────────────
+  # DATA PREPARATION (priority 100-99)
+  # ─────────────────────────────────────────────
+  - id: "task-001"
+    epic: "Data Preparation"
+    title: "Download CIFAR-10 model zoo"
+    description: |
+      Download the Schurholt CIFAR-10 model zoo from ModelZoos/ModelZooDataset.
+      Place in: docs/youra_research/20260505_wsl/.data_cache/datasets/cifar10/
+
+      Steps:
+        git clone https://github.com/ModelZoos/ModelZooDataset /tmp/ModelZooDataset
+        cd /tmp/ModelZooDataset
+        python download_zoo.py --zoo cifar10 --output \
+          docs/youra_research/20260505_wsl/.data_cache/datasets/cifar10/
+
+      Verify: dataset_cifar10.pt exists and loads with torch.load().
+      Fallback: If download fails, set skip_cifar_if_unavailable=True in RunConfig
+      and document as limitation; MNIST-CNN remains primary result.
+    feature_tag: "data-preparation"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Data download tasks do not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#run-config"
+
+  # ─────────────────────────────────────────────
+  # ENVIRONMENT SETUP (priority 99)
+  # ─────────────────────────────────────────────
+  - id: "task-002"
+    epic: "Environment Setup"
+    title: "Setup development environment"
+    description: |
+      Install required packages and verify h-m1/h-m2 code accessibility.
+
+      Python packages:
+        pip install torch>=1.12.0 scipy>=1.9.0 numpy>=1.23.0 \
+          matplotlib>=3.5.0 seaborn>=0.12.0 pyyaml>=6.0 tqdm>=4.64.0
+
+      Verify base hypothesis code paths:
+        - docs/youra_research/20260505_wsl/h-m1/code/ (FlatMLPEncoder, WeightDataset)
+        - docs/youra_research/20260505_wsl/h-m2/code/ (NFNEncoder, NFNWeightDataset)
+        - docs/youra_research/20260505_wsl/h-m1/code/results/best_flat_mlp_encoder.pt
+        - docs/youra_research/20260505_wsl/h-m2/code/results/best_nfn_encoder.pt
+
+      Create output directories:
+        mkdir -p h-m3/code/results h-m3/code/figures
+
+      GPU: export CUDA_VISIBLE_DEVICES=<empty_gpu_id> before running.
+    feature_tag: "setup"
+    priority: 99
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#experiment-config"
+
+  # ─────────────────────────────────────────────
+  # EPIC IMPLEMENTATION TASKS (priority 98-50)
+  # ─────────────────────────────────────────────
+  - id: "task-003"
+    epic: "A-1: Setup & Data"
+    title: "Implement config.py and unified data_loader.py"
+    description: |
+      Implement ExperimentConfig dataclass (config.py) and unified data loading
+      wrappers (data_loader.py) that delegate to h-m1/h-m2 loaders.
+
+      config.py:
+        - ExperimentConfig dataclass with all paths, hyperparameters, Deep Sets
+          capacity grid search fields, bootstrap settings, gate thresholds
+        - set_seed(seed) utility
+        - TRAINING_MODE dict: per-encoder/per-zoo train-fresh vs checkpoint-load
+
+      data_loader.py:
+        - load_mnist_flat(cfg) → (train_loader, val_loader, test_loader, input_dim)
+          delegates to h-m1 load_and_split_dataset + build_dataloaders
+          sets cfg.data_dir = cfg.mnist_data_dir before delegating
+        - load_mnist_nfn(cfg) → (train_loader, val_loader, test_loader, weight_shapes)
+          delegates to h-m2 load_and_split_dataset_nfn + build_dataloaders_nfn
+        - load_cifar_flat(cfg) → same API as load_mnist_flat
+        - load_cifar_nfn(cfg) → same API as load_mnist_nfn
+        - download_cifar_zoo(cfg) → bool (True if cached or downloaded)
+    feature_tag: "data-pipeline"
+    priority: 98
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      Create tests/test_data_loader.py:
+        - test_load_mnist_flat_returns_correct_shapes()
+        - test_load_mnist_nfn_returns_weight_shapes()
+        - test_cifar_download_graceful_fallback()
+    reference_files:
+      architecture: "03_architecture.md#DataLoader"
+      logic: "03_logic.md#A-1-data-loader"
+      config: "03_config.md#experiment-config"
+
+  - id: "task-004"
+    epic: "A-2: Deep Sets Model"
+    title: "Implement DeepSetsEncoder with grid search for ~500K params"
+    description: |
+      Implement DeepSetsEncoder and DeepSetsWithHead in models.py.
+      Add grid_search_deep_sets to find phi_hidden that hits [475K, 525K] params.
+      Add prepare_flat_elements to reshape flat weight vectors into set elements.
+
+      DeepSetsEncoder.forward tensor shapes:
+        Input:  x_elements (B, N_layers, element_dim)  — padded weight layers
+        phi:    (B, N_layers, element_dim) → (B, N_layers, phi_hidden)
+        pool:   sum over dim=1 → (B, phi_hidden)
+        rho:    (B, phi_hidden) → (B, embed_dim)
+        Output: (B, embed_dim)
+
+      DeepSetsWithHead.forward:
+        Input:  x_elements (B, N_layers, element_dim)
+        Output: (embedding (B, embed_dim), prediction (B, 1))
+
+      Grid search: phi_hidden_candidates = [64, 96, 128, 160, 192, 256]
+        For each phi_hidden, construct encoder, count params, return first in [475K, 525K].
+
+      prepare_flat_elements(flat_w, weight_shapes):
+        Splits flat_w into per-layer tensors, pads each to max layer dim,
+        returns (N_layers, element_dim) tensor.
+    feature_tag: "model"
+    priority: 97
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      Create tests/test_models.py:
+        - test_deep_sets_encoder_output_shape()
+        - test_grid_search_deep_sets_param_count_in_range()
+        - test_prepare_flat_elements_shapes()
+    reference_files:
+      architecture: "03_architecture.md#Models"
+      logic: "03_logic.md#A-2-deep-sets"
+      config: "03_config.md#deep-sets-capacity"
+
+  - id: "task-005"
+    epic: "A-3: Checkpoint Loading"
+    title: "Implement checkpoint loaders for flat MLP and NFN"
+    description: |
+      Implement load_flat_mlp_checkpoint and load_nfn_checkpoint in models.py.
+      Must handle actual checkpoint formats verified from h-m1/h-m2 code.
+
+      CRITICAL: h-m1 checkpoint format (verified from actual code):
+        train_encoder() may return model in-memory only (no guaranteed .pt file).
+        Probe for both formats:
+          1. raw state_dict (OrderedDict of tensors)
+          2. {"model_state_dict": state_dict}
+        If checkpoint missing → retrain with same hyperparameters as h-m1.
+
+      CRITICAL: h-m2 checkpoint format (verified from actual code):
+        Saved as: {"encoder_state": ..., "head_state": ..., "epoch": ..., "val_loss": ...}
+        Load with:
+          model.encoder.load_state_dict(ckpt["encoder_state"])
+          model.head.load_state_dict(ckpt["head_state"])
+        If checkpoint missing → retrain with same hyperparameters as h-m2.
+
+      load_flat_mlp_checkpoint(cfg, input_dim) → FlatMLPWithHead:
+        Reconstruct FlatMLPEncoder(input_dim=input_dim, hidden_dims=[193], embed_dim=128)
+        Load from cfg.hm1_code_dir / "results" / "best_flat_mlp_encoder.pt"
+
+      load_nfn_checkpoint(cfg, weight_shapes) → NFNWithHead:
+        Reconstruct NFNEncoder(weight_shapes=weight_shapes, channel_dim=112,
+                               embed_dim=128, n_layers=3)
+        Load from cfg.hm2_code_dir / "results" / "best_nfn_encoder.pt"
+    feature_tag: "model"
+    priority: 96
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      Create tests/test_checkpoint_loading.py:
+        - test_load_flat_mlp_fallback_on_missing()
+        - test_load_nfn_checkpoint_encoder_head_keys()
+        - test_checkpoint_param_count_matches_spec()
+    reference_files:
+      architecture: "03_architecture.md#Models"
+      logic: "03_logic.md#A-3-checkpoint-loading"
+      config: "03_config.md#checkpoint-paths"
+
+  - id: "task-006"
+    epic: "A-4: Deep Sets Training (MNIST-CNN)"
+    title: "Train Deep Sets encoder on MNIST-CNN"
+    description: |
+      Implement train_deep_sets in train.py and run Deep Sets training on MNIST-CNN.
+
+      Training loop (AdamW + CosineAnnealingLR):
+        optimizer = AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+        scheduler = CosineAnnealingLR(optimizer, T_max=cfg.t_max, eta_min=cfg.eta_min)
+        criterion = MSELoss()
+        Early stopping: save best checkpoint by val loss
+
+      Batch format from load_mnist_flat:
+        (flat_w: Tensor(B, D), acc: Tensor(B,))
+        Reshape flat_w → elements via prepare_flat_elements before forward pass.
+
+      Checkpoint saved to: cfg.results_dir / "best_deep_sets_mnist.pt"
+      Format: {"model_state_dict": state_dict, "epoch": int, "val_loss": float,
+               "phi_hidden": int, "param_count": int}
+    feature_tag: "training"
+    priority: 95
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      Create tests/test_train.py:
+        - test_train_deep_sets_decreases_loss()
+        - test_checkpoint_saved_after_training()
+        - test_prepare_flat_elements_integration_with_forward()
+    reference_files:
+      architecture: "03_architecture.md#Train"
+      logic: "03_logic.md#A-4-training"
+      config: "03_config.md#training-config"
+
+  - id: "task-007"
+    epic: "A-5: CIFAR-10 Training (All Encoders)"
+    title: "Train all three encoders on CIFAR-10 zoo"
+    description: |
+      Train FlatMLP, DeepSets, and NFN from scratch on CIFAR-10 (different weight shapes).
+      Implement get_weight_shapes for CIFAR-10 and handle input_dim differences.
+
+      Step 1: get_weight_shapes(zoo_data) → List[tuple]
+        Extract weight tensor shapes from CIFAR-10 zoo state_dict keys.
+        CIFAR-10 CNNs have different architecture from MNIST-CNN.
+        input_dim for flat/DeepSets: sum of all parameter counts per CIFAR-10 model.
+
+      Step 2: CIFAR-10 FlatMLP training
+        Reconstruct FlatMLPEncoder with CIFAR-10 input_dim (different from h-m1).
+        Same hyperparameters: AdamW lr=1e-3, epochs=150, seed=42.
+        Checkpoint: cfg.results_dir / "best_flat_mlp_cifar.pt"
+
+      Step 3: CIFAR-10 NFN training
+        Reconstruct NFNEncoder with CIFAR-10 weight_shapes.
+        Same hyperparameters as h-m2 (channel_dim=112, n_layers=3).
+        Checkpoint: cfg.results_dir / "best_nfn_cifar.pt"
+
+      Step 4: CIFAR-10 DeepSets training
+        Grid search phi_hidden for CIFAR-10 input_dim → ~500K params.
+        element_dim differs from MNIST-CNN (CIFAR-10 layer sizes).
+        Checkpoint: cfg.results_dir / "best_deep_sets_cifar.pt"
+
+      Fallback: If CIFAR-10 unavailable (skip_cifar_if_unavailable=True),
+        log warning and return None for all CIFAR-10 results.
+    feature_tag: "training"
+    priority: 94
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      Create tests/test_cifar_training.py:
+        - test_get_weight_shapes_cifar10()
+        - test_flat_mlp_cifar_input_dim_differs_from_mnist()
+        - test_cifar_unavailable_graceful_skip()
+    reference_files:
+      architecture: "03_architecture.md#Train"
+      logic: "03_logic.md#A-5-cifar-training"
+      config: "03_config.md#training-mode"
+
+  - id: "task-008"
+    epic: "A-6: Evaluation & Bootstrap CI"
+    title: "Implement Spearman ρ evaluation with bootstrap CI for all encoders"
+    description: |
+      Implement all evaluation functions in evaluate.py.
+
+      bootstrap_spearman_ci(y_true, y_pred, n_resamples=1000, seed=42):
+        rng = np.random.default_rng(seed)
+        boot_rhos = []
+        for _ in range(n_resamples):
+            idx = rng.integers(0, n, size=n)
+            rho, _ = spearmanr(y_true[idx], y_pred[idx])
+            boot_rhos.append(rho)
+        return median(boot_rhos), percentile(2.5), percentile(97.5)
+
+      evaluate_flat_encoder(model, loader, device, n_resamples):
+        Batch format: (flat_w: Tensor(B,D), acc: Tensor(B,)) from h-m1 WeightDataset
+        Returns: {'rho': float, 'ci_lower': float, 'ci_upper': float,
+                  'preds': list, 'labels': list}
+
+      evaluate_deep_sets_encoder(model, loader, device, weight_shapes, n_resamples):
+        Reshape flat_w → elements via prepare_flat_elements before forward.
+        Same batch format as flat encoder (from load_mnist_flat / load_cifar_flat).
+
+      evaluate_nfn_encoder(model, loader, device, n_resamples):
+        Batch format: (weight_list, flat_w, acc) from h-m2 collate_nfn
+        Returns same dict structure.
+
+      compute_delta_rho_ci(nfn_preds, flat_preds, labels, n_resamples=1000, seed=42):
+        Paired bootstrap: resample (flat_pred_i, nfn_pred_i, label_i) triples together.
+        delta_rho_boot = [spearmanr(nfn[idx], labels[idx])[0] -
+                          spearmanr(flat[idx], labels[idx])[0]
+                          for idx in resamples]
+        Returns (delta_rho_point, ci_lower_2.5pct, ci_upper_97.5pct)
+
+      compute_tier_analysis(flat_preds, nfn_preds, labels):
+        Sort labels, partition into terciles (low/mid/high accuracy).
+        Compute Δρ(NFN vs flat) per tercile.
+        Returns {'low': float, 'mid': float, 'high': float}
+
+      check_hm3_gate(results):
+        P1: delta_rho_mnist >= 0.05 AND ci_lower_mnist > 0
+            AND delta_rho_cifar > 0 AND ci_lower_cifar > 0
+        P2: rho_flat_mnist < rho_deep_sets_mnist < rho_nfn_mnist
+        Returns (p1_pass: bool, p2_pass: bool)
+    feature_tag: "evaluation"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 15
+    test_requirements: |
+      Create tests/test_evaluate.py:
+        - test_bootstrap_spearman_ci_reproducible()
+        - test_compute_delta_rho_ci_paired_bootstrap()
+        - test_compute_tier_analysis_tercile_partition()
+        - test_check_hm3_gate_p1_p2()
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#A-6-evaluation"
+      config: "03_config.md#gate-thresholds"
+
+  - id: "task-009"
+    epic: "A-7: Gate Check"
+    title: "Implement gate check, results aggregation, and JSON export"
+    description: |
+      Implement check_hm3_gate and save_results in evaluate.py.
+      Aggregate all per-encoder/per-zoo results into structured dict.
+
+      Results dict schema:
+        {
+          "encoders": {
+            "flat_mlp": {"mnist_rho": float, "mnist_ci_lower": float, "mnist_ci_upper": float,
+                         "cifar_rho": float, "cifar_ci_lower": float, "cifar_ci_upper": float,
+                         "param_count": int},
+            "deep_sets": {same structure},
+            "nfn": {same structure}
+          },
+          "delta_metrics": {
+            "delta_rho_mnist": float, "ci_lower_mnist": float, "ci_upper_mnist": float,
+            "delta_rho_cifar": float, "ci_lower_cifar": float, "ci_upper_cifar": float
+          },
+          "gate": {"p1_pass": bool, "p2_pass": bool, "p3_tier": dict},
+          "training_metadata": {
+            "deep_sets_mnist": {"phi_hidden": int, "param_count": int, "best_val_loss": float},
+            "deep_sets_cifar": {"phi_hidden": int, "param_count": int}
+          }
+        }
+
+      save_results(results, cfg):
+        json.dump(results, open(cfg.results_dir / "h-m3_results.json", "w"), indent=2)
+    feature_tag: "evaluation"
+    priority: 92
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      Create tests/test_gate.py:
+        - test_save_results_valid_json()
+        - test_gate_p1_threshold_boundary()
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#A-6-evaluation"
+      config: "03_config.md#results-schema"
+
+  - id: "task-010"
+    epic: "A-8: Visualization"
+    title: "Implement all visualization figures"
+    description: |
+      Implement all 5+ visualization functions in visualize.py using matplotlib/seaborn.
+
+      Colors: FlatMLP=#4C72B0 (blue), DeepSets=#DD8452 (orange), NFN=#55A868 (green)
+      Style: seaborn-v0_8-whitegrid
+
+      plot_rho_comparison(results, figures_dir):
+        Bar chart: ρ per encoder per zoo (grouped bars MNIST-CNN + CIFAR-10).
+        Error bars: 95% CI (ci_lower, ci_upper).
+        Δρ annotations between flat MLP and NFN bars.
+        Horizontal line at ρ=0.05 threshold.
+        Output: figures/rho_comparison.png (figsize=(10,6))
+
+      plot_symmetry_spectrum(results, figures_dir):
+        Scatter: x=symmetry_level (0=none, 1=invariant, 2=equivariant),
+                 y=ρ (MNIST-CNN), marker size=param_count.
+        Output: figures/symmetry_spectrum.png (figsize=(7,5))
+
+      plot_tier_delta_rho(tier_results, figures_dir):
+        Bar chart: Δρ(NFN vs flat) per accuracy tercile (low/mid/high).
+        Output: figures/tier_delta_rho.png (figsize=(7,5))
+
+      plot_bootstrap_distribution(boot_deltas, ci, figures_dir):
+        Histogram of bootstrap Δρ values; shade CI region.
+        Vertical line at point estimate and zero.
+        Output: figures/bootstrap_dist.png (figsize=(8,5))
+
+      plot_cross_zoo_consistency(results, figures_dir):
+        Side-by-side ρ bars: MNIST-CNN vs CIFAR-10 for all three encoders.
+        Output: figures/cross_zoo.png (figsize=(10,5))
+    feature_tag: "evaluation"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      Create tests/test_visualize.py:
+        - test_plot_rho_comparison_creates_file()
+        - test_all_figures_created()
+    reference_files:
+      architecture: "03_architecture.md#Visualize"
+      logic: null
+      config: "03_config.md#visualization-config"
+
+  - id: "task-011"
+    epic: "A-9: Orchestration"
+    title: "Implement run_experiment.py orchestrator"
+    description: |
+      Implement main() in run_experiment.py to sequence the full h-m3 experiment.
+
+      Execution order:
+        1. set_seed(cfg.seed); device = torch.device("cuda" if available else "cpu")
+        2. Create results/ and figures/ dirs
+        3. download_cifar_zoo(cfg) — if fails and skip_cifar_if_unavailable=True, proceed
+        4. MNIST-CNN flat data → load FlatMLP checkpoint → evaluate_flat_encoder
+        5. MNIST-CNN NFN data → load NFN checkpoint → evaluate_nfn_encoder
+        6. MNIST-CNN flat data → grid_search_deep_sets → train_deep_sets → evaluate_deep_sets_encoder
+        7. CIFAR-10 flat data → train FlatMLP fresh → evaluate_flat_encoder (if available)
+        8. CIFAR-10 NFN data → train NFN fresh → evaluate_nfn_encoder (if available)
+        9. CIFAR-10 flat data → train DeepSets fresh → evaluate_deep_sets_encoder (if available)
+        10. compute_delta_rho_ci for MNIST-CNN and CIFAR-10
+        11. compute_tier_analysis on MNIST-CNN test set (P3)
+        12. check_hm3_gate(results) → print P1/P2 result
+        13. All visualization figures
+        14. save_results(results, cfg)
+
+      Error handling:
+        - CIFAR-10 unavailable → log and skip steps 7-9
+        - Checkpoint missing → retrain with logged warning
+        - Log all ρ values as they are computed
+    feature_tag: "experiment"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      Create tests/test_run_experiment.py:
+        - test_main_runs_mnist_only_when_cifar_unavailable()
+        - test_full_pipeline_integration()
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md#A-9-orchestration"
+      config: "03_config.md#run-config"
+
+  # ─────────────────────────────────────────────
+  # SUBTASKS — Logic Agent (priority 49-30)
+  # ─────────────────────────────────────────────
+  - id: "task-012"
+    epic: "A-6 Subtask: bootstrap_spearman_ci"
+    title: "Implement bootstrap_spearman_ci with reproducible numpy RNG"
+    description: |
+      Implement the core bootstrap loop using np.random.default_rng(seed) for reproducibility.
+      Validate: same seed → same CI bounds across runs.
+      Handle edge case: if spearmanr returns NaN (degenerate resample), skip that resample.
+    feature_tag: "evaluation"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_evaluate.py::test_bootstrap_spearman_ci_reproducible()"
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#bootstrap-spearman-ci"
+      config: null
+
+  - id: "task-013"
+    epic: "A-6 Subtask: evaluate_*_encoder batch format handling"
+    title: "Implement three evaluate_*_encoder functions with correct batch format handling"
+    description: |
+      Critical: each encoder type has a different batch format from its DataLoader.
+      - evaluate_flat_encoder: unpack (flat_w, acc) — h-m1 WeightDataset format
+      - evaluate_deep_sets_encoder: unpack (flat_w, acc), then prepare_flat_elements(flat_w, weight_shapes)
+      - evaluate_nfn_encoder: unpack (weight_list, flat_w, acc) — h-m2 collate_nfn format
+      All accumulate y_true/y_pred lists, call bootstrap_spearman_ci at end.
+    feature_tag: "evaluation"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_evaluate.py"
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#evaluate-encoders"
+      config: null
+
+  - id: "task-014"
+    epic: "A-6 Subtask: compute_delta_rho_ci paired bootstrap"
+    title: "Implement paired bootstrap for Δρ CI"
+    description: |
+      Paired resampling: resample indices applied to (flat_preds, nfn_preds, labels) simultaneously.
+      Per resample: delta = spearmanr(nfn[idx], labels[idx])[0] - spearmanr(flat[idx], labels[idx])[0]
+      Point estimate: spearmanr on full arrays (not bootstrap median).
+      CI: percentile method (2.5th / 97.5th of boot_deltas list).
+    feature_tag: "evaluation"
+    priority: 47
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_evaluate.py::test_compute_delta_rho_ci_paired_bootstrap()"
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#compute-delta-rho-ci"
+      config: null
+
+  - id: "task-015"
+    epic: "A-6 Subtask: compute_tier_analysis"
+    title: "Implement accuracy tercile partitioning for P3 mechanistic fingerprint"
+    description: |
+      Sort test set by true accuracy labels.
+      Split into 3 equal terciles: low (bottom 33%), mid (middle 33%), high (top 33%).
+      For each tercile: compute Δρ(NFN vs flat) = spearmanr(nfn_preds[mask], labels[mask])[0]
+                                                  - spearmanr(flat_preds[mask], labels[mask])[0]
+      Return {'low': float, 'mid': float, 'high': float}.
+      Check P3: mid > low AND mid > high (non-monotone pattern expected).
+    feature_tag: "evaluation"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_evaluate.py::test_compute_tier_analysis_tercile_partition()"
+    reference_files:
+      architecture: "03_architecture.md#Evaluate"
+      logic: "03_logic.md#compute-tier-analysis"
+      config: null
+
+  - id: "task-016"
+    epic: "A-5 Subtask: CIFAR-10 FlatMLP training"
+    title: "Train FlatMLPEncoder fresh on CIFAR-10 with correct input_dim"
+    description: |
+      CIFAR-10 weight vectors have different input_dim than MNIST-CNN (~8500).
+      Compute CIFAR-10 input_dim from first sample: len(flat_w[0]).
+      Reconstruct FlatMLPEncoder(input_dim=cifar_input_dim, hidden_dims=[193], embed_dim=128).
+      Note: hidden_dims=[193] may not hit 500K with different input_dim — run grid search if needed.
+      Train with same AdamW+CosineAnnealing hyperparameters. Save to best_flat_mlp_cifar.pt.
+    feature_tag: "training"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_cifar_training.py"
+    reference_files:
+      architecture: "03_architecture.md#Train"
+      logic: "03_logic.md#A-5-cifar-training"
+      config: "03_config.md#training-mode"
+
+  - id: "task-017"
+    epic: "A-5 Subtask: CIFAR-10 NFN training"
+    title: "Train NFNEncoder fresh on CIFAR-10 with CIFAR-10 weight_shapes"
+    description: |
+      Extract CIFAR-10 weight_shapes from zoo state_dict (different from MNIST-CNN shapes).
+      Reconstruct NFNEncoder(weight_shapes=cifar_weight_shapes, channel_dim=112,
+                             embed_dim=128, n_layers=3).
+      NFN architecture handles arbitrary CNN shapes by construction.
+      Train with same AdamW+CosineAnnealing. Save to best_nfn_cifar.pt.
+    feature_tag: "training"
+    priority: 44
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_cifar_training.py"
+    reference_files:
+      architecture: "03_architecture.md#Train"
+      logic: "03_logic.md#A-5-cifar-training"
+      config: "03_config.md#training-mode"
+
+  - id: "task-018"
+    epic: "A-5 Subtask: CIFAR-10 DeepSets training"
+    title: "Grid search phi_hidden for CIFAR-10 element_dim, then train DeepSets"
+    description: |
+      CIFAR-10 layers have different sizes → element_dim differs from MNIST-CNN.
+      Run grid_search_deep_sets with CIFAR-10 element_dim to find phi_hidden in [475K, 525K].
+      Train DeepSets on CIFAR-10 with found phi_hidden. Save to best_deep_sets_cifar.pt.
+    feature_tag: "training"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_cifar_training.py"
+    reference_files:
+      architecture: "03_architecture.md#Train"
+      logic: "03_logic.md#A-5-cifar-training"
+      config: "03_config.md#deep-sets-capacity"
+
+  - id: "task-019"
+    epic: "A-5 Subtask: weight_shapes extraction and prepare_flat_elements"
+    title: "Implement get_weight_shapes and prepare_flat_elements for both zoos"
+    description: |
+      get_weight_shapes(zoo_sample_state_dict) → List[Tuple[int, ...]]:
+        Extracts parameter tensor shapes in canonical order from a zoo checkpoint.
+        Used by NFNEncoder and DeepSetsEncoder element construction.
+
+      prepare_flat_elements(flat_w: Tensor(D,), weight_shapes: List[tuple]) → Tensor(N, max_dim):
+        Split flat_w into per-layer tensors using weight_shapes.
+        Pad each layer to max_dim with zeros.
+        Stack → (N_layers, element_dim).
+        For batch: vmap or loop over batch dimension → (B, N_layers, element_dim).
+    feature_tag: "data-pipeline"
+    priority: 42
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_models.py::test_prepare_flat_elements_shapes()"
+    reference_files:
+      architecture: "03_architecture.md#Train"
+      logic: "03_logic.md#prepare-flat-elements"
+      config: null
+
+  - id: "task-020"
+    epic: "A-2 Subtask: DeepSetsEncoder forward tensor shapes"
+    title: "Implement DeepSetsEncoder.forward with explicit tensor shape validation"
+    description: |
+      Forward pass with exact tensor shapes:
+        x_elements: (B, N_layers, element_dim)
+        after phi (shared Linear): (B, N_layers, phi_hidden)
+        after sum pool over dim=1: (B, phi_hidden)
+        after rho (Linear stack): (B, embed_dim)
+        head: (B, 1) → squeeze → (B,)
+
+      Add assert statements for shape validation in debug mode.
+      phi network: Linear(element_dim, phi_hidden) → ReLU → Linear(phi_hidden, phi_hidden) → ReLU
+      rho network: Linear(phi_hidden, rho_hidden) → ReLU → Linear(rho_hidden, embed_dim)
+    feature_tag: "model"
+    priority: 41
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_models.py::test_deep_sets_encoder_output_shape()"
+    reference_files:
+      architecture: "03_architecture.md#Models"
+      logic: "03_logic.md#A-2-deep-sets"
+      config: null
+
+  - id: "task-021"
+    epic: "A-2 Subtask: grid_search_deep_sets algorithm"
+    title: "Implement grid search algorithm for Deep Sets capacity matching"
+    description: |
+      for phi_hidden in cfg.phi_hidden_candidates:  # [64, 96, 128, 160, 192, 256]
+          encoder = DeepSetsEncoder(element_dim, phi_hidden, rho_hidden, embed_dim)
+          n_params = count_params(encoder)
+          if target_min <= n_params <= target_max:
+              return encoder, phi_hidden, n_params
+      # If no candidate hits range, return closest:
+      return encoder_closest, phi_hidden_closest, n_params_closest
+      Log selected phi_hidden and param_count for results metadata.
+    feature_tag: "model"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_models.py::test_grid_search_deep_sets_param_count_in_range()"
+    reference_files:
+      architecture: "03_architecture.md#Models"
+      logic: "03_logic.md#grid-search-deep-sets"
+      config: "03_config.md#deep-sets-capacity"
+
+  - id: "task-022"
+    epic: "A-3 Subtask: verified checkpoint loaders"
+    title: "Implement checkpoint loaders with format probing from actual h-m1/h-m2 code"
+    description: |
+      load_flat_mlp_checkpoint format probing (from actual h-m1 code analysis):
+        ckpt = torch.load(path, map_location=device)
+        if isinstance(ckpt, OrderedDict):
+            model.load_state_dict(ckpt)  # raw state_dict
+        elif "model_state_dict" in ckpt:
+            model.load_state_dict(ckpt["model_state_dict"])
+        else:
+            raise ValueError(f"Unknown checkpoint format: {ckpt.keys()}")
+
+      load_nfn_checkpoint format (confirmed from h-m2 actual code):
+        ckpt = torch.load(path, map_location=device)
+        model.encoder.load_state_dict(ckpt["encoder_state"])
+        model.head.load_state_dict(ckpt["head_state"])
+    feature_tag: "model"
+    priority: 39
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_checkpoint_loading.py"
+    reference_files:
+      architecture: "03_architecture.md#Models"
+      logic: "03_logic.md#A-3-checkpoint-loading"
+      config: "03_config.md#checkpoint-paths"
+
+  # ─────────────────────────────────────────────
+  # CONFIG SUBTASKS (priority 38-30)
+  # ─────────────────────────────────────────────
+  - id: "task-023"
+    epic: "A-1 Subtask: ExperimentConfig YAML schema"
+    title: "Implement ExperimentConfig dataclass with YAML serialization"
+    description: |
+      ExperimentConfig with all fields from 03_config.md.
+      Add from_yaml(path) classmethod for CLI override.
+      Add to_yaml(path) for saving run configuration.
+      Inherited from h-m1/h-m2 (verified): seed=42, epochs=150, batch_size=32,
+        lr=1e-3, weight_decay=1e-4, t_max=150, eta_min=1e-6, embed_dim=128.
+    feature_tag: "setup"
+    priority: 38
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "Covered by environment setup validation."
+    reference_files:
+      architecture: "03_architecture.md#ExperimentConfig"
+      logic: null
+      config: "03_config.md#experiment-config"
+
+  - id: "task-024"
+    epic: "A-4 Subtask: Deep Sets training config"
+    title: "Configure AdamW + CosineAnnealingLR defaults for Deep Sets training"
+    description: |
+      OPTIMIZER_DEFAULTS = {'lr': 1e-3, 'weight_decay': 1e-4, 'betas': (0.9, 0.999)}
+      SCHEDULER_DEFAULTS = {'T_max': 150, 'eta_min': 1e-6}
+      TRAINING_MODE per encoder per zoo:
+        mnist: flat_mlp=checkpoint, nfn=checkpoint, deep_sets=train_fresh
+        cifar: flat_mlp=train_fresh, nfn=train_fresh, deep_sets=train_fresh
+    feature_tag: "training"
+    priority: 37
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "No separate test needed — validated through training tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#training-config"
+
+  - id: "task-025"
+    epic: "A-8 Subtask: VisualizationConfig"
+    title: "Implement VisualizationConfig dataclass with encoder colors and figure sizes"
+    description: |
+      VisualizationConfig dataclass:
+        encoder_colors: dict = {'flat_mlp': '#4C72B0', 'deep_sets': '#DD8452', 'nfn': '#55A868'}
+        figure_sizes: dict = {'comparison': (10,6), 'spectrum': (7,5), 'tier': (7,5),
+                              'bootstrap': (8,5), 'cross_zoo': (10,5)}
+        style: str = 'seaborn-v0_8-whitegrid'
+        dpi: int = 150
+    feature_tag: "evaluation"
+    priority: 36
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "No separate test — validated through visualization tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#visualization-config"
+
+  - id: "task-026"
+    epic: "A-8 Subtask: Output file naming config"
+    title: "Configure output file naming and directory structure"
+    description: |
+      OUTPUT_FILES dict:
+        figures:
+          rho_comparison: "figures/rho_comparison.png"
+          symmetry_spectrum: "figures/symmetry_spectrum.png"
+          tier_delta_rho: "figures/tier_delta_rho.png"
+          bootstrap_dist: "figures/bootstrap_dist.png"
+          cross_zoo: "figures/cross_zoo.png"
+        results:
+          main: "results/h-m3_results.json"
+          deep_sets_mnist_ckpt: "results/best_deep_sets_mnist.pt"
+          deep_sets_cifar_ckpt: "results/best_deep_sets_cifar.pt"
+          flat_mlp_cifar_ckpt: "results/best_flat_mlp_cifar.pt"
+          nfn_cifar_ckpt: "results/best_nfn_cifar.pt"
+    feature_tag: "evaluation"
+    priority: 35
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "No separate test — validated through integration tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#output-files"
+
+  - id: "task-027"
+    epic: "A-9 Subtask: RunConfig"
+    title: "Implement RunConfig with per-step flags and CIFAR-10 skip logic"
+    description: |
+      RunConfig dataclass:
+        skip_cifar_if_unavailable: bool = True
+        run_mnist_flat: bool = True
+        run_mnist_nfn: bool = True
+        run_mnist_deep_sets: bool = True
+        run_cifar: bool = True  # set False if download fails and skip_cifar=True
+        log_level: str = "INFO"
+        log_file: Optional[str] = None
+
+      Logic in main(): if download_cifar_zoo() returns False and skip_cifar_if_unavailable:
+        run_config.run_cifar = False
+        logger.warning("CIFAR-10 unavailable — MNIST-CNN primary result only")
+    feature_tag: "experiment"
+    priority: 34
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "Covered by test_run_experiment.py::test_main_runs_mnist_only_when_cifar_unavailable()"
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: null
+      config: "03_config.md#run-config"
+
+  # ─────────────────────────────────────────────
+  # FAILSAFE (priority 1)
+  # ─────────────────────────────────────────────
+  - id: "task-028"
+    epic: "Pipeline Management"
+    title: "Pipeline Continuation Checkpoint"
+    description: "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK"
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "system"
+    complexity: null
+    test_requirements: "Failsafe task does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 9
+  subtasks: 16
+  failsafe: 1
+  total: 28

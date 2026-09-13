@@ -1,0 +1,250 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-13
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-CASAEV-v1
+**Confidence Level:** 0.83
+
+**Main Hypothesis:**
+Under the condition of LLMs with trained SAE features, if we apply two-stage training with contrastive concept alignment using self-generated descriptions, then the resulting SAE features will exhibit higher concept grounding quality (NEC scores) than standard SAE features, because the alignment objective shapes feature representations to match semantic descriptions during training rather than relying on post-hoc labeling.
+
+**Alternative Hypothesis (H0):**
+There is no significant difference in concept grounding quality between CA-SAE-V features and standard SAE features; any observed alignment improvements are due to information leakage or measurement artifacts rather than genuine semantic grounding through training-time alignment.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Two-stage training with contrastive alignment | Independent | Stage 1: SAE pretraining (L_rec + λ₁·L_sparsity). Stage 2: Fine-tuning with L_alignment using InfoNCE on LLM-generated descriptions | λ₂ ∈ [0.01, 0.1], alignment epochs ∈ [1, 5] |
+| Concept grounding quality (NEC metric) | Dependent | Number of Effective Concepts from VLG-CBM; measures information leakage control | Target: NEC ≥ 5 with ANEC-5 improvement |
+| Alignment fidelity score | Dependent | Activation patching verification: % of features where intervention produces description-consistent behavior | Target: > 70% pass rate |
+| Reconstruction quality (L2 loss) | Dependent | Mean squared error between original and reconstructed activations | Post-alignment degradation < 20% |
+| SAE architecture | Controlled | TopK SAE (k=32, expansion factor 8x) or Gated SAE | Fixed per experiment |
+| Base LLM | Controlled | Gemma-2-2B or Llama-3.1-8B | Fixed per experiment |
+| Description prompt template | Controlled | Standardized prompt showing top-10 activating examples | Fixed template |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+[SAE Pretraining] → [High-quality Feature Discovery] → [Self-Description Generation] → [Concept-Grounded Features]
+     Step 1                    Step 2                         Step 3                         Outcome
+```
+
+**Step 1: SAE Pretraining → High-quality Feature Discovery**
+- Standard reconstruction + sparsity objectives learn meaningful directions in activation space
+- Evidence: Gemma Scope (2024) and Llama Scope (2024) demonstrate industrial-scale SAE training success
+- Mechanism: Sparse coding disentangles superposition (Elhage et al. 2022)
+
+**Step 2: Self-Description Generation → Semantic Anchors**
+- LLM generates natural language descriptions from top-K activating examples for each feature
+- Evidence: Social Semantics (Pexman 2021) - concepts grounded through language use
+- Evidence: Bills et al. 2023, Kharlapenko et al. 2024 - LLM self-explanation is feasible
+- Mechanism: Language provides symbolic grounding for distributed representations
+
+**Step 3: Contrastive Alignment → Concept-Grounded Features**
+- InfoNCE loss pulls feature activations toward corresponding descriptions
+- Evidence: VLG-CBM (2024) shows grounded annotation improves faithfulness by 4-51%
+- Evidence: CLIP demonstrates successful cross-modal alignment via contrastive learning
+- Mechanism: Alignment objective shapes feature geometry to match semantic structure
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Gemma Scope, Llama Scope (2024) | SAEs scale to 128K+ features with interpretable patterns | Strong |
+| Step 2 → Step 3 | Social Semantics (Pexman 2021) | Abstract concepts grounded through language use | Medium |
+| Step 3 → Outcome | VLG-CBM (Srivastava 2024) | Grounded annotation improves ANEC by 4-51% | Strong |
+
+**Key Tension:**
+- **Tension:** VLG-CBM uses external grounded object detectors for vision models, but CA-SAE-V proposes self-grounding for language models. The circularity of self-description (LLM describing its own features) may limit faithfulness compared to external grounding.
+- **Resolution:** This verification plan tests whether activation patching verification can validate self-grounding quality. If >70% of aligned features pass intervention tests, circularity is not a fatal limitation.
+
+### 1.4 Key Assumptions
+
+1. **A1: LLMs can accurately describe patterns in their own activations**
+   - Evidence: Bills et al. 2023 (GPT-4 neuron explanations), Kharlapenko et al. 2024 (self-explaining SAE)
+   - Consequence if violated: Self-generated descriptions will be inaccurate, leading to misaligned features and poor NEC scores
+
+2. **A2: Contrastive fine-tuning preserves SAE reconstruction quality**
+   - Evidence: Binary Autoencoder (Cho 2025) shows auxiliary losses improve feature quality
+   - Consequence if violated: Post-alignment reconstruction loss increases >20%, negating any interpretability gains
+
+3. **A3: Activation patching reliably verifies feature-concept correspondence**
+   - Evidence: TransformerLens, Patchscopes (2024), causal tracing literature
+   - Consequence if violated: Cannot distinguish genuine grounding from spurious correlations; verification step becomes meaningless
+
+4. **A4: Two-stage training mitigates alignment-reconstruction trade-off**
+   - Evidence: Pre Hoc Explainability (Acun 2025) supports training-time integration
+   - Consequence if violated: Must resort to single-stage training with very small λ₂, reducing alignment strength
+
+### 1.5 Scope & Boundaries
+
+**Where hypothesis applies:**
+- LLMs with SAE training infrastructure (Gemma, Llama, GPT-2, Pythia)
+- Text-only language models with residual stream access
+- Research settings with 8+ GPUs for training
+
+**Where it does NOT apply:**
+- Vision models (require different grounding mechanism like VLG-CBM)
+- Multimodal models (cross-modal alignment needed)
+- Production deployment (verification step adds latency)
+- Models without SAE infrastructure
+
+**Known limitations:**
+- Selective alignment: Only top-K features (1000-5000) are aligned, not all 128K+
+- Computational overhead: Description generation adds ~20% training time
+- Potential circular bias: Self-descriptions may reflect LLM biases
+- Scalability unknown: Tested up to 8B parameter models; larger scales untested
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1 (NEC Improvement vs Standard SAE)**:
+CA-SAE-V aligned features will achieve ANEC-5 (Accuracy at NEC=5) at least 5% higher than standard SAE features when evaluated on downstream interpretability tasks.
+
+*Measurement*:
+- ANEC-5 > Standard SAE ANEC-5 + 5% with p < 0.05
+- Statistical test: Paired t-test across n ≥ 25 random seeds
+
+*Basis*:
+VLG-CBM achieves 4-51% improvement over baselines via grounded annotation. CA-SAE-V targets similar improvement through self-grounding.
+
+*Success Criteria for Phase 2B*:
+- Primary: ANEC-5 improvement ≥ 5% (p < 0.05)
+- Falsification: ANEC-5 improvement < 2% triggers hypothesis rejection
+
+**Secondary Predictions:**
+**P2 (Alignment Fidelity)**:
+At least 70% of CA-SAE-V aligned features will pass activation patching verification, where intervening on a feature produces behavior consistent with its description.
+
+*Measurement*: Pass rate = (features with consistent intervention effects) / (total aligned features)
+
+**P3 (Reconstruction Preservation)**:
+Post-alignment reconstruction loss will remain within 20% of pre-alignment baseline.
+
+*Measurement*: L_rec_post / L_rec_pre < 1.20
+
+**Falsification Criteria:**
+The hypothesis will be **REJECTED** if any occur:
+
+1. **Primary Failure**: ANEC-5 improvement < 2%
+   (No meaningful grounding improvement over standard SAE)
+
+2. **Mechanism Failure**: Alignment fidelity < 50%
+   (Less than half of features pass verification)
+
+3. **Trade-off Failure**: Reconstruction degradation > 30%
+   (Alignment destroys SAE quality)
+
+4. **Baseline Failure**: Performance worse than post-hoc self-explanation (Kharlapenko 2024)
+   (Training-time approach provides no advantage)
+
+### 1.7 SOTA Baseline (Optional - If SOTA Comparison Mode)
+
+**SOTA Benchmark Summary:**
+
+| Method | Type | Year | Key Metric | Performance |
+|--------|------|------|------------|-------------|
+| VLG-CBM | Vision CBM | 2024 | ANEC-5 | +4.27% to +51.09% over baselines |
+| PCBM | Post-hoc CBM | 2022 | Accuracy | Maintains base model performance |
+| Self-explaining SAE | Post-hoc labeling | 2024 | Human interpretability | Qualitative improvement |
+| Standard SAE | Unsupervised | 2024 | Reconstruction + sparsity | Baseline for comparison |
+
+**Performance Context:**
+- Domain: LLM Interpretability (emerging field, no established NEC benchmarks for text)
+- Comparable metric: Feature interpretability human ratings, downstream task accuracy
+- Target: Demonstrate improvement over standard SAE and match/exceed post-hoc methods
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size (Cohen's d): 0.5 (medium effect, conservative)
+- Required runs: n ≥ 25
+- Statistical power: 0.8
+
+**Test Specification:**
+- Method: Paired t-test (same random seeds for SA-SAE vs CA-SAE-V)
+- Significance level: α = 0.05 (two-tailed for primary, one-tailed for degradation checks)
+- Multiple comparison correction: Bonferroni for 3 primary metrics
+
+**Report Format:**
+- Mean difference, 95% CI, Cohen's d, p-value
+- Effect size interpretation: d < 0.2 (small), d 0.2-0.8 (medium), d > 0.8 (large)
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does contrastive alignment between SAE features and LLM self-descriptions produce measurable concept grounding improvement (ANEC-5 > baseline)?"
+- Maps to: Primary prediction P1
+- Verification type: Empirical (NEC measurement)
+- Critical: MUST PASS for Phase 2B to proceed
+
+**SH2 (Mechanism):**
+"Is the proposed 3-step causal mechanism (SAE pretraining → self-description → contrastive alignment) the actual cause of concept grounding improvement?"
+- Maps to: Causal mechanism (3 steps → 3 sub-hypotheses in Phase 2B)
+  - H-M1: SAE pretraining produces interpretable features
+  - H-M2: Self-descriptions accurately capture feature semantics
+  - H-M3: Contrastive alignment transfers semantics to feature geometry
+- Verification type: Causal analysis (ablation studies)
+- Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does CA-SAE-V outperform post-hoc self-explanation methods (Kharlapenko 2024) on alignment fidelity and human interpretability?"
+- Maps to: Secondary predictions P2, P3
+- Verification type: Comparative empirical
+- Critical: Determines practical value over existing approaches
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-CASAEV-v1
+- [x] Confidence level specified: 0.83
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (N=3 steps)
+- [x] Causal chain length determined: N=3
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (3 defined, primary marked)
+- [x] Falsification criteria are defined (4 criteria)
+- [x] Baselines identified: Standard SAE, PCBM, Self-explaining SAE
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:** What GPU budget is available? 8-GPU setup is minimum for Llama Scope-scale training. Estimate 2-4 days for full CA-SAE-V training cycle.
+
+2. **Data Availability:** Which LLM to use as base? Gemma-2-2B (open) vs Llama-3.1-8B (gated) have different SAE ecosystem support.
+
+3. **Evaluation Protocol:** Should we prioritize NEC metric (automated) or human interpretability rating (expensive but gold standard)?
+
+4. **Verification Order:** Recommend SH1 → SH2-M1 → SH2-M2 → SH2-M3 → SH3 (existence first, then mechanism ablations, then comparison).
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-13*

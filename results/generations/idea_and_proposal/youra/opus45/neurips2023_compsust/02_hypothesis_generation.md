@@ -1,0 +1,192 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (Round 1 - DARL)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H1-DARL
+**Confidence Level:** 0.78
+
+**Main Hypothesis:**
+IF a decision-focused learning model is augmented with (1) a distribution embedding network that captures shift characteristics from unlabeled data and (2) a distribution-conditional decision head, THEN the model will achieve lower decision regret degradation under temporal distribution shift compared to standard DFL and implicit robustness methods (Gen-DFL, 3D-Learning), BECAUSE explicit distribution-conditional adaptation enables principled decision adjustment rather than worst-case hedging or prediction-invariance, preserving decision-relevant information while adapting to distribution-specific optimal decision mappings.
+
+**Alternative Hypothesis (H0):**
+Explicit distribution-conditional adaptation provides no significant benefit over implicit robustness methods (Gen-DFL, 3D-Learning) or standard DFL for decision quality under temporal distribution shift. The additional complexity of distribution embedding and conditional decision heads does not translate to improved decision regret performance.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization |
+|----------|------|-------------------|
+| Representation Learning Method | Independent | DARL (proposed) vs Standard DFL vs Gen-DFL vs 3D-Learning vs prediction-invariant methods |
+| Distribution Embedding Availability | Independent | Access to unlabeled data from shifted distributions during training (yes/no) |
+| Decision Regret Degradation Ratio | Dependent | Decision regret on shifted test distribution / decision regret on in-distribution test set |
+| Adaptation Smoothness | Dependent | Variance of decision regret across distribution shift severity levels |
+| Distribution Shift Severity | Controlled | Wild-Time benchmark temporal shift intervals (measured by KL divergence) |
+| Optimization Problem Structure | Controlled | Fixed combinatorial optimization structure (e.g., knapsack, scheduling) across all distributions |
+
+### 1.3 Causal Mechanism
+
+```
+Multi-Distribution Training Data
+         ↓
+┌────────┴────────┐
+↓                 ↓
+Shared Encoder    Distribution Embedder
+f_θ(x) → z        g_φ({x_i}) → d
+         ↓                 ↓
+         └────────┬────────┘
+                  ↓
+    Adaptive Decision Head h_ψ(z, d)
+                  ↓
+    Distribution-Conditional Decisions
+                  ↓
+    Lower Regret Degradation Under Shift
+```
+
+**Evidence for Causal Links:**
+1. **Encoder → Decision-relevant features**: DFL literature (Mandi 2023) establishes that end-to-end training extracts decision-relevant representations
+2. **Distribution Embedder → Shift characteristics**: Meta-learning literature (MAML, CNPs) demonstrates distribution/task embeddings capture context effectively
+3. **Conditional Head → Adapted decisions**: Hypernetworks and conditional computation literature shows conditioning improves adaptation
+4. **Adaptation → Lower regret degradation**: Ecological resilience literature shows adaptive systems outperform rigid ones under disturbance
+
+**Key Tension:**
+The fundamental tension is between **decision-relevant feature extraction** (which may be distribution-specific) and **cross-distribution generalization** (which requires some invariance). DARL resolves this by learning a shared representation space while allowing the decision mapping to adapt based on distribution context.
+
+### 1.4 Key Assumptions
+
+1. **Decision-relevant features exist across distributions**: There exist features that are relevant to decision quality in multiple distributions, not just one
+2. **Distribution embeddings are learnable**: Distribution characteristics can be captured in a low-dimensional embedding from unlabeled samples (~100-1000 samples)
+3. **Smooth adaptation is effective**: For gradual temporal shifts (typical in sustainability), smooth adaptation outperforms worst-case hedging
+4. **Differentiable optimization is tractable**: Decision regret gradients can be backpropagated through optimization layers (cvxpylayers, differentiable LP/QP solvers)
+5. **Temporal shifts are gradual**: Distribution shifts in sustainability domains (seasonal, climate, policy) are gradual rather than adversarial
+
+### 1.5 Scope & Boundaries
+
+**In Scope:**
+- Predict-then-optimize problems with temporal distribution shift
+- Sustainability domains: energy scheduling, resource allocation, water treatment, logistics
+- Combinatorial optimization with known structure (knapsack, scheduling, assignment)
+- Temporal shifts: seasonal, climate-driven, policy-induced
+
+**Out of Scope:**
+- Problems where optimization structure changes across distributions
+- Adversarial distribution shifts (intentional manipulation)
+- Online/streaming settings without batch access to shifted data
+- Non-differentiable optimization objectives
+
+**Known Limitations:**
+- Requires unlabeled data from shifted distributions during training
+- Adds computational overhead (~20-30% over standard DFL)
+- Distribution embedding quality depends on sample diversity
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+IF DARL is trained with distribution embeddings on multi-distribution sustainability data, THEN decision regret degradation ratio will be <1.15 (i.e., <15% regret increase under shift), compared to >1.20 for standard DFL and comparable to Gen-DFL/3D-Learning.
+
+**Secondary Predictions:**
+- **P2**: IF distribution shift is gradual (temporal sustainability patterns), THEN DARL will outperform worst-case methods (Gen-DFL, 3D-Learning) by >5% on average regret
+- **P3**: IF ablation removes distribution embedder component, THEN performance will degrade to near-standard DFL levels, confirming the embedder's contribution
+
+**Falsification Criteria:**
+1. DARL achieves ≥1.20 decision regret degradation ratio (same or worse than standard DFL)
+2. Gen-DFL or 3D-Learning consistently outperform DARL across all shift severities
+3. Ablation shows distribution embedder contributes <2% improvement
+
+### 1.7 SOTA Baseline (Comparison Mode)
+
+| Method | Approach | Key Limitation | DARL Advantage |
+|--------|----------|----------------|----------------|
+| Standard DFL | End-to-end ML+optimization | No shift handling | Explicit adaptation |
+| Gen-DFL (2025) | Generative sampling from tails | Implicit robustness, may over-sample | Explicit conditioning |
+| 3D-Learning (2026) | Diffusion worst-case search | Conservative, may sacrifice average case | Smooth adaptation |
+| Domain Adaptation | Prediction-invariant features | May lose decision-relevant info | Decision-focused |
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Justification:**
+- Based on Wild-Time benchmark effect sizes (20% average degradation)
+- Target effect: 5% improvement over baselines (Cohen's d ≈ 0.5)
+- Required: n ≥ 64 per condition for 80% power at α = 0.05
+- Plan: 5 random seeds × 3 domains × 5 shift levels = 75 evaluation points
+
+**Statistical Tests:**
+- Primary: Paired t-test (DARL vs each baseline) with Bonferroni correction
+- Secondary: Two-way ANOVA (method × shift severity) for interaction effects
+- Robustness: Bootstrap confidence intervals (n=1000 resamples)
+
+**Success Thresholds:**
+- Primary: p < 0.01 for DARL vs Standard DFL on regret degradation
+- Secondary: p < 0.05 for DARL vs Gen-DFL/3D-Learning on at least 2/3 domains
+
+---
+
+## 2. Contribution Summary
+
+| Contribution Type | Description | Novelty Level |
+|-------------------|-------------|---------------|
+| **Theoretical** | Decision-adaptive representation learning paradigm: optimize for decision quality preservation under adaptation rather than prediction invariance | HIGH - Novel paradigm |
+| **Methodological** | DARL architecture with distribution embedding (g_φ) and conditional decision head (h_ψ); multi-distribution regret minimization with smoothness regularization | MEDIUM-HIGH - Novel integration |
+| **Practical** | Improved decision quality on sustainability optimization under temporal shifts (energy, water, resources) | MEDIUM - Applied validation |
+
+**Gap Resolution:**
+- **Gap 1 (Critical)**: Integration of DFL with distribution shift robustness → DIRECTLY ADDRESSED by DARL's explicit adaptation mechanism
+
+---
+
+## 3. Key Related Work
+
+| Source | Relation | How DARL Differs |
+|--------|----------|------------------|
+| Mandi et al. 2023 (DFL Survey) | Foundation | DARL adds distribution-conditional adaptation |
+| Gen-DFL 2025 | Comparison | Explicit adaptation vs generative sampling |
+| 3D-Learning 2026 | Comparison | Smooth adaptation vs diffusion worst-case |
+| Wild-Time 2022 | Benchmark | Adapted for decision tasks (regret metric) |
+| DC4L 2023 | Inspiration | Recovery framing → Adaptation framing |
+| Ecological Resilience | Cross-domain | Adaptive capacity → Distribution conditioning |
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+Does the distribution embedding network successfully capture distribution characteristics that correlate with optimal decision changes?
+
+**SH2 (Mechanism):**
+Does the conditional decision head h_ψ(z, d) learn meaningful adaptation functions, and does the smoothness regularization improve generalization to unseen shift levels?
+
+**SH3 (Comparison):**
+Does DARL's explicit adaptation mechanism outperform Gen-DFL's generative sampling and 3D-Learning's diffusion worst-case on sustainability benchmarks with gradual temporal shifts?
+
+### Readiness Checklist
+
+- [x] Hypothesis in If-Then-Because format
+- [x] Variables operationalized with measurement methods
+- [x] Causal mechanism with evidence for each link
+- [x] Assumptions explicitly stated and testable
+- [x] Scope boundaries clearly defined
+- [x] Quantitative predictions with thresholds
+- [x] Falsification criteria specified
+- [x] SOTA baselines identified for comparison
+- [x] Statistical design with power analysis
+- [x] Sub-hypothesis decomposition previewed
+
+### Open Questions
+
+1. **Distribution Embedding Architecture**: What embedding dimension and aggregation method (mean, attention, set transformer) work best?
+2. **Smoothness Regularization**: What is the optimal regularization strength for temporal sustainability shifts?
+3. **Data Requirements**: How many unlabeled samples per distribution are needed for effective embedding?
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-12*

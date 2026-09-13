@@ -1,0 +1,35 @@
+# Related Work
+
+## Transformer-to-SSM Distillation
+
+Converting quadratic Transformers to linear-time State Space Models has emerged as a practical path to efficient long-context processing. MOHAWK \citep{bick2024mohawk} introduces a three-stage progressive distillation approach for Phi-1.5 to Phi-Mamba conversion, achieving 85% of teacher performance with 3B tokens. Stage 1 aligns attention mixer outputs directly via ||TeacherMixer - StudentMixer|| minimization—a matrix-level objective that preserves attention patterns.
+
+CAB \citep{wang2025cab} takes a different approach, aligning token-level representations. Query and key projections (Q, K) map to SSM parameters (B, C) through learned MLP bridges, avoiding O(L²) attention map materialization. This architectural efficiency enables longer sequence training but raises questions about what information is transferred.
+
+MambaInLlama \citep{wang2024mammainllama} explores hybrid conversion, replacing attention layers with Mamba blocks progressively. T2MD \citep{zhang2024t2md} extends distillation to multimodal settings. Both focus on architectural choices rather than comparing supervision signals.
+
+**Gap**: No prior work systematically compares matrix-level versus token-level distillation objectives under controlled conditions, particularly across sequence lengths.
+
+## Length Generalization in Transformers
+
+Position encoding limits Transformer length generalization. Learned absolute positions (as in Phi-1.5, GPT-2) cannot extrapolate beyond training length—the position embedding matrix has fixed size. Rotary Position Embeddings (RoPE) \citep{su2021roformer} and ALiBi \citep{press2021alibi} enable some extrapolation by encoding relative positions.
+
+Position interpolation \citep{chen2023extending} and NTK-aware scaling \citep{ntk2023} extend RoPE-based models to longer contexts. These techniques operate on attention mechanisms directly, not on distillation objectives.
+
+**Gap**: Length generalization research focuses on attention computation, not on how distillation objective choice affects generalization to the student architecture.
+
+## Hybrid Architectures
+
+Recent work explores mixing attention and linear layers. Nemotron-H \citep{nvidia2024nemotron} finds 3:1 linear-to-full ratio optimal. Kimi Linear \citep{kimi2024} demonstrates production viability of hybrid approaches. Jamba \citep{lieber2024jamba} interleaves Mamba and attention layers.
+
+RWKV \citep{peng2023rwkv} achieves linear complexity through gated RNN-like structures. Liger \citep{lan2025liger} repurposes key matrix weights for gating, achieving 93% performance recovery with zero new parameters.
+
+**Gap**: Hybrid architecture research optimizes layer composition. We address a complementary question: given a target architecture, which distillation objective produces representations that generalize across lengths?
+
+## Knowledge Distillation
+
+Knowledge distillation \citep{hinton2015distilling} transfers knowledge from larger to smaller models via soft label matching. Feature-based distillation \citep{romero2015fitnets} aligns intermediate representations. Attention transfer \citep{zagoruyko2017attention} specifically matches attention maps.
+
+For architecture conversion (Transformer to SSM), the "teacher" and "student" have fundamentally different inductive biases. Matrix-level objectives (like MOHAWK Stage 1) resemble attention transfer; token-level objectives (like CAB) resemble feature distillation on projections rather than aggregated maps.
+
+Our work positions distillation objective selection as a design choice with measurable consequences for length generalization—a dimension not explored in standard distillation literature.

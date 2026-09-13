@@ -1,0 +1,62 @@
+
+\subsubsection{6.1 Sequence Length Confound}
+
+Both H-E1 and H-M1 were executed at reduced sequence lengths (max\_len=512 for H-E1, 2048 for H-M1) due to the quadratic memory cost of storing full attention weight tensors with \texttt{output\textbackslash \_attentions=True}. Full LongBench context lengths range from 4,000 to 8,000 tokens. Shorter sequences produce more uniform attention distributions: there are fewer positions for minority retrieval heads to concentrate on, reducing the divergence between query heads within a group. This confound plausibly explains the near-miss failure on both gates:
+
+\begin{itemize}
+\item For H-E1: cosine similarity at max\_len=512 may overestimate within-group similarity relative to full-context inputs.
+\item For H-M1: the GroupMax/GroupMean divergence at 2048 tokens is demonstrably non-zero but below the pre-specified threshold; at 4,000--8,000 tokens, minority-head signals may be more concentrated and thus more likely to distinguish max from mean.
+\end{itemize}
+
+This confound does not invalidate the mechanism: the GQAEvictionScoreHook produces measurably different outputs (GroupMax $\neq$ GroupMean, verified per layer), and several individual layers do show $\rho$ < 0.95. The gate failure reflects the difficulty of testing the hypothesis under memory-constrained sequence lengths rather than evidence that the aggregation function distinction is irrelevant.
+
+\subsubsection{6.2 G Value Correction}
+
+The original hypothesis assumed G=8 for LLaMA-3-8B. The actual architecture has G=4 (32 Q-heads / 8 KV-heads). Lower G reduces the dilution factor from 1/8 to 1/4, meaning mean aggregation retains half the signal of a minority head compared to the G=8 case. The GroupMax advantage is correspondingly weaker at G=4. Experiments on models with larger GQA group sizes (G=8 or higher) are not available in the dataset but would be a natural next step.
+
+\subsubsection{6.3 Interpretation of H-E1 Model Variation}
+
+The secondary models (Mistral-7B, Phi-3-mini) both passed the H-E1 gate, with Phi-3-mini showing the highest fraction of layers below the 0.9 threshold (78.1\%). This suggests that within-group query-head diversity is model-dependent and may be more pronounced in models with different training objectives or architectures. LLaMA-3-8B's near-threshold behavior (40.6\% vs. 50\% threshold) indicates that diversity is present in a substantial fraction of layers but does not dominate the model's layer-wise profile.
+
+\subsubsection{6.4 Implications for the GQA-GroupMax Hypothesis}
+
+The two gate failures do not constitute evidence that GroupMax and GroupMean produce equivalent downstream performance. The H-M1 FAIL indicates the eviction rankings are highly correlated ($\rho \approx$ 0.96) but not identical. At a 50\% eviction budget over 2048 KV positions, a 4\% rank divergence affects approximately 80 positions per KV head per layer --- a non-trivial token set. Whether this rank difference translates to measurable F1 differences on LongBench retrieval tasks is an empirical question that was not addressed due to the gate failures blocking H-M2 and H-M3.
+
+The recommendation from H-M1's validation report is to proceed with downstream performance experiments (H-M2) with a revised gate threshold (e.g., any non-trivial rank divergence with downstream impact), rather than treating the mechanism gate failure as a rejection of the hypothesis.
+
+\subsubsection{6.5 Infrastructure Contributions}
+
+The following validated components are available for follow-on experiments:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Component & File & Tests & Reusable \\
+\midrule
+AttentionDiversityMeter & h-e1/code/measure/diversity\_meter.py & 19/19 & Yes \\
+HookManager & h-e1/code/measure/hook\_manager.py & --- & Yes \\
+ModelLoader & h-e1/code/measure/model\_loader.py & --- & Yes \\
+GQAEvictionScoreHook & h-m1/code/hooks/eviction\_score\_hook.py & 11/11 & Yes \\
+compute\_layer\_spearman & h-m1/code/metrics/spearman\_metrics.py & 15/15 & Yes \\
+GateEvaluator & h-e1/code/metrics/statistics.py & --- & Yes \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Configuration notes for reuse: use \texttt{attn\textbackslash \_implementation=''eager''} (FlashAttention suppresses attention weight output), \texttt{output\textbackslash \_attentions=True}, sequential batch\_size=1, remove torchaudio if CUDA version mismatch occurs.
+
+\subsubsection{6.6 Limitations}
+
+\textbf{L1: Sequence length truncation.} Both experiments used truncated contexts (512 and 2048 tokens). Full LongBench lengths were not achievable with the current attention weight extraction approach. Chunked attention extraction or gradient checkpointing would be required for full-context experiments.
+
+\textbf{L2: Single model as primary.} LLaMA-3-8B failed both gates. Secondary models (Mistral-7B, Phi-3-mini) passed H-E1 but H-M1 was not run on them. Multi-model evidence for the mechanism is incomplete.
+
+\textbf{L3: G value assumption error.} The original hypothesis assumed G=8; actual G=4 for all three models tested. The hypothesis was designed with a larger dilution factor than the experimental setup provides.
+
+\textbf{L4: No downstream performance evaluation.} H-M2 (LongBench F1 comparison, GroupMax vs. GroupMean) was not executed. The paper reports mechanism-level evidence only, not performance evidence.
+
+\textbf{L5: musique unavailable.} The MuSiQue LongBench subset was not in local cache and was excluded from both experiments, reducing task coverage from 4 to 3 retrieval subsets.
+

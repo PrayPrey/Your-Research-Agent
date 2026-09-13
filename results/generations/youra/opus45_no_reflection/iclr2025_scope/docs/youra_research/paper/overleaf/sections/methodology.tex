@@ -1,0 +1,59 @@
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Problem Formulation}
+
+Consider distilling a pretrained Transformer teacher $T$ into an SSM-based student $S$. At layer $\ell$, the teacher computes attention output:
+\begin{equation}
+\mathbf{A}^{(\ell)} = \text{softmax}\left(\frac{\mathbf{Q}^{(\ell)} \mathbf{K}^{(\ell)\top}}{\sqrt{d}}\right) \mathbf{V}^{(\ell)}
+\end{equation}
+
+The student computes SSM output via selective state space dynamics. Two distillation approaches exist:
+
+\textbf{Matrix-level (MOHAWK)}: Minimize attention map discrepancy directly:
+\begin{equation}
+\mathcal{L}_{\text{matrix}} = \sum_{\ell} \left\| \text{Mixer}_T^{(\ell)}(\mathbf{x}) - \text{Mixer}_S^{(\ell)}(\mathbf{x}) \right\|_F^2
+\end{equation}
+
+\textbf{Token-level (CAB)}: Align individual projections via learned bridges:
+\begin{equation}
+\mathcal{L}_{\text{token}} = \sum_{\ell} \left\| f_B(\mathbf{Q}^{(\ell)}) - \mathbf{B}_S^{(\ell)} \right\|^2 + \left\| f_C(\mathbf{K}^{(\ell)}) - \mathbf{C}_S^{(\ell)} \right\|^2
+\end{equation}
+where $f_B, f_C$ are learned MLP bridges mapping Transformer projections to SSM parameters.
+
+The key distinction: matrix-level objectives supervise position-position relationships (the attention map); token-level objectives supervise individual token representations.
+
+\subsection{Unified Framework Design}
+
+To enable fair comparison, we implement both objectives in a single Phi-Mamba codebase. This unified framework ensures:
+
+\begin{itemize}
+    \item \textbf{Same teacher model}: Phi-1.5 (1.3B parameters)
+    \item \textbf{Same student architecture}: Phi-Mamba with MOHAWK modifications (multi-head SSM, no $\Delta$, open gates)
+    \item \textbf{Same training data}: C4 dataset (streaming), Phi tokenizer
+    \item \textbf{Same optimization}: AdamW, identical learning rate schedules
+\end{itemize}
+
+The framework supports switching between MOHAWK Stage 1--3 losses and CAB bridge alignment via configuration. H-E1 validation confirms both objectives execute without errors in this unified setup.
+
+\subsection{Hidden State Drift Measurement}
+
+To quantify representation stability across lengths, we define hidden state drift at layer $\ell$ for sequence length $L$:
+\begin{equation}
+\text{Drift}^{(\ell)}(L) = \frac{1}{N} \sum_{i=1}^{N} \left\| \mathbf{h}_T^{(\ell)}(x_i, L) - \mathbf{h}_S^{(\ell)}(x_i, L) \right\|_2
+\end{equation}
+where $\mathbf{h}_T, \mathbf{h}_S$ are teacher and student hidden states, and the average is over $N$ samples.
+
+\textbf{Drift slope}: Linear regression of Drift$(L)$ against $L$ yields slope indicating how quickly representations diverge with length. Lower slope indicates more stable representations.
+
+\textbf{Drift ratio}: Drift$(L_{\text{max}})$ / Drift$(L_{\text{min}})$ measures relative degradation. Ratio $< 2.0$ indicates bounded drift; higher values suggest unbounded degradation.
+
+\subsection{Design Decisions}
+
+\textbf{Why Phi-1.5?} Standard teacher model from MOHAWK with public weights. Enables direct comparison with published baselines.
+
+\textbf{Why Phi-Mamba?} MOHAWK-modified Mamba-2 architecture designed for attention-to-SSM transfer. Multi-head structure, removed $\Delta$ parameter, open gates match attention layer interface.
+
+\textbf{Why C4?} Standard pretraining corpus. Streaming access avoids download overhead. Same tokenizer (Phi tokenizer) ensures consistent vocabulary.
+
+\textbf{Why 512--2048 length range?} Phi-1.5's fixed positional embeddings create hard 2048 token limit. We test maximum feasible range while staying within teacher capabilities.

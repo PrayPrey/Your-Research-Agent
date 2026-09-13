@@ -1,0 +1,124 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-04T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap_1"
+
+hypothesis_draft:
+  title: "Capability-Modulated Bidirectional Alignment Asymmetry in LLM Evaluation"
+  hypothesis_id: "H-BiAlign-v1"
+  core_claim: |
+    Model capability (win_rate) independently predicts length-debiased preference score
+    (LC_winrate) beyond what response verbosity (avg_length) explains, across N=222 models
+    in AlpacaEval 2.0. Formally: ρ(win_rate, LC_winrate | avg_length) > 0, p < 0.05,
+    |r_partial| ≥ 0.15. High-capability models exhibit smaller bidirectional alignment gap
+    (|Δ| = |LC_winrate − win_rate|) than low-capability models, independent of verbosity.
+  mechanism: |
+    High-capability models produce broad-spectrum quality outputs that satisfy both human
+    annotators (win_rate) and AI-based length-controlled evaluators (LC_winrate) via the
+    desirability channel (Hu et al. 2024). Low-capability models inflate win_rate through
+    verbosity/formatting heuristics that the LC correction penalizes, creating large
+    negative Δ. The capability effect on Δ is partially independent of avg_length:
+    controlling for verbosity reveals the residual capability-quality signal.
+  predictions:
+    - P1: "ρ(win_rate, LC_winrate | avg_length) > 0, p < 0.05, |r_partial| ≥ 0.15 [MUST_WORK]"
+    - P2: "|β_win_rate_std| > |β_avg_length_std| in standardized OLS — capability dominates verbosity [SHOULD_WORK]"
+    - P3: "Kruskal-Wallis across win_rate quartiles p < 0.05; Dunn Q1 vs Q4 Bonferroni p < 0.05 [SHOULD_WORK]"
+
+variables_summary:
+  independent: "win_rate — continuous; human preference win fraction; AlpacaEval 2.0 CSV column"
+  dependent_primary: "length_controlled_winrate — continuous; GLM-debiased preference score; AlpacaEval 2.0 CSV column"
+  controlled: "avg_length — continuous; mean response token length; AlpacaEval 2.0 CSV column"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant partial correlation between model capability (win_rate) and
+    length-debiased preference score (LC_winrate) after controlling for response verbosity
+    (avg_length). H0: ρ(win_rate, LC_winrate | avg_length) = 0. Any correlation between
+    win_rate and LC_winrate is fully mediated by avg_length.
+  statistical_test: "pingouin.partial_corr + OLS with VIF check; Kruskal-Wallis for quartile robustness"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First empirical quantification of capability-modulated bidirectional alignment asymmetry using Δ = LC_winrate − win_rate as an alignment gap signal (not just an evaluation correction)"
+  differentiation_summary: |
+    Prior work (Dubois 2024, Hu 2024) treats Δ as a bias to correct.
+    This work treats Δ as a signal to explain: does capability predict how large the
+    bidirectional gap is? The finding connects LLM evaluation methodology to the
+    bidirectional alignment framework (Shen et al. 2024), which called for empirical
+    operationalization of the human-AI annotator gap. N=222 models provides
+    unprecedented scale for this analysis. The h-m1 failure (training_type fails to
+    predict Δ) is directly resolved by using continuous win_rate instead of categorical
+    training_type — a theoretically better-specified test of the same root cause.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "AlpacaEval 2.0 leaderboard: N=222 models (all models with complete data)"
+    - "Subset analysis: h-m1 N=58 typed models for comparison with prior results"
+  datasets:
+    - "AlpacaEval 2.0 CSV: docs/data_AlpacaEval_2/weighted_alpaca_eval_gpt4_turbo_leaderboard.csv"
+    - "Confirmed columns: name, win_rate, length_controlled_winrate, avg_length"
+  baselines:
+    - "H0: verbosity fully explains LC preference (partial correlation = 0)"
+    - "h-m1: categorical training_type predictor (p=0.662, FALSIFIED)"
+
+measurement_plan:
+  data_collection:
+    - source: "AlpacaEval 2.0 CSV from tatsu-lab/alpaca_eval GitHub (Apache 2.0 license)"
+  procedure:
+    - step: "Load CSV; compute Δ = length_controlled_winrate − win_rate; check for missing values"
+    - step: "Compute ρ(win_rate, avg_length) to assess collinearity; compute VIF"
+    - step: "Run OLS: LC_winrate ~ win_rate_std + avg_length_std (StandardScaler preprocessing)"
+    - step: "Run partial correlation: pingouin.partial_corr(x='win_rate', y='LC_winrate', covar='avg_length')"
+    - step: "If VIF ≥ 5: run dominance analysis (Shapley values for regression) instead of OLS β comparison"
+    - step: "Run bootstrap CI (1000 resamples) for all Spearman correlations"
+    - step: "Run Kruskal-Wallis on LC_winrate across win_rate quartiles; scikit_posthocs.posthoc_dunn"
+    - step: "Run OLS regression diagnostics: residual plot, Breusch-Pagan, QQ plot"
+    - step: "Replicate on h-m1 N=58 typed subset for comparison with prior results"
+  success_criteria:
+    - "ρ(win_rate, LC_winrate | avg_length) > 0, p < 0.05, |r_partial| ≥ 0.15 [P1 — MUST_WORK]"
+    - "|β_win_rate_std| > |β_avg_length_std| in standardized OLS [P2 — SHOULD_WORK]"
+    - "Kruskal-Wallis p < 0.05 + Dunn Q1 vs Q4 p < 0.05 [P3 — SHOULD_WORK]"
+
+validation:
+  internal_validity:
+    - "VIF check required before interpreting OLS coefficients"
+    - "Bootstrap CI for all correlations (asymptotic approximation borderline at N=222)"
+    - "OLS diagnostics: linearity, homoscedasticity, normality of residuals"
+    - "Replication on N=58 typed subset (h-m1 data) to check consistency with prior observation"
+  external_validity:
+    - "AlpacaEval 2.0 represents 2023-2024 era LLMs — generalization to 2025/2026 models requires new data (out of scope for this hypothesis)"
+    - "Instruction-following task focus — may not generalize to coding, math, or other capability dimensions"
+    - "Human preference annotation uses Mechanical Turk — demographic sampling may affect win_rate estimates"
+
+discussion_synthesis:
+  key_insights:
+    - "h-m1 failure directly motivates H-BiAlign-v1: training_type (categorical, p=0.662) fails but capability (continuous, expected ρ≈0.5) should succeed"
+    - "DV change from Δ to LC_winrate (Exchanges 6-7) eliminates composition problem: Δ = LC_winrate − win_rate contains −win_rate, creating mathematical dependency"
+    - "Partial correlation (not raw Spearman) is the critical test: controls for verbosity confound documented in Hu 2024 information mass channel"
+    - "Three-level hypothesis hierarchy (H-E MUST_WORK → H-M SHOULD_WORK → H-C SHOULD_WORK) maps cleanly to Phase 2B"
+    - "Bidirectional alignment framing (Shen 2024) provides theoretical grounding that elevates the finding beyond correlation analysis"
+  breakthrough_moments:
+    - "Exchange 6 (Prof. Rex): Breaking point identifying composition problem in Δ as DV — forced DV change to LC_winrate, strengthening the hypothesis"
+    - "Exchange 7 (Dr. Nova): Direction justification from h-m1 within-RLHF data (GPT-4 Δ=−8.8pp vs wizardlm Δ=−32pp) — provided prior empirical evidence"
+    - "Exchange 8 (Prof. Vera): Formalized hypothesis with exact falsification criteria — made the test operationally precise"
+    - "Exchange 13 (Dr. Nova): Novelty framing as 'first quantification of capability-modulated alignment gap' — elevated from correlation study to alignment theory contribution"
+  resolved_tensions:
+    - "Composition problem (Δ vs LC_winrate as DV): RESOLVED — use LC_winrate as primary DV"
+    - "Direction ambiguity: RESOLVED — expected ρ > 0 (partial) based on h-m1 data + Li et al. 2024"
+    - "VIF/collinearity: MANAGED — contingent design: OLS if VIF < 5, dominance analysis if VIF ≥ 5"
+    - "Novelty claim: ADDRESSED — framed as alignment gap measurement, not just correlation"
+    - "All prior failure modes (h-e1, h-e1-run1, h-m1): EXPLICITLY AVOIDED in single-CSV design"

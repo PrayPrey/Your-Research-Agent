@@ -1,0 +1,10 @@
+# Research Idea: Synchronous Prediction-Error Integration for Open-World Agents
+
+## Title
+Synchronous Prediction-Error Integration (SPEI): Unifying Reasoning and Decision-Making Through Multi-Scale Bidirectional Coupling in Open-World Agents
+
+## Motivation
+Current AI agents separate reasoning and decision-making into sequential phases—plan first, then act—requiring costly replanning when environments change unexpectedly. This limits adaptation speed in dynamic open-world scenarios like strategy games, robotics, and embodied AI. While neuroscience shows biological systems use continuous prediction-error loops across multiple timescales for real-time adaptation, existing architectures lack mechanisms for synchronous bidirectional coupling between reasoning (forward prediction) and decision-making (action execution). This gap prevents agents from incrementally adjusting plans based on execution feedback within single computational cycles.
+
+## Main Idea
+We hypothesize that implementing synchronous prediction-error exchange at three temporal scales (0.1s reactive, 1s tactical, 10s strategic) via dual-stream transformers with cross-attention will improve sample efficiency by 20-40% and adaptation speed by 2-3× compared to sequential approaches. The mechanism operates through a four-step causal chain: (1) reasoning stream generates multi-scale predictions, (2) decision stream executes actions and computes prediction errors, (3) cross-attention propagates errors to modulate reasoning representations, (4) updated reasoning enables real-time plan adjustment—all within one forward pass. We will test this on CivRealm, Minecraft, and MuJoCo benchmarks using controlled experiments with ablation studies removing cross-attention or multi-scale components. Success requires achieving quantitative thresholds on sample efficiency while demonstrating that bidirectional coupling, not architecture capacity, drives performance gains.

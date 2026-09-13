@@ -1,0 +1,55 @@
+
+\subsubsection{3.1 Self-Contained Difficulty Stratification}
+
+For each problem, k=5 solutions are generated and pass@1 is computed as the fraction passing all EvalPlus tests. Tier assignment is:
+
+\begin{itemize}
+\item Hard tier: pass@1 = 0.0 (0/5 solutions correct)
+\item Easy tier: pass@1 >= 0.6 (3-5/5 solutions correct)
+\item Medium tier: pass@1 in {0.2, 0.4} (excluded from tier analysis)
+\end{itemize}
+
+This model-relative definition ensures that ''hard'' means ''hard for this specific model,'' enabling measurement of whether the model's confidence degrades when it struggles. A minimum of n >= 20 problems per tier per model-benchmark pair is required for reliable ECE computation.
+
+\subsubsection{3.2 P(True) Logprob Confidence Extraction}
+
+For each (problem, solution) pair, P(True) is extracted as:
+
+\begin{verbatim}
+prompt = problem_statement + solution + "Is this solution correct? Answer True or False.\nAnswer:"
+c = softmax(logprob("True"), logprob("False"))
+  = exp(logprob("True")) / (exp(logprob("True")) + exp(logprob("False")))
+\end{verbatim}
+
+The normalized confidence score c = P(True) is in [0, 1]. This follows Kadavath et al. (2022), applied here to base (non-instruction-tuned) models in a zero-shot setting. The use of base models is deliberate, intended to isolate pre-training calibration signals from RLHF/SFT effects. The validity implications of applying P(True) to base models are discussed in Section 6.
+
+A non-degeneracy requirement of std(c) > 0.05 per model is imposed to ensure the confidence signal provides discriminative information.
+
+\subsubsection{3.3 Expected Calibration Error Computation}
+
+ECE is computed separately for hard-tier and easy-tier problems per model:
+
+ECE(tier) = sum over m=1 to M of (|$B_m$| / n\_tier) * |acc($B_m$) - conf($B_m$)|
+
+where $B_m$ is the m-th confidence bin, acc($B_m$) is the fraction of correct solutions in bin m, and conf($B_m$) is the mean confidence in bin m. M=15 equal-width bins are used following Guo et al. (2017).
+
+The primary metric is DELTA\_ECE = ECE(hard) - ECE(easy). Bootstrap confidence intervals (n=1000 samples, seed=42) quantify uncertainty. M-sensitivity is verified for M in {10, 15, 20}. Temperature scaling fits T* on a 20\% holdout via negative log-likelihood minimization.
+
+\subsubsection{3.4 Models and Benchmarks}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Model & Parameters & Training Regime & Category \\
+\midrule
+NousResearch/Meta-Llama-3-8B & 8B & General-purpose pre-training & General \\
+codellama/CodeLlama-7b-hf & 7B & Llama base + code fine-tuning & Code-adapted \\
+deepseek-ai/deepseek-coder-6.7b-base & 6.7B & Code-specialized pre-training & Code-specialized \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+All models are base (not instruction-tuned) variants. Evaluation is on EvalPlus \citep{Liu2023EvalPlus}: HumanEval+ (164 problems) + MBPP+ (378 problems) = 542 total problems.

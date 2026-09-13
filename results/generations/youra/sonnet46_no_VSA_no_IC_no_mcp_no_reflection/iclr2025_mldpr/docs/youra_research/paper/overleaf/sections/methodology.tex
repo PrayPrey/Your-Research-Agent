@@ -1,0 +1,42 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Our insight --- that API ecosystem selection bias, not implementation error, explains metadata coverage gaps --- demands a pipeline design that can distinguish between the two. This section describes the infrastructure feasibility study (H-E1) that implements and executes this distinction.
+
+\subsection{Study Design}
+
+We design H-E1 as a \emph{gate hypothesis}: a pre-specified infrastructure feasibility check with binary outcome that must pass before any regression analysis proceeds. This design is motivated by the risk of running statistical analysis on severely incomplete data --- with 30\% independent variable coverage, any regression coefficients would be confounded with the domain distribution of datasets with cards, not the domain distribution of datasets in Raff's corpus.
+
+The gate criteria are pre-specified (not chosen post-hoc):
+\begin{itemize}
+  \item \textbf{HF Hub coverage threshold:} $\geq$50\% of Raff's unique datasets must return valid dataset cards
+  \item \textbf{OpenML temporal filter threshold:} $\geq$70\% of Raff's unique datasets must have pre-publication OpenML entries valid for Herfindahl-Hirschman Index computation
+\end{itemize}
+
+These thresholds ensure that the independent variables (documentation completeness IV1, concentration IV2) are computable for a sufficient fraction of the 255-paper corpus to support valid logistic regression without severe survivorship bias.
+
+\subsection{Pipeline Architecture}
+
+The H-E1 pipeline consists of five modules orchestrated by a single entry-point script (\texttt{pipeline.py}):
+
+\textbf{RaffParser} loads Raff's CSV (255 papers, binary reproducibility labels, paper-quality features) and extracts the set of unique benchmark datasets ($N=50$) with their earliest paper publication years. The parser validates that all expected columns are present and that 255 rows are loaded, raising on violation.
+
+\textbf{HFCoverageChecker} queries HuggingFace Hub for each of the 50 datasets using \texttt{DatasetCard.load(name)} with canonical dataset names (e.g., ``cifar10'', ``imagenet-1k'', ``coco''). For each returned card, it computes a field-presence score as the fraction of 7 Datasheets for Datasets schema fields present: \{\texttt{intended\_use}, \texttt{out\_of\_scope\_use}, \texttt{limitations}, \texttt{license}, \texttt{task\_categories}, \texttt{dataset\_info}, \texttt{provenance}\}. Rate limiting (1.0s sleep between requests) prevents API throttling. HTTP 403 errors (authentication required) and 404 errors (dataset not found) are explicitly handled and distinguished in the output.
+
+\textbf{Rationale for canonical names:} A reproducibility auditing pipeline must be automatable. Canonical dataset names are the correct interface for a scalable pipeline; requiring name variant exploration defeats the purpose of automated auditing.
+
+\textbf{OpenMLTemporalChecker} performs a single bulk API call (\texttt{openml.datasets.list\_datasets(output\_format=`dataframe')}) to retrieve all available OpenML datasets with metadata including upload date. It then applies a client-side temporal filter: for each of the 50 Raff datasets, it checks whether a matching OpenML entry exists with \texttt{upload\_date\_year} $<$ \texttt{paper\_publication\_year}. This filter ensures pre-publication run counts (the HHI proxy) are computable without contaminating the measurement with post-publication community use.
+
+\textbf{MetricsAggregator} computes the two gate metrics from checker outputs and evaluates pass/fail against pre-specified thresholds. It additionally verifies \emph{pipeline activation}: all four activation indicators must be true (HF API reachable, OpenML API reachable, Raff CSV parseable, temporal filter executable) before gate pass/fail is meaningful.
+
+\textbf{Visualizer} generates three figures: a gate metrics bar chart (Figure~\ref{fig:gate}), an OpenML pre-publication run count distribution histogram (Figure~\ref{fig:openml}), and an HF card field-presence heatmap (Figure~\ref{fig:heatmap}).
+
+\subsection{Test Suite}
+
+An 18-test pytest suite covers all pipeline components, run against the live pipeline (no mocking). Tests verify: correct Raff CSV parsing (255 rows, all columns), HF Hub card loading and field scoring, OpenML temporal filtering, gate evaluation, and figure generation.
+
+\textbf{Rationale for no mocking:} Mocking the HF Hub or OpenML API validates the pipeline implementation but cannot detect platform scope limitations --- precisely the discovery we are trying to make. Live API tests are the only valid approach for an infrastructure feasibility study.
+
+\subsection{Pre-Specified Gate Logic}
+
+The gate uses AND logic: \emph{both} HF coverage rate $\geq$50\% AND OpenML temporal filter success rate $\geq$70\% must hold. A partial pass would indicate partial infrastructure adequacy; the downstream mechanism hypotheses (H-M1: documentation completeness $\to$ reproducibility; H-M2: concentration HHI $\to$ reproducibility; H-M3: field-level importance ordering) require both independent variables to be computable. If H-E1 gate fails, all downstream hypotheses are blocked.

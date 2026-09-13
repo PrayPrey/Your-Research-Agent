@@ -1,0 +1,253 @@
+# Narrative Blueprint — Phase 6 Step 02
+# Designed BEFORE any section generation. All sections must follow this story.
+# Primary source: 045_validated_hypothesis.md (Sections 2, 4, 6, 7, 8)
+
+version: "1.0"
+designed_at: "2026-08-31"
+paper_working_title: "More Feedback, Worse Repair: An Overhead-Normalized Comparison of Formal Feedback for LLM Code Repair"
+
+# ═══════════════════════════════════════════════════════════
+# 3. THE HOOK
+# ═══════════════════════════════════════════════════════════
+
+hook:
+  opening_statement:
+    content: "We expected a precision hierarchy: the more formally rigorous the verifier, the better the repair. Across four feedback categories the correlation came out at exactly -1.0 — the most informative verifier produced the fewest fixes."
+    strategy: "Counterintuitive Finding"
+
+  why_reader_should_care:
+    main_reason: "Anyone building a verify-and-repair loop around an LLM has to pick a verifier, and the field's working assumption — richer formal signal is better signal — turns out to be wrong at the model tier most practitioners actually deploy."
+    concrete_example: "Pyright hands the model 24,358 characters of structured JSON diagnostics per problem and repairs 4.76% of failures on the first try. A 202-character Python traceback repairs 5.56%. Once wall-clock cost enters the picture the gap widens rather than closes: Pyright buys 6.64 points of pass@1 per second, execution monitoring 0.41."
+    stakes: "Systems are being built on the premise that more formal machinery in the verify stage means better repair. If that premise is inverted at deployment-relevant model tiers, teams are paying an order of magnitude in latency for feedback their model cannot use."
+
+  anti_patterns_avoided:
+    - "No 'Deep learning has achieved remarkable success'"
+    - "No 'With the advent of large language models'"
+    - "Opens on the specific measured inversion, not on field importance"
+
+# ═══════════════════════════════════════════════════════════
+# 4. PROBLEM FRAMING (three levels)
+# ═══════════════════════════════════════════════════════════
+
+problem_framing:
+  surface_problem:
+    description: "LLMs generate incorrect code, and the standard remedy is a Generate-Verify-Repair loop that feeds verifier output back into the prompt."
+    common_understanding: "Self-Repair, Reflexion, and CodeT all establish that execution feedback improves pass@1 by roughly 5-15% on HumanEval and MBPP."
+
+  deeper_problem:
+    description: "Every one of those systems studies a single feedback category in isolation, on a different backbone, on a different benchmark, with no accounting of what the feedback costs to produce. The field has an implicit ranking — SMT counterexamples beat static type errors beat execution traces — that no one has measured."
+    why_overlooked: "Comparing categories requires holding the backbone, the benchmark, the repair budget, and the prompt template fixed while varying only the verifier. Each prior paper had a method to advocate rather than a taxonomy to characterize, so the controlled comparison was nobody's contribution to make."
+    our_perspective: "Feedback specificity and feedback cost are two separate axes, and the field has been reasoning about the first while paying for the second. The right question is not which verifier is most rigorous but which one delivers the most correctness per second."
+
+  gap_in_existing_work:
+    description: "No overhead-normalized, backbone-controlled comparison of formal feedback categories for LLM code repair exists. (Gap 2 in our Phase 1 review; also Gap 1 on SMT-guided repair for LLM output.)"
+    why_gap_exists: "Single-category studies cannot expose cross-category trade-offs, and correctness-only metrics make an expensive verifier look free."
+    why_gap_matters: "Without it, verifier choice in deployed repair pipelines rests on an intuition about formal rigor that our experiments show is not merely weak but reversed."
+
+# ═══════════════════════════════════════════════════════════
+# 5. THE KEY INSIGHT
+# ═══════════════════════════════════════════════════════════
+
+key_insight:
+  aha_moment:
+    one_sentence: "LLM repair is bounded by the model's ability to extract one actionable signal from the feedback, not by how much information the feedback contains."
+    expanded_explanation: >
+      A 202-character traceback naming a line and an exception type is fully actionable on
+      sight. Pyright's JSON diagnostic tree, even truncated to 4,000 characters for the prompt,
+      buries the decisive diagnostic among unused-import notices and missing-return-annotation
+      warnings. Information content goes up; extractable signal goes down. Because verifier cost
+      and verifier verbosity turn out to be uncorrelated, the cheapest tool can simultaneously be
+      the one with the best cost-normalized return.
+
+  why_others_missed_it:
+    common_assumptions: "That feedback verbosity is a proxy for feedback quality — Self-Repair's finding that an error trace beats a bare pass/fail signal was read as a monotone rule rather than as one point on a curve."
+    our_different_view: "We treat verbosity as having a ceiling, and we measure past it. Pyright sits on the far side of that ceiling."
+    enabling_factor: "Varying only the verifier across four categories on one backbone made the non-monotonicity visible; any single-category study would have seen a flat line."
+
+  what_makes_it_work:
+    intuitive_explanation: "A good error message tells you the one thing to change. A diagnostic dump tells you forty things, thirty-nine of which are irrelevant, and the model has to guess which one broke the test."
+    key_mechanism: "Repair capacity is a signal-extraction bottleneck, not an information-transfer bottleneck. Cost and verbosity are independent axes, so the efficiency-optimal verifier need not be the correctness-optimal one."
+
+# ═══════════════════════════════════════════════════════════
+# 6. EVIDENCE NARRATIVE
+# ═══════════════════════════════════════════════════════════
+
+evidence_narrative:
+  main_claim:
+    statement: "Across formal feedback categories for LLM code repair, feedback volume is inversely related to single-iteration repair utility, and the lightest verifier — not the most informative one — achieves the highest correctness-per-overhead ratio."
+    measurable_criteria: "Spearman rho between mean feedback char_count and iteration-1 repair rate across categories; efficiency ratio (delta pass@1 / mean overhead seconds) per category."
+
+  supporting_evidence:
+    - id: "evidence_1"
+      what: "All three active verifier categories fire on 100% of 421 completions; the SMT pilot returns 0/20 SAT."
+      so_what: "The comparison is well-posed for three categories and reveals a hard model-tier boundary for the fourth."
+      how_it_supports_claim: "Establishes that observed repair differences come from feedback content, not from differences in whether feedback exists at all."
+      source: "h-e1"
+      figures: ["activation_rates.png", "smt_pilot.png"]
+
+    - id: "evidence_2"
+      what: "126 of 421 solutions fail; failures split logic 65.9% / type 24.6% / runtime 9.5%, classifier agreement 82%."
+      so_what: "No single bug type dominates, so a multi-category comparison has something to discriminate, and logic errors — the hardest kind for any static tool to see — are the majority."
+      how_it_supports_claim: "Explains why static tooling cannot dominate on correctness: two thirds of failures are invisible to it."
+      source: "h-m1"
+      figures: ["bug_distribution.png", "stacked_by_dataset.png"]
+
+    - id: "evidence_3"
+      what: "Feedback volumes differ enormously: Pyright 24,358 chars, execution 202, mypy 49, Z3 2. Kruskal-Wallis H=338.78, p=4.01e-73, epsilon-squared 0.88."
+      so_what: "The categories are not interchangeable; the independent variable has real range."
+      how_it_supports_claim: "Supplies the x-axis for the inverse correlation and rules out the possibility that all verifiers say roughly the same thing."
+      source: "h-m2"
+      figures: ["bar_mean_char_count.png", "box_char_count.png"]
+
+    - id: "evidence_4"
+      what: "Iteration-1 repair rate falls monotonically as feedback length rises: Pyright 4.76%, execution 5.56%, mypy 6.35%, Z3 7.94%. Spearman rho = -1.0."
+      so_what: "The field's assumed ordering is not weakly supported — it is exactly reversed."
+      how_it_supports_claim: "This is the main claim's first half, measured directly."
+      source: "h-m3"
+      figures: ["scatter_length_vs_rate.png", "bar_iter1_rate.png", "line_cumulative_repair.png"]
+
+    - id: "evidence_5"
+      what: "Overhead spans orders of magnitude (static 46ms, type 49ms, execution 801ms, SMT 9.59s), producing efficiency ratios of 6.64 / 5.34 / 0.41 / 0.03."
+      so_what: "Execution monitoring wins on absolute correctness (delta pass@1 ~22% vs ~11%) and loses by 16x on correctness per second."
+      how_it_supports_claim: "This is the main claim's second half, and it converts the finding into a deployment rule."
+      source: "h-m4"
+      figures: ["fig_efficiency_ratios.png", "fig_overhead_boxplots.png", "fig_efficiency_scatter.png"]
+
+  surprising_findings:
+    - finding: "Perfect inverse correlation (rho = -1.0) between feedback length and first-iteration repair success."
+      why_surprising: "Self-Repair reported that richer feedback helps; we find that past a threshold it hurts, and the ordering is perfectly monotone in the wrong direction."
+      our_interpretation: "Truncation artifact plus format mismatch. Pyright's 24,358 characters are cut to 4,000 for the prompt, which can discard the decisive diagnostic, and what survives is JSON rule names rather than natural-language error text. Z3's apparent lead is partly selection bias — only 8 of 126 problems admit constraints, and those may be structurally simpler."
+
+    - finding: "MBPP first-iteration repair is 0% for all four categories while HumanEval reaches 26-43%."
+      why_surprising: "Both are standard function-level Python benchmarks; we expected a difference in degree, not a floor."
+      our_interpretation: "MBPP's multi-step problems need the full problem statement in the repair prompt; deterministic single-iteration repair from test assertions alone cannot recover algorithmic errors."
+
+    - finding: "SMT constraint extraction reaches 6.3% coverage against the 40% we assumed."
+      why_surprising: "HumanEval docstrings carry type annotations and worked I/O examples, which looked like enough to formalize."
+      our_interpretation: "Translating informal docstrings into Z3 constraints exceeds GPT-4o-mini's formal reasoning; this is a model-tier boundary, not a benchmark defect."
+
+# ═══════════════════════════════════════════════════════════
+# 7. BROADER IMPACT
+# ═══════════════════════════════════════════════════════════
+
+takeaway:
+  main_contribution:
+    one_sentence: "The first overhead-normalized, backbone-controlled comparison of formal feedback categories for LLM code repair, which finds that feedback volume and repair utility are inversely related and that the cheapest verifier is the efficiency-optimal one."
+    why_significant: "It replaces an untested intuition about formal rigor with measurements, and turns those measurements into a concrete verifier-selection rule."
+
+  implications:
+    for_field: "Feedback quality for LLM repair needs an operationalization that is not length. The specificity construct as currently used conflates semantic precision with format verbosity, and our rho = -1.0 is partly an indictment of the proxy."
+    for_practice: "Pick execution monitoring when correctness per attempt is what matters; pick static analysis when throughput or latency is the binding constraint. Do not inject raw Pyright JSON into a repair prompt. Do not build an SMT stage on a GPT-4o-mini-tier extractor."
+
+  future_possibilities:
+    immediate_extensions: "Summarize Pyright JSON to one actionable sentence before injection and re-measure; stratify the Z3-feasible subset by difficulty to separate selection bias from feedback effect; repeat on GPT-4o and Claude 3.5 to test whether stronger parsers reverse the sign."
+    longer_term_vision: "Bug-type-aware routing — static analysis on the 24.6% predicted type errors, execution monitoring on the 65.9% logic errors — and an extension to repository-level repair, where static signal should be worth relatively more."
+
+# ═══════════════════════════════════════════════════════════
+# 8. SECTION GOALS
+# ═══════════════════════════════════════════════════════════
+
+section_goals:
+  abstract:
+    narrative_purpose: "Compress the full story in ~150 words: expectation, inversion, cost reversal, deployment rule."
+    key_message: "More feedback is not better feedback; the cheapest verifier wins on correctness per second."
+
+  introduction:
+    narrative_purpose: "Hook (the inversion) -> three-level problem -> insight -> contributions"
+    hook_strategy: "Counterintuitive Finding"
+    transition_to_related: "Close by noting that each prior system we build on measured one category against no baseline of cost — which is exactly what Related Work has to establish."
+    target_words: 900
+
+  related_work:
+    narrative_purpose: "Show that prior work is individually strong and collectively unable to answer the comparison question."
+    positioning_strategy: "Group by what the verify stage consumed — execution signal, generation-time constraint, classical formal repair — and show that each is single-category and cost-blind."
+    key_comparison_points:
+      - theme: "Execution-feedback repair loops"
+        papers: ["Olausson et al., 2023", "Shinn et al., 2023", "Chen et al., 2022", "Ni et al., 2023"]
+        limitation_to_highlight: "One category, no overhead accounting, no cross-category control."
+      - theme: "Generation-time correctness constraints"
+        papers: ["Geng et al., 2023", "Poesia et al., 2021"]
+        limitation_to_highlight: "Different paradigm — constrains decoding rather than repairing output — and addresses syntax, not the logic errors that dominate our failures."
+      - theme: "Formal and classical program repair"
+        papers: ["Gazzola et al., 2019", "Monperrus, 2023", "Xia & Zhang, 2022", "Zhang et al., 2023"]
+        limitation_to_highlight: "Assumes specifications that HumanEval and MBPP do not carry; our 6.3% extraction rate quantifies that gap for LLM-generated constraints."
+      - theme: "Benchmarks"
+        papers: ["Chen et al., 2021", "Austin et al., 2021", "Jimenez et al., 2023"]
+        limitation_to_highlight: "Report aggregate pass@k with no feedback-cost dimension."
+    target_words: 700
+
+  methodology:
+    narrative_purpose: "Show that the design isolates the verifier and makes cost measurable — WHY each control exists."
+    connection_to_insight: "If repair is bounded by signal extraction rather than information content, then the experiment must vary feedback content while holding everything else — backbone, prompt template, budget, problem set — fixed, and must measure the cost of producing each signal."
+    key_design_decisions:
+      - "Single backbone GPT-4o-mini, generation temperature 0.2, repair temperature 0.0 — removes model and sampling variance."
+      - "Identical prompt template across categories — the only thing that changes is the verifier's text."
+      - "Fixed 3-iteration budget with early stop on pass — bounds cost, follows Self-Repair's diminishing-returns finding."
+      - "4,000-character truncation — required for Pyright; we flag it as a confound rather than hide it."
+      - "char_count as the specificity proxy — cheap and reproducible, and we state plainly that it conflates precision with verbosity."
+      - "Efficiency ratio = delta pass@1 / mean wall-clock seconds — the metric the field has been missing."
+    target_words: 1100
+
+  experiments:
+    narrative_purpose: "Map each research question to a claim from the Introduction."
+    experimental_questions:
+      - "RQ1: Do the four categories produce measurably distinct feedback signals on the same failing solutions? (existence precondition)"
+      - "RQ2: How are failures distributed across bug types, and is any single type dominant enough to make the comparison degenerate?"
+      - "RQ3: Does first-iteration repair success rise with feedback specificity, as the field assumes?"
+      - "RQ4: Once wall-clock overhead is normalized out, which category delivers the most correctness per second?"
+      - "RQ5: Do these orderings hold across benchmarks of differing structural difficulty?"
+    dataset_rationale: "HumanEval (164) and MBPP sanitized (257) = 421 problems: the two benchmarks every prior feedback-loop paper reports, which makes our numbers comparable to theirs."
+    baseline_rationale: "Vanilla no-feedback generation anchors delta pass@1; execution monitoring doubles as a Self-Repair replication and as the category the field currently favors."
+    metric_rationale: "pass@1 for correctness, char_count for specificity, wall-clock seconds for cost, and the ratio of the first to the third for the question the paper actually asks."
+    target_words: 900
+
+  results:
+    narrative_purpose: "Walk the reader from precondition to inversion to cost reversal, interpreting every number."
+    main_result_highlight: "Spearman rho = -1.0 between feedback length and first-iteration repair rate, with static analysis at a 6.64 efficiency ratio against execution monitoring's 0.41."
+    ordering: ["RQ1 preconditions", "RQ2 bug distribution", "RQ3 the inversion", "RQ4 the cost reversal", "RQ5 benchmark divergence and SMT boundary"]
+    target_words: 1150
+
+  discussion:
+    narrative_purpose: "Explain the mechanism, name the confounds before a reviewer does, state the deployment rule."
+    key_findings_interpretation:
+      - "Repair is signal-extraction-bounded, so feedback engineering matters more than verifier rigor."
+      - "Correctness-optimal and efficiency-optimal verifiers are different tools; the choice is a deployment decision, not a ranking."
+      - "SMT-integrated repair has a model-tier floor that GPT-4o-mini sits below."
+    honest_limitations:
+      - "H-M4 overhead figures come from a calibrated mock run; ordering is robust, absolute ratios await a live API run."
+      - "char_count conflates semantic precision with format verbosity, so rho = -1.0 may be a format effect rather than a specificity effect."
+      - "Single backbone; stronger models may parse JSON diagnostics well enough to reverse the sign."
+      - "SMT excluded from the primary comparison at 6.3% coverage."
+      - "MBPP repair floors at 0%, making the repair-side analysis effectively HumanEval-only."
+    broader_impact_required: true
+    target_words: 600
+
+  conclusion:
+    narrative_purpose: "Close the loop opened by the hook, then point forward from evidence."
+    callback_to_hook: "Return to the precision hierarchy we expected and state what replaced it."
+    future_directions_source: "045_validated_hypothesis.md Section 7 (untested alternatives, unverified assumptions, scope extensions)"
+    memorable_ending: "The verify stage should be engineered for what the model can act on, not for what the tool can prove."
+    target_words: 400
+
+# ═══════════════════════════════════════════════════════════
+# 9. COHERENCE CHECKLIST
+# ═══════════════════════════════════════════════════════════
+
+narrative_coherence_checklist:
+  - check: "Does Introduction hook connect to Conclusion ending?"
+    status: "PASS — both frame the expected precision hierarchy and its replacement by a signal-extraction account."
+  - check: "Does each section naturally flow to the next?"
+    status: "PASS — Intro gap -> Related Work establishes gap is real -> Methodology answers it -> Experiments operationalize -> Results deliver -> Discussion interprets -> Conclusion closes."
+  - check: "Is key insight consistently emphasized throughout?"
+    status: "PASS — signal extraction over information content recurs in Intro 1.3, Methodology rationale, Results RQ3, Discussion finding 1, Conclusion."
+  - check: "Are all major claims supported by evidence?"
+    status: "PASS — five claims map to five sub-experiments; the two failed gates are the source of the two headline claims and are reported as such."
+  - check: "Would a busy reviewer find Abstract compelling?"
+    status: "PASS — opens on a reversal with one number, closes on a deployment rule."
+
+terminology_lock:
+  - "feedback category (not 'verifier type') for the independent variable"
+  - "static analysis = Pyright; type checking = mypy; execution monitoring = traceback oracle; SMT = Z3"
+  - "efficiency ratio = delta pass@1 / mean wall-clock seconds"
+  - "iteration-1 repair rate (not 'first-pass rate')"
+  - "GPT-4o-mini named on first use in every section that reports a number"

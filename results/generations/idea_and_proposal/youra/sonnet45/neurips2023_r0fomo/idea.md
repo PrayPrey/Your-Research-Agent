@@ -1,0 +1,8 @@
+# Title
+Uncertainty-Guided Adaptive Testing for Robust Few-Shot Vision-Language Model Evaluation
+
+# Motivation
+Few-shot vision-language models (VLMs) like CLIP and BLIP are rapidly deployed with minimal labeled data (1-100 examples), yet current robustness evaluation relies on uniform random testing that inefficiently allocates resources. Existing methods miss critical failure modes in production because they don't prioritize testing where models are most fragile. This creates safety risks in real-world deployments. We need automated, oracle-free evaluation frameworks that efficiently discover failures by focusing testing effort on high-vulnerability regions, particularly for black-box models where internal access is unavailable.
+
+# Main Idea
+We hypothesize that **uncertainty-guided adaptive sampling increases failure discovery rate 2-3× compared to uniform testing** in few-shot VLMs. Our three-phase causal mechanism: (1) black-box uncertainty quantification (semantic dispersion for vision, conditional pointwise V-information for text) identifies high-uncertainty regions correlating with model fragility; (2) adaptive sampling allocates testing budget proportionally to uncertainty quantiles (40% to highest uncertainty); (3) metamorphic property validation (e.g., rotation invariance, paraphrase consistency) generates cross-modal perturbations in fragile regions, discovering failures without ground-truth labels. We test across VQA, captioning, and retrieval tasks with 10-50 examples, measuring failure discovery rate and real-world correlation (≥60% overlap with production failures). Expected impact: practical automated robustness evaluation for responsible VLM deployment.

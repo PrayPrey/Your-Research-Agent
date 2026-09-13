@@ -1,0 +1,210 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: H-M4
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-08-18T16:20:00+00:00"
+
+reference_documents:
+  prd: 03_prd.md
+  architecture: 03_architecture.md
+  logic: 03_logic.md
+  config: 03_config.md
+  experiment_brief: 02c_experiment_brief.md
+
+tasks:
+  # Priority 100-95: Data Preparation
+  - id: T-1
+    title: "Environment Setup"
+    description: "Install dependencies: torch, transformers, datasets, kronfluence, traker, dattri, scikit-learn, matplotlib, scipy"
+    type: setup
+    priority: 100
+    reference_files:
+      - "03_prd.md#7.1-Python-Packages"
+
+  # Priority 94: No manual data download needed (SST-2 auto-downloads via HuggingFace)
+
+  # Priority 93-50: Epic Implementation Tasks
+  - id: A-1
+    title: "Data + Mislabel Pipeline"
+    description: "Load SST-2, inject 5% mislabels per seed, persist mislabeled indices"
+    type: data-pipeline
+    priority: 93
+    complexity: 6
+    reference_files:
+      - "03_architecture.md#A-1"
+      - "03_prd.md#4.1-Dataset"
+
+  - id: A-2
+    title: "Model Fine-tuning Across Seeds"
+    description: "Fine-tune BERT and GPT-2 on SST-2 for 3 epochs × 3 seeds, save per-epoch checkpoints"
+    type: training
+    priority: 92
+    complexity: 9
+    reference_files:
+      - "03_architecture.md#A-2"
+      - "03_config.md#A-2"
+    subtasks:
+      - id: A-2.1
+        title: "Model loaders"
+        description: "load_bert_classifier, load_gpt2_classifier"
+      - id: A-2.2
+        title: "Training loop with checkpoints"
+        description: "3-epoch loop, save checkpoint after each epoch"
+      - id: A-2.3
+        title: "Checkpoint I/O"
+        description: "load_checkpoint function"
+
+  - id: A-3
+    title: "EK-FAC Budget Sweep"
+    description: "Run kronfluence EK-FAC at 5 projection dimensions for both architectures"
+    type: attribution
+    priority: 91
+    complexity: 15
+    reference_files:
+      - "03_architecture.md#A-3"
+      - "03_logic.md#A-3"
+    subtasks:
+      - id: A-3.1
+        title: "build_analyzer"
+        description: "Wrap model+task, configure ClassificationTask"
+      - id: A-3.2
+        title: "compute_ekfac_scores"
+        description: "Single proj_dim: fit factors, compute self-influence"
+      - id: A-3.3
+        title: "run_ekfac_budget_sweep"
+        description: "Loop 5 proj_dims with timing"
+      - id: A-3.4
+        title: "Architecture dispatch"
+        description: "Run for both BERT and GPT-2"
+
+  - id: A-4
+    title: "TracIn Budget Sweep"
+    description: "Run dattri TracIn with checkpoint subsets for 5 budget levels"
+    type: attribution
+    priority: 90
+    complexity: 14
+    reference_files:
+      - "03_architecture.md#A-4"
+      - "03_logic.md#A-4"
+    subtasks:
+      - id: A-4.1
+        title: "select_checkpoint_subset"
+        description: "Evenly-spaced checkpoint selection"
+      - id: A-4.2
+        title: "compute_tracin_scores"
+        description: "TracInCPFast call for single budget"
+      - id: A-4.3
+        title: "run_tracin_budget_sweep"
+        description: "Loop 5 budget levels via checkpoint counts"
+      - id: A-4.4
+        title: "Config wiring"
+        description: "tracin_checkpoint_counts mapping"
+
+  - id: A-5
+    title: "TRAK Budget Sweep"
+    description: "Run traker TRAK at 5 projection dimensions for both architectures"
+    type: attribution
+    priority: 89
+    complexity: 14
+    reference_files:
+      - "03_architecture.md#A-5"
+      - "03_logic.md#A-5"
+    subtasks:
+      - id: A-5.1
+        title: "compute_trak_scores"
+        description: "Single proj_dim: featurize + finalize + score"
+      - id: A-5.2
+        title: "run_trak_budget_sweep"
+        description: "Loop 5 proj_dims with timing"
+
+  - id: A-6
+    title: "Mislabel-AUC Metric"
+    description: "Compute ROC-AUC for self-influence ranking vs ground truth mislabeled"
+    type: evaluation
+    priority: 88
+    complexity: 6
+    reference_files:
+      - "03_architecture.md#A-6"
+      - "03_logic.md#metrics"
+
+  - id: A-7
+    title: "Pareto Point Construction"
+    description: "Build (time, AUC) points from sweep results, compute dominance"
+    type: analysis
+    priority: 87
+    complexity: 8
+    reference_files:
+      - "03_architecture.md#A-7"
+
+  - id: A-8
+    title: "Cross-seed Statistical Analysis"
+    description: "Aggregate mean±std, paired t-test, evaluate P1/P2/P3 predictions"
+    type: analysis
+    priority: 86
+    complexity: 9
+    reference_files:
+      - "03_architecture.md#A-8"
+      - "03_config.md#A-8"
+    subtasks:
+      - id: A-8.1
+        title: "aggregate_seed_results"
+        description: "Mean/std per (method, arch, budget)"
+      - id: A-8.2
+        title: "paired_ttest_across_seeds"
+        description: "Statistical comparison"
+      - id: A-8.3
+        title: "evaluate_predictions"
+        description: "Check P1/P2/P3 against alpha"
+
+  - id: A-9
+    title: "Visualization Suite"
+    description: "Generate required 2×3 Pareto grid + optional plots"
+    type: visualization
+    priority: 85
+    complexity: 10
+    reference_files:
+      - "03_architecture.md#A-9"
+      - "03_config.md#A-9"
+    subtasks:
+      - id: A-9.1
+        title: "plot_pareto_frontier_grid"
+        description: "Required: 2×3 subplot, log-x time vs AUC"
+      - id: A-9.2
+        title: "plot_arch_comparison_per_method"
+        description: "3 overlaid BERT-vs-GPT2 plots"
+
+  - id: A-10
+    title: "Orchestration + Reporting"
+    description: "run_experiment.py main pipeline, save results.yaml"
+    type: orchestration
+    priority: 84
+    complexity: 7
+    reference_files:
+      - "03_architecture.md#A-10"
+
+  # Failsafe task
+  - id: T-FAILSAFE
+    title: "Pipeline Continuation Checkpoint"
+    description: "Mark Phase 3 tasks complete, ready for Phase 4 validation"
+    type: checkpoint
+    priority: 1
+
+budget_summary:
+  setup_tasks: 1
+  epic_tasks: 10
+  subtasks: 17
+  failsafe: 1
+  total: 29
+  budget_remaining: 1
+  within_budget: true
+
+excluded_subtasks:
+  - id: A-5.3
+    reason: "Merged into A-5.1 (seed handling)"
+  - id: A-9.3
+    reason: "Optional visualization (dominance heatmap)"
+  - id: A-9.4
+    reason: "Optional visualization (bar chart)"

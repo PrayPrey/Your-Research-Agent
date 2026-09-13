@@ -1,0 +1,16 @@
+# Conclusion
+
+Is a "truthful" LLM truthful in all the same ways? Our analysis of 50 diverse language models provides a clear answer: No.
+
+We presented the first systematic cross-benchmark correlation study for truthfulness evaluation, demonstrating that TruthfulQA, HaluEval, and FactScore measure three partially independent dimensions. Inter-benchmark correlations (r=0.42–0.58) are moderate—above unrelated-benchmark baselines but well below unity—indicating related but non-identical constructs. PCA confirms this structure: three components are required for 80% variance, with no single factor dominating.
+
+Our mechanism analysis revealed that:
+- **TruthfulQA** measures misconception resistance, distinct from general knowledge (r=0.19 with MMLU vs. r=0.78 within MMLU)
+- **HaluEval** measures generation coherence, nearly orthogonal to misconception resistance (r=0.16 with TruthfulQA)
+- **FactScore** measures atomic factual precision, independent of both (r ≈ 0 with each)
+
+The practical implication is direct: single-benchmark evaluation is insufficient. The divergent profile models—high MMLU but low TruthfulQA—demonstrate that knowing facts does not guarantee avoiding falsehoods. Comprehensive truthfulness assessment requires evaluating all three dimensions.
+
+Looking forward, this work opens several directions. Cross-format validation could disentangle task paradigm effects from underlying construct differences. Longitudinal analysis could track whether multi-dimensional structure persists across model generations. Most importantly, understanding truthfulness as multi-dimensional enables targeted interventions: RLHF for misconception resistance, consistency training for generation coherence, retrieval augmentation for factual precision.
+
+Truthfulness in LLMs is not one skill but several. Evaluation and improvement must treat it as such.

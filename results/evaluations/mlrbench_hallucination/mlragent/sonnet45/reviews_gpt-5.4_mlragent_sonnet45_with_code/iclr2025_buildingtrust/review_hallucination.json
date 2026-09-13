@@ -1,0 +1,52 @@
+{
+    "has_hallucination": true,
+    "hallucinations": [
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims a specific ensemble composition involving real API models and a provider/architecture diversity rationale, but the actual experiment used mock models only. The paper does mention mock models in Section 4.2, yet other parts still describe the evaluated setup as if it queried real OpenAI/Anthropic systems and even discuss architecture diversity and providers as part of the study. The executed code path and log show the experiment was run with simulated responses, not actual API calls, so claims about empirical evaluation of real multi-provider LLM disagreement are overstated.",
+            "evidence": "Paper: \"For this study, we use N=3 models due to API availability constraints, with each model generating K=2 independent samples\" and \"We select models to maximize diversity across: Architectures... Providers: OpenAI (GPT-4o-mini, GPT-3.5-Turbo), Anthropic (Claude-3.5-Haiku).\" Code/log: run_experiment_mock.py imports `from mock_models import MockModelSystem` and log.txt begins with `ADAPTIVE CONFIDENCE CALIBRATION EXPERIMENT (MOCK MODELS)` and `STEP 2: QUERYING MOCK MODELS`."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper states that early stopping was based on validation ECE, but the code actually uses validation BCE loss only. This is a concrete mismatch between reported and implemented training procedure.",
+            "evidence": "Paper: \"training for 20 epochs with early stopping based on validation ECE.\" Code in confidence_calibration.py: `with torch.no_grad(): val_predictions = self.model(X_val); val_loss = criterion(val_predictions, y_val)` followed by `if val_loss < best_val_loss: ... else: patience_counter += 1`."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper defines the 'Uncertainty Estimator' baseline as an equal-weight average of three disagreement metrics, but the implementation uses a precomputed `composite_uncertainty` score from the analyzer, whose default weights are 0.4/0.3/0.3 rather than 1/3 each. Thus the reported baseline formula does not match the code.",
+            "evidence": "Paper: `\\hat{p}_{ue} = 1 - (D_{semantic} + D_{cluster} + D_{length}) / 3`. Code in baselines.py: `uncertainty = analysis_results.get('composite_uncertainty', 0.5)` and in disagreement_analysis.py default weights are `{ 'semantic_dispersion': 0.4, 'cluster_diversity': 0.3, 'length_variance': 0.3 }`."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The paper's semantic dispersion formula averages over all pairs including self-similarities on the diagonal, which would bias the score downward. The implementation excludes diagonal terms. Therefore the equation in the paper does not describe the implemented metric and is mathematically inconsistent with the stated intent of average pairwise dissimilarity.",
+            "evidence": "Paper: `D_{semantic} = 1 - \\frac{1}{|\\mathcal{R}|^2} \\sum_{i,j} \\frac{e_i \\cdot e_j}{\\|e_i\\|\\|e_j\\|}`. Code in disagreement_analysis.py: `avg_similarity = (similarities.sum() - n) / (n * (n - 1))` and `dispersion = 1.0 - avg_similarity`."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The paper defines sharpness as the average of `max(p, 1-p)`, but the code computes sharpness as simply the mean confidence `mean(p)`. The reported metric values and interpretation therefore correspond to a different quantity than the one defined in the paper.",
+            "evidence": "Paper: `Sharpness = \\frac{1}{n}\\sum_i \\max(\\hat{p}_i, 1-\\hat{p}_i)`. Code in evaluation.py: `def sharpness(confidences): return float(np.mean(confidences))`."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims that the majority-voting baseline computes confidence as the count of the most common response over all 6 responses. In practice, the implementation uses exact string matching over raw full responses, while the mocked responses intentionally add stylistic variations and explanations. This makes the baseline very different from semantic majority voting or answer-level aggregation implied by the paper.",
+            "evidence": "Paper: `Confidence equals agreement proportion: count(most common response) / |R|`. Code in baselines.py: `response_texts = [r['response'].lower().strip() ...]` then `Counter(response_texts)`. Mock responses in mock_models.py include stylistic variants like `\"The answer is {correct_answer}\"`, `\"Based on my knowledge, {answer}.\"`, and `\"The correct answer is {answer}. Let me explain why.\"`."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper says for medium/low confidence, it identifies key disagreement points through sentence-level analysis of response differences, but no such sentence-level analysis or explanation-generation mechanism exists in the provided code.",
+            "evidence": "Paper: \"For medium/low confidence, we identify key disagreement points through sentence-level analysis of response differences.\" Codebase contains disagreement_analysis.py, confidence_calibration.py, baselines.py, evaluation.py, visualization.py, but no module/function implementing sentence-level disagreement extraction or explanation generation."
+        },
+        {
+            "type": "Nonexistent Citations",
+            "description": "Several references appear unverifiable or incomplete based on the information provided, and some are suspiciously generic/incomplete compared with standard citation practice. In particular, references [5], [8], [9], and [12] lack venue/arXiv identifiers or full bibliographic details, and [9] duplicates [10] while being described differently in the text. These are likely fabricated or at least not properly real citations.",
+            "evidence": "References section includes: `[5] Yang, Y., Yoo, H., & Lee, H. (2025). MAQA: Evaluating Uncertainty Quantification in LLMs Regarding Data Uncertainty.`; `[8] Vazhentsev, A., ... (2024). Assessing Reliability in Language Models through Uncertainty Quantification.`; `[9] Xu, Z., ... (2025). Self-ensemble: Mitigating Confidence Mis-calibration for Large Language Models.`; `[10] Xu, Z., et al. (2025). Self-ensemble: Mitigating Confidence Mis-calibration for Large Language Models.`; `[12] Wang, X., et al. (2024). Ensemble Methods for Large Language Models.`"
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper presents Figure 3 as evidence that the selective prediction curve is 'relatively flat (hovering around 0.5-0.6 accuracy across coverage levels)'. However, the provided plot clearly rises to around 0.67-0.69 accuracy at lower coverage and is not flat in the way described. This is not fabrication of the underlying numbers, but it is a misleading description of the produced result.",
+            "evidence": "Paper: \"The relatively flat curve (hovering around 0.5-0.6 accuracy across coverage levels) indicates limited ability...\" Provided selective prediction figure shows the curve increasing well above 0.6 at multiple coverage levels, peaking near 0.69."
+        }
+    ],
+    "overall_assessment": "Hallucinations were found. The most serious issues are methodology mismatches between the paper and the actual code (mock models instead of real API evaluation, incorrect early-stopping criterion, mismatched baseline definition, missing explanation component) and metric/equation inconsistencies (semantic dispersion and sharpness). The numerical results in Table 1 largely match the saved metrics, so the experimental table itself does not appear fabricated, but the paper overstates what was actually implemented and evaluated.",
+    "confidence": 5
+}

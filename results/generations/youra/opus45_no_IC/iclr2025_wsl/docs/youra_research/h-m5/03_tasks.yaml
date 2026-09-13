@@ -1,0 +1,206 @@
+# H-M5 Implementation Tasks
+# Generated: 2026-08-12
+# Hypothesis: At N=50K, MLP probe invariance > 0.8 (learned from data diversity)
+# Type: MECHANISM
+# Budget: FULL tier (30 max), 9 Epic tasks used
+
+metadata:
+  hypothesis_id: h-m5
+  hypothesis_type: MECHANISM
+  gate_type: SHOULD_WORK
+  task_budget:
+    tier: FULL
+    total_max: 30
+    epic_range: [6, 12]
+  generated_at: '2026-08-12T21:34:00Z'
+  source_documents:
+    prd: 03_prd.md
+    architecture: 03_architecture.md
+    logic: 03_logic.md
+    config: 03_config.md
+
+task_summary:
+  epic_tasks: 9
+  subtasks: 0
+  total: 9
+  budget_remaining: 21
+  complexity_distribution:
+    very_high: 0
+    high: 0
+    medium: 0
+    low: 9
+
+tasks:
+  - id: S-1
+    name: sys.path + imports setup
+    description: |
+      Wire h-m4/h-m3 code dir constants, import data_gen, probe_invariance,
+      flatten_state_dict; verify MODELZOO_DATA_PATH reachable
+    complexity:
+      score: 4
+      breakdown: "1+2+0+1 (Module_Size + Dependencies + Algorithm + Integration)"
+      tier: low
+    dependencies: []
+    output_files:
+      - h-m5/code/__init__.py
+    acceptance_criteria:
+      - Imports from h-m4/code work without error
+      - MODELZOO_DATA_PATH verified accessible
+
+  - id: S-2
+    name: MLPMatchedWide model
+    description: |
+      New [512,256] hidden-dim MLP variant per PRD FR-2.2.
+      Input: ~50K flattened weights, Output: 1 (accuracy prediction)
+    complexity:
+      score: 3
+      breakdown: "1+0+1+1"
+      tier: low
+    dependencies: []
+    output_files:
+      - h-m5/code/mlp_model_wide.py
+    acceptance_criteria:
+      - MLPMatchedWide class with [512, 256] hidden dims
+      - forward() accepts [batch, ~50K] returns [batch, 1]
+
+  - id: S-3
+    name: Scheduled training loop
+    description: |
+      train_mlp_on_subset with AdamW(wd=1e-4) + CosineAnnealingLR,
+      batch=64, 50 epochs per PRD FR-3.1/3.2
+    complexity:
+      score: 6
+      breakdown: "2+1+2+1"
+      tier: low
+    dependencies:
+      - S-2
+    output_files:
+      - h-m5/code/train_mlp_scheduled.py
+    acceptance_criteria:
+      - AdamW optimizer with weight_decay=1e-4
+      - CosineAnnealingLR scheduler
+      - Returns trained model in eval mode
+
+  - id: S-4
+    name: Full-scale data loading
+    description: |
+      load_model_zoo_population(max_models=None) -> ~42547 models,
+      split 40547/2000, memory-safe batching for ~50K-dim vectors
+    complexity:
+      score: 8
+      breakdown: "3+1+3+1"
+      tier: low
+    dependencies:
+      - S-1
+    output_files: []
+    acceptance_criteria:
+      - Loads full Model Zoo (~42K models)
+      - Train/test split: 40547/2000
+      - No OOM errors on 16GB GPU
+
+  - id: S-5
+    name: R² metrics module
+    description: |
+      compute_r2 (sklearn), compare_with_baseline vs H-M4 fixed values
+      (R²=0.0036, inv=0.9193), gate_logic per PRD gate table
+    complexity:
+      score: 5
+      breakdown: "2+1+2+0"
+      tier: low
+    dependencies: []
+    output_files:
+      - h-m5/code/metrics.py
+    acceptance_criteria:
+      - compute_r2() returns sklearn r2_score
+      - gate_logic() returns PASS/FAIL/INCONCLUSIVE per PRD
+
+  - id: S-6
+    name: Probe invariance reuse
+    description: |
+      Wire h-m4 evaluate_population_invariance over 2000 test models
+      unmodified (methodology parity with H-M4)
+    complexity:
+      score: 3
+      breakdown: "1+2+0+0"
+      tier: low
+    dependencies:
+      - S-1
+    output_files: []
+    acceptance_criteria:
+      - Uses h-m4/code/probe_invariance.py unmodified
+      - 10 permutations per test model
+
+  - id: S-7
+    name: Multi-seed orchestration
+    description: |
+      run_seed + aggregate_seeds across 10 seeds, R² + invariance CI,
+      gate_status computation
+    complexity:
+      score: 6
+      breakdown: "2+2+1+1"
+      tier: low
+    dependencies:
+      - S-3
+      - S-5
+      - S-6
+    output_files: []
+    acceptance_criteria:
+      - Runs 10 seeds with different random states
+      - Aggregates mean/std for R² and invariance
+      - Computes gate_status from aggregated metrics
+
+  - id: S-8
+    name: Visualization suite
+    description: |
+      plot_gate_comparison_bar (N=1K vs N=50K), plot_r2_vs_scale,
+      plot_invariance_histogram, plot_prediction_scatter
+    complexity:
+      score: 6
+      breakdown: "2+2+1+1"
+      tier: low
+    dependencies:
+      - S-7
+    output_files:
+      - h-m5/figures/gate_comparison.png
+      - h-m5/figures/r2_comparison.png
+      - h-m5/figures/invariance_hist.png
+      - h-m5/figures/prediction_scatter.png
+    acceptance_criteria:
+      - 4 figures generated per PRD FR-6
+      - Bar chart comparing H-M4 vs H-M5 invariance
+
+  - id: S-9
+    name: Main orchestration + results
+    description: |
+      Wire S-2..S-8 into main(), results.json with H-M4 comparison,
+      runtime budget (<2hr on ~42K models x 50 epochs x 10 seeds)
+    complexity:
+      score: 7
+      breakdown: "2+2+1+2"
+      tier: low
+    dependencies:
+      - S-4
+      - S-7
+      - S-8
+    output_files:
+      - h-m5/code/run_experiment.py
+      - h-m5/results.json
+    acceptance_criteria:
+      - main() orchestrates full pipeline
+      - results.json contains gate_status
+      - Total runtime < 2 hours
+
+execution_order:
+  - phase: setup
+    tasks: [S-1, S-2]
+  - phase: core
+    tasks: [S-3, S-4, S-5, S-6]
+  - phase: orchestration
+    tasks: [S-7, S-8, S-9]
+
+external_dependencies:
+  h-m4:
+    - data_gen.py
+    - probe_invariance.py
+  h-m3:
+    - test_variance.py (flatten_state_dict)

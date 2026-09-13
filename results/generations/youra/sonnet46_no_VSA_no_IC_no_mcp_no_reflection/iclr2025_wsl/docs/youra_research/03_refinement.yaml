@@ -1,0 +1,193 @@
+metadata:
+  hypothesis_id: H-GenGapEquiv-v1
+  generated: "2026-08-31"
+  phase: "2A → 2B"
+  gap_id: gap_1
+  gap_title: "Systematic Comparison of Equivariant vs. Non-Equivariant Encoders on Generalization Gap Prediction"
+  status: PROCEED_TO_2B
+  convergence_achieved_at_exchange: 7
+
+established_facts:
+  - "Unterthiner et al. 2020 zoo (~10K small CNNs, CIFAR-10) records both train_acc and test_acc; generalization_gap = train_acc − test_acc is directly computable."
+  - "DWS (Navon 2023), NFT (Zhou 2023), GNN (Kofinas 2024) all evaluated on test accuracy only; no prior work targets generalization gap."
+  - "DWS achieves Spearman r ≈ 0.9 on test accuracy; flat MLP baseline from Unterthiner is the comparison point."
+  - "All encoder codebases are public (DWSNets, neural-graphs repos)."
+  - "Schürholt PDFD zoo (2110.15288) provides a second evaluation venue with multi-architecture, broader training diversity."
+  - "Eilertsen 2020 weight statistics (spectral norms, means) serve as a hand-crafted feature baseline."
+
+core_statement:
+  hypothesis_id: H-GenGapEquiv-v1
+  one_sentence: >
+    Permutation-equivariant weight encoders (DWS, NFT, GNN) show a disproportionately
+    larger Spearman correlation improvement over flat MLP on generalization gap prediction
+    (train_acc − test_acc at convergence) compared to their improvement on test accuracy
+    prediction, because architectural parameter sharing across neuron equivalence classes
+    forces distributed weight statistics extraction — the type of signal that generalization
+    gap encodes.
+  claim_type: differential_effect
+  scope: "Convergence-regime overfitting (fully-trained models); not training dynamics."
+
+variables:
+  independent:
+    - name: encoder_type
+      values: [flat_MLP, DWS, NFT, GNN]
+      source_papers: ["2002.11448", "2301.12780", "2305.13546", "2403.12143"]
+  dependent:
+    - name: spearman_r_test_acc
+      description: "Spearman rank correlation of encoder predictions with test accuracy"
+      metric: spearman_r
+    - name: spearman_r_gen_gap
+      description: "Spearman rank correlation of encoder predictions with generalization gap"
+      metric: spearman_r
+    - name: mse_gen_gap
+      description: "Mean squared error on generalization gap prediction"
+      metric: mse
+    - name: partial_corr_gap
+      description: "Partial correlation with gap after controlling for test_acc"
+      metric: partial_spearman
+  key_quantity:
+    name: delta_spearman
+    formula: "Δ = spearman_r_gen_gap(equivariant) − spearman_r_gen_gap(flat_MLP) − [spearman_r_test_acc(equivariant) − spearman_r_test_acc(flat_MLP)]"
+    hypothesis: "Δ > 0 for DWS, NFT, GNN"
+
+causal_mechanism:
+  summary: >
+    Permutation-equivariant encoders achieve invariance through architectural parameter
+    sharing across neuron equivalence classes. This forces the encoder to compute statistics
+    that are averaged over the full orbit of equivalent weight configurations, yielding
+    distributed representations of the weight tensor. Generalization gap (overfitting signal)
+    is distributed across the entire weight tensor — no single neuron or layer localizes it.
+    Flat MLPs, even with sorted/canonicalized weights, learn sorting-dependent spurious
+    features during training that do not generalize. Equivariant architectures cannot
+    learn such features by construction.
+  theoretical_grounding:
+    - "PAC-Bayes flatness and margin measures are permutation-invariant; equivariant encoders have a matching inductive bias."
+    - "Architectural invariance provides stronger inductive bias than preprocessing-based invariance (sorted flat MLP) because parameter sharing is enforced during training, not just at inference."
+    - "Cross-layer attention (NFT) additionally captures inter-layer weight co-variation, which is relevant for generalization gap but less so for test accuracy (a more locally-predictable quantity)."
+
+key_assumptions:
+  A1:
+    statement: "Generalization gap in the Unterthiner zoo has meaningful variance independent of test_acc rank."
+    check: "Compute Spearman(gap, −test_acc); must be < 0.95 in absolute value to proceed on this zoo."
+    fallback: "Use Schürholt PDFD zoo as primary venue if Unterthiner fails this check."
+  A2:
+    statement: "The information in weight tensors sufficient to predict generalization gap is accessible to all four encoder types in principle."
+    justification: "All four encoders operate on the full weight tensor; flat MLP has sufficient capacity to overfit any learnable pattern."
+  A3:
+    statement: "A fixed, equal hyperparameter search budget is sufficient to approximate each encoder's best performance on this task."
+    mitigation: "Report sensitivity across top-5 configurations per encoder."
+  A4:
+    statement: "The Unterthiner zoo's training regime (fixed architecture family, varying LR/WD/optimizer) provides a meaningful test of the hypothesis."
+    limitation: "Result may not generalize to models trained with radically different architectures or objectives."
+
+scope:
+  in_scope:
+    - "Prediction of generalization gap at convergence on fixed-architecture model zoos"
+    - "Comparison of four encoder types: flat MLP, DWS, NFT, GNN"
+    - "Unterthiner CIFAR-10 small CNN zoo; Schürholt PDFD zoo as secondary"
+    - "Spearman correlation and MSE as evaluation metrics"
+    - "Partial correlation analysis to isolate gap-specific signal"
+  out_of_scope:
+    - "Training dynamics or mid-training generalization prediction"
+    - "New architectures or datasets"
+    - "Human evaluation or annotation"
+    - "Synthetic data generation"
+
+predictions:
+  P1:
+    statement: >
+      At least two of three equivariant encoders (DWS, NFT, GNN) show Δ > 0
+      (larger Spearman improvement over flat MLP on gap than on test_acc).
+    threshold: "Δ > 0.02 Spearman units (practical significance threshold)"
+    falsifiable: true
+    primary: true
+  P2:
+    statement: >
+      NFT achieves higher Spearman on generalization gap than DWS, while DWS
+      achieves comparable or better Spearman on test accuracy — reflecting that
+      cross-layer attention (NFT) specifically captures inter-layer co-variation
+      relevant to overfitting.
+    threshold: "NFT Spearman(gap) > DWS Spearman(gap) by ≥ 0.01"
+    falsifiable: true
+    primary: false
+  P3:
+    statement: >
+      Partial correlation of equivariant encoder predictions with generalization gap
+      (after partialling out test_acc) is significantly positive (p < 0.05),
+      indicating equivariant encoders capture gap-specific information beyond
+      what test accuracy encodes.
+    threshold: "Partial Spearman > 0, p < 0.05 for at least one equivariant encoder"
+    falsifiable: true
+    primary: false
+
+experimental_setup:
+  phase_1_data_audit:
+    - "Load Unterthiner metadata CSV"
+    - "Compute Spearman(generalization_gap, −test_acc); check A1 condition"
+    - "Report descriptive statistics for gap distribution"
+  phase_2_encoder_training:
+    dataset: "Unterthiner CIFAR-10 CNN zoo (~10K models)"
+    train_val_test_split: "80/10/10 stratified by hyperparameter configuration"
+    encoders: [flat_MLP, DWS, NFT, GNN]
+    targets: [test_acc, generalization_gap]
+    search_budget: "50 random trials per encoder per target (pre-specified)"
+    metric_for_selection: "Spearman on validation set"
+  phase_3_evaluation:
+    metrics: [spearman_r, mse, partial_spearman_after_test_acc]
+    sensitivity: "Report mean ± std across top-5 configs per encoder"
+    test_set: "Never touched during tuning"
+  phase_4_cross_zoo:
+    dataset: "Schürholt PDFD zoo"
+    purpose: "Generalization test; also primary venue if A1 fails for Unterthiner"
+  baselines:
+    - "Flat MLP (Unterthiner original)"
+    - "Eilertsen weight statistics (spectral norms, layer means)"
+    - "Complexity measures from Jiang et al. 2019 (sharpness, margin) if available on zoo"
+
+novelty:
+  primary: "First controlled comparison of equivariant vs. non-equivariant weight encoders on generalization gap as prediction target"
+  secondary: "First to test whether equivariance advantage is target-dependent (gap vs. test_acc)"
+  theoretical: "First to connect permutation-equivariant inductive bias to PAC-Bayes-style generalization measures"
+  not_novel: "Equivariant encoders for test accuracy prediction (well-established by DWS, NFT, GNN papers)"
+
+related_work:
+  directly_extended:
+    - ref: "Unterthiner et al. 2020 (2002.11448)"
+      relation: "Model zoo and flat MLP baseline; test accuracy target"
+    - ref: "Navon et al. 2023 (2301.12780)"
+      relation: "DWS encoder; Spearman ≈ 0.9 on test accuracy; no gap evaluation"
+    - ref: "Zhou et al. 2023 (2305.13546)"
+      relation: "NFT encoder; symmetry-aware; test accuracy only"
+    - ref: "Kofinas et al. 2024 (2403.12143)"
+      relation: "GNN encoder; competitive with DWS; test accuracy only"
+  supporting:
+    - ref: "Schürholt et al. 2022 (2110.15288)"
+      relation: "PDFD zoo; multi-arch; second evaluation venue"
+    - ref: "Eilertsen et al. 2020 (2002.05688)"
+      relation: "Weight statistics baseline; spectral norms"
+    - ref: "Jiang et al. 2019 (ICLR, Fantastic Generalizations)"
+      relation: "Complexity measures for generalization gap; comparison anchor"
+
+phase2b_readiness:
+  ready: true
+  mandatory_conditions:
+    - "Pre-specify 50-trial search budget before any experiment runs"
+    - "Run data audit (A1 check) before Phase 2 training"
+    - "Include partial correlation analysis in evaluation plan"
+  recommended_additions:
+    - "Eilertsen weight statistics baseline"
+    - "Jiang complexity measures as additional anchor"
+    - "Sensitivity analysis (top-5 vs. top-1 configs)"
+
+decision: PROCEED_TO_2B
+
+discussion_context:
+  exchanges_run: 7
+  convergence_exchange: 7
+  personas: [Dr_Nova, Prof_Vera, Dr_Sage, Prof_Pax, Dr_Ally, Prof_Rex]
+  key_refinements:
+    - "Hypothesis scoped to convergence-regime overfitting (not training dynamics)"
+    - "Theoretical argument reframed as inductive bias strength, not invariance per se"
+    - "PDFD zoo added as secondary venue / fallback"
+    - "Partial correlation analysis added as P3"
+    - "Data audit (A1) elevated to mandatory pre-condition"

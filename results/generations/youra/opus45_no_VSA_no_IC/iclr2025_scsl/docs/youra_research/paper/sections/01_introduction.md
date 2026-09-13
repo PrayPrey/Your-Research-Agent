@@ -1,0 +1,23 @@
+# Introduction
+
+Efficient attention mechanisms promise computational savings, yet the source of these savings often remains unexplained—or worse, misattributed to mechanisms that don't actually operate as claimed. A method that reduces FLOPs by 10% might be celebrated, but whether the *proposed* mechanism (iterative refinement, sparsity, low-rank approximation) actually drives that reduction is rarely verified. This gap between efficiency claims and mechanistic reality has practical consequences: practitioners cannot reliably optimize, extend, or debug methods whose true operating principles remain unknown.
+
+Transformer attention scales quadratically with sequence length, motivating extensive research into efficient variants. Linear attention approximates softmax with kernel methods. Sparse attention restricts the attention pattern. Iterative refinement approaches, inspired by biological attention systems, propose that attention weights evolve across internal steps to converge on task-relevant patterns. These methods report compelling efficiency numbers, but the connection between *proposed mechanism* and *observed efficiency* is typically assumed rather than tested.
+
+We identify a deeper problem: end-to-end benchmarks conflate mechanism with outcome. When temporal dynamic attention achieves 10% FLOP reduction, does the reduction stem from attention patterns converging toward stable distributions (as biological intuition suggests), or from simpler architectural factors? Without decomposing the efficiency claim into testable sub-hypotheses, we cannot distinguish between these possibilities—nor anticipate how the method will behave in new contexts.
+
+This gap matters because mechanistic understanding determines generalizability. If efficiency derives from convergence, scaling temporal steps should amplify the benefit. If efficiency derives from iteration count, the benefit is bounded regardless of sequence length. These predictions diverge sharply, yet typical evaluation cannot distinguish them.
+
+Our key insight is that rigorous mechanism validation requires decomposing efficiency claims into orthogonal sub-hypotheses with explicit falsification criteria. We apply this framework to temporal dynamic attention, hypothesizing that internal temporal steps refine attention toward task-relevant patterns, thereby reducing redundant computation. Our sub-hypothesis decomposition yields a surprising result: **temporal dynamic attention achieves 10.2% FLOP reduction at equivalent perplexity—but through reduced iteration count, NOT through attention convergence.** Attention entropy actually *increases* across temporal steps, directly contradicting the convergence hypothesis.
+
+Building on this analysis, we make the following contributions:
+
+1. **Validated efficiency claim:** We demonstrate 10.2% FLOP reduction with only 0.9% perplexity difference when reducing temporal steps from T=3 to T=2, establishing that reduced iterations are a viable efficiency lever.
+
+2. **Falsified convergence claim:** We show that attention entropy increases (4.099 → 4.139) across temporal steps, refuting the hypothesis that efficiency derives from attention refinement.
+
+3. **Bounded scaling claim:** We establish that FLOP reduction is constant (5.31%) across sequence lengths 128-1024, ruling out sequence-length-dependent efficiency scaling.
+
+4. **Methodological contribution:** We demonstrate sub-hypothesis decomposition with MUST_WORK vs. SHOULD_WORK gates, enabling principled distinction between mechanism and outcome.
+
+These findings illustrate that positive efficiency results can coexist with falsified mechanistic explanations—a situation only detectable through explicit mechanism testing. The following sections position our work against prior efficient attention methods (Section 2), detail our temporal dynamic attention architecture and verification framework (Section 3), describe experiments testing each sub-hypothesis (Section 4), present results (Section 5), interpret findings and acknowledge limitations (Section 6), and conclude with implications for mechanism-aware efficiency research (Section 7).

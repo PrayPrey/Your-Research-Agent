@@ -1,0 +1,133 @@
+\section{Experimental Setup}
+
+Our experimental design tests three core predictions: quality filtering effectiveness decreases with scale (H-E1), diversity sampling effectiveness increases with scale (H-E2), and sequential ordering creates compositional interactions (H-M1). We organize experiments by hypothesis and describe dataset construction, training procedures, and evaluation protocols.
+
+\subsection{Datasets and Scales}
+
+We sample from C4 realnewslike at four log-spaced scales: 10K, 100K, 1M, and 10M tokens. For each scale, we construct five datasets corresponding to our curation strategies (Baseline, Q-only, D-only, QD, DQ). Sampling uses stratified random selection to maintain temporal and domain balance within C4.
+
+\textbf{Size control}: All strategies output exactly 49\% of the original corpus size. This ensures performance differences reflect curation quality, not token count variations. Intermediate filtering steps (Q-only, D-only in two-stage strategies) produce exactly 70\% of original size before final reduction to 49\%.
+
+\subsection{Curation Pipeline Implementation}
+
+\subsubsection{Quality Filtering (V-Information)}
+
+We compute V-Information scores using a GPT-2 Medium reference model trained on a broad web corpus. For each document $d$, we calculate:
+
+\begin{enumerate}
+\item Tokenize $d$ with GPT-2 tokenizer
+\item Compute per-token log-probabilities: $\log p(t_i | t_{<i})$
+\item Average across tokens: V-Info$(d) = -\text{mean}(\log p)$
+\item Retain documents with V-Info $\geq$ 70th percentile
+\end{enumerate}
+
+\textbf{Computational cost}: $\sim$2 GPU-hours per 10M tokens on A100.
+
+\subsubsection{Diversity Sampling (FAC)}
+
+Feature Activation Coverage extraction:
+
+\begin{enumerate}
+\item Pass document through GPT-2 Small (frozen, pretrained)
+\item Extract activations from layer 6 (mid-depth, 768 dimensions)
+\item Average-pool across sequence length
+\item Binarize with threshold $\tau=0.1 \cdot \max(\text{activation})$
+\item Track cumulative feature coverage across selected documents
+\end{enumerate}
+
+\textbf{Greedy selection}: Iteratively select documents maximizing incremental FAC gain until reaching target size (70\% or 49\%). This approximates optimal coverage with $O(n^2)$ complexity.
+
+\textbf{Computational cost}: $\sim$5 GPU-hours per 10M tokens on A100.
+
+\subsection{Training Configuration}
+
+All models use GPT-2 Small (124M parameters) with identical hyperparameters:
+
+\begin{itemize}
+\item \textbf{Architecture}: 12 layers, 768 hidden size, 12 attention heads
+\item \textbf{Training}: 5 epochs, batch size 32, sequence length 1024
+\item \textbf{Optimization}: AdamW ($\beta_1=0.9, \beta_2=0.999, \epsilon=10^{-8}$), learning rate $5 \times 10^{-4}$, linear warmup (500 steps), cosine decay
+\item \textbf{Regularization}: Weight decay 0.01, gradient clipping at norm 1.0
+\item \textbf{Precision}: Mixed-precision (fp16) for efficiency
+\end{itemize}
+
+\textbf{Hardware}: NVIDIA A100 40GB GPUs. Training time ranges from $\sim$30 minutes (10K scale) to $\sim$20 hours (10M scale) per model.
+
+\textbf{Random seeds}: We train 3 independent runs per condition with seeds \{42, 123, 456\} for statistical robustness. Reported metrics are mean $\pm$ standard deviation across seeds.
+
+\subsection{Evaluation Protocol}
+
+We evaluate trained models on three downstream benchmarks without fine-tuning:
+
+\subsubsection{MMLU (General Capability)}
+
+\begin{itemize}
+\item \textbf{Task}: 57-subject multiple-choice questions (STEM, humanities, social sciences)
+\item \textbf{Protocol}: 5-shot in-context learning
+\item \textbf{Metric}: Exact match accuracy (\%)
+\item \textbf{Subset}: We evaluate on the validation split (1,540 examples) for computational efficiency
+\end{itemize}
+
+\subsubsection{BEIR (Information Retrieval)}
+
+\begin{itemize}
+\item \textbf{Task}: Document retrieval across 18 diverse datasets
+\item \textbf{Protocol}: 0-shot, encode queries and documents with mean-pooled embeddings
+\item \textbf{Metric}: nDCG@10 (normalized discounted cumulative gain at rank 10)
+\item \textbf{Subset}: We evaluate on 5 representative datasets (NQ, HotpotQA, FiQA, ArguAna, SciFact)
+\end{itemize}
+
+\subsubsection{GSM8K (Mathematical Reasoning)}
+
+\begin{itemize}
+\item \textbf{Task}: Grade-school math word problems
+\item \textbf{Protocol}: 0-shot, extract numeric answer from generated text
+\item \textbf{Metric}: Exact match accuracy (\%)
+\item \textbf{Subset}: Full test set (1,319 examples)
+\end{itemize}
+
+\textbf{Primary metric}: Average performance across all three benchmarks. We normalize each benchmark to [0, 1] before averaging to ensure equal weighting.
+
+\subsection{Statistical Analysis}
+
+\subsubsection{Trajectory Fitting (H-E1, H-E2)}
+
+For saturation and persistence tests, we fit linear regressions:
+
+\begin{itemize}
+\item \textbf{Model}: $\Delta\text{Metric} = \beta_0 + \beta_1 \cdot \log_{10}(\text{scale}) + \epsilon$
+\item \textbf{Significance}: Two-tailed t-test on $\beta_1$ coefficient
+\item \textbf{Effect size}: $R^2$ (coefficient of determination)
+\end{itemize}
+
+Success criteria: $|\beta_1| > 0$ with $p < 0.05$, $R^2 > 0.8$ (strong linear trend).
+
+\subsubsection{Ordering Effects (H-M1)}
+
+For compositional interaction tests, we compute Cohen's $d$:
+
+\begin{itemize}
+\item \textbf{Effect size}: $d = (\text{mean}_{QD} - \text{mean}_{DQ}) / \text{pooled\_std}$
+\item \textbf{Interpretation}: $|d| > 0.5$ (medium effect), $|d| > 0.8$ (large effect)
+\item \textbf{Significance}: Two-sample t-test (3 seeds per condition)
+\end{itemize}
+
+Success criteria: $d > 0.5$ at all scales with $p < 0.05$.
+
+\subsubsection{Coefficient Extraction (H-C1)}
+
+For compositional model fitting (proof-of-concept mode):
+
+\begin{itemize}
+\item \textbf{Model}: Performance $\approx \alpha_Q \cdot Q_{\text{score}} + \alpha_D \cdot D_{\text{score}} + \beta_0$
+\item \textbf{Method}: Ordinary least squares regression at each scale
+\item \textbf{Trajectory}: Fit $\alpha_Q$ and $\alpha_D$ vs $\log(\text{scale})$
+\end{itemize}
+
+Success criteria: $\alpha_Q$ slope $< 0$ ($p<0.05$), $\alpha_D$ slope $> 0$ ($p<0.05$).
+
+\subsection{Validation and Controls}
+
+\textbf{Contamination check}: We plan to run ConStat contamination detection on final camera-ready version. For this submission, we acknowledge contamination risk and use standard evaluation protocols (few-shot, no test-time tuning) to minimize impact.
+
+\textbf{Hyperparameter sensitivity}: We validated 5-epoch training via pilot experiments showing convergence plateau by epoch 4--5 across all scales. Alternative hyperparameters (learning rate $10^{-4}$, 3 epochs) produced similar trends but weaker absolute performance.

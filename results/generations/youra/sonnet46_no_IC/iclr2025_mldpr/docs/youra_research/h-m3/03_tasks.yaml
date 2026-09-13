@@ -1,0 +1,337 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m3
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  complexity_score: 8
+  complexity_level: Simple/Moderate
+  incremental: true
+  base_hypothesis: h-e1
+  created_at: "2026-08-05"
+
+budget_summary:
+  epic_tasks: 10
+  subtasks: 5
+  setup_tasks: 1
+  failsafe_tasks: 1
+  total: 17
+  within_budget: true
+
+tasks:
+  # ── SETUP ────────────────────────────────────────────────────────────────
+  - id: S-0
+    type: setup
+    priority: 94
+    title: "Environment setup"
+    description: >
+      Verify Python environment and install required packages.
+      Requirements: statsmodels>=0.14, numpy>=1.24, pandas>=2.0,
+      scipy>=1.10, matplotlib>=3.7, patsy>=0.5, pyarrow>=11.0.
+      Verify H-E1 parquet exists at docs/youra_research/h-e1/results/preprocessed.parquet.
+      Verify H-M2 primary_results.json exists (prerequisite gate context).
+    dependencies: []
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "## 9. Dependencies"
+
+  # ── EPIC TASKS ────────────────────────────────────────────────────────────
+  - id: A-1
+    type: setup
+    priority: 93
+    title: "Setup & path constants"
+    description: >
+      Create h-m3 directory structure (code/, figures/, results/).
+      Verify H-E1 preprocessed parquet is accessible.
+      Define module-level constants: BASE_DIR, H_E1_PARQUET, H_E1_CSV_FALLBACK,
+      EXPECTED_N=5217, BIN_BREAKS=[-1,0,2,5,inf], BIN_LABELS=["0","1-2","3-5","6+"].
+    complexity: 5
+    dependencies: [S-0]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_architecture.md"
+        section: "## File Organization"
+      - path: "docs/youra_research/h-m3/03_config.md"
+        section: "### 01_preprocess.py Constants"
+
+  - id: A-2
+    type: data-pipeline
+    priority: 92
+    title: "Implement 01_preprocess.py"
+    description: >
+      Load H-E1 parquet (docs/youra_research/h-e1/results/preprocessed.parquet).
+      Full corpus N=5,217 (no filtering — use all rows).
+      Derive tag_count if not present: df['tags'].apply(lambda x: count commas + 1 if non-null/non-empty else 0).
+      Derive tag_count_cat via pd.cut(bins=BIN_BREAKS, labels=BIN_LABELS).astype(str).
+      Verify controls present: log_n_instances, log_n_features, age_years, age_sq, decade.
+      Validate all 4 bins non-empty. Print bin distribution.
+      CSV fallback: h-e1/code/data/h_e1/openml_dataset_corpus.csv.
+    complexity: 8
+    dependencies: [A-1]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-01"
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-02"
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-03"
+      - path: "docs/youra_research/h-m3/03_architecture.md"
+        section: "### 01_preprocess"
+      - path: "docs/youra_research/h-m3/03_config.md"
+        section: "### 01_preprocess.py Constants"
+
+  - id: A-3
+    type: model
+    priority: 88
+    title: "Implement CT LR test + baseline NB-2"
+    description: >
+      Implement ct_lr_test(df) using FORMULA_BASELINE (controls-only Poisson + NB-2).
+      LR = 2*(llf_NB2 - llf_Poisson) ~ chi2(1). Expected >> 3.84.
+      Implement fit_nb2(formula, df, label) -> dict (same contract as H-E1).
+      Copy NumpyEncoder from H-E1 verbatim.
+      Fit baseline NB-2 and Poisson. Save CT LR result.
+    complexity: 7
+    dependencies: [A-2]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-04"
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## External Dependencies API"
+      - path: "docs/youra_research/h-m3/03_architecture.md"
+        section: "### 02_fit_models"
+
+  - id: A-4
+    type: model
+    priority: 85
+    title: "Implement categorical NB-2 (primary model)"
+    description: >
+      Fit NB-2 with FORMULA_CAT = "N_tasks ~ C(tag_count_cat) + log_n_instances + log_n_features + age_years + age_sq + C(decade)".
+      IMPORTANT: Store raw statsmodels result object (needed for t_test_pairwise in A-6).
+      Implement extract_cat_irr(fit_result_dict) -> dict keyed by "1-2","3-5","6+".
+      Parameter key format: "C(tag_count_cat)[T.1-2]" etc. Strip prefix/suffix to get label.
+      Serialize IRR, CI (exponentiated), pvalues per category.
+    complexity: 9
+    dependencies: [A-3]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-06"
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-4-1: extract_cat_irr()"
+
+  - id: A-5
+    type: model
+    priority: 82
+    title: "Implement monotonicity check"
+    description: >
+      Implement check_monotonicity(cat_irr: dict) -> tuple[bool, dict].
+      Check: IRR("1-2") > 1.0 AND IRR("1-2") < IRR("3-5") AND IRR("3-5") < IRR("6+").
+      Strict ordering — all three IRRs must be > 1.0 (positive vs reference "0").
+      Return (is_monotonic, irr_values_dict).
+    complexity: 6
+    dependencies: [A-4]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-07"
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-6-2: check_monotonicity()"
+
+  - id: A-6
+    type: model
+    priority: 80
+    title: "Implement adjacent contrast testing (Bonferroni)"
+    description: >
+      Implement test_adjacent_contrasts(fit_result_obj, bonf_alpha=0.0167).
+      Use raw statsmodels object (NOT the fit_nb2 dict). Call:
+        pw = fit_result_obj.t_test_pairwise('C(tag_count_cat)', method='bonferroni')
+      Extract adjacent pairs only: (0 vs 1-2), (1-2 vs 3-5), (3-5 vs 6+).
+      Use flexible string matching on pw.result_frame.index (format varies by statsmodels version).
+      Count n_passing: contrasts with Bonferroni-corrected p < 0.0167.
+      Gate condition: n_passing >= 2.
+    complexity: 9
+    dependencies: [A-5]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-08"
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-6-1: test_adjacent_contrasts()"
+
+  - id: A-7
+    type: model
+    priority: 75
+    title: "Implement RC-6 and RC-7 robustness checks"
+    description: >
+      RC-6: Fit NB-2 with FORMULA_RC6 = C(tag_count_cat)*C(decade) interaction.
+      RC-7: Fit NB-2 with FORMULA_RC7 = no C(decade) FE.
+      Compute attenuation ratios per category: IRR_no_fe / IRR_with_fe.
+      Report mean attenuation. Serialize all to model_results.json.
+    complexity: 8
+    dependencies: [A-6]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-09"
+      - path: "docs/youra_research/h-m3/03_architecture.md"
+        section: "### 02_fit_models"
+
+  - id: A-8
+    type: evaluation
+    priority: 68
+    title: "Implement 04_evaluate_gate.py"
+    description: >
+      Load model_results.json. Extract is_monotonic, n_adj_passing from model data.
+      Gate logic (SHOULD_WORK):
+        gate_pass = is_monotonic AND n_adj_passing >= 2
+      result = 'PASS' if gate_pass else 'INFORMATIVE_NEGATIVE'.
+      Save primary_results.json with: gate, hypothesis, is_monotonic, n_adjacent_contrasts_passing,
+      bonferroni_alpha, passed, result, irr_by_category, ci_lower, ci_upper, pvalues, n_corpus, bin_counts.
+    complexity: 7
+    dependencies: [A-7]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-10"
+      - path: "docs/youra_research/h-m3/03_architecture.md"
+        section: "### 04_evaluate_gate"
+      - path: "docs/youra_research/h-m3/03_config.md"
+        section: "### 04_evaluate_gate.py Constants"
+
+  - id: A-9
+    type: evaluation
+    priority: 60
+    title: "Implement 5 figures in 03_generate_figures.py"
+    description: >
+      Generate 5 figures at 300 DPI PNG, saved to docs/youra_research/h-m3/figures/.
+      Fig 1 (MANDATORY): IRR bar chart — 4 categories (0,1-2,3-5,6+) with 95% CI error bars;
+        reference lines at IRR=1.0 and IRR=1.1; color-coded by significance.
+      Fig 2: Dose-response plot — IRR by category, colored by adjacent contrast significance
+        (green=sig at 0.0167, orange=marginal, red=not sig).
+      Fig 3: Category distribution — bar chart of N per tag_count_cat bin.
+      Fig 4: Adjacent contrast forest plot — 3 horizontal CI intervals + Bonferroni threshold marker.
+      Fig 5: Attenuation comparison — IRR per category with vs without C(decade) FE (RC-7 vs primary).
+    complexity: 10
+    dependencies: [A-8]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### FR-11"
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-9-1: fig1_irr_bar_chart()"
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-9-2: fig4_contrast_forest()"
+
+  - id: A-10
+    type: evaluation
+    priority: 50
+    title: "Integration test & end-to-end run"
+    description: >
+      Implement code/05_integration_test.py.
+      Run scripts 01→04 sequentially; fail fast on non-zero exit.
+      Verify: preprocessed data (N=5217, all 4 bins non-empty).
+      Verify: model_results.json (cat NB-2 converged, ct_lr_test present).
+      Verify: primary_results.json (result in PASS/INFORMATIVE_NEGATIVE, is_monotonic field present).
+      Verify: 5 figures exist and non-empty (> 1000 bytes each).
+      Print: "INTEGRATION TEST PASSED" on success.
+    complexity: 9
+    dependencies: [A-9]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_config.md"
+        section: "### C-10-1: Integration Test Assertions"
+
+  # ── SUBTASKS ────────────────────────────────────────────────────────────
+  - id: L-4-1
+    type: subtask
+    priority: 48
+    title: "extract_cat_irr(): categorical IRR extraction from fit_nb2 dict"
+    description: >
+      Implement extract_cat_irr(fit_result: dict) -> dict[str, dict[str, float]].
+      Scan fit_result['params'] for keys starting with "C(tag_count_cat)[T.".
+      Strip prefix "C(tag_count_cat)[T." and suffix "]" to get label ("1-2", "3-5", "6+").
+      For each: irr = exp(params[key]), ci_lower = exp(conf_int[key][0]), ci_upper = exp(conf_int[key][1]).
+      Note: conf_int is a dict with [lower_log, upper_log] per H-E1 fit_nb2 contract.
+    parent_epic: A-4
+    dependencies: [A-3]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-4-1: extract_cat_irr()"
+
+  - id: L-6-1
+    type: subtask
+    priority: 44
+    title: "test_adjacent_contrasts(): t_test_pairwise + adjacent pair filtering"
+    description: >
+      Implement test_adjacent_contrasts(fit_result_obj, bonf_alpha=0.0167).
+      Call: pw = fit_result_obj.t_test_pairwise('C(tag_count_cat)', method='bonferroni').
+      Adjacent pairs: ('0','1-2'), ('1-2','3-5'), ('3-5','6+').
+      Match rows with flexible string matching (both a and b in str(idx)).
+      Get Bonferroni p-value from 'pvalue-bonferroni' column (fallback: multiply raw p by 3).
+      Count n_passing where bonf_p < bonf_alpha.
+      Return (pw_df, n_passing, adj_pvals_dict).
+    parent_epic: A-6
+    dependencies: [A-5]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-6-1: test_adjacent_contrasts()"
+
+  - id: L-6-2
+    type: subtask
+    priority: 42
+    title: "check_monotonicity(): strict ordering check"
+    description: >
+      Implement check_monotonicity(cat_irr: dict) -> tuple[bool, dict[str, float]].
+      Extract IRR values for labels "1-2", "3-5", "6+" from cat_irr[label]['irr'].
+      Strict monotonic check: v12 > 1.0 AND v12 < v35 AND v35 < v6p.
+      Return (is_monotonic, {'1-2': v12, '3-5': v35, '6+': v6p}).
+      Handle missing category keys gracefully (return False if any missing).
+    parent_epic: A-6
+    dependencies: [L-6-1]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-6-2: check_monotonicity()"
+
+  - id: L-9-1
+    type: subtask
+    priority: 35
+    title: "fig1_irr_bar_chart(): mandatory gate metrics bar chart"
+    description: >
+      Implement fig1_irr_bar_chart(results: dict, save_dir: str).
+      4 bars: categories "0" (reference, IRR=1.0), "1-2", "3-5", "6+".
+      Y-axis: IRR; error bars from ci_lower/ci_upper; cap size 5.
+      Horizontal dashed lines: IRR=1.0 (black) and IRR=1.1 (orange dotted).
+      Colors: grey for "0", blues/greens for positive categories.
+      Save as 'fig1_irr_bar_chart.png' at 300 DPI.
+    parent_epic: A-9
+    dependencies: [A-8]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-9-1: fig1_irr_bar_chart()"
+
+  - id: L-9-2
+    type: subtask
+    priority: 33
+    title: "fig4_contrast_forest(): adjacent contrast forest plot"
+    description: >
+      Implement fig4_contrast_forest(results: dict, save_dir: str).
+      3 horizontal CI intervals for: (0 vs 1-2), (1-2 vs 3-5), (3-5 vs 6+).
+      Color: green if Bonferroni p < 0.0167, red otherwise.
+      Vertical line at IRR=1.0. Annotate p-values on right.
+      Save as 'fig4_contrast_forest.png' at 300 DPI.
+    parent_epic: A-9
+    dependencies: [L-9-1]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_logic.md"
+        section: "## L-9-2: fig4_contrast_forest()"
+
+  # ── FAILSAFE ─────────────────────────────────────────────────────────────
+  - id: F-1
+    type: failsafe
+    priority: 1
+    title: "Failsafe: INFORMATIVE_NEGATIVE handling and convergence fallback"
+    description: >
+      If gate result is INFORMATIVE_NEGATIVE (non-monotonic OR <2/3 contrasts pass):
+      This is scientifically valid — binary/continuous dose-response is the full FAIR F1 signal.
+      Document in primary_results.json with result='INFORMATIVE_NEGATIVE'.
+      Do NOT re-route to Phase 0 (SHOULD_WORK gate — informative negatives are acceptable).
+      If NB-2 fails to converge with BFGS: try method='nm' (Nelder-Mead) fallback.
+      If any bin has < 10 datasets: report and consider merging 3-5 and 6+ bins.
+      Convergence fallback: increase maxiter to 500; if still fails, use nm method.
+    dependencies: [A-8]
+    reference_files:
+      - path: "docs/youra_research/h-m3/03_prd.md"
+        section: "### Failure Conditions"

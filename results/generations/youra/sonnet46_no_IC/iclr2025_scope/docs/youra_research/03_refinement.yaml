@@ -1,0 +1,413 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-05T00:00:00"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+  gap_title: "No Empirical Study Linking Pre-Trained Weight Effective Rank to Optimal LoRA Rank"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 15
+  convergence_reason: "All 6 criteria PASS at Exchange 15 (min_exchanges=15); all 6 personas participated"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Per-layer rank allocation outperforms uniform rank (LAARA 2026 formal proof, AdaLoRA 2023 empirical)"
+      status: "BUILD_ON"
+      evidence: "LAARA Theorem 1 — Fisher-optimal allocation beats uniform; AdaLoRA 0.3-1.2% GLUE improvement over uniform LoRA"
+    - claim: "Pre-trained transformer layers have different intrinsic dimensionalities"
+      status: "BUILD_ON"
+      evidence: "Aghajanyan et al. 2021 — d_90 varies per layer; layer-type (attention vs FFN) differences statistically significant"
+    - claim: "W₀ singular value structure encodes adaptation-relevant information"
+      status: "BUILD_ON"
+      evidence: "PiSSA 2024, LoRA-XS 2024 — W₀ SVD used for initialization; IFCLoRA 2026 — pre-training structure predicts rank"
+    - claim: "erank(W₀) = exp(H(σ/‖σ‖₁)) correlates with PARA oracle ranks at r ≥ 0.65"
+      status: "PROVE_NEW"
+      evidence: "No published study — core hypothesis to be validated"
+    - claim: "erank-proportional rank assignment achieves within 1% of oracle performance"
+      status: "PROVE_NEW"
+      evidence: "No published study — DQ4 utility prediction to be validated"
+  scope_reduction_percentage: 60
+  phase2b_4_instructions: |
+    BUILD_ON claims (established): skip re-verification, use as theoretical motivation.
+    PROVE_NEW claims: these are the experimental targets. Phase 2B should generate
+    sub-hypotheses H-E1 (existence: erank-oracle correlation) and H-M1 (mechanism:
+    adaptation magnitude correlation) from these claims. Phase 4 must implement
+    PARA oracle and erank computation to validate PROVE_NEW claims.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-erank-v1"
+  confidence_level: 0.72
+  core_hypothesis_statement: |
+    Under pre-trained transformer models {BERT-base-uncased, DeBERTa-v3-base, ViT-base-patch16-224}
+    with adequate fine-tuning (≥3 epochs NLP on full GLUE MNLI 392k samples; ≥5 epochs ViT on
+    CIFAR-10 50k samples), if per-layer effective rank erank(W₀) = exp(H(σ/‖σ‖₁)) of each
+    weight matrix W₀ is computed from pre-trained weights (fp32 precision, before any fine-tuning),
+    then it demonstrates statistically significant positive Pearson correlation (r ≥ 0.65,
+    one-tailed H₁: α > 0) with per-layer marginal PARA oracle ranks (argmax over r ∈ {4,8,16,32,64}
+    of validation accuracy, all non-target layers frozen at baseline r=8) across ≥2 of the 3
+    model families, because effective rank captures the geometric complexity of each layer's
+    pre-training representation — layers with spread-out singular spectra have more non-dominated
+    directions and require higher-rank LoRA updates to capture task-relevant signal.
+  alternative_hypothesis_h0: |
+    There is no significant positive correlation between erank(W₀) and PARA oracle ranks
+    (Pearson r ≤ 0 for ≥2/3 model families, or 0 < r < 0.65 for all 3 families).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "erank(W₀) per layer"
+      type: "continuous"
+      operationalization: |
+        For each weight matrix W₀ ∈ {query, key, value, output, intermediate, output_dense}:
+        S = torch.linalg.svdvals(W₀.float())
+        S = S[S > 1e-10]
+        p = S / S.sum()
+        erank = torch.exp(-(p * torch.log(p)).sum()).item()
+        Range: [1, min(d_in, d_out)]. Computed before any fine-tuning.
+  dependent:
+    - name: "PARA oracle rank per layer"
+      type: "categorical_ordinal"
+      operationalization: |
+        For each layer l: train LoRA with r_l ∈ {4,8,16,32,64}, all other layers at r=8 (frozen).
+        oracle_rank_l = argmax_{r ∈ {4,8,16,32,64}} validation_accuracy(r).
+        Training: AdamW lr=2e-5, batch=32, ≥3 epochs MNLI (NLP); AdamW lr=1e-4, batch=128, ≥5 epochs CIFAR-10 (ViT).
+      primary: true
+    - name: "Pearson r(erank, oracle_rank) per model family"
+      type: "continuous"
+      operationalization: "scipy.stats.pearsonr over all layers in one model family. Primary test statistic."
+      primary: true
+    - name: "Fine-tuning performance with erank-proportional ranks"
+      type: "continuous"
+      operationalization: |
+        erank percentile assignment: top-20% → r=64, 20-40% → r=32, 40-60% → r=16,
+        60-80% → r=8, bottom-20% → r=4. Total param budget held constant.
+        Metric: validation accuracy (MNLI) or top-1 accuracy (CIFAR-10).
+      primary: false
+  controlled:
+    - name: "Model architecture"
+      operationalization: "Fixed: BERT-base-uncased, DeBERTa-v3-base, ViT-base-patch16-224 (HuggingFace pretrained)"
+    - name: "Baseline rank for non-target layers"
+      operationalization: "Fixed at r=8 for all non-target layers in PARA oracle sweep"
+    - name: "Training hyperparameters"
+      operationalization: "AdamW optimizer, fixed LR per family, fixed batch size, fixed epochs (≥3 NLP, ≥5 ViT)"
+    - name: "Numerical precision"
+      operationalization: "fp32 for all SVD computations (bf16 inflates erank — h-e1 lesson)"
+    - name: "Random seed"
+      operationalization: "Fixed seed per run for reproducibility"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: |
+        Pre-training via gradient descent on large corpora shapes the singular value distribution
+        of each weight matrix. Layers performing complex, distributed transformations (deep FFN,
+        cross-modal attention) develop spread-out singular spectra (high erank). Layers performing
+        simpler, more redundant transformations (early attention, position encodings) develop
+        concentrated singular spectra (low erank).
+      evidence: |
+        h-e1 data: ViT entropy increases with depth (early 4.27 → late 6.44).
+        BERT Levene p=0.0001 for attention vs FFN type grouping.
+        Aghajanyan 2021: d_90 varies per layer; pre-training minimizes intrinsic dim.
+      falsifier: "If erank shows no layer-type or depth variation in pretrained models (Levene p > 0.05, CV < 0.02 across all layers)"
+    - step: 2
+      description: |
+        High-erank matrices have their singular mass spread across many directions — no dominant
+        subspace. When LoRA adds ΔW = BA (rank r), the update must align with task-relevant
+        signal that is not already captured by the dominant pre-training directions. In high-erank
+        matrices, more orthogonal directions exist, requiring higher rank to capture diverse
+        task-relevant signal without redundancy.
+      evidence: |
+        Theoretical: Dr. Nova's direction argument (Exchange 7) — high erank → non-dominated
+        directions → higher rank needed to span task-relevant subspace.
+        Indirect: AdaLoRA assigns higher ranks to deeper layers and FFN matrices, consistent
+        with higher erank in those regions.
+      falsifier: "If LoRA update directions show no relationship to W₀ singular direction spread (alignment study: Spearman ρ < 0.1)"
+    - step: 3
+      description: |
+        The PARA oracle, which independently optimizes rank per layer on the target task, assigns
+        higher ranks to the same layers that have high erank — because those layers benefit most
+        from high-rank updates (more task-relevant signal to capture). This creates the empirically
+        measurable positive Pearson correlation between erank(W₀) and oracle_rank.
+      evidence: |
+        IFCLoRA 2026: pre-training structure (activation-based) does predict optimal rank before
+        training — establishes the structural-predictor premise. erank is purely structural (no
+        activation needed), strengthening the task-agnostic claim.
+      falsifier: "Pearson r < 0.65 for all 3 model families (primary falsification of P1)"
+  key_tension: |
+    The Burer-Monteiro non-convex optimization landscape of LoRA means that the optimal rank
+    for a layer may depend on training dynamics and task alignment, not just W₀ geometry.
+    High-erank layers might learn low-rank updates if the task signal happens to align with
+    dominant W₀ singular directions. This tension is resolved empirically by P1.
+  evidence_summary: |
+    Indirect support: h-e1 ViT depth variation; BERT attention vs FFN Levene significance;
+    Aghajanyan 2021 per-layer d_90 variation; LAARA 2026 Fisher-optimal > uniform rank;
+    IFCLoRA 2026 structural predictor premise. Direct evidence (P1): pending Phase 4 experiments.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "erank(W₀) shows sufficient variation across layers within each model family (dynamic range > 0.05 CV) to enable correlation analysis"
+    supporting_evidence: "h-e1 data: ViT erank variation by depth confirmed; BERT attention vs FFN type differences confirmed (Levene p=0.0001). Erank has wider dynamic range than spectral entropy by construction."
+    consequence_if_violated: "Correlation is undetectable regardless of mechanism validity; hypothesis cannot be validated with this metric. Fallback: use participation ratio PR(W₀) or effective rank of layer-normalized matrices."
+  - id: "A2"
+    assumption: "The marginal PARA oracle (per-layer independent rank sweep, others frozen at r=8) produces stable and meaningful rank assignments (oracle ranks are consistent across random seeds)"
+    supporting_evidence: "GLUE benchmarks have sufficient validation set size for stable accuracy estimates; 392k MNLI training samples ensure oracle training is not noise-dominated; AdamW with fixed LR produces consistent results."
+    consequence_if_violated: "Oracle ranks are noisy — correlation inflated or deflated by measurement error. Mitigation: run each oracle training with 2 seeds, use mean accuracy for argmax."
+  - id: "A3"
+    assumption: "The positive direction holds: erank(W₀) positively predicts oracle rank (not negatively)"
+    supporting_evidence: "Theoretical derivation (Exchange 7): high-erank → spread singular directions → more non-dominated signal → higher rank needed. AdaLoRA learned allocations: deeper/FFN layers get higher rank, consistent with higher erank in those regions."
+    consequence_if_violated: "Pearson r < 0 — direction is inverted. Hypothesis is falsified in its stated form; requires reinterpretation (concentrated layers may need more rank to compensate for poor low-rank approximation)."
+  - id: "A4"
+    assumption: "erank-oracle correlation generalizes across NLP tasks (task-agnosticity): oracle ranks for MNLI and SST-2 agree at Spearman ρ ≥ 0.7"
+    supporting_evidence: "IFCLoRA shows structural predictor generalizes across tasks (their IFC metric is task-class agnostic). Aghajanyan 2021: intrinsic dim partially task-independent (pre-training is the dominant factor)."
+    consequence_if_violated: "erank is a task-SPECIFIC predictor, not task-agnostic. Claim scope must be reduced to per-task erank estimation with calibration data (loses zero-data advantage over IFCLoRA)."
+  - id: "A5"
+    assumption: "erank(W₀) captures the relevant structural property better than spectral entropy H(W₀) (h-e1 failed metric)"
+    supporting_evidence: "Theoretical: erank = exp(H(normalized_singular_values)) uses normalized distribution — avoids scale sensitivity. Empirical: spectral entropy CV bounded 0.03-0.08 across pretrained transformers; erank uses ratio of spectral values, providing wider dynamic range."
+    consequence_if_violated: "erank shows same ceiling effect as spectral entropy (CV < 0.05 across layers). Fallback: participation ratio PR(W₀) as alternative (DQ5). Consider rank diversity (count of singular values > 1% of max) as tertiary metric."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Pre-trained transformer encoder models (BERT-family, DeBERTa-family)
+    - Pre-trained vision transformer models (ViT-family)
+    - Classification tasks with standard train/validation splits (GLUE NLU, image classification)
+    - LoRA rank selection for full fine-tuning (not quantized, not adapter-only)
+    - Weight matrices: attention Q/K/V/O projections, FFN intermediate/output dense layers
+    - Model scale: base-scale models (BERT-base, DeBERTa-v3-base, ViT-base ~86M-440M params)
+  does_not_apply_to: |
+    - Decoder-only LLMs (GPT, LLaMA) — not tested; architectural differences in causal attention
+    - Quantized models (4-bit, 8-bit) — SVD precision requirements not met
+    - Generation tasks (translation, summarization) — PARA oracle requires classification metric
+    - Models fine-tuned before erank computation (erank must be from pretrained W₀, not adapted)
+    - Embedding layers and layer normalization (not standard LoRA targets)
+  known_limitations: |
+    - Marginal oracle ≠ joint-optimal oracle: correlation with marginal oracle does not guarantee
+      erank-derived allocation matches globally optimal joint allocation
+    - erank is a scalar summary of the full singular value distribution; full spectrum provides
+      more information but is less interpretable
+    - Oracle sweep requires 5 × n_layers training runs per (model, task) pair: ~15 days on 5×H100
+    - Cross-architecture claim (NLP→ViT) tested only on CIFAR-10; may not generalize to other
+      vision tasks (detection, segmentation)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: |
+      Pearson r(erank(W₀_l), oracle_rank_l) ≥ 0.65 across all layers l within each model
+      family, for ≥2 of 3 families {BERT-base, DeBERTa-v3-base, ViT-base}.
+    test_method: |
+      Compute erank for all weight matrices in W₀ (fp32). Run PARA oracle sweep (r ∈ {4,8,16,32,64},
+      all non-target layers at r=8). Compute Pearson r with 95% CI (bootstrap n=1000).
+      One-tailed test H₁: r > 0. α = 0.05.
+    success_criterion: "r ≥ 0.65 for ≥2/3 families (one-tailed p < 0.05)"
+    falsification: "r < 0 for ≥2/3 families (wrong direction) OR 0 < r < 0.65 for all 3 families (signal too weak)"
+  - id: "P2"
+    primary: false
+    statement: |
+      erank-proportional rank assignment (percentile mapping to {4,8,16,32,64}) achieves
+      validation accuracy within 1% (absolute) of PARA oracle and outperforms uniform r=8 baseline.
+    test_method: |
+      Assign ranks by erank percentile (top-20%→r=64, ..., bottom-20%→r=4). Train LoRA with
+      these ranks (same total parameter budget as uniform r=8). Compare on MNLI validation,
+      SST-2 validation, CIFAR-10 test.
+    success_criterion: "accuracy(erank-strategy) ≥ accuracy(oracle) - 1% AND accuracy(erank-strategy) > accuracy(uniform-r8)"
+    falsification: "accuracy(erank-strategy) < accuracy(uniform-r8) OR gap to oracle > 1%"
+  - id: "P3"
+    primary: false
+    statement: |
+      The relative adaptation magnitude ‖ΔW_opt‖_F / ‖W₀‖_F per layer correlates with
+      erank(W₀) at Spearman ρ ≥ 0.5 (mechanism check — layers with higher erank show larger
+      relative adaptation).
+    test_method: |
+      After oracle training runs: for each layer l at oracle rank r_l, record ‖ΔW_opt_l‖_F / ‖W₀_l‖_F.
+      Compute Spearman ρ with erank(W₀_l). Two-tailed test at α = 0.05.
+    success_criterion: "Spearman ρ ≥ 0.5 for ≥2/3 families"
+    falsification: "ρ < 0.2 for all families (mechanism: adaptation magnitude decoupled from erank)"
+  - id: "P4"
+    primary: false
+    statement: |
+      Levene test on oracle ranks grouped by erank tercile (bottom vs top third) significant
+      at p < 0.05 for ≥2/3 model families, using layer-TYPE grouping (attention vs FFN/MLP).
+    test_method: |
+      Split layers by erank tercile (bottom 33% vs top 33%). Run Levene test on oracle ranks
+      in each tercile group. Also run Levene with layer-type grouping (attention vs FFN).
+    success_criterion: "Levene p < 0.05 for ≥2/3 families (tercile OR type grouping)"
+    falsification: "Levene p > 0.05 for all families in both groupings"
+  - id: "P5"
+    primary: false
+    statement: |
+      Participation ratio PR(W₀) = (Σσᵢ)² / Σσᵢ² and erank(W₀) agree in layer ranking at
+      Spearman ρ ≥ 0.8 across all layers within each model family.
+    test_method: |
+      Compute PR(W₀) for all matrices. Compute Spearman ρ(erank, PR) per model family.
+    success_criterion: "ρ ≥ 0.8 for all 3 families"
+    falsification: "ρ < 0.6 for any family (metrics disagree — choose better predictor)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "GLUE MNLI + SST-2 (NLP); CIFAR-10 (Vision)"
+    type: "standard"
+    source: "HuggingFace datasets (glue, cifar10)"
+    path: "HuggingFace Hub — no local download required"
+    hypothesis_fit: |
+      MNLI (392k samples) provides sufficient training data for stable 3-epoch oracle runs.
+      SST-2 enables task-agnosticity validation (second NLP task). CIFAR-10 (50k samples)
+      provides cross-architecture validation with ViT-base. All are standard classification
+      benchmarks with fixed train/validation splits — no custom evaluation needed.
+  model:
+    name: "BERT-base-uncased, DeBERTa-v3-base, ViT-base-patch16-224"
+    type: "pretrained_transformer"
+    source: "HuggingFace Hub (bert-base-uncased, microsoft/deberta-v3-base, google/vit-base-patch16-224)"
+    hypothesis_fit: |
+      Three architecturally distinct models: BERT (encoder, absolute position), DeBERTa (encoder,
+      disentangled attention), ViT (vision encoder, patch attention). Testing ≥2/3 families
+      validates cross-architecture generalization. All models are base-scale — SVD computation
+      feasible in fp32 on CPU.
+  baselines:
+    - name: "Uniform LoRA r=8"
+      method: "Standard LoRA with identical rank r=8 across all layers — current default practice"
+    - name: "AdaLoRA (learned allocation)"
+      method: "AdaLoRA's training-time SVD-based rank allocation — primary competitor"
+    - name: "IFCLoRA-inspired (calibration-based)"
+      method: "Activation-based IFC from 128-sample calibration set — closest structural predictor"
+    - name: "PARA oracle (upper bound)"
+      method: "Per-layer marginal oracle sweep — theoretical upper bound for rank selection quality"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: |
+    First empirical study measuring Pearson/Spearman correlation between erank(W₀) and
+    PARA oracle ranks per layer. First zero-data (no calibration required), task-agnostic,
+    static structural predictor for LoRA rank. First cross-architecture (NLP + ViT) evaluation
+    of a W₀-based rank predictor.
+  key_innovation: |
+    erank(W₀) provides zero-cost (single SVD, no training, no calibration data) per-layer
+    rank prediction. This is qualitatively different from all prior work: AdaLoRA requires
+    full training, IFCLoRA requires calibration forward pass, LAARA requires gradient computation.
+    erank requires only the pretrained weights — available before any fine-tuning begins.
+  differentiation:
+    - prior_work: "AdaLoRA (Zhang et al. 2023) — SVD of ΔW during training"
+      difference: "erank uses W₀ (before training) not ΔW (during training). Zero training overhead."
+    - prior_work: "IFCLoRA (Zhang et al. 2026) — activation-based IFC from calibration set"
+      difference: "erank requires no calibration data — purely structural. Fully task-agnostic."
+    - prior_work: "LAARA (Tripathi et al. 2026) — Fisher information from training warmup"
+      difference: "erank requires no gradient computation. Applicable at model load time."
+    - prior_work: "PiSSA/LoRA-XS — W₀ SVD for initialization"
+      difference: "Those methods use SVD components for parameter initialization, not rank selection."
+    - prior_work: "Aghajanyan 2021 — intrinsic dimensionality via subspace sweep"
+      difference: "erank provides a closed-form zero-shot estimate of intrinsic dimensionality per layer."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "Uniform LoRA r=8 (Hu et al. 2021)"
+      performance: "MNLI 90.0 (DeBERTa-v3-base, from AdaLoRA paper)"
+      dataset: "GLUE MNLI"
+      why_insufficient: "Uniform rank treats all layers identically — LAARA proves this is suboptimal. No per-layer differentiation."
+    - method: "AdaLoRA (Zhang et al. 2023)"
+      performance: "MNLI 90.4 (DeBERTa-v3-base, 0.3M params)"
+      dataset: "GLUE MNLI"
+      why_insufficient: "Requires full training run to discover allocation. Cannot predict ranks before training begins."
+    - method: "IFCLoRA (Zhang et al. 2026)"
+      performance: "+1.2% over uniform LoRA on ARC-Challenge"
+      dataset: "ARC, BoolQ, HellaSwag (LLM benchmarks)"
+      why_insufficient: "Requires calibration data from target task. Not fully task-agnostic. Not evaluated on BERT/ViT."
+    - method: "LAARA (Tripathi et al. 2026)"
+      performance: "MMLU 67.2 vs LoRA 65.8 (+1.4%)"
+      dataset: "MMLU, GSM8K, HumanEval"
+      why_insufficient: "Requires gradient computation (training warmup). Not pre-training-only structural predictor."
+  best_baseline_performance: "AdaLoRA: 90.4 MNLI accuracy (DeBERTa-v3-base, 0.3M params)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: |
+    erank(W₀) must vary sufficiently across layers (CV > 0.05 within each model family)
+    to enable correlation analysis. Preliminary evidence: h-e1 ViT depth variation confirms
+    this for ViT; BERT Levene p=0.0001 confirms type-based variation for NLP models.
+    The existence sub-hypothesis (H-E1) tests: Pearson r ≥ 0.65 in ≥2/3 families.
+  sh2_mechanism: |
+    Core mechanism to test: layers with higher erank(W₀) show larger relative adaptation
+    magnitude ‖ΔW_opt‖_F/‖W₀‖_F during oracle training (P3, Spearman ρ ≥ 0.5).
+    Secondary mechanism: alignment between LoRA update directions and W₀ singular directions
+    decreases with erank (high-erank layers → more non-dominated LoRA update directions).
+  sh3_comparison: |
+    Comparison to AdaLoRA's learned rank allocation (training-time) and IFCLoRA's
+    calibration-based allocation (calibration-time). Deferred to Phase 5 — requires
+    full training pipeline and multi-task evaluation.
+  open_questions:
+    - "Does erank generalize to decoder-only LLMs (GPT/LLaMA architecture)?"
+    - "Does the erank-truncation criterion (oracle-free) correlate with PARA oracle at comparable r?"
+    - "Is the erank-oracle correlation consistent across MNLI and SST-2 (task-agnosticity)?"
+    - "What is the minimum training run count needed for a stable marginal oracle (2 seeds sufficient)?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All 6 convergence criteria PASS at Exchange 15 (min_exchanges=15)"
+  clarity_verified: true
+  remaining_objections:
+    - "P1 has no prior direct empirical support — positive direction is theoretically derived, not previously measured"
+    - "15-day oracle sweep duration — recommend Stage 1 quick-check (DeBERTa + AdaLoRA-learned ranks) before full sweep"
+    - "Task-agnosticity requires ≥2 NLP tasks (MNLI + SST-2) — budget ~120 additional training runs"
+
+discussion_context:
+  total_exchanges: 15
+  agent_participation:
+    dr_nova: 3  # Exchanges 1, 7, 13
+    prof_vera: 3  # Exchanges 2, 8, 14
+    dr_sage: 2  # Exchanges 3, 9
+    prof_pax: 3  # Exchanges 4, 10, 15
+    dr_ally: 2  # Exchanges 5, 11
+    prof_rex: 2  # Exchanges 6, 12
+  paper_citations: 12  # AdaLoRA, Aghajanyan, IFCLoRA, LAARA, PiSSA, LoRA-XS, LoRA (Hu), BERT, DeBERTa, ViT, Roy&Vetterli, LISA
+  convergence_type: "qualitative"

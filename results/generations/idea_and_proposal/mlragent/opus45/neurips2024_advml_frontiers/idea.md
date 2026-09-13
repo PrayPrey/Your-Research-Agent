@@ -1,0 +1,9 @@
+﻿# Title: Cross-Modal Adversarial Transferability: Exploiting Shared Representations in Large Multimodal Models
+
+## Motivation
+Large Multimodal Models (LMMs) like GPT-4V and LLaVA integrate vision and language through shared representation spaces, creating an underexplored attack surface. While adversarial attacks on single modalities are well-studied, the cross-modal transfer of adversarial perturbations—where attacks crafted in one modality (e.g., image) can compromise another modality's output (e.g., text)—remains poorly understood. Understanding these vulnerabilities is critical because LMMs are increasingly deployed in safety-critical applications where attackers may exploit the weakest modality to compromise the entire system.
+
+## Main Idea
+We propose systematically studying **cross-modal adversarial transferability** in LMMs by: (1) developing a theoretical framework based on representation geometry to quantify how adversarial perturbations propagate across the shared embedding space connecting vision and language encoders; (2) designing novel **modality-bridging attacks** that craft imperceptible image perturbations specifically optimized to induce targeted malicious text outputs (e.g., harmful instructions, misinformation); (3) introducing **cross-modal adversarial training** that jointly hardens both modalities by leveraging adversarial examples from each domain.
+
+We will evaluate on LLaVA, MiniGPT-4, and open-source LMMs across safety benchmarks. Expected outcomes include: identifying architectural vulnerabilities in fusion mechanisms, developing transferability metrics across modalities, and proposing defense strategies. This research will fundamentally advance understanding of multimodal robustness and inform safer LMM deployment.

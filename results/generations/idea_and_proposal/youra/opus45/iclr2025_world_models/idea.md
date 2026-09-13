@@ -1,0 +1,8 @@
+## Title
+Duet Dynamics: Uncertainty-Gated Hybrid SSM-Diffusion World Models for Efficient Video Prediction
+
+## Motivation
+World models are essential for intelligent agents to predict and plan in complex environments. Current approaches face a fundamental tradeoff: State Space Models (SSMs) offer linear-complexity efficiency but struggle with stochastic dynamics, while diffusion models excel at high-fidelity generation but suffer from slow iterative inference. Existing hybrid approaches like StateSpaceDiffuser use SSMs merely for memory/context rather than exploiting the functional separation between deterministic and stochastic dynamics—a principle observed in neuroscience's duet predictive coding, where the brain uses dual pathways for expected versus unexpected events.
+
+## Main Idea
+We propose **Duet Dynamics**, a dual-pathway architecture that routes predictions through SSM (Mamba) for low-uncertainty states and Diffusion for high-uncertainty states using learned uncertainty gating. An ensemble of SSM heads estimates epistemic uncertainty via prediction variance; a learned gating network then routes deterministic dynamics (≥70% of frames) to the efficient O(n) SSM pathway while directing stochastic/novel dynamics to a lightweight diffusion head. This functional separation—inspired by duet predictive coding—enables the model to match diffusion quality (within 5% FVD) while achieving 2-3x faster inference. Key experiments will compare against StateSpaceDiffuser, pure SSM, and pure diffusion baselines across DMControl, Atari, and video prediction benchmarks. Success would enable real-time world models for robotics and embodied AI applications where both quality and efficiency are critical.

@@ -1,0 +1,9 @@
+﻿# Title: Auditing Language Models for Differential Privacy Leakage Across Demographic Groups
+
+## Motivation
+Current privacy auditing methods for language models typically measure memorization and data extraction risks at an aggregate level, overlooking how these risks may disproportionately affect different demographic groups. Underrepresented communities in training data may paradoxically face higher privacy risks because their unique linguistic patterns or personal information become more easily extractable due to their rarity. This intersection of privacy and fairness concerns remains underexplored, yet is critical for equitable LM deployment.
+
+## Main Idea
+We propose a framework for **demographic-stratified privacy auditing** of language models. Our methodology involves: (1) constructing evaluation datasets with known personal information (synthetic "canaries") distributed across demographic groups with varying representation levels in typical training corpora; (2) developing extraction attacks tailored to measure memorization rates per demographic category; (3) quantifying differential privacy leakage gaps between majority and minority groups.
+
+We will introduce a new metric, **Demographic Privacy Disparity (DPD)**, measuring the ratio of extraction success rates across groups. We hypothesize that minority groups experience 2-3x higher extraction vulnerability. Expected outcomes include benchmark datasets for fairness-aware privacy auditing and mitigation strategies such as group-balanced differential privacy training. This work bridges the gap between privacy and fairness research communities, providing actionable insights for developing LMs that protect all users equitably.

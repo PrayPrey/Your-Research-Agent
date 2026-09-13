@@ -1,0 +1,420 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (Revised for data-scarce regime)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-NEURIPS2024-001-R1
+**Confidence Level:** MEDIUM-HIGH (0.75) - Few-shot approach more tractable than zero-shot contrastive learning
+
+**Main Hypothesis:**
+Physics-informed few-shot multimodal fusion can achieve ≥85% accuracy in materials property prediction by leveraging pre-trained unimodal encoders and domain-specific symmetry priors, enabling cross-laboratory model transfer with <100 labeled samples per characterization modality (XRD, SEM, spectroscopy), thereby addressing the data infrastructure heterogeneity barrier without requiring large-scale multimodal datasets.
+
+**Alternative Hypothesis (H0):**
+Physics-informed few-shot multimodal fusion achieves <70% accuracy in cross-laboratory materials property prediction, performing no better than single-modality baseline models, indicating that equipment heterogeneity and data scarcity cannot be overcome without standardized data formats or large-scale multimodal pre-training datasets (>10K samples).
+
+### 1.2 Variables
+
+| Variable Type | Variable Name | Definition | Measurement/Operationalization | Value Range |
+|---------------|---------------|------------|-------------------------------|-------------|
+| **Independent** | Number of labeled samples per modality | Training samples available from target laboratory | Sample count (XRD patterns, SEM images, spectroscopy curves) | 10, 50, 100 samples |
+| **Independent** | Characterization modality combination | Which equipment modalities are fused | Binary encoding: {XRD, SEM, spectroscopy} subsets | 2^3 = 8 combinations |
+| **Independent** | Physics prior strength | Degree of domain knowledge incorporated | Ablation levels: No priors, Weak (symmetry only), Strong (symmetry + composition) | Categorical: None/Weak/Strong |
+| **Independent** | Equipment vendor heterogeneity | Cross-laboratory equipment differences | Pairwise vendor mismatch count (0-3 mismatches) | 0 (same lab), 1-3 (cross-lab) |
+| **Dependent** | Property prediction accuracy | Materials property regression/classification performance | Mean Absolute Error (MAE) for regression, Top-1 accuracy for classification | MAE: 0-100 (normalized), Accuracy: 0-100% |
+| **Dependent** | Cross-modal retrieval precision | Ability to find materials via different modalities | Precision@5, Recall@10 for cross-modal search | 0-100% |
+| **Controlled** | Pre-trained encoder architecture | Fixed unimodal encoder choice | ResNet-50 (SEM), 1D-CNN (XRD/spectroscopy) | Fixed |
+| **Controlled** | Material composition space | Chemical system coverage | Training: ternary oxides, Testing: quaternary oxides | Domain shift controlled |
+| **Controlled** | Training protocol | Meta-learning algorithm | Model-Agnostic Meta-Learning (MAML) | Fixed |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain:**
+```
+[Equipment Heterogeneity + Data Scarcity]
+         ↓
+[Pre-trained Unimodal Encoders] → Extract modality-specific features (leverages ImageNet/generic data)
+         ↓
+[Physics-Informed Fusion Module] → Applies symmetry priors + composition constraints
+         ↓
+[Few-Shot Meta-Learning (MAML)] → Learns cross-lab adaptation with <100 samples
+         ↓
+[Unified Materials Representation] → Equipment-agnostic embeddings
+         ↓
+[Cross-Laboratory Property Prediction] → ≥85% accuracy despite vendor differences
+```
+
+**Mechanism Decomposition (First Principles):**
+
+1. **Component 1: Transfer from Generic to Materials Domain**
+   - Foundation: ImageNet pre-trained CNNs learn hierarchical visual features (edges → textures → objects)
+   - Materials adaptation: SEM images share visual structure (grain boundaries, textures) → transfer learning effective
+   - Evidence: Zhang et al. (2023) demonstrated 0.94 R² via transfer from drug discovery to organic materials
+   - Assumption: Visual/structural features generalize across domains
+
+2. **Component 2: Physics Priors Compensate for Data Scarcity**
+   - Foundation: Materials obey physical symmetries (space groups for crystals)
+   - Implementation: Symmetry-preserving augmentations (rotation invariance for powder XRD) + composition-aware attention weights
+   - Evidence: Fang et al. (2025) achieved ~95% out-of-sample accuracy using physics-informed ML for block copolymers
+   - Assumption: Physics laws constrain solution space → fewer samples needed
+
+3. **Component 3: Meta-Learning Enables Rapid Cross-Lab Adaptation**
+   - Foundation: MAML learns "how to learn" from limited data by simulating few-shot tasks during training
+   - Materials adaptation: Train on Lab A-B-C equipment → fast adaptation to Lab D with <100 samples
+   - Evidence: Meta-learning established in computer vision for few-shot classification (Vinyals et al., 2016 - Matching Networks)
+   - Assumption: Cross-lab adaptation is a meta-learning problem (equipment differences = domain shift)
+
+4. **Component 4: Multimodal Fusion Under Scarcity**
+   - Foundation: Late fusion (decision-level) more robust than early fusion when modalities are incomplete/noisy
+   - Materials implementation: Separate expert encoders per modality → weighted combination based on sample quality
+   - Evidence: Bhide et al. (2025) showed 15% improvement with 7-modality score-level fusion despite missing data
+   - Assumption: Modalities provide complementary information even under scarcity
+
+**Evidence for Causal Links:**
+
+- **Link 1-2 (Transfer → Physics Priors):** Zhang et al. (2023) transfer learning + Fang et al. (2025) physics-informed ML both achieved >0.90 performance independently. Hypothesis combines them synergistically.
+- **Link 2-3 (Physics Priors → Meta-Learning):** Singh et al. (2023) physics-informed ML for Curie temperature prediction demonstrates that priors improve small-data performance. MAML adds cross-domain generalization.
+- **Link 3-4 (Meta-Learning → Fusion):** No direct evidence in materials domain. Analogy from computer vision meta-learning + Bhide et al. multimodal fusion. **INFERENCE GAP** - needs empirical validation.
+
+**Key Tension:**
+The hypothesis assumes that physics priors + meta-learning can overcome 40× data scarcity (5K multimodal samples vs 200K needed for zero-shot contrastive learning in Round 1). This tension creates testable boundary conditions: At what sample size (N=10, 50, 100?) does performance saturate? When does equipment heterogeneity break the model?
+
+### 1.4 Key Assumptions
+
+1. **Pre-trained encoders transfer to materials domain:**
+   - Assumption: ImageNet visual features (ResNet-50) generalize to SEM microscopy images
+   - Justification: Grain boundaries, textures, defects in SEM share hierarchical structure with natural images
+   - Testability: Measure transfer learning performance vs random initialization
+
+2. **Physics symmetries constrain solution space effectively:**
+   - Assumption: Space group operations for XRD and composition constraints reduce search space by >10×
+   - Justification: Fang et al. (2025) achieved ~95% accuracy using physics-informed ML with automated characterization
+   - Testability: Ablation study (no priors vs symmetry-only vs full priors)
+
+3. **Equipment differences are learnable domain shifts:**
+   - Assumption: Vendor A→B equipment differences can be learned as domain adaptation problem
+   - Justification: Cross-domain literature (drug discovery→materials by Zhang et al.) shows feasibility
+   - Testability: Measure adaptation performance vs equipment vendor mismatch count (0-3)
+
+4. **Multimodal fusion improves over single-modality:**
+   - Assumption: XRD + SEM + spectroscopy provide complementary information
+   - Justification: Jia et al. (2025) showed multimodal EELS+XAS detected defects "impossible for single mode"
+   - Testability: Compare multimodal vs best single-modality baseline
+
+5. **Few-shot regime (N<100) is sufficient:**
+   - Assumption: Meta-learning + physics priors enable learning from <100 samples per modality
+   - Justification: MAML demonstrated few-shot (5-10 samples) capability in computer vision (Finn et al., 2017)
+   - Testability: Learning curves (N=10, 50, 100) - does performance saturate?
+
+### 1.5 Scope & Boundaries
+
+**Applies To:**
+- Powder XRD (not single-crystal diffraction)
+- Scanning Electron Microscopy (SEM) - topography mode (not TEM, STEM)
+- Vibrational spectroscopy (Raman, FTIR) and electronic spectroscopy (UV-Vis)
+- Polycrystalline materials with well-defined composition (oxides, intermetallics)
+- Cross-laboratory scenarios with 2-3 equipment vendor differences
+
+**Does NOT Apply To:**
+- Single-crystal XRD (requires different symmetry treatment)
+- Amorphous materials (no space group symmetries)
+- Proprietary equipment with unavailable calibration data
+- Materials classes with <10 training examples per lab
+- Automated high-throughput pipelines (different workflow requirements)
+
+**Known Limitations:**
+- Data scarcity: Requires ≥10 samples per modality for few-shot learning
+- Equipment calibration: Assumes laboratories maintain standard calibration protocols
+- Missing modality handling: Performance degrades if >1 modality unavailable (needs mask-based training)
+- Computational cost: Meta-learning (MAML) requires 2× gradient computations vs standard training
+
+**Boundary Conditions:**
+- Lower bound: N=10 samples is minimum for MAML to converge (literature: Finn et al., 2017)
+- Upper bound: N=100 samples expected to saturate performance (diminishing returns)
+- Equipment heterogeneity limit: >3 vendor mismatches may exceed adaptation capacity
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1:** Physics-informed few-shot multimodal fusion trained on Lab A-B-C equipment (N=50 samples/modality each) will achieve ≥85% property prediction accuracy when adapted to Lab D equipment (different vendors) using <100 samples, compared to ≥70% threshold for H0 rejection and single-modality baseline of ~65-70%.
+
+**Secondary Predictions:**
+**P2:** Physics priors (symmetry + composition) will improve few-shot performance by 10-15 percentage points over no-priors baseline across all sample sizes (N=10, 50, 100).
+
+**P3:** Multimodal fusion (XRD + SEM + spectroscopy) will outperform best single-modality model by ≥8% in cross-laboratory transfer scenarios (equipment vendor mismatch ≥2).
+
+**P4:** Meta-learning adaptation (MAML) will achieve ≥80% of fully-supervised performance using only 20% of training data (N=20 vs N=100 samples).
+
+**P5:** Cross-modal retrieval precision will correlate with multimodal property prediction accuracy (Pearson r > 0.7), indicating unified representations.
+
+**Falsification Criteria:**
+- If P1 fails (accuracy <70%), hypothesis is REJECTED - few-shot approach insufficient
+- If P2 fails (physics priors add <5% improvement), mechanism Component 2 invalid
+- If P3 fails (multimodal ≤ single-modality), fusion provides no benefit under scarcity
+- If P4 fails (meta-learning <70% of supervised), MAML does not enable cross-lab transfer
+- Any 2+ predictions failing simultaneously → STRONG REJECTION signal
+
+### 1.7 SOTA Baseline (SOTA Comparison Mode)
+
+**Current State-of-the-Art for Materials Property Prediction:**
+
+| Method | Year | Authors | Performance | Data Requirements | Cross-Lab Transfer |
+|--------|------|---------|-------------|-------------------|-------------------|
+| Supervised Multimodal Fusion (Jia et al.) | 2025 | Jia H, Chen Y, et al. | ~85-90% accuracy (EELS+XAS) | 1000+ labeled samples | NOT DEMONSTRATED |
+| Transfer Learning (Zhang et al.) | 2023 | Zhang C, Zhai Y, et al. | R²>0.94 (3 tasks), >0.81 (2 tasks) | 500+ USPTO pre-train, 100+ fine-tune | Cross-domain (drug→materials) |
+| Graph Neural Networks (Madani et al.) | 2025 | Madani M, Lacivita V, et al. | SOTA in 8/8 property regression tasks | 5000+ labeled structures | Single-lab only |
+| Physics-Informed ML (Fang et al.) | 2025 | Fang X, Murphy EA, et al. | ~95% out-of-sample accuracy | 500+ with automated synthesis | Requires automated pipeline |
+
+**Hypothesis Positioning:**
+- **Novelty:** First few-shot meta-learning approach for cross-laboratory materials characterization transfer
+- **Advantage:** 5-10× data efficiency (N=100 vs SOTA N=500-1000)
+- **Trade-off:** Lower peak performance (85% vs SOTA 90-95%) but ENABLES cross-lab transfer (not demonstrated in SOTA)
+- **Target:** Smaller laboratories without access to large datasets or automated synthesis platforms
+
+**Benchmark Comparison:**
+- Primary: Compare to Jia et al. (2025) multimodal fusion at N=100 samples
+- Secondary: Compare to Zhang et al. (2023) transfer learning baseline (materials-only, no meta-learning)
+- Tertiary: Compare to single-modality GNN baselines (Madani et al., 2025 architecture)
+
+### 1.8 Statistical Verification Design
+
+**Experimental Design:**
+
+**Phase 1: Within-Lab Validation (Baseline Establishment)**
+- Dataset: Materials Project computed properties (150K materials) → simulate XRD, SEM, spectroscopy
+- Split: 80% meta-train, 20% meta-test
+- Evaluation: Few-shot accuracy curves (N=10, 50, 100 samples)
+- Controls: Random seed fixed, 5-fold cross-validation
+
+**Phase 2: Cross-Lab Transfer (Primary Hypothesis Test)**
+- Real-world data: Collect from 4 laboratories (Lab A-B-C-D) with different equipment vendors
+  - Lab A: Vendor X (XRD), Vendor Y (SEM), Vendor Z (spectroscopy)
+  - Lab B: Vendor X, Vendor W, Vendor Z
+  - Lab C: Vendor V, Vendor Y, Vendor Z
+  - Lab D: Vendor V, Vendor W, Vendor Q (test target - 3 vendor mismatches from Lab A)
+- Training: Meta-train on Lab A-B-C (N=50 samples/modality each)
+- Testing: Adapt to Lab D with N=10, 50, 100 samples
+- Metrics: MAE (regression), Top-1 accuracy (classification), Precision@5 (retrieval)
+
+**Statistical Tests:**
+- **Hypothesis Testing:** Paired t-test (multimodal vs best single-modality), α=0.05
+- **Effect Size:** Cohen's d > 0.5 for practical significance
+- **Power Analysis:** N=100 test samples per lab (80% power to detect 8% difference)
+- **Multiple Comparison Correction:** Bonferroni correction for 5 predictions (α=0.01 per test)
+
+**Success Criteria (Quantitative):**
+- P1: MAE < 15% (normalized) OR Top-1 accuracy > 85% (Lab D adaptation)
+- P2: Physics priors: ΔAccuracy > 10 percentage points (ablation study)
+- P3: Multimodal vs single: ΔAccuracy > 8 percentage points (paired t-test, p<0.01)
+- P4: Meta-learning efficiency: N=20 achieves ≥80% of N=100 performance
+- P5: Cross-modal retrieval: Pearson correlation r > 0.7 with property prediction
+
+**Data Collection Protocol:**
+- Collect 400 materials per lab (100 per modality subset combination)
+- Material selection: Stratified sampling across composition space (binary, ternary, quaternary oxides)
+- Quality control: Equipment calibration check before each session
+- Missing modality handling: 20% samples with 1 missing modality (realistic scenario)
+
+---
+
+## 2. Contribution Summary
+
+**Theoretical Contributions:**
+1. **Data-Scarcity Regime for Multimodal Materials Characterization:** Establishes that few-shot meta-learning (N<100) can overcome equipment heterogeneity barrier when combined with physics priors, bypassing need for large-scale multimodal pre-training datasets (>10K samples required by contrastive learning approaches).
+
+2. **Physics-Informed Meta-Learning Framework:** Introduces concept of encoding domain-specific symmetries (space groups, composition constraints) into meta-learning algorithms, demonstrating that physics priors reduce sample complexity by constraining solution space.
+
+**Methodological Contributions:**
+1. **Novel Architecture:** Few-shot multimodal fusion with (a) Pre-trained unimodal encoders (transfer from generic domain), (b) Physics-informed fusion module (symmetry-preserving attention), (c) MAML meta-learner for cross-lab adaptation.
+
+2. **Evaluation Protocol:** Cross-laboratory transfer benchmarking with controlled equipment heterogeneity (vendor mismatch count 0-3), enabling quantitative assessment of domain adaptation capability.
+
+3. **Physics Prior Library:** Symmetry-preserving augmentations (space group operations for XRD, scale-invariant transforms for SEM) and composition-aware attention weights for spectroscopy.
+
+**Practical Contributions:**
+1. **Democratization of Materials AI:** Enables smaller laboratories (limited data <100 samples) to leverage AI models trained on larger facilities' data, reducing experimental burden by 5-10×.
+
+2. **Cross-Laboratory Model Sharing:** Establishes pathway for federated materials discovery where models trained on Lab A-B-C data can be rapidly adapted to Lab D with minimal fine-tuning (<100 samples vs thousands).
+
+3. **Equipment-Agnostic Deployment:** Addresses NeurIPS 2024 AI4Mat Workshop's "Why Isn't it Real Yet?" theme by enabling practical deployment across heterogeneous equipment ecosystems without requiring vendor standardization.
+
+**Differentiation from SOTA:**
+- **vs Jia et al. (2025) supervised fusion:** 5× more data efficient (N=100 vs N=500-1000), explicit cross-lab transfer
+- **vs Zhang et al. (2023) transfer learning:** Multimodal (not single-domain), physics-informed priors, meta-learning for adaptation
+- **vs LLaMat/MatPilot foundation models:** Targets characterization data (not text/synthesis), few-shot regime (not large-scale pre-training)
+
+---
+
+## 3. Key Related Work
+
+**Foundational Work (Establishes Core Concepts):**
+
+1. **Zhang et al. (2023) - Transfer Learning Across Chemical Domains**
+   - Paper: "Transfer learning across different chemical domains: virtual screening of organic materials with deep learning models pretrained on small molecule and chemical reaction data"
+   - SS ID: f18e36b45fae3631fb8f19f0bdaa276cd9a31eeb
+   - Contribution: Demonstrated R²>0.94 via transfer from drug discovery (USPTO database) to materials science
+   - **How Used:** Establishes feasibility of cross-domain transfer (Component 1 in causal mechanism)
+
+2. **Fang et al. (2025) - Physics-Informed ML for Block Copolymers**
+   - Paper: "Universal Phase Identification of Block Copolymers From Physics-Informed Machine Learning"
+   - SS ID: 5f1640aa0dd73e2c323fff9df121bea9936cdb0b
+   - Contribution: ~95% out-of-sample accuracy using physics-informed ML with automated characterization
+   - **How Used:** Validates that physics priors enable high accuracy in small-data regime (Component 2)
+
+3. **Jia et al. (2025) - Multimodal Spectroscopy Fusion**
+   - Paper: "Revealing Local Structures through Machine-Learning-Fused Multimodal Spectroscopy"
+   - SS ID: 9e9e17ccc57c7ca28a816c99c43c174497df3516
+   - Contribution: EELS+XAS multimodal fusion detected defects "impossible for single mode"
+   - **How Used:** Establishes complementarity of materials characterization modalities (Component 4)
+
+**Meta-Learning Foundations (Cross-Domain):**
+
+4. **Finn et al. (2017) - Model-Agnostic Meta-Learning (MAML)**
+   - Paper: "Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks" (ICML 2017)
+   - Contribution: Demonstrated few-shot learning (5-10 samples) via gradient-based meta-learning
+   - **How Used:** Core meta-learning algorithm (Component 3), established N=10-100 as feasible regime
+
+5. **Vinyals et al. (2016) - Matching Networks**
+   - Paper: "Matching Networks for One Shot Learning" (NIPS 2016)
+   - Contribution: Few-shot classification via learned metric space
+   - **How Used:** Alternative meta-learning approach for ablation comparison
+
+**Materials Data Challenges:**
+
+6. **Zhao et al. (2025) - Polymer Data Challenges**
+   - Paper: "Polymer Data Challenges in the AI Era: Bridging Gaps for Next-Generation Energy Materials"
+   - SS ID: f83945fbeb66649cf621274819e5df086568c642
+   - Contribution: Identified systemic barriers - academic-industrial silos, inconsistent testing, incomplete metadata
+   - **How Used:** Motivation for addressing equipment heterogeneity (Gap 1 from Phase 1)
+
+7. **Multimodal Universe Collaboration (2024) - Large-Scale Scientific Data**
+   - Paper: "The Multimodal Universe: Enabling Large-Scale Machine Learning with 100 TB of Astronomical Scientific Data"
+   - SS ID: c39db69c6a9903582a7be7e732682c9432929898
+   - Contribution: Framework for handling massive multimodal scientific datasets (100TB)
+   - **How Used:** Data loading strategies for heterogeneous modalities (engineering infrastructure)
+
+**Multimodal Fusion Strategies:**
+
+8. **Bhide et al. (2025) - Multimodal ML with Missing Data**
+   - Paper: "Multimodal machine learning for deception detection using behavioral and physiological data"
+   - SS ID: fb3f7abd5f11a4f5e80b97a887c54f000a432768
+   - Contribution: 7-modality score-level fusion, 15% improvement, robust to missing modalities
+   - **How Used:** Late fusion strategy (Component 4) and missing modality handling protocol
+
+**Additional Materials-Specific Work:**
+
+9. **Singh et al. (2023) - Physics-Informed Curie Temperature Prediction**
+   - Paper: "Physics-Informed Machine-Learning Prediction of Curie Temperatures"
+   - SS ID: fea0b4e71d73df01839f7c03ef7c5b83d71bded2
+   - Contribution: Physics-informed ML for magnetic materials property prediction
+   - **How Used:** Example of effective physics prior integration (Component 2 validation)
+
+10. **Madani et al. (2025) - Hybrid Transformer-Graph Framework**
+    - Paper: "Accelerating materials property prediction via a hybrid Transformer Graph framework"
+    - SS ID: 9a2e3be5021ecb9bbd0d311707dfd52d2875bb62
+    - Contribution: SOTA performance in 8 materials property regression tasks using GNN
+    - **How Used:** Single-modality baseline for comparison (SOTA benchmark)
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence - Does the Effect Exist?):**
+Physics-informed few-shot learning improves materials property prediction accuracy compared to no-priors baseline, validating that domain knowledge reduces sample complexity.
+
+**Experiment:** Ablation study on simulated Materials Project data
+- Condition A: No physics priors (generic MAML)
+- Condition B: Symmetry priors only (space group operations for XRD)
+- Condition C: Full priors (symmetry + composition constraints)
+- Prediction: C > B > A by ≥10 percentage points (P2)
+- Success Criterion: Statistical significance (paired t-test, p<0.01) + effect size (Cohen's d > 0.5)
+
+**SH2 (Mechanism - How Does It Work?):**
+Pre-trained encoders + physics-informed fusion + meta-learning form causal chain enabling cross-laboratory transfer, decomposed into 4 testable components.
+
+**Experiment:** Component ablation analysis
+- Ablate Component 1: Random init vs ImageNet pre-training (transfer learning contribution)
+- Ablate Component 2: No priors vs physics priors (domain knowledge contribution)
+- Ablate Component 3: Standard training vs MAML (meta-learning contribution)
+- Ablate Component 4: Single-modality vs multimodal fusion (complementarity contribution)
+- Prediction: Each component contributes 5-15% accuracy improvement (cumulative 85% target)
+- Success Criterion: All components significant (p<0.01), cumulative effect ≥85% accuracy
+
+**SH3 (Comparison - Better Than Alternatives?):**
+Proposed approach outperforms existing SOTA methods (supervised fusion, transfer learning, single-modality GNN) in cross-laboratory transfer scenario under data scarcity (N<100).
+
+**Experiment:** Benchmark comparison on real-world multi-lab data
+- Baseline 1: Jia et al. (2025) supervised fusion (N=100)
+- Baseline 2: Zhang et al. (2023) transfer learning (materials-only, no meta-learning)
+- Baseline 3: Madani et al. (2025) GNN (single-modality)
+- Baseline 4: Ensemble of best single-modality models
+- Prediction: Proposed method ≥85% accuracy, all baselines ≤80% (P1, P3)
+- Success Criterion: Statistical superiority (paired t-test, p<0.01) over all baselines
+
+### Readiness Checklist
+
+**Hypothesis Clarity:**
+- [x] Core hypothesis stated in falsifiable if-then format
+- [x] All variables (independent, dependent, controlled) explicitly defined
+- [x] Causal mechanism decomposed to first principles (4 components)
+- [x] Testable predictions with quantitative thresholds (P1-P5)
+- [x] Alternative hypothesis (H0) specified for rejection criteria
+
+**Evidence Base:**
+- [x] ≥70% Phase 1 sources utilized (10/12 sources from 02a_round_1_discussion.md)
+- [x] Cross-domain evidence integrated (MAML, Matching Networks from ML literature)
+- [x] Materials-specific evidence strong (Zhang, Fang, Jia, Singh papers)
+- [x] SOTA baselines identified and positioned (Jia, Zhang, Madani)
+- [x] Evidence gaps acknowledged (Component 3-4 link needs validation)
+
+**Verification Plan:**
+- [x] Experimental design specified (2-phase: simulated + real-world)
+- [x] Statistical tests defined (paired t-test, Bonferroni correction, α=0.01)
+- [x] Success criteria quantitative (85% accuracy threshold, 8-10% improvement margins)
+- [x] Falsification criteria clear (any 2+ predictions failing → REJECT)
+- [x] Data collection protocol outlined (4 labs, 400 materials/lab, stratified sampling)
+
+**Scope Definition:**
+- [x] Applicability boundaries stated (powder XRD, SEM, spectroscopy only)
+- [x] Limitations acknowledged (N≥10 minimum, <3 vendor mismatches)
+- [x] Known risks identified (equipment calibration, missing modality degradation)
+- [x] Computational requirements specified (MAML 2× gradient cost)
+
+**Contribution Clarity:**
+- [x] Theoretical novelty articulated (data-scarcity regime, physics-informed meta-learning)
+- [x] Methodological advances specified (architecture, evaluation protocol, prior library)
+- [x] Practical impact defined (democratization, cross-lab sharing, equipment-agnostic)
+- [x] Differentiation from SOTA clear (5× data efficiency, explicit cross-lab transfer)
+
+**Phase 2B Ready:** YES ✅
+**Confidence:** HIGH (all checklist items complete, hypothesis well-structured for decomposition)
+
+### Open Questions
+
+1. **Equipment Calibration Sensitivity:** How robust is cross-lab transfer to calibration drift? Need experiment with intentionally miscalibrated equipment to test limits.
+
+2. **Composition Space Generalization:** Hypothesis tested on oxides/intermetallics - does it generalize to organic materials, polymers, or amorphous systems? Scope expansion requires validation.
+
+3. **Missing Modality Degradation:** Performance loss when 1-2 modalities unavailable needs quantification. Current hypothesis assumes ≤1 missing modality.
+
+4. **Optimal Meta-Learning Algorithm:** MAML chosen based on literature precedent, but Prototypical Networks or Relation Networks might be more sample-efficient for materials. Ablation needed.
+
+5. **Physics Prior Specification:** Which space group operations preserve material identity vs introduce artifacts? Requires materials science expert validation of augmentation library.
+
+6. **Computational-Experimental Trade-off:** N=100 samples represents weeks of lab time. Can active learning reduce this further by selecting most informative samples?
+
+7. **Long-Term Model Maintenance:** Cross-lab models degrade over time due to equipment aging. How often does re-adaptation (fine-tuning) need to occur?
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-06*

@@ -1,0 +1,8 @@
+# Title
+Automated Spurious Correlation Detection via Causal Neuron Intervention (CNI-Auto)
+
+# Motivation
+Deep learning models often rely on spurious correlations rather than causal features, failing when deployed on underrepresented groups or shifted distributions. Current robustification methods require manual group annotations—an unscalable solution that cannot detect unknown shortcuts. Existing benchmarks only address known spurious patterns, leaving models vulnerable to hidden biases. This research addresses a critical gap: automated detection of spurious feature detectors within neural networks without human annotation, enabling proactive identification of reliability risks before deployment.
+
+# Main Idea
+We hypothesize that neurons encoding spurious correlations exhibit high observational-interventional (OI) discrepancy under distribution shift, while core feature neurons maintain consistency. Spurious neurons show strong correlation with predictions on training data but weak causal effect when ablated under shifted distributions, as their learned correlations break. Our CNI-Auto algorithm systematically intervenes on individual neurons, measuring this discrepancy to automatically flag spurious detectors. We validate on Waterbirds and CelebA datasets, predicting >70% overlap between high-discrepancy neurons and known spurious features, and ≥5% worst-group accuracy improvement when retraining with flagged neurons frozen. This bridges causal inference theory with neuron-level interpretability, providing the first annotation-free method for discovering hidden shortcuts across vision, NLP, and multimodal domains.

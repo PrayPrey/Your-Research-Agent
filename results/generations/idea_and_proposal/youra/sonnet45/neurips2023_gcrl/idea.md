@@ -1,0 +1,8 @@
+# Title
+Goal-Conditioned Reinforcement Learning for Compositional Multi-Property Molecular Design
+
+# Motivation
+Current molecular design methods require retraining for each new property combination, limiting flexibility and scalability. Chemists need customizable generation where desired properties (binding affinity, drug-likeness, toxicity) can be specified dynamically at inference time. Existing multi-objective RL achieves only 50-60% success rates due to conflicting property trade-offs. This research addresses whether goal-conditioned RL (GCRL) can enable zero-shot generalization to novel property combinations while improving multi-property success rates, eliminating exponential training costs as property requirements grow.
+
+# Main Idea
+We hypothesize that GCRL with contrastive goal encoding and hindsight experience replay (HER) enables compositional molecular generation: training on 2-property goals generalizes zero-shot to 3+ property combinations. The mechanism operates through five steps: (1) contrastive encoder maps property goals to latent space where inner products equal value differences, (2) goal-conditioned policy navigates Junction Tree VAE latent space, (3) decoder ensures 100% chemical validity, (4) uncertainty-aware ensemble predictors prevent exploitation, (5) HER relabels failed trajectories with achieved properties, creating compositional learning signals. We predict >75% multi-property success (vs. 50-60% baseline) and ≥70% zero-shot generalization accuracy. Validation uses paired t-tests (n=30 runs) on 1000 test goals from ChEMBL. Success enables customizable drug design without retraining per property combination.

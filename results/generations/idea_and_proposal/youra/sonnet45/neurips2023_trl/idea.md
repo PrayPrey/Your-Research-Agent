@@ -1,0 +1,8 @@
+# Title
+FedTRL: Privacy-Preserving Production-Ready Table Representation Learning via Hierarchical Federated Adaptation
+
+# Motivation
+Table representation learning (TRL) models show promise for enterprise applications like healthcare analytics and fraud detection, but production deployment faces critical challenges: privacy regulations prohibit centralized data sharing, models degrade under schema drift and data quality issues, and continuous updating requires prohibitive communication costs. Existing solutions force unacceptable tradeoffs—either violate privacy through centralization or sacrifice utility with isolated local models. No framework simultaneously achieves privacy preservation, efficient continual learning, and self-healing capabilities for production TRL systems.
+
+# Main Idea
+We propose FedTRL, a hierarchical federated framework integrating four synergistic mechanisms: (1) **LoRA adaptation** reduces communication costs 10× by transmitting low-rank updates instead of full parameters; (2) **heterogeneous differential privacy** allocates column-specific privacy budgets, improving utility-privacy tradeoffs 15-25% over uniform approaches; (3) **test-time error correction** detects schema drift and validates constraints, reducing production failures 30%; (4) **Schema-Synth** generates privacy-preserving synthetic data via LLMs for few-shot scenarios. We test this on federated healthcare/finance datasets, measuring utility (F1≥0.847), privacy (ε≤5.0), communication (<100MB/round), and error rates (<10%). Ablation studies isolate each component's contribution. Expected impact: enterprise-deployable TRL with formal privacy guarantees and autonomous error recovery.

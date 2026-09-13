@@ -1,0 +1,317 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m3
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  created_at: "2026-08-04"
+  description: "Capability-Quartile Delta Distribution Test — Kruskal-Wallis on Delta across win_rate quartiles"
+
+budget_summary:
+  environment_setup: 1
+  data_preparation: 0
+  epic_tasks: 8
+  subtasks: 4
+  failsafe: 1
+  total: 14
+
+tasks:
+  # ── Environment Setup (priority 94) ──────────────────────────────────────
+  - id: "T-0"
+    title: "Environment Setup"
+    type: setup
+    priority: 94
+    description: >
+      Verify all required packages are installed: numpy, scipy, statsmodels,
+      scikit-posthocs (NEW — not in h-m2), matplotlib, seaborn, pandas, scikit-learn.
+      Create docs/youra_research/h-m3/figures/ directory if not exists.
+      Confirm CSV exists at docs/data_AlpacaEval_2/weighted_alpaca_eval_gpt4_turbo_leaderboard.csv.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_prd.md"
+        section: "7. Dependencies"
+      - file: "docs/youra_research/h-m3/03_config.md"
+        section: "Requirements"
+    acceptance_criteria:
+      - "scikit-posthocs importable (pip install scikit-posthocs if missing)"
+      - "figures/ directory exists"
+      - "CSV file accessible"
+
+  # ── Epic Tasks (priority 93 → 50) ────────────────────────────────────────
+  - id: "A-1"
+    title: "Project Setup — Constants + load_data()"
+    type: setup
+    priority: 93
+    description: >
+      Create experiment_hm3.py with all module-level constants (CSV_PATH, FIGURES_DIR,
+      OUTPUT_PATH, N_BOOTSTRAP=1000, RANDOM_STATE=42, ALPHA=0.05, N_QUARTILES=4,
+      QUARTILE_LABELS=['Q1','Q2','Q3','Q4'], MIN_N_CLEAN=200, MIN_GROUP_SIZE=5).
+      Implement inline load_data(csv_path) -> pd.DataFrame:
+      read_csv(index_col=0), dropna on 3 cols, assert N>=200,
+      compute delta = length_controlled_winrate - win_rate,
+      create quartile via pd.qcut(win_rate, q=4, labels=QUARTILE_LABELS),
+      assert all group sizes >= 5.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_architecture.md"
+        section: "Epic Tasks A-1"
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "A-1: Project Setup"
+      - file: "docs/youra_research/h-m3/03_config.md"
+        section: "A-1: Experiment Constants"
+    complexity: 6
+    acceptance_criteria:
+      - "All imports succeed (including scikit_posthocs)"
+      - "load_data() returns df with delta and quartile columns"
+      - "All quartile group sizes >= 5 asserted"
+
+  - id: "A-2"
+    title: "Kruskal-Wallis Analysis Module"
+    type: implementation
+    priority: 92
+    description: >
+      Implement run_kruskal_wallis(df) in analysis.py:
+      Extract q_groups = [df[df['quartile']==q]['delta'].values for q in QUARTILE_LABELS].
+      Assert all group sizes >= MIN_GROUP_SIZE.
+      H_stat, kw_p = scipy.stats.kruskal(*q_groups).
+      epsilon_sq = (H_stat - k + 1) / (N - k).
+      Compute quartile_medians, quartile_means, quartile_sizes dicts.
+      Check monotonic_trend: all(medians[i] < medians[i+1]).
+      Return dict with all results.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "A-2: Kruskal-Wallis"
+      - file: "docs/youra_research/h-m3/03_architecture.md"
+        section: "Analysis"
+      - file: "docs/youra_research/h-m3/03_prd.md"
+        section: "FR-3 FR-4 FR-5"
+    complexity: 9
+    acceptance_criteria:
+      - "H_stat and kw_p computed via scipy.stats.kruskal"
+      - "epsilon_sq computed and reported"
+      - "quartile_medians dict has Q1-Q4 keys"
+      - "monotonic_trend boolean returned"
+
+  - id: "A-3"
+    title: "Dunn Post-Hoc Module"
+    type: implementation
+    priority: 91
+    description: >
+      Implement run_dunn_posthoc(df) in analysis.py:
+      dunn_matrix = scikit_posthocs.posthoc_dunn(df, val_col='delta',
+      group_col='quartile', p_adjust='bonferroni').
+      Log Q1 vs Q4 pairwise p-value.
+      Return 4x4 DataFrame (index and columns = QUARTILE_LABELS).
+      Only call if kw_p < ALPHA (conditional in main).
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "A-3: Dunn Post-Hoc"
+      - file: "docs/youra_research/h-m3/03_prd.md"
+        section: "FR-8"
+    complexity: 8
+    acceptance_criteria:
+      - "posthoc_dunn returns 4x4 pairwise DataFrame"
+      - "Bonferroni correction applied (p_adjust='bonferroni')"
+      - "Q1 vs Q4 p-value logged"
+
+  - id: "A-4"
+    title: "Secondary Analyses — Spearman + OLS Delta"
+    type: implementation
+    priority: 90
+    description: >
+      Implement run_spearman(df, n_bootstrap=1000, random_state=42) in analysis.py:
+      scipy.stats.spearmanr(win_rate, delta) for rho/p.
+      Bootstrap CI via np.random.default_rng(42).choice loop (1000 iterations).
+      Returns {rho, p, ci_lower, ci_upper, boot_rhos [1000,]}.
+      Include mathematical dependency caveat in log.
+
+      Implement run_ols_delta(df) in analysis.py:
+      StandardScaler on [win_rate, avg_length] -> X_std.
+      sm.OLS(delta, sm.add_constant(X_std)).fit().
+      Extract params[1] (beta_win), params[2] (beta_len), pvalues, rsquared.
+      Returns {beta_win, beta_len, p_win, p_len, r_squared, ols_result}.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "A-4: Secondary Analyses"
+      - file: "docs/youra_research/h-m3/03_prd.md"
+        section: "FR-6 FR-7"
+    complexity: 10
+    acceptance_criteria:
+      - "Spearman rho computed and < 0 (expected strong negative)"
+      - "Bootstrap CI shape (2,) computed"
+      - "OLS beta_win and beta_len extracted from params[1] and params[2]"
+      - "Mathematical dependency caveat logged for Spearman"
+
+  - id: "A-5"
+    title: "Gate Evaluation"
+    type: implementation
+    priority: 89
+    description: >
+      Implement evaluate_gate(kw_p, alpha, quartile_medians) in analysis.py:
+      passes_gate = (kw_p < alpha).
+      monotonic_trend: check medians Q1 < Q2 < Q3 < Q4.
+      gate_label = 'PASS' if passes_gate else 'FAIL'.
+      Gate type: SHOULD_WORK — failure documents limitation, pipeline continues.
+      Returns {passes_gate, monotonic_trend, gate_label}.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "A-5: Gate Evaluation"
+      - file: "docs/youra_research/h-m3/03_prd.md"
+        section: "8. Success Criteria"
+    complexity: 5
+    acceptance_criteria:
+      - "passes_gate = True if kw_p < 0.05"
+      - "monotonic_trend checked across all 4 quartile medians"
+      - "SHOULD_WORK semantics: failure is non-fatal"
+
+  - id: "A-6"
+    title: "Visualization Suite (4 Figures)"
+    type: implementation
+    priority: 88
+    description: >
+      Implement visualization.py with save_all_figures() and 4 private functions:
+      1. _boxplot_delta_by_quartile — seaborn boxplot + stripplot (jitter) + KW p annotation
+         + Dunn Q1vQ4 bracket (if dunn_matrix not None)
+      2. _scatter_winrate_delta — scatter with quartile colors + LOWESS trend
+         (statsmodels.nonparametric.smoothers_lowess.lowess frac=0.3) + Spearman annotation
+      3. _dunn_heatmap — seaborn heatmap of log10(p-values) with annot=raw p-values
+      4. _bar_quartile_medians — bar chart of median delta per quartile with half-IQR error bars
+         + epsilon-squared annotation
+      Save all to docs/youra_research/h-m3/figures/.
+      Use matplotlib.use('Agg') for headless rendering.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "A-6: Visualization Suite"
+      - file: "docs/youra_research/h-m3/03_prd.md"
+        section: "FR-10"
+    complexity: 12
+    acceptance_criteria:
+      - "4 PNG files saved to figures/"
+      - "save_all_figures() returns list of paths"
+      - "Heatmap skipped if dunn_matrix is None (KW failed)"
+
+  - id: "A-7"
+    title: "Report Writer"
+    type: implementation
+    priority: 87
+    description: >
+      Implement report.py with write_validation_report(results, figure_paths, output_path):
+      Writes 04_validation.md with sections:
+      - Gate result (PASS/FAIL), KW H, p, epsilon-squared
+      - Quartile Delta statistics table (N, median, mean per quartile)
+      - Dunn Q1 vs Q4 p-value + full 4x4 matrix (if available)
+      - Spearman rho + caveat + bootstrap CI
+      - OLS beta_win, beta_len, R²
+      - Figure paths list
+      - Pipeline context table (H-E1, H-M1, H-M2, H-M3 results)
+      Use Path(output_path).write_text(markdown).
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "A-7: Report Writer"
+      - file: "docs/youra_research/h-m3/03_prd.md"
+        section: "FR-11"
+    complexity: 8
+    acceptance_criteria:
+      - "04_validation.md generated with all required sections"
+      - "Gate PASS/FAIL clearly stated"
+      - "All metrics (H, p, epsilon_sq, rho, betas) reported"
+
+  - id: "A-8"
+    title: "Integration & Smoke Test"
+    type: implementation
+    priority: 86
+    description: >
+      Implement main() in experiment_hm3.py to orchestrate full pipeline:
+      1. load_data(CSV_PATH) — df with delta + quartile
+      2. run_kruskal_wallis(df) — kw_results
+      3. evaluate_gate(kw_p, ALPHA, quartile_medians) — gate_result
+      4. run_dunn_posthoc(df) if passes_gate else None — dunn_matrix
+      5. run_spearman(df, N_BOOTSTRAP, RANDOM_STATE) — spearman_results
+      6. run_ols_delta(df) — ols_results
+      7. save_all_figures(df, kw_results, dunn_matrix, spearman_results, FIGURES_DIR)
+      8. write_validation_report(results_dict, figure_paths, OUTPUT_PATH)
+      9. sys.exit(0 if passes_gate else 1)
+      Run experiment end-to-end. Verify 04_validation.md and figures/ exist.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "A-8: Integration"
+      - file: "docs/youra_research/h-m3/03_architecture.md"
+        section: "Data Flow"
+    complexity: 7
+    acceptance_criteria:
+      - "main() runs end-to-end without error"
+      - "04_validation.md exists with gate result"
+      - "4 figure files exist in figures/"
+      - "sys.exit(0) if KW p < 0.05"
+
+  # ── Logic Subtasks (priority 49 → 20) ────────────────────────────────────
+  - id: "L-2-1"
+    title: "run_kruskal_wallis() full implementation"
+    type: subtask
+    parent: "A-2"
+    priority: 49
+    description: >
+      Full implementation per 03_logic.md L-2-1:
+      q_groups extraction, kruskal(*q_groups), epsilon_sq = (H-k+1)/(N-k),
+      quartile_medians/means/sizes dicts, monotonic_trend bool, print all.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "Subtask L-2-1"
+
+  - id: "L-4-1"
+    title: "run_spearman() bootstrap implementation"
+    type: subtask
+    parent: "A-4"
+    priority: 48
+    description: >
+      Bootstrap loop: rng = np.random.default_rng(42),
+      idx = rng.choice(n, size=n, replace=True) (matches h-m2 pattern).
+      ci_lower, ci_upper = np.percentile(boot_rhos, [2.5, 97.5]).
+      Returns (rho, p, ci_lower, ci_upper, boot_rhos[1000,]).
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "Subtask L-4-1"
+
+  - id: "L-6-1"
+    title: "save_all_figures() dispatcher + figure functions"
+    type: subtask
+    parent: "A-6"
+    priority: 47
+    description: >
+      save_all_figures dispatcher per 03_logic.md L-6-1.
+      All 4 figure private functions (_boxplot, _scatter, _dunn_heatmap, _bar_medians).
+      QUARTILE_PALETTE = ['#d73027','#fc8d59','#91bfdb','#4575b4'] for Q1-Q4.
+      matplotlib.use('Agg') at module top.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "Subtask L-6-1 L-6-2"
+
+  - id: "L-6-2"
+    title: "Figure implementation details (LOWESS, heatmap, error bars)"
+    type: subtask
+    parent: "A-6"
+    priority: 46
+    description: >
+      _scatter_winrate_delta: LOWESS via statsmodels.nonparametric.smoothers_lowess.lowess(frac=0.3).
+      _dunn_heatmap: log10(p-values) for color, raw p-values as annot.
+      _bar_quartile_medians: asymmetric half-IQR error bars, epsilon-squared annotation.
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_logic.md"
+        section: "Subtask L-6-2"
+
+  # ── Failsafe ─────────────────────────────────────────────────────────────
+  - id: "FAILSAFE"
+    title: "Pipeline Continuation Checkpoint"
+    type: failsafe
+    priority: 1
+    description: >
+      Final checkpoint: verify 04_validation.md exists and contains gate result.
+      If gate FAILS (SHOULD_WORK): document failure in verification_state.yaml,
+      continue pipeline to h-c1. Do NOT stop pipeline on SHOULD_WORK failure.
+      Expected: gate PASSES (KW p << 0.05 given r_partial=0.9851 from H-E1).
+    reference_files:
+      - file: "docs/youra_research/h-m3/03_prd.md"
+        section: "8. Success Criteria"
+    acceptance_criteria:
+      - "04_validation.md exists with gate result"
+      - "verification_state.yaml updated with validation.status"
+      - "Pipeline continues to h-c1 regardless of SHOULD_WORK gate outcome"

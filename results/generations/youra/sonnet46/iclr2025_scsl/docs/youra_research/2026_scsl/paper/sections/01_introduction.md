@@ -1,0 +1,27 @@
+# 1. Introduction
+
+To identify which training samples belong to underrepresented minority groups — without any group annotations — we show that a single scalar computed during early standard training nearly perfectly solves the problem: the per-sample gradient norm normalized by feature magnitude achieves AUC = 0.914 for minority group prediction on Waterbirds after just five epochs of ERM training. No group labels are used at any point.
+
+The failure of ERM-trained models on minority groups is well documented. On Waterbirds [Sagawa et al., 2019] — a benchmark where waterbirds are photographed on land in only 56 of 4,795 training samples — an ERM-trained ResNet-50 learns that the background correlates with the bird class and achieves over 90% average accuracy while failing catastrophically on the minority groups that do not carry the spurious feature. This worst-group accuracy (WGA) collapse is the central problem of spurious correlation robustness, and addressing it is the primary goal of a growing body of work on group-robust training.
+
+The dominant intervention strategy, Group Distributionally Robust Optimization (GroupDRO [Sagawa et al., 2019]), explicitly minimizes worst-group loss and achieves state-of-the-art WGA — but requires group annotations for every training sample. This requirement limits practical deployment, since obtaining per-sample group labels (e.g., "waterbird photographed on land") demands domain expertise and is expensive at scale.
+
+Existing label-free alternatives identify minority samples indirectly. Just Train Twice (JTT [Liu et al., 2021]) identifies the ERM model's training misclassifications as a proxy for minority samples and upweights them in a second training stage. Learning from Failure (LfF [Nam et al., 2020]) uses relative loss between a biased and debiased network to upweight hard samples. Both use coarse, binary or scalar signals that are not grounded in an interpretable mechanistic account of why minority samples are difficult to learn. The gradient domain — where the learning dynamics signal is theoretically most direct — has not been explored.
+
+Our key insight is that minority samples produce persistently elevated prediction residuals throughout early ERM training because they cannot exploit the spurious shortcut. For the cross-entropy loss with a fully connected last layer, the per-sample gradient norm decomposes as ‖∇_W ℓᵢ‖ = ‖h(xᵢ)‖ × ‖pᵢ − yᵢ‖ via the outer-product structure of the FC gradient. Normalizing by the feature norm ‖h(xᵢ)‖ — which ResNet-50's BatchNorm layers approximately equalize across groups — isolates ‖pᵢ − yᵢ‖, the prediction-error residual. As majority-group samples quickly converge to near-zero residuals under the spurious shortcut, minority-group samples maintain elevated residuals, producing a strong and temporally persistent gradient norm gap.
+
+Building on this insight, we propose Gradient-Norm-Informed Last-Layer Retraining (GNR-LLR), which uses the normalized per-sample gradient norm g̃ᵢ = ‖∇_W ℓᵢ‖ / ‖h(xᵢ)‖ as a label-free minority proxy for constructing a pseudo-balanced subset. GNR-LLR consists of two stages: (1) standard ERM training with gradient norm collection at early epochs, and (2) feature extractor freezing followed by last-layer retraining on the high-norm (minority-enriched) subset — analogous to DFR [Kirichenko et al., 2022] but without requiring group annotations for subset construction.
+
+We make the following contributions:
+
+**1. Empirical confirmation of gradient norms as a minority proxy signal.** We demonstrate that g̃ᵢ achieves AUC = 0.914 for minority group membership prediction on Waterbirds at T_id = 5, without any group annotations. The minority/majority ratio reaches 8.8x, with strong temporal persistence across epochs 1–10 (ratio 6.5x–8.8x).
+
+**2. Mechanistic validation via outer-product decomposition.** We confirm that the gradient norm disparity reflects prediction-error resistance, not feature-scale artifacts: ResNet-50's BatchNorm equalizes feature norms across groups (h_norm_std_ratio ≈ 0.10), and the outer-product decomposition directly isolates the prediction-residual component of g̃.
+
+**3. Efficient proxy computation via FC forward hook.** The GradientNormAnalyzer implementation captures all N per-sample gradient norms in a single forward pass using a forward hook on the FC layer — no additional backward passes required. This makes the computation essentially free relative to standard training.
+
+**4. Identification of a criterion design lesson.** We identify and diagnose a criterion design flaw in subset quality evaluation: class balance deviation is the wrong metric for minority-focused selection on imbalanced datasets. The correct metric is minority recall in the selected subset, a distinction we articulate and address for future evaluation protocols.
+
+We evaluate on Waterbirds (ResNet-50, ERM + SGD, ImageNet pretrained), demonstrating that the gradient domain provides a strong, continuous, theoretically grounded minority proxy signal. The downstream effect on worst-group accuracy — the complete GNR-LLR pipeline — represents a direct next step building on the confirmed proxy signal quality demonstrated here.
+
+The remainder of the paper is organized as follows: Section 2 reviews related work on spurious correlation robustness. Section 3 presents the GNR-LLR methodology and theoretical basis. Section 4 describes our experimental setup. Section 5 presents results. Section 6 discusses implications and limitations. Section 7 concludes.

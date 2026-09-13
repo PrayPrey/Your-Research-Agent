@@ -1,0 +1,405 @@
+version: "1.0"
+schema_version: "1.1"
+
+metadata:
+  hypothesis_id: "H-M2"
+  hypothesis_type: "MECHANISM"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-05-20T00:00:00"
+  phase: "Phase 3"
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 18
+  failsafe: 1
+  total: 30
+
+tasks:
+  # ── Environment Setup ────────────────────────────────────────────────────────
+  - id: "ENV-1"
+    title: "Environment Setup"
+    type: "setup"
+    priority: 94
+    description: |
+      Install all required Python packages and clone external repositories.
+      pip install: torch>=2.1.0 transformers>=4.40.0 peft>=0.10.0 datasets>=2.18.0
+        evaluate>=0.4.0 accelerate>=0.28.0 bitsandbytes>=0.43.0 scikit-learn>=1.4.0
+        matplotlib>=3.8.0 numpy>=1.26.0 PyYAML>=6.0 tqdm>=4.66.0
+      Clone: git clone https://github.com/huangyuxiang03/Locret (B3 baseline reference)
+      Clone: git clone https://github.com/THUDM/LongBench (eval scripts)
+      Set CUDA_VISIBLE_DEVICES=<empty_gpu> before any training.
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "7. Dependencies"
+
+  # ── Epic Tasks ───────────────────────────────────────────────────────────────
+  - id: "A-1"
+    title: "Config + Data Pipeline"
+    type: "implementation"
+    priority: 93
+    complexity: 9
+    complexity_breakdown: "Module_Size=2 + Dependencies=2 + Algorithm=3 + Integration=2"
+    description: |
+      Implement config.py (ExperimentConfig dataclasses) and data.py (DataManager).
+      DataManager loads GLUE (MNLI/SST-2/QNLI) train+val splits and LongBench test sets.
+      Provide get_glue_train_loader(), get_glue_val_loaders(), get_longbench_test_loaders().
+      Tokenize GLUE with max_length=512; LongBench with max_length=4096.
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "A-1 (Config submodule): ExperimentConfig Dataclass"
+      - file: "h-m2/03_architecture.md"
+        section: "DataManager"
+
+  - id: "A-2"
+    title: "Locret Retaining Head + Model Registration"
+    type: "implementation"
+    priority: 92
+    complexity: 14
+    complexity_breakdown: "Module_Size=3 + Dependencies=3 + Algorithm=4 + Integration=4"
+    description: |
+      Implement LocretRetainingHead MLP: S̃ = σ([Q,K,V]@W1)@W2.
+      W1: Linear(384, 1024), W2: Linear(1024, 8).
+      GQA: repeat_interleave(4, dim=1) on K/V before concat with Q.
+      Register one head per LLaMA attention layer via forward hook.
+      Warm init from hyx21/Locret-llama-3.1-8B-instruct checkpoint.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-2: Locret Retaining Head + Model Registration"
+      - file: "h-m2/03_architecture.md"
+        section: "JointLoRAKVModel"
+
+  - id: "A-3"
+    title: "JointLoRAKVModel Forward Pass"
+    type: "implementation"
+    priority: 91
+    complexity: 16
+    complexity_breakdown: "Module_Size=4 + Dependencies=3 + Algorithm=5 + Integration=4"
+    description: |
+      Implement JointLoRAKVModel with PEFT LoRA injection (get_peft_model).
+      compute_soft_kv_mask: sigmoid relaxation with temperature=0.1 (differentiable).
+      apply_hard_kv_eviction: torch.topk + gather (inference only).
+      Unified forward(input_ids, attention_mask, labels, kv_budget_ratio, training_mode)
+      returns (logits, cis_scores, loss). Branch on training_mode flag.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-3: JointLoRAKVModel Forward Pass"
+      - file: "h-m2/03_architecture.md"
+        section: "JointLoRAKVModel"
+
+  - id: "A-4"
+    title: "StabilityMonitor"
+    type: "implementation"
+    priority: 90
+    complexity: 10
+    complexity_breakdown: "Module_Size=2 + Dependencies=2 + Algorithm=3 + Integration=3"
+    description: |
+      Implement StabilityMonitor in stability.py.
+      Tracks: NaN events (torch.isnan check), divergence events (loss > 2× moving avg window=100).
+      Logs grad norms per parameter group every 50 steps.
+      get_report() returns JSON-serializable dict.
+      Raise StabilityError on NaN detection to halt seed training.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-4: StabilityMonitor"
+
+  - id: "A-5"
+    title: "JointLoRAKVTrainer"
+    type: "implementation"
+    priority: 89
+    complexity: 15
+    complexity_breakdown: "Module_Size=3 + Dependencies=4 + Algorithm=4 + Integration=4"
+    description: |
+      Implement JointLoRAKVTrainer in trainer.py.
+      build_optimizer: two param groups (LoRA lr=1e-4, Locret lr=5e-4), shared AdamW.
+      build_scheduler: linear warmup (10%) + cosine decay.
+      train_step: forward → CE loss → backward → grad clip (max_norm=1.0) → optimizer step.
+      train(): full loop over 3 epochs, calls stability_monitor each step.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-5: JointLoRAKVTrainer"
+      - file: "h-m2/03_config.md"
+        section: "TrainingConfig"
+
+  - id: "A-6"
+    title: "BaselineB3Trainer"
+    type: "implementation"
+    priority: 88
+    complexity: 14
+    complexity_breakdown: "Module_Size=3 + Dependencies=3 + Algorithm=4 + Integration=4"
+    description: |
+      Implement BaselineB3Trainer (2-stage sequential training).
+      Stage 1: LoRA CE fine-tune, Locret heads frozen.
+      Stage 2: Freeze LoRA, train Locret heads with LM distillation loss
+        (KL divergence: teacher full-KV logits vs student 50%-KV logits).
+      Save stage1 checkpoint; load for stage2 init.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-6: BaselineB3Trainer"
+
+  - id: "A-7"
+    title: "LongBenchEvaluator"
+    type: "implementation"
+    priority: 87
+    complexity: 13
+    complexity_breakdown: "Module_Size=3 + Dependencies=3 + Algorithm=4 + Integration=3"
+    description: |
+      Implement LongBenchEvaluator in evaluator.py.
+      evaluate_task(task_name): inference with hard KV eviction at budget_ratio=0.5.
+      qa_f1_score: token-level F1 from THUDM/LongBench metrics.py (normalize, compute P/R/F1).
+      evaluate_all(): returns {task: f1, mean_f1} for narrativeqa/qasper/multifieldqa_en.
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-7: LongBenchEvaluator"
+
+  - id: "A-8"
+    title: "GLUEEvaluator"
+    type: "implementation"
+    priority: 86
+    complexity: 8
+    complexity_breakdown: "Module_Size=2 + Dependencies=2 + Algorithm=2 + Integration=2"
+    description: |
+      Implement GLUEEvaluator in evaluator.py.
+      evaluate_task(task_name): accuracy on MNLI/SST-2/QNLI validation splits.
+      Use evaluate.load("glue", task_name) for metric computation.
+      evaluate_all(): returns {task: accuracy, mean_accuracy}.
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "GLUEEvaluator"
+
+  - id: "A-9"
+    title: "ExperimentRunner + Gate Logic"
+    type: "implementation"
+    priority: 85
+    complexity: 12
+    complexity_breakdown: "Module_Size=2 + Dependencies=3 + Algorithm=4 + Integration=3"
+    description: |
+      Implement ExperimentRunner in run_experiment.py.
+      run_all(): 3 seeds × 2 models (joint + B3); checkpoint management.
+      aggregate_results(): compute mean±std across seeds per model.
+      check_gate(): stability_passed=(all seeds nan==0 AND divergence==0),
+        accuracy_passed=(joint mean F1 >= B3 mean F1).
+      save_results() to h-m2/results/; generate_figures().
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "ExperimentRunner"
+      - file: "h-m2/03_config.md"
+        section: "A-9 (YAML schema)"
+
+  - id: "A-10"
+    title: "Figures Generation"
+    type: "implementation"
+    priority: 84
+    complexity: 8
+    complexity_breakdown: "Module_Size=2 + Dependencies=1 + Algorithm=2 + Integration=3"
+    description: |
+      Implement figures.py with 5 mandatory figures:
+      1. longbench_comparison.png: bar chart JointLoRA-KV vs B3 F1 per task + mean (GATE METRIC)
+      2. training_loss_curves.png: per-step loss for seeds 42/123/456
+      3. loss_distribution.png: box plot per seed at epoch end
+      4. per_task_f1.png: per-task F1 breakdown
+      5. gradient_norms.png: LoRA vs Locret grad norms over training
+      Save all to h-m2/figures/.
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "Figures"
+      - file: "h-m2/03_prd.md"
+        section: "FR-7: Visualization Requirements"
+
+  # ── Subtasks from Logic Agent ────────────────────────────────────────────────
+  - id: "L-2-1"
+    parent: "A-2"
+    title: "LocretRetainingHead MLP implementation"
+    type: "subtask"
+    priority: 49
+    description: "Implement W1/W2 linear layers, GQA repeat_interleave(4,dim=1), sigmoid CIS formula S̃=σ([Q,K_exp,V_exp]@W1)@W2"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-2: Locret Retaining Head"
+
+  - id: "L-2-2"
+    parent: "A-2"
+    title: "Per-layer registration forward hook"
+    type: "subtask"
+    priority: 48
+    description: "Forward hook on each LLaMA attention layer to capture Q/K/V and run retaining head; register under self.retaining_heads[i]"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-2: Locret Retaining Head"
+
+  - id: "L-2-3"
+    parent: "A-2"
+    title: "Warm init from Locret checkpoint"
+    type: "subtask"
+    priority: 47
+    description: "Load hyx21/Locret-llama-3.1-8B-instruct, map keys to retaining_heads[i].W1/W2, handle shape validation, skip missing keys with warning"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-2: Locret Retaining Head"
+
+  - id: "L-3-1"
+    parent: "A-3"
+    title: "PEFT LoRA injection"
+    type: "subtask"
+    priority: 46
+    description: "Call get_peft_model with LoraConfig(r=16, lora_alpha=32, target_modules=[q_proj,k_proj,v_proj]); verify lora_ param names; freeze base params"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-3: JointLoRAKVModel Forward Pass"
+
+  - id: "L-3-2"
+    parent: "A-3"
+    title: "Soft KV mask differentiable top-k"
+    type: "subtask"
+    priority: 45
+    description: "compute_soft_kv_mask: threshold via torch.topk (no_grad), margin=scores-threshold, soft=sigmoid(margin/0.1); returns [B,8,S]"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-3: JointLoRAKVModel Forward Pass"
+
+  - id: "L-3-3"
+    parent: "A-3"
+    title: "Hard top-k eviction"
+    type: "subtask"
+    priority: 44
+    description: "apply_hard_kv_eviction: torch.topk + sort indices + gather on KV cache; returns [B,n_kv_heads,K,d_head] retained entries"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-3: JointLoRAKVModel Forward Pass"
+
+  - id: "L-3-4"
+    parent: "A-3"
+    title: "Unified forward pass with training/inference branch"
+    type: "subtask"
+    priority: 43
+    description: "forward(): collect CIS scores via hooks; apply soft mask if training_mode=True, hard eviction if False; return (logits, cis_scores, loss)"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-3: JointLoRAKVModel Forward Pass"
+
+  - id: "L-4-1"
+    parent: "A-4"
+    title: "StabilityMonitor full implementation"
+    type: "subtask"
+    priority: 42
+    description: "deque-based moving avg (window=100), NaN detection (torch.isnan), divergence detection (>2× moving avg), grad norm logging, JSON report, StabilityError class"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-4: StabilityMonitor"
+
+  - id: "L-5-1"
+    parent: "A-5"
+    title: "Dual param group optimizer construction"
+    type: "subtask"
+    priority: 41
+    description: "build_optimizer: filter lora_ params (lr=1e-4) and retaining_head params (lr=5e-4); assert both non-empty; return AdamW with two param groups"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-5: JointLoRAKVTrainer"
+
+  - id: "L-5-2"
+    parent: "A-5"
+    title: "LR scheduler linear warmup + cosine decay"
+    type: "subtask"
+    priority: 40
+    description: "build_scheduler: get_cosine_schedule_with_warmup with num_warmup_steps=int(total_steps*0.10)"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-5: JointLoRAKVTrainer"
+
+  - id: "L-5-3"
+    parent: "A-5"
+    title: "Training step: forward, backward, grad clip, optimizer step"
+    type: "subtask"
+    priority: 39
+    description: "train_step: forward(training_mode=True) → CE loss → check_nan → loss.backward() → clip_grad_norm_(max_norm=1.0) → optimizer/scheduler step → log grad norms every 50 steps"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-5: JointLoRAKVTrainer"
+
+  - id: "L-5-4"
+    parent: "A-5"
+    title: "Epoch loop + divergence tracking"
+    type: "subtask"
+    priority: 38
+    description: "train_epoch(): iterate dataloader, accumulate loss, check divergence per step, return {epoch, mean_loss, nan_events, divergence_events}"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-5: JointLoRAKVTrainer"
+
+  - id: "L-6-1"
+    parent: "A-6"
+    title: "Stage 1 LoRA CE fine-tune"
+    type: "subtask"
+    priority: 37
+    description: "stage1_lora_finetune(): freeze Locret heads, single-group AdamW on LoRA params only, CE loss loop over GLUE"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-6: BaselineB3Trainer"
+
+  - id: "L-6-2"
+    parent: "A-6"
+    title: "Stage 2 Locret LM distillation"
+    type: "subtask"
+    priority: 36
+    description: "stage2_locret_finetune(): freeze LoRA, KL-div loss (teacher=full-KV, student=50%-KV), Locret-only optimizer lr=5e-4"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-6: BaselineB3Trainer"
+
+  - id: "L-6-3"
+    parent: "A-6"
+    title: "Checkpoint save/load between stages"
+    type: "subtask"
+    priority: 35
+    description: "save_checkpoint(): save model+optimizer state after stage1; load_checkpoint(): restore for stage2 init"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-6: BaselineB3Trainer"
+
+  - id: "L-7-1"
+    parent: "A-7"
+    title: "Generation loop with hard KV eviction"
+    type: "subtask"
+    priority: 34
+    description: "_generate_with_hard_eviction(): autoregressive generation with hard top-k at each step; evaluate_task() + evaluate_all()"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-7: LongBenchEvaluator"
+
+  - id: "L-7-2"
+    parent: "A-7"
+    title: "qa_f1_score integration from THUDM/LongBench"
+    type: "subtask"
+    priority: 33
+    description: "Token-level F1: normalize (lowercase, strip punctuation), compute precision/recall over token bags, max F1 over ground truth list"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-7: LongBenchEvaluator"
+
+  - id: "C-1-2"
+    parent: "A-9"
+    title: "YAML config load/save utility"
+    type: "subtask"
+    priority: 32
+    description: "load_config(path): yaml.safe_load → _dict_to_config → validate_config; save_config: dataclasses.asdict + yaml.dump"
+    reference_files:
+      - file: "h-m2/03_config.md"
+        section: "A-9 (YAML schema)"
+
+  # ── Failsafe ─────────────────────────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: |
+      MUST_WORK gate evaluation checkpoint.
+      Verify: (1) stability_passed = zero NaN + zero divergence across ALL 3 seeds.
+               (2) accuracy_passed = joint mean LongBench-QA F1 >= B3 mean F1 at budget_ratio=0.5.
+      If gate SATISFIED: mark h-m2 validation PASS, unblock H-M3.
+      If gate FAILS: record failure, route to Phase 0 per verification_state.yaml routing rules.
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "6. Success Criteria"

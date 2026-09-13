@@ -1,0 +1,9 @@
+﻿# Title: Cognitive Stress Testing: Evaluating LLM Reasoning Under Adversarial Perturbations Inspired by Human Cognitive Biases
+
+## Motivation
+Current benchmarks for assessing LLM cognitive abilities often rely on static datasets that models may have memorized or that fail to probe genuine reasoning. Humans exhibit well-documented cognitive biases (e.g., anchoring, framing effects, confirmation bias) that reveal the boundaries of their reasoning systems. By systematically testing whether LLMs exhibit similar vulnerabilities—or entirely different failure modes—we can better understand the fundamental nature and limits of their "reasoning" compared to human cognition. This approach bridges cognitive psychology and AI evaluation.
+
+## Main Idea
+We propose developing a **Cognitive Bias Probe Suite (CBPS)**, a dynamic benchmark that generates adversarial variants of reasoning tasks specifically designed to trigger cognitive biases documented in humans. The methodology involves: (1) selecting classic cognitive bias paradigms from psychology (e.g., Wason selection task variants, base-rate neglect problems, sunk-cost scenarios); (2) creating systematic perturbations (reframing, irrelevant anchors, misleading context) to test robustness; (3) comparing LLM failure patterns against human behavioral data.
+
+Expected outcomes include a taxonomy of shared versus divergent failure modes between LLMs and humans, revealing whether LLMs approximate human-like heuristic reasoning or exhibit fundamentally different brittleness patterns. This informs both cognitive science (what reasoning mechanisms might LLMs have learned) and practical AI safety (identifying predictable failure conditions). The framework enables ongoing evaluation resistant to data contamination.

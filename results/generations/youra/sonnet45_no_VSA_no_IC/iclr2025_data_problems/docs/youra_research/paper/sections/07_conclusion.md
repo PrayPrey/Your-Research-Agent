@@ -1,0 +1,15 @@
+# Conclusion
+
+We asked whether quality-first (QD) or diversity-first (DQ) curation wins at scale. Conventional wisdom predicted reversal—quality-first at small scale, diversity-first at large scale as quality saturates—but experiments reveal quality-first wins universally across 10K–10M tokens, demonstrating the quality-gated diversity principle.
+
+Our systematic experiments with GPT-2 training quantify quality saturation (slope −2.62pp/log-scale, p=0.008) and diversity persistence (slope +2.5pp/log-scale, p=0.002), confirming DATAMASK's qualitative observations with statistical rigor. More critically, we demonstrate compositional ordering effects (Cohen's d=0.76–2.48) showing that sequential curation creates non-additive interactions, contradicting Data Mixing Laws' order-invariance assumption.
+
+The core insight is **quality-gated diversity**: diversity sampling is only effective on quality-filtered subsets. When diversity precedes quality (DQ), diverse sampling operates on full noisy distribution, amplifying uninformative variation that subsequent quality filtering cannot fully remove. When quality precedes diversity (QD), filtering removes noise first, allowing diversity selection to preserve genuinely informative diverse patterns.
+
+For practitioners, our prescription is clear: **apply quality filtering before diversity sampling, regardless of dataset scale** (10K–10M tokens). This recommendation holds even at large scale where diversity coefficient (α_D=0.74) exceeds quality coefficient (α_Q=0.36), because compositional dependency favors quality-first ordering. The 7 GPU-hour curation cost for 10M tokens yields +1.5pp to +5.0pp performance gain, negligible relative to typical training budgets (>1000 GPU-hours).
+
+For the research community, we introduce compositional interaction analysis to data curation, challenging order-invariance assumptions in mixing literature and providing a trajectory quantification framework (regression slopes, effect sizes) for comparing saturation dynamics across studies.
+
+**Future work**: Three high-priority extensions emerge from our findings. First, extended scale tests (50M–100M tokens) will search for reversal threshold where quality filtering exhausts high-value documents. Second, alternative quality metrics (perplexity-based, classifier-based) may saturate faster than V-Information, potentially enabling reversal at tested scales. Third, frontier model replication (Llama 3 8B) will validate proxy transfer assumptions. Longer-term, adaptive curation schedulers could monitor quality saturation in real-time and adjust strategies dynamically, though our current findings suggest quality-first remains robust across practical training regimes.
+
+**Closing the loop**: Sequential ordering matters in data curation—apply quality filtering before diversity sampling, not because diversity is unimportant, but because diversity is only effective when noise is removed first. This principle mirrors signal processing intuition (denoise before equalize) and provides practitioners with actionable guidance for multi-stage curation pipeline design.

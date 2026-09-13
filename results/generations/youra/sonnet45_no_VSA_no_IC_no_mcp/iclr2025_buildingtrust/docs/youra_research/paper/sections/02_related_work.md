@@ -1,0 +1,39 @@
+# 2. Related Work
+
+Our framework integrates benchmark evaluation, interpretability analysis, and correction methods — three research areas that have evolved independently. We discuss each line of work and highlight the integration gap our approach addresses.
+
+## 2.1 Benchmark Evaluation for LLM Reliability
+
+Benchmarks measure LLM capabilities across dimensions including factuality, consistency, and robustness. **TruthfulQA** [Lin et al., 2021] evaluates whether models mimic human falsehoods, testing factual accuracy on single-entity and multi-entity questions. **FEVER** [Thorne et al., 2018] assesses claim verification against a Wikipedia-derived knowledge base. **BigBench** [Srivastava et al., 2022] provides a diverse task suite including reasoning and knowledge-intensive challenges.
+
+These benchmarks serve a critical measurement role, yet they produce aggregate accuracy scores without failure diagnosis. Lin et al. report that state-of-the-art LLMs achieve 60-70% on TruthfulQA, but the score provides no guidance for targeted improvement — we learn *that* models fail, not *why*. Benchmark frameworks report binary outcomes (correct/incorrect) without categorizing failure types or connecting individual failures to interpretability analysis.
+
+Our work differs by routing individual failures to interpretability-based diagnosis. Instead of aggregate scores, we produce diagnostic failure profiles (entity-error vs non-entity-error) that enable matched correction strategies. We leverage TruthfulQA's single-entity factual question subset to validate attention-based failure classification, transforming the benchmark from a measurement tool into a discovery engine for systematic failure patterns.
+
+## 2.2 Interpretability Methods for Transformers
+
+Attention-based interpretability has become a standard approach for understanding transformer models. **Vig & Belinkov (2019)** visualize attention patterns to trace information flow through BERT layers, revealing how models attend to syntactic and semantic features. **Clark et al. (2019)** analyze attention heads in BERT, discovering heads that specialize in specific linguistic phenomena (e.g., attending to direct objects, tracking coreference). **Abnar & Zuidema (2020)** propose attention rollout to aggregate attention across layers, addressing the limitation that single-layer attention may not capture full information flow.
+
+These methods provide valuable insights but face a scalability bottleneck: manual example selection. Vig & Belinkov analyze ~10 examples per attention pattern; Clark et al. examine ~20 sentences per head specialization. This small-scale approach reveals interesting phenomena but cannot discover systematic patterns across hundreds of benchmark failures. Manual selection also introduces bias — researchers choose examples that illustrate their hypothesis, potentially missing counterexamples or alternative patterns.
+
+Our approach scales interpretability to benchmark-sized datasets through automated attention entropy calculation. We process 73 TruthfulQA failures, extracting attention patterns without manual selection. The entropy-based classification (86.7% accuracy) demonstrates that attention statistics can serve as diagnostic signals at scale, exceeding the 10-20 example baseline in prior work. This automation enables failure-mode discovery across systematic benchmark evaluation rather than hand-picked illustrations.
+
+## 2.3 Correction Methods for LLM Failures
+
+Correction strategies have evolved along two distinct paths: knowledge augmentation and reasoning enhancement.
+
+**Retrieval-Augmented Generation (RAG)** [Lewis et al., 2020] addresses factual knowledge limitations by retrieving relevant documents from external corpora (e.g., Wikipedia) and incorporating them into the generation context. RAG has proven effective for knowledge-intensive tasks, particularly when models lack factual information or need up-to-date knowledge beyond training data. The method targets entity-level knowledge gaps by injecting retrieved context, enabling the model to generate factually grounded responses.
+
+**Chain-of-Thought (COT) prompting** [Wei et al., 2022] improves multi-step reasoning by eliciting intermediate steps before final answers. COT particularly benefits complex reasoning tasks where decomposition reveals hidden assumptions or calculation errors. The method addresses reasoning failures through explicit step-by-step traces, making logical leaps explicit.
+
+Despite their effectiveness in specific settings, these correction methods are deployed without failure-type awareness. Practitioners apply RAG or COT uniformly to all failures, missing opportunities to match interventions to root causes. A reasoning failure corrected with RAG (factual retrieval) may not benefit, just as an entity-substitution error subjected to COT (reasoning decomposition) targets the wrong level.
+
+Our framework introduces failure-type-specific routing: entity-substitution errors route to RAG (retrieve correct entity for attention re-direction), while non-entity errors are candidates for COT (reasoning-level intervention, not tested in this work). Mock validation shows matched routing (entity → RAG) achieves +24 percentage point improvement over mismatched routing (entity → COT) in synthetic settings, demonstrating structural feasibility. Real-world correction effectiveness remains pending validation with actual Wikipedia retrieval and GPT-judge evaluation.
+
+## 2.4 Positioning Our Contribution
+
+The gap in existing work is not within individual areas but at their intersection. Benchmarks measure but do not diagnose. Interpretability reveals patterns but does not scale beyond manual analysis. Correction methods work but apply uniformly without targeting root causes.
+
+We fill this integration gap with an automated framework connecting benchmark failures → interpretability-based diagnosis → failure-type-specific correction. Our methodological contribution is systematic integration: we demonstrate that attention entropy (an interpretability signal) can serve as a diagnostic feature for automated failure classification (benchmark-scale analysis), enabling matched correction routing (targeted intervention). This integration transforms benchmark evaluation from aggregate scoring to actionable improvement guidance.
+
+Our approach builds on prior work rather than replacing it. We use TruthfulQA's evaluation framework, apply Clark et al.'s attention extraction methodology, and leverage Lewis et al.'s RAG correction strategy. The novelty lies in the closed-loop integration: benchmark failures automatically trigger attention analysis, diagnostic classification routes to matched correction methods, and the entire pipeline operates at benchmark scale without manual example selection.

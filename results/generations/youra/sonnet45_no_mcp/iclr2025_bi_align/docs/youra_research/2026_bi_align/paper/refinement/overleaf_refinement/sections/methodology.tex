@@ -1,0 +1,95 @@
+
+\subsubsection{3.1 Overview}
+
+The three-hypothesis validation protocol systematically tests each link in the causal chain: (1) Do genuine violations exist at sufficient rate? (2) Do humans detect them consistently? (3) Do embeddings cluster them? This decomposition allows identification of where the chain breaks, distinguishing dataset quality issues from annotation consistency problems from embedding representation failures.
+
+\textbf{Rationale for sequential testing:} Testing the full hypothesis end-to-end would conflate multiple failure modes. The protocol isolates each failure point through three hypotheses with explicit gates:
+
+\begin{itemize}
+\item \textbf{H-E1 (Existence):} Base-rate validation—do rejected responses contain ≥40\% genuine safety violations?
+\item \textbf{H-M1 (Mechanism-1):} Annotation consistency—do humans detect violations with substantial agreement (κ≥0.70)?
+\item \textbf{H-M2 (Mechanism-2):} Embedding separability—do rejected responses cluster in embedding space (Cohen's d≥0.5)?
+\end{itemize}
+
+Each hypothesis has clear success criteria and falsification thresholds. Early-stage failure (H-E1 or H-M1) would invalidate the geometric framing, while late-stage failure (H-M2) localizes the issue to embedding representations.
+
+\subsubsection{3.2 H-E1: Base-Rate Validation}
+
+\textbf{Research question:} Does the HH-RLHF harmless subset contain genuine safety policy violations at sufficient rate to support geometric analysis?
+
+\textbf{Motivation:} Prior work assumes RLHF labels are valid but does not validate base-rates empirically. If fewer than 40\% of rejected responses contain genuine violations versus marginal preferences or labeling noise, label noise dominates and geometric structure cannot reliably emerge.
+
+\textbf{Protocol:} A blinded human audit of 500 rejected responses sampled from HH-RLHF harmless-base using stratified random sampling by response length quartiles. Three independent annotators evaluate each response using explicit HH-RLHF harmlessness criteria \citep{Baietal2022}: Does this response violate safety policies (toxicity, harmful instructions, misinformation, privacy violations)? Annotators are blinded to original labels and each other's judgments.
+
+\textbf{Success criterion:} Base-rate p ≥ 0.40 genuine violations with binomial test p-value < 0.05.
+
+\textbf{Rationale:} The 40\% threshold balances signal-to-noise ratio requirements with realistic expectations that not all rejections are severe violations. Stratified sampling ensures representative coverage across response lengths.
+
+\subsubsection{3.3 H-M1: Annotation Consistency}
+
+\textbf{Research question:} Do human annotators consistently detect violations when using explicit safety criteria?
+
+\textbf{Motivation:} Even if genuine violations exist, inconsistent human judgment would indicate label noise undermines downstream geometric analysis. Substantial inter-annotator agreement (κ≥0.70) validates that violation detection is learnable and reproducible.
+
+\textbf{Protocol:} A sample of 300 response pairs from HH-RLHF harmless subset (stratified by violation type). Three annotators independently classify each pair as chosen/rejected using HH-RLHF annotation guidelines. Pairwise Cohen's κ is computed across all annotator pairs and agreement with original HH-RLHF labels is measured.
+
+\textbf{Success criteria:} Primary: average Cohen's κ ≥ 0.70 (substantial agreement). Secondary: ≥75\% agreement with original HH-RLHF labels.
+
+\textbf{Rationale:} Cohen's κ corrects for chance agreement, providing robust inter-rater reliability measurement. The 0.70 threshold distinguishes substantial agreement from moderate agreement.
+
+\textbf{Implementation note:} Due to constraints, untrained h-e1 annotators were used as fallback data rather than executing the full training protocol. This is a limitation: observed κ=0.724 may underestimate the ceiling achievable with trained annotators, though it demonstrates substantial consistency.
+
+\subsubsection{3.4 H-M2: Embedding Separability}
+
+\textbf{Research question:} Do rejected responses form distinct clusters in semantic embedding space, distinguishable from chosen responses?
+
+\textbf{Motivation:} This tests the core geometric manifold hypothesis. If aggregated human judgments create high-density sampling of alignment failure space, non-random clustering in embedding space would be expected. Random distribution would falsify the geometric structure hypothesis.
+
+\textbf{Protocol:} CLS token embeddings are extracted from RoBERTa-base \citep{Liuetal2019} for all 160,800 chosen/rejected pairs in HH-RLHF harmless-base. Multivariate analysis of variance (MANOVA) tests whether chosen versus rejected embeddings form separable distributions. Cohen's d effect size is computed for group separation. PCA dimensionality reduction is applied to visualize embedding space structure.
+
+\textbf{Success criteria:} Primary: MANOVA effect size Cohen's d ≥ 0.5 (medium-to-large effect). Secondary: visual inspection confirms non-random clustering in PCA space. Failure threshold: d < 0.3 indicates effectively random distribution.
+
+\textbf{Rationale for RoBERTa-base:} RoBERTa is a widely-used, well-validated pretrained encoder that captures semantic similarity across diverse text. If this standard baseline fails, it establishes the need for safety-specialized representations.
+
+\textbf{Statistical power:} With n=160,800 samples, power exceeds 0.99 to detect d≥0.5 effects at α=0.05. This ensures the negative result (d=0.034) is genuine rather than a Type II error from insufficient data.
+
+\textbf{Baseline comparison:} Random baseline is computed by shuffling chosen/rejected labels 100 times and calculating d under the null hypothesis.
+
+\subsubsection{3.5 Embedding Extraction Details}
+
+The Hugging Face Transformers library \citep{Wolfetal2020} with RoBERTa-base checkpoint is used. For each response text:
+
+\begin{enumerate}
+\item \textbf{Tokenization:} RoBERTa tokenizer with max length 512 tokens (truncation for longer responses)
+\item \textbf{Encoding:} Forward pass through RoBERTa encoder
+\item \textbf{Pooling:} Extract CLS token representation (768 dimensions)
+\item \textbf{Normalization:} L2 normalize embeddings for distance metric consistency
+\end{enumerate}
+
+The full 160,800 pairs are processed in batches of 32 on a single NVIDIA H100 GPU, requiring approximately 23 minutes for complete extraction. Embeddings are cached to disk for reproducibility.
+
+\subsubsection{3.6 Evaluation Metrics}
+
+\textbf{For H-E1 (Base-rate):}
+\begin{itemize}
+\item Proportion p of genuine violations among 500 samples
+\item Binomial test: H₀: p < 0.40 vs. H₁: p ≥ 0.40, α=0.05
+\item Cohen's κ for inter-annotator agreement (quality check)
+\end{itemize}
+
+\textbf{For H-M1 (Consistency):}
+\begin{itemize}
+\item Cohen's κ (average across 3 annotator pairs)
+\item Agreement rate with original HH-RLHF labels
+\item 95\% confidence intervals via bootstrap (1000 resamples)
+\end{itemize}
+
+\textbf{For H-M2 (Clustering):}
+\begin{itemize}
+\item Cohen's d: d = (μ_rejected - μ_chosen) / σ_pooled
+\item MANOVA F-statistic and p-value
+\item PCA explained variance (first 2 components)
+\item Comparison to random baseline (100 label permutations)
+\end{itemize}
+
+\textbf{Reproducibility:} All experiments use fixed random seeds (42, 123, 456) for sampling, shuffling, and splits.

@@ -1,0 +1,44 @@
+
+We design a cross-architecture weight space encoder that extends NFN's approach to heterogeneous model populations. Our method combines Deep Sets for permutation invariance, architecture embeddings to provide family-specific context, and an MSE-based equivariance loss to encourage factorization of architecture-specific conventions. This approach failed as documented in Section 5.
+
+\subsubsection{Problem Formulation}
+
+Let M = {M₁, ..., Mₙ} be a model zoo containing neural networks from multiple architecture families A = {CNN, Transformer, RNN}. Each model Mᵢ has weights wᵢ ∈ ℝ^(dₐ) where dimensionality dₐ varies by architecture family. Each architecture family a ∈ A has a permutation group Gₐ representing valid neuron reorderings and structural permutations that preserve function.
+
+\textbf{Goal}: Learn an encoder Eₐ: ℝ^(dₐ) → ℝ^K that projects model weights into a shared K-dimensional space Z such that: (1) permutation-equivalent weights map to the same point: Eₐ(g · w) = Eₐ(w) for g ∈ Gₐ, (2) the space is shared across architectures, and (3) the representation preserves task-relevant information.
+
+\subsubsection{Architecture Overview}
+
+\textbf{Deep Sets Backbone}: We adopt Deep Sets (Zaheer et al., 2017) as our encoder backbone. Given model weights w = {w₁, ..., wₘ} partitioned into m parameter groups, the encoder computes:
+
+z = ρ(Σᵢ φ(wᵢ, cₐ))
+
+where φ: ℝ^d × ℝ^64 → ℝ^256 is a per-element encoding network, cₐ ∈ ℝ^64 is the architecture embedding for family a, and ρ: ℝ^256 → ℝ^K is the projection to K-dimensional space. Both φ and ρ are MLPs with ReLU activations.
+
+\textbf{Architecture Embeddings}: We inject 64-dimensional learnable embeddings cₐ for each family a ∈ {CNN, Transformer, RNN} before the per-element encoding step. The embedding is concatenated with each weight group: φ(wᵢ, cₐ) = MLP([wᵢ; cₐ]). The embeddings are learned end-to-end during training. Frozen-K generalization results (10.31\% error, marginally above 10\% target) combined with clustering evidence suggest this design may be counterproductive, as embeddings may anchor representations to family-specific coordinates.
+
+\textbf{MSE-Based Equivariance Loss}: We augment the reconstruction loss with an MSE-based equivariance loss:
+
+L_equiv = 𝔼_{M∼M, g∼Gₐ} ||Eₐ(g · w) - ρ(g)Eₐ(w)||²
+
+where ρ(g): ℝ^K → ℝ^K is a learned slot permutation operator. During training, for each batch we sample random permutations g and compute the loss on both original and permuted weights. The total loss is:
+
+L_total = L_recon + λ_equiv L_equiv
+
+with λ_equiv = 0.5. Kernel robustness of 0.00\% reveals this loss design is insufficient. MSE encourages similarity between Eₐ(g · w) and ρ(g)Eₐ(w) but does not enforce the group homomorphism constraint needed for true equivariance.
+
+\subsubsection{Training Procedure}
+
+\textbf{Dataset}: We generate a synthetic model zoo containing 1000 models split 70\% train, 15\% validation, 15\% test. The model zoo consists of 40\% CNNs, 40\% Transformers, and 20\% RNNs with random weight initialization. Each model has 1000-dimensional weight vectors. This simplification enables rapid prototyping and clear failure signal isolation.
+
+\textbf{Optimization}: Adam optimizer with learning rate 1e-3, weight decay 1e-4, and cosine annealing schedule. Training runs for 20 epochs with early stopping (patience=10). The equivariance loss weight is fixed at λ_equiv = 0.5. Training stopped early at epoch 12.
+
+\textbf{Quotient Space Dimension}: We set K=32 based on initial experiments. This proved insufficient (19.18\% reconstruction error), suggesting substantially higher dimensions may be needed.
+
+\subsubsection{Evaluation Protocol}
+
+\textbf{Reconstruction Error}: Mean squared error between original weights and reconstructed weights: R = 𝔼[||w - D(E(w))||² / ||w||²] where D: ℝ^K → ℝ^d is a learned decoder. \textbf{Success criterion}: R < 10\%.
+
+\textbf{Frozen-K Generalization}: Train encoder on CNN+Transformer models, then test reconstruction error on held-out RNN models with frozen dimension K: R_RNN = 𝔼_{M∈RNN_test}[||w - D(E(w))||² / ||w||²]. \textbf{Success criterion}: R_RNN < 10\%.
+
+\textbf{Kernel Robustness}: For each test model, apply 1000 random weight permutations g ∼ Gₐ and measure divergence D = ||E(g · w) - E(w)||. \textbf{Success criterion}: ≥90\% of permutations have D < 0.01. This is the most critical metric—without permutation invariance, the approach cannot succeed.

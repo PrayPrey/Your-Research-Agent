@@ -1,0 +1,65 @@
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Dataset and Groups}
+
+All experiments use the Waterbirds v1.0 benchmark \cite{sagawa2019distributionally}. Waterbirds constructs a synthetic dataset by compositing bird images (from CUB-200-2011) onto background scenes (from Places), creating a spurious correlation between bird type (label $y\in\{\text{waterbird, landbird}\}$) and background ($b\in\{\text{water, land}\}$). The spuriosity level is 95\%: 95\% of waterbirds appear on water backgrounds, 95\% of landbirds on land backgrounds.
+
+This yields four groups:
+\begin{itemize}
+\item Group 0 (majority): waterbird + water background (3498 train samples, 73\%)
+\item Group 1 (minority): waterbird + land background (184 train samples, 3.8\%)
+\item Group 2 (majority): landbird + land background (1057 train samples, 22\%)
+\item Group 3 (minority): landbird + water background (56 train samples, 1.2\%)
+\end{itemize}
+
+Minority groups 1+3 together: 240 samples (5.0\% of training set). Group labels are used \textbf{only for post-hoc AUROC evaluation}; the model receives only $(x_i, y_i)$ during ERM training.
+
+\subsection{Model and Training}
+
+We use ResNet-50 \cite{he2016deep} with ImageNet pretrained weights (torchvision v0.15). The last fully-connected layer is the $2048{\to}2$ linear head (4098 parameters including bias). Hyperparameters: SGD with lr$=3{\times}10^{-3}$, momentum$=0.9$, weight decay$=1{\times}10^{-4}$, 50 epochs, batch size 32. Checkpoints saved at $t\in\{0,1,5,10,20,50\}$. Five independent runs (seeds 1--5).
+
+At the final checkpoint $t{=}50$, the ERM model achieves mean average accuracy $\approx$97\% on the training set. Worst-group accuracy on the test set is substantially lower ($\approx$72\%), consistent with the known ERM-spurious correlation gap on Waterbirds \cite{sagawa2019distributionally}.
+
+\subsection{Hessian Trace Computation}
+
+For each checkpoint $t$ and each training sample $i$, we compute $\text{Tr}(H_i^{fc})$ via $K{=}50$ Rademacher probes:
+
+\begin{lstlisting}[language=Python, basicstyle=\small\ttfamily, breaklines=true]
+# Per-sample last-fc Hessian trace via torch.func vmap+vjp
+def trace_per_sample(model, x_i, y_i, K=50):
+    fc = model.fc  # last linear layer
+    x_feat = model.backbone(x_i)  # penultimate feature
+
+    def loss_fn(w, b):
+        logits = x_feat @ w.T + b
+        return F.cross_entropy(logits, y_i)
+
+    traces = []
+    for _ in range(K):
+        v = torch.randint(0, 2, size=(len(w.flatten()),)) * 2 - 1
+        v = v.float() / len(v)**0.5
+        _, vjp_fn = torch.func.vjp(grad_fn, w, b)
+        hv = vjp_fn(v_shaped)[0].flatten()
+        traces.append((v * hv).sum())
+    return torch.stack(traces).mean()
+\end{lstlisting}
+
+Computation is batched across samples via \texttt{torch.func.vmap} for efficiency. Total computation per checkpoint per seed: approximately 8 minutes on a single A100 GPU for all 4795 training samples with $K{=}50$.
+
+\subsection{Epoch-0 Control}
+\label{sec:epoch0-control}
+
+The $t{=}0$ checkpoint is the pretrained ImageNet backbone before any Waterbirds training steps. Computing traces at $t{=}0$ measures the baseline minority-majority discriminability from ImageNet pretraining alone. This control is mandatory: a prior experiment found gradient-direction AUROC$=0.987$ at epoch 0, indicating that pretrained features already separate the groups --- making that signal a pretrained artifact rather than an ERM signal. Any candidate signal must satisfy AUROC$(t{=}0) < 0.70$ to pass the ERM-induction gate.
+
+\subsection{Research Questions}
+
+The experiments address three research questions:
+
+\textbf{RQ1 (Existence):} Does per-sample last-fc Hessian trace achieve AUROC$\geq$0.85 for minority membership prediction at $t^*$ across $\geq$4/5 seeds?
+
+\textbf{RQ2 (ERM induction):} Is the trace signal ERM-induced rather than a pretrained artifact? Operationalized as AUROC$(t{=}0) < 0.70$ in all 5 seeds.
+
+\textbf{RQ3 (Mechanism --- confidence channel):} Is the confidence-differential mechanism active at $t^*$? Operationalized as $p_{\text{minority}}(t^*) \in [0.3, 0.7]$ in $\geq$3/5 seeds (pre-registered H-M1 gate).
+
+RQ1 and RQ2 together constitute the H-E3 existence gate. RQ3 is the H-M1 mechanism gate. All gates were pre-registered before conducting the experiments.

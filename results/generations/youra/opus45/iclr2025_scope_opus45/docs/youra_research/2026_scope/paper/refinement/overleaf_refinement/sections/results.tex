@@ -1,0 +1,127 @@
+
+\subsubsection{5.1 H-E1: Spectral Horizon Stability}
+
+\textbf{Research Question:} Is H\_spec a stable, input-independent property?
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Metric & Value & Threshold & Result \\
+\midrule
+CV(H\_spec) & 2.22 x $10^-16$ & < 0.3 & PASS \\
+Mean H\_spec & 256.18 tokens & - & - \\
+Std H\_spec & 5.68 x $10^-14$ & - & - \\
+Valid samples & 1000/1000 & - & - \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The coefficient of variation is effectively zero, indicating that H\_spec is determined solely by the pretrained A matrix weights and is independent of input sequences.
+
+\textbf{Cross-Scale Observation:} Mamba-370M yielded H\_spec = 162,605 tokens, larger than Mamba-1.4B (256.18 tokens). This non-monotonic relationship was unexpected and suggests H\_spec is determined by pretraining dynamics rather than model capacity alone.
+
+\subsubsection{5.2 H-M1: Eigenvalue-Based Memory Prediction}
+
+\textbf{Research Question:} Does H\_spec predict actual memory behavior on real text?
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+Context Length & Perplexity \\
+\midrule
+25 tokens & 83.26 \\
+64 tokens & 36.40 \\
+128 tokens & 23.75 \\
+256 tokens & 17.89 \\
+512 tokens & 14.41 \\
+1024 tokens & 12.22 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\textbf{Degradation Ratio:} 3.03 (threshold: > 1.1) --- PASS
+
+Perplexity improved rapidly as context approached H\_spec (256 tokens), then showed diminishing returns beyond H\_spec. The improvement from 25 to 256 tokens was 4.65x, while the improvement from 256 to 1024 tokens was 1.47x. This pattern indicates that H\_spec predicts the point at which memory becomes the limiting factor for language modeling performance.
+
+\subsubsection{5.3 H-M2: Eigenvalue Preservation Under LoRA}
+
+\textbf{Research Question:} Does projection-only LoRA preserve SSM eigenvalues?
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Metric & Pre-Training & Post-Training & Change \\
+\midrule
+H\_spec & 256.43 tokens & 256.43 tokens & 0.0000\% \\
+A\_log max diff & - & 0.0 & Frozen \\
+Eigenvalue correlation & - & 1.0000 & Perfect \\
+Validation perplexity & - & 15.58 & - \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\textbf{Result:} |delta H\_spec| = 0.0\% (threshold: < 10\%) --- PASS
+
+The A\_log parameters remained completely frozen during training. Eigenvalue preservation was exact, not approximate. This confirms architectural isolation between projection parameters and SSM core parameters.
+
+\subsubsection{5.4 H-M3: Eigenmode Energy Redistribution}
+
+\textbf{Research Question:} Can projection-only LoRA redistribute energy to slow eigenmodes?
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Metric & Pre-Training & Post-Training & Change \\
+\midrule
+Slow mode fraction & 1.97 x $10^-5$ & 1.91 x $10^-5$ & -5.93 x $10^-7$ \\
+delta E (nats) & - & 5.93 x $10^-7$ & 6 orders below threshold \\
+Perplexity & - & 14.35 & - \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\textbf{Result:} delta E = 5.93 x $10^-7$ nats (threshold: > 0.1 nats) --- FAIL
+
+Energy redistribution was negligible. Per-layer analysis revealed:
+
+\begin{itemize}
+\item Only 2 of 48 layers (layers 18 and 19) contain slow eigenmodes (|lambda| > 0.99)
+\item Layer 18: 0.044\% slow mode fraction
+\item Layer 19: 0.050\% slow mode fraction
+\item All other 46 layers: 0.0\% slow mode fraction
+\item Total slow mode capacity: 0.00197\% of state energy
+\end{itemize}
+
+The pretrained Mamba-1.4B architecture allocates minimal energy to slow-decaying modes. There is insufficient slow-mode capacity for meaningful redistribution.
+
+\subsubsection{5.5 Summary of Results}
+
+\begin{table*}[htbp]
+\centering
+\resizebox{\dimexpr 2\columnwidth+\columnsep\relax}{!}{%
+\begin{tabular}{llllllll}
+\toprule
+Hypothesis & Gate & Metric & Threshold & Actual & Result &  &  \\
+\midrule
+H-E1 & MUST\_WORK & CV(H\_spec) & < 0.3 & 2.22 x $10^-16$ & PASS &  &  \\
+H-M1 & MUST\_WORK & Degradation ratio & > 1.1 & 3.03 & PASS &  &  \\
+H-M2 & MUST\_WORK &  & delta H\_spec &  & < 10\% & 0.0\% & PASS \\
+H-M3 & SHOULD\_WORK & delta E & > 0.1 & 5.93 x $10^-7$ & FAIL &  &  \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+The three MUST\_WORK hypotheses passed. The SHOULD\_WORK hypothesis (H-M3) failed, which eliminates the EUH mechanism and provides evidence for MHSH.

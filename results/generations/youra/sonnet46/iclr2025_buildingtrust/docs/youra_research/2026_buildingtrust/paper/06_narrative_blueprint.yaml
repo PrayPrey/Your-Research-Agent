@@ -1,0 +1,256 @@
+# Narrative Blueprint: Phase 6 Paper Writing
+# Paper: Alignment-Induced Miscalibration via Decision-Boundary Restructuring in LLMs
+# Generated: 2026-03-15T07:35:00Z
+# Based on: 045_validated_hypothesis.md (PRIMARY), 03_refinement.yaml, 02b_verification_plan.md
+
+# ============================================================================
+# STORY IDENTITY
+# ============================================================================
+
+paper_identity:
+  title: "Decision Boundaries Over Confidence: How RLHF Alignment Restructures Answer Preferences in Pythia LLMs"
+  short_title: "Alignment-Induced Miscalibration via Decision-Boundary Restructuring"
+  hypothesis_id: "H-AlignCalib-v1"
+  format: "ICML2025"
+  core_finding: "Alignment training (SFT/DPO/PPO) on Pythia 1.4B–6.9B induces miscalibration not by inflating confidence on fixed answer choices (H1), but by systematically restructuring which answer option the model selects — with 1.4B-PPO changing argmax for 99.7% of MMLU items (Spearman ρ = -0.324)."
+
+# ============================================================================
+# HOOK
+# ============================================================================
+
+hook:
+  opening_statement:
+    strategy: "counterintuitive_striking_statistic"
+    content: "When we fine-tune a language model to be helpful and harmless, we do not simply make it more confident about its existing answers — we cause it to change its answer entirely. For 99.7% of MMLU multiple-choice questions, a 1.4B-parameter PPO-trained model no longer selects the same answer as its base counterpart: Spearman rank correlation between base and aligned 4-option log-probability vectors is ρ = -0.324, meaning the aligned model systematically prefers options the base model considered least likely."
+    first_sentence: "When we fine-tune a language model to be helpful and harmless, we do not simply make it more confident about its existing answers — we cause it to change its answer entirely."
+
+  why_reader_should_care:
+    main_reason: "Miscalibration from RLHF alignment is a known problem, but the mechanism has been mischaracterized. The field assumes confidence inflation (H1 — models become more certain about the same choices); our data shows the dominant mechanism is answer restructuring (H2 — models select fundamentally different options)."
+    concrete_example: "Temperature scaling and similar post-hoc calibration methods were designed to re-scale confidence on fixed answer distributions. If alignment shifts the answer distribution itself, these fixes are targeting the wrong mechanism."
+    stakes: "Every RLHF-aligned model deployed in practice may be miscalibrated not because it is overconfident, but because it has learned to prefer a different (and potentially worse) answer distribution — making standard calibration methods insufficient."
+
+  anti_patterns_avoided:
+    - "NOT: 'Deep learning has achieved remarkable success...'"
+    - "NOT: 'Calibration is an important problem in the field of...'"
+    - "NOT: 'With the advent of large language models...'"
+
+# ============================================================================
+# PROBLEM FRAMING (Three Levels)
+# ============================================================================
+
+problem_framing:
+  surface_problem:
+    description: "RLHF-aligned LLMs are miscalibrated — their expressed confidence does not match their accuracy"
+    common_understanding: "Alignment training makes models overconfident; standard ECE metrics capture this"
+    prior_evidence: "Xie et al. 2024: LLaMA-2-Chat ECE = 0.298 on MMLU, 0.507 on TruthfulQA"
+
+  deeper_problem:
+    description: "The mechanism of alignment-induced miscalibration is poorly understood"
+    why_overlooked: "Prior work (Xie et al.) demonstrated the phenomenon and proposed fixes (ATS temperature scaling) without mechanistic discrimination. Li et al. 2024 showed trustworthiness effects but did not measure calibration specifically."
+    our_perspective: "Calibration degradation under alignment could arise from three distinct mechanisms — each with different implications for correction. No prior work has designed experiments to discriminate between them."
+
+  gap_in_existing_work:
+    description: "No systematic, pre-registered mechanistic discrimination between H1 (scale inflation), H2 (boundary shift), and H3 (framing susceptibility) as causes of alignment-induced miscalibration"
+    why_gap_exists: "Existing studies confirm ECE increases under alignment but do not test whether this is due to confidence amplification on fixed choices (H1) or systematic answer-preference restructuring (H2). Xie et al. 2024's ATS fix implicitly assumes H1."
+    why_gap_matters: "If H2 dominates, then temperature scaling (designed for H1) will not fully correct miscalibration. Understanding the mechanism determines what corrections are needed and whether they can succeed."
+
+# ============================================================================
+# KEY INSIGHT
+# ============================================================================
+
+key_insight:
+  aha_moment:
+    one_sentence: "Alignment-induced miscalibration in Pythia 1.4B–6.9B is not confidence inflation — it is answer restructuring: alignment changes which answer the model considers best, not how confident it is in that answer."
+    expanded_explanation: "When Spearman ρ between base and aligned 4-option log-probability vectors falls below 0.85 (H2 diagnostic threshold), the model has fundamentally reordered answer preferences. This is not the same as becoming more confident. It means the model's answer distribution — the rank ordering of options — has changed. This manifests as miscalibration because the new preferred answers are not more accurate, only more confident-seeming."
+
+  why_others_missed_it:
+    common_assumptions: "Prior work assumed alignment inflates confidence on correct (or model-preferred) answers — H1 scale distortion — because this is the mechanistic prediction from reward optimization theory (PPO maximizes expected reward, which incentivizes high-confidence outputs)."
+    our_different_view: "We tested this assumption with a pre-registered Spearman ρ test and argmax partition. The data is unambiguous: 0/9 alignment–size pairs achieve ρ ≥ 0.90 (H1 requirement); 8/9 fall below 0.85 (H2 diagnostic)."
+    enabling_factor: "The per-specified mechanism discrimination framework (H1 vs H2 vs H3 with distinct falsifiers) — absent from prior work — made the H2 dominance visible where it had been invisible."
+
+  what_makes_it_work:
+    intuitive_explanation: "Imagine a model that, after RLHF training, systematically prefers 'B' when the correct answer is 'A'. The model is not more confident about 'A' — it has learned that human-preferred responses in the HH training data correlate with 'B'-type patterns, and this restructures its answer distribution on MMLU."
+    key_mechanism: "DPO directly reshapes per-token log-probability ratios at the token level; PPO's KL penalty to the SFT reference policy provides partial constraint. Both change answer boundaries; DPO does so more aggressively (DPO ΔReliability > PPO ΔReliability in all 3 Pythia sizes), consistent with DPO's unconstrained token-level objective."
+
+# ============================================================================
+# EVIDENCE NARRATIVE
+# ============================================================================
+
+evidence_narrative:
+  main_claim:
+    statement: "Alignment training reliably increases Brier reliability (overconfidence) in Pythia 1.4B–6.9B via H2 decision-boundary restructuring, not H1 monotonic scale inflation"
+    measurable_criteria:
+      - "ΔReliability > 0 in 8/9 aligned pairs (H-E1 MUST_WORK PASS)"
+      - "0/9 Spearman ρ ≥ 0.90; 8/9 ρ < 0.85 (H-M3 H2 confirmation)"
+      - "DPO ΔReliability > PPO ΔReliability in all 3 sizes (counter-intuitive ordering)"
+
+  supporting_evidence:
+    - id: "evidence_1_existence"
+      what: "ΔBrier reliability > 0 in 8/9 alignment–size pairs; bootstrap CI lower > 0 for DPO (3/3 sizes) and PPO (2/3 sizes)"
+      so_what: "Alignment consistently increases overconfidence — not an artifact of one model or one method"
+      how_it_supports_claim: "Establishes the empirical foundation for mechanistic investigation; rules out H0 (no effect)"
+      source: "H-E1 validation; DPO 1.4B ΔReliability = 0.1048 (5.5× base); PPO 1.4B ΔReliability = 0.0406"
+
+    - id: "evidence_2_baseline"
+      what: "Pythia base models ECE = 0.057–0.085; all < 0.15 threshold"
+      so_what: "Pre-alignment calibration is clean — miscalibration is attributable to alignment, not pretraining"
+      how_it_supports_claim: "Provides causal attribution: the starting point is well-calibrated, so the increase is from alignment"
+      source: "H-M1 gate PASS: 1.4B=0.0849, 2.8B=0.0597, 6.9B=0.0792"
+
+    - id: "evidence_3_mechanism_h2"
+      what: "All 9 Spearman ρ values below 0.90; 8/9 below 0.85; 1.4B-PPO ρ = -0.324 with 99.7% argmax redistribution"
+      so_what: "H1 (scale inflation) is definitively refuted; H2 (boundary shift) is confirmed across the entire tested range"
+      how_it_supports_claim: "The pre-specified H1 falsifier (ρ < 0.80 for PPO) is met; H2 diagnostic (ρ < 0.85 for 8/9 pairs) is met"
+      source: "H-M3 Spearman ρ table; 1.4B-PPO: 44/14,042 shared-argmax items"
+
+    - id: "evidence_4_dpo_vs_ppo"
+      what: "DPO ΔReliability > PPO ΔReliability in all 3 model sizes; DPO Δmargin > PPO Δmargin in all 3 sizes"
+      so_what: "Counter-intuitive finding: DPO (lower theoretical reward pressure) causes larger miscalibration than PPO"
+      how_it_supports_claim: "Consistent with DPO's token-level objective creating more aggressive boundary shifts than PPO's KL-constrained sequence-level optimization"
+      source: "H-E1: DPO 1.4B=0.1048 vs PPO 1.4B=0.0406; H-M2: DPO Δmargin > PPO for all sizes"
+
+    - id: "evidence_5_h3_ruled_out"
+      what: "TruthfulQA ΔECE < MMLU ΔECE for all alignment types (SFT ratio=0.32, DPO=0.26, PPO=0.73)"
+      so_what: "H3 (framing susceptibility) is definitively ruled out; miscalibration is domain-general, not framing-sensitive"
+      how_it_supports_claim: "H3 would require TruthfulQA ΔECE ≥ MMLU ΔECE; observed opposite — clean H3 exclusion"
+      source: "H-M3 TruthfulQA H3 diagnostic"
+
+  surprising_findings:
+    - finding: "DPO produces larger calibration degradation than PPO despite lower reward optimization pressure"
+      why_surprising: "Reward optimization theory predicts PPO ≥ DPO (PPO maximizes reward directly; DPO only reshapes preference ratios)"
+      our_interpretation: "DPO's token-level direct preference reshaping of per-option log-probs is less constrained by KL penalty than PPO's sequence-level optimization"
+
+    - finding: "1.4B-PPO changes argmax for 99.7% of MMLU items (ρ = -0.324)"
+      why_surprising: "Even under H2 hypothesis, negative ρ was not anticipated — it implies systematic preference reversal"
+      our_interpretation: "Format mismatch + catastrophic forgetting: the 1.4B parameter budget cannot simultaneously maintain MMLU factual associations and HH preference patterns"
+
+    - finding: "6.9B-DPO Spearman ρ = 0.875 — approaching H1 threshold"
+      why_surprising: "Scale was not predicted to moderate the H1/H2 mechanism; suggests potential transition at larger scales"
+      our_interpretation: "Larger models may shift from H2 boundary restructuring toward H1 scale inflation as scale increases — an open empirical question our framework enables"
+
+  what_results_mean:
+    for_calibration_research: "Standard temperature scaling post-hoc methods (ATS, Platt scaling) were designed for H1-type miscalibration. H2-type boundary restructuring may require different correction strategies that address answer preference reordering, not just confidence magnitude."
+    for_alignment_research: "The DPO > PPO ordering suggests alignment method design choices directly affect calibration outcomes in ways not captured by standard trustworthiness benchmarks (BBQ, AdvGLUE). Calibration should be a first-class evaluation metric in alignment research."
+
+# ============================================================================
+# BROADER IMPACT
+# ============================================================================
+
+takeaway:
+  main_contribution:
+    one_sentence: "We provide the first pre-specified mechanistic discrimination between H1 (scale inflation), H2 (boundary restructuring), and H3 (framing susceptibility) as causes of alignment-induced miscalibration, finding H2 dominates in Pythia 1.4B–6.9B."
+    why_significant: "The finding changes the theoretical framing of how alignment affects calibration, with direct implications for what post-hoc corrections can succeed."
+
+  implications:
+    for_field: "Calibration researchers designing post-hoc corrections for aligned models should test whether their methods address H2-type boundary restructuring, not just H1-type confidence inflation."
+    for_practice: "Deployment pipelines using RLHF-aligned models should evaluate calibration using full Brier decomposition and Spearman ρ diagnostics — not just ECE — to characterize the type of miscalibration present."
+
+  future_possibilities:
+    immediate_extensions:
+      - "Test whether ATS (Xie et al. 2024) corrects H2-type boundary shifts (H-M4, not yet executed)"
+      - "Apply Spearman ρ diagnostic to LLaMA-2-7B/13B DPO variants to map scale threshold for H1/H2 transition"
+      - "Evaluate 1.4B-PPO on HellaSwag and TriviaQA to test whether argmax redistribution is MMLU-specific"
+    longer_term_vision: "A mechanistic taxonomy of alignment-induced miscalibration (H1/H2/H3) that guides the design of correction methods tailored to the specific mechanism observed in each model family and scale."
+
+# ============================================================================
+# SECTION-LEVEL NARRATIVE GOALS
+# ============================================================================
+
+section_goals:
+  abstract:
+    narrative_purpose: "Compress full story into ~150 words — problem, insight, headline result, significance"
+    key_message: "Alignment changes answer preferences, not just confidence levels — dominantly via H2 boundary restructuring — with 99.7% argmax redistribution in 1.4B-PPO"
+    writing_principle: "Story-first: resist enumerating metrics. One striking number (99.7% or 5.5×) is enough."
+
+  introduction:
+    narrative_purpose: "Hook → Problem escalation → Key insight → Contributions as story"
+    hook_strategy: "counterintuitive_striking_statistic"
+    hook_content: "99.7% argmax redistribution in 1.4B-PPO; Spearman ρ = -0.324"
+    transition_to_related: "This finding motivates a mechanistic investigation of WHY alignment induces miscalibration — which requires surveying prior work on both calibration and alignment training effects."
+
+  related_work:
+    narrative_purpose: "Show existing work insufficient → justify our mechanistic discrimination approach"
+    positioning_strategy: "Three distinct literature streams, each contributing but none solving our problem"
+    key_comparison_points:
+      - area: "RLHF alignment effects"
+        key_papers: ["Li et al. 2024 (ICLR 2025)", "Coste et al. 2023 (ICLR 2024)"]
+        limitation: "Measure trustworthiness (truthfulness, toxicity) but not ECE/Brier calibration"
+        transition: "These works motivate our study of calibration specifically"
+      - area: "LLM calibration"
+        key_papers: ["Guo et al. 2017", "Xie et al. 2024 (EMNLP)"]
+        limitation: "Xie et al. confirm the phenomenon and propose ATS fix without mechanistic discrimination; ATS implicitly assumes H1"
+        transition: "Our work tests whether the H1 assumption underlying ATS holds"
+      - area: "Calibration under prompt/framing"
+        key_papers: ["Chhikara et al. 2025"]
+        limitation: "Uses verbally-elicited confidence (not softmax ECE); different measurement object"
+        transition: "We use log-probability ECE throughout, ruling out framing effects (H3) as a primary driver"
+
+  methodology:
+    narrative_purpose: "Show WHY this pre-registered mechanistic discrimination design solves the problem"
+    connection_to_insight: "The H1/H2/H3 framework operationalizes the key insight: each mechanism has a distinct measurable signature (Spearman ρ, argmax partition, TruthfulQA cross-benchmark test)"
+    key_design_decisions:
+      - decision: "Pythia alignment ladder as primary model family"
+        rationale: "Identical pretraining data/architecture across SFT/DPO/PPO — cleanest causal isolation available"
+      - decision: "Pre-softmax Spearman ρ test as H1/H2 discriminator"
+        rationale: "ρ ≥ 0.90 falsifies H2; ρ < 0.85 confirms H2 — binary diagnostic with pre-specified thresholds"
+      - decision: "Brier decomposition (not ECE alone)"
+        rationale: "Separates overconfidence (reliability) from discriminability (resolution) — necessary for clean mechanistic attribution"
+      - decision: "TruthfulQA MC1 as H3 diagnostic"
+        rationale: "ΔECE_TruthfulQA < ΔECE_MMLU → H3 ruled out; any framing susceptibility would reverse this"
+      - decision: "lm-eval log-prob continuation (not chat template)"
+        rationale: "Applies identical evaluation format to base and aligned models — fair comparison; avoids format confounds"
+
+  experiments:
+    narrative_purpose: "Design experiments to test specific claims from Introduction"
+    experimental_questions:
+      - "RQ1: Does alignment training consistently increase Brier reliability relative to base models? (H-E1)"
+      - "RQ2: Is the dominant mechanism H1 (scale inflation) or H2 (boundary restructuring)? (H-M3)"
+      - "RQ3: Does the DPO ≥ PPO > SFT ordering emerge consistently across model sizes? (H-E1, H-M2)"
+    dataset_rationale: "MMLU: 14,042 items for statistical power; 57 subjects for domain generality. TruthfulQA MC1: H3 diagnostic only (817 items)."
+    baseline_rationale: "Paired base models are the natural baseline — same architecture/pretraining, no alignment. Li et al. 2024 established the Pythia SFT/DPO/PPO checkpoints."
+    metric_rationale: "Brier reliability (not ECE alone) isolates overconfidence from accuracy; Spearman ρ discriminates H1/H2; argmax partition quantifies boundary shift magnitude."
+
+  results:
+    narrative_purpose: "Present evidence supporting claims — results as argument, not spreadsheet"
+    main_result_highlight: "All 9 Spearman ρ values below H1 threshold; 1.4B-PPO ρ = -0.324 with 99.7% argmax redistribution"
+    result_structure:
+      - "Main: ΔReliability > 0 in 8/9 pairs (H-E1) → alignment reliably miscalibrates"
+      - "Mechanism: Spearman ρ table (H-M3) → H2 confirmed; H1 refuted"
+      - "Ordering: DPO > PPO table (H-E1, H-M2) → counter-intuitive but mechanistically consistent"
+      - "H3 ruled out: TruthfulQA diagnostic (H-M3) → domain-general, not framing-driven"
+
+  discussion:
+    narrative_purpose: "Interpret results, acknowledge honest limitations, connect to broader implications"
+    honest_limitations:
+      - "Public fallback checkpoints (Risk R1): DPO ≥ PPO ordering is checkpoint-level observation pending replication"
+      - "Single model family (Pythia 1.4B–6.9B): cross-family replication needed"
+      - "Scale limitation: 6.9B-DPO ρ = 0.875 suggests H1/H2 transition may occur at larger scales"
+      - "H-M4 not executed: ATS correctability of H2-type shifts remains untested"
+
+  conclusion:
+    narrative_purpose: "Callback to hook → Summary of journey → Future work from evidence → Memorable ending"
+    callback_to_hook: "We began with the observation that alignment causes near-complete answer restructuring — not overconfidence on stable choices. Our mechanistic investigation confirms this."
+    memorable_ending: "The question for future work is not 'how confident is the aligned model?' but 'what has it learned to prefer, and why?'"
+
+# ============================================================================
+# COHERENCE VERIFICATION
+# ============================================================================
+
+narrative_coherence_checklist:
+  - check: "Does Introduction hook (99.7% argmax redistribution) connect to Conclusion callback?"
+    status: "YES — Conclusion opens by returning to this finding"
+
+  - check: "Does each section naturally flow to the next?"
+    status: "YES — Hook→Problem→Gap→Methodology→Evidence→Interpretation→Close"
+
+  - check: "Is key insight (H2 boundary restructuring) consistently emphasized throughout?"
+    status: "YES — Defined in Introduction, measured in Methodology/Experiments, proven in Results, interpreted in Discussion"
+
+  - check: "Are all major claims supported by evidence?"
+    status: "YES — H-E1 (existence), H-M3 (mechanism), H-E1+H-M2 (ordering), H-M3 (H3 ruled out)"
+
+  - check: "Would a busy reviewer find Abstract compelling?"
+    status: "YES — 99.7% argmax redistribution is immediately striking; H2 mechanism distinguishes from prior work"
+
+  - check: "Are honest limitations included?"
+    status: "YES — Risk R1 (fallback checkpoints), single family, scale limitation, H-M4 not executed"

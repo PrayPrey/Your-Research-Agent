@@ -1,0 +1,504 @@
+# 03_tasks.yaml — Phase 4 Implementation Tasks
+# Hypothesis: h-m1
+# Generated: 2026-03-18 by Phase 3 Step 9
+# Schema version: 1.1
+
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-03-18T09:00:00Z"
+  base_hypothesis: h-e1
+  phase3_documents:
+    prd: h-m1/03_prd.md
+    architecture: h-m1/03_architecture.md
+    logic: h-m1/03_logic.md
+    config: h-m1/03_config.md
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 14
+  failsafe: 1
+  total: 26
+  budget_max: 30
+  within_budget: true
+  excluded_subtasks: []
+
+tasks:
+
+  # ─── ENVIRONMENT SETUP (priority 94) ──────────────────────────────────────
+
+  - id: "ENV-1"
+    title: "Environment Setup: h-m1 conda environment"
+    type: setup
+    priority: 94
+    description: >
+      Create h-m1/code/ package scaffold: src/h_m1/__init__.py, setup.py/pyproject.toml,
+      requirements.txt (reuse youra-h-e1 env or create youra-h-m1 from same requirements).
+      Verify imports: numpy, matplotlib, pandas, json, pathlib.
+      Conda env: `conda activate youra-h-e1` (preferred) or `conda create -n youra-h-m1`.
+      Verify h_e1 package importable: `from h_e1.analyze_tiers import compute_pass_at_1`.
+      Set CUDA_VISIBLE_DEVICES to empty GPU (only needed for fallback path A-9).
+    reference_files:
+      - file: h-m1/03_prd.md
+        section: "## 5. Technical Dependencies"
+      - file: h-m1/03_architecture.md
+        section: "## File Organization"
+    acceptance_criteria:
+      - "src/h_m1/__init__.py exists"
+      - "`python -c 'from h_m1.verify_coverage import COVERAGE_GATE'` succeeds"
+      - "`python -c 'from h_e1.analyze_tiers import compute_pass_at_1'` succeeds"
+    estimated_complexity: 5
+
+  # ─── EPIC IMPLEMENTATION TASKS (priority 93–50, ordered by dependency) ────
+
+  - id: "A-1"
+    title: "Project setup: h-m1 package scaffold"
+    type: setup
+    priority: 93
+    description: >
+      Create full h-m1 package structure under h-m1/code/src/h_m1/.
+      Files: __init__.py, verify_coverage.py (stub), visualize_hm1.py (stub),
+      run_hm1_verification.py (stub).
+      Add setup.py or pyproject.toml with package name h_m1.
+      Create h-m1/results/ and h-m1/figures/ directories.
+      Write requirements.txt inheriting from h-e1 (numpy, matplotlib, pandas, json, pathlib).
+    reference_files:
+      - file: h-m1/03_architecture.md
+        section: "## File Organization"
+      - file: h-m1/03_config.md
+        section: "## Inherited Configuration (Base Hypothesis)"
+    acceptance_criteria:
+      - "h-m1/code/src/h_m1/__init__.py exists"
+      - "h-m1/results/ directory exists"
+      - "h-m1/figures/ directory exists"
+    estimated_complexity: 6
+
+  - id: "A-2"
+    title: "Implement verify_coverage: load module"
+    type: implementation
+    priority: 90
+    description: >
+      Implement in h-m1/code/src/h_m1/verify_coverage.py:
+      - Module-level constants: COVERAGE_GATE=0.95, HE_TOTAL=164, MBPP_TOTAL=378,
+        COMBINED_TOTAL=542, BENCHMARK_PREFIXES, MODEL_IDS, MODEL_SHORT_NAMES (from h_e1).
+      - `_check_file_integrity(h_e1_results_dir, model_short)` → dict[str, bool]
+      - `load_or_recompute_pass_at_1(h_e1_results_dir, model_short, force_regenerate=False)`
+        → dict[str, float]: primary JSON load → correctness fallback → solutions fallback.
+      - `split_by_benchmark(pass_at_1)` → (he_dict, mbpp_dict)
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-9: Fallback Path"
+      - file: h-m1/03_config.md
+        section: "## C-A2-1: Model Name Mapping Configuration"
+      - file: h-m1/03_architecture.md
+        section: "### VerifyCoverage"
+    acceptance_criteria:
+      - "load_or_recompute_pass_at_1 returns dict with 542 entries when h-e1 files present"
+      - "split_by_benchmark returns (164, 378) entries for HumanEval/Mbpp prefixes"
+      - "FileNotFoundError raised when all files missing and force_regenerate=False"
+    estimated_complexity: 9
+
+  - id: "A-3"
+    title: "Implement verify_coverage: stats + gate"
+    type: implementation
+    priority: 88
+    description: >
+      Implement in verify_coverage.py:
+      - `compute_coverage(pass_at_1_splits)` → {model_short: {humaneval, mbpp, combined}}
+      - `compute_distribution_stats(pass_at_1)` → {mean, std, min, max, histogram_6pt, non_trivial}
+        Edge cases: empty dict → all zeros; all same → std=0, non_trivial=False.
+        Use np.isclose for histogram bin matching.
+      - `verify_gate(coverage_data, stats_by_model)` → (bool, per_model_dict)
+        Gate: coverage_combined >= 0.95 AND std > 0 per model. PARTIAL if 2/3 pass.
+      - `verify_mechanism_activated(pass_at_1_dicts, results)` → (bool, indicators_dict)
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-3: Stats + Gate"
+      - file: h-m1/03_config.md
+        section: "## C-A6-1: Coverage Threshold Configuration"
+    acceptance_criteria:
+      - "compute_distribution_stats({}) returns non_trivial=False without error"
+      - "verify_gate returns PASS for all 3 models when coverage=1.0 and std>0"
+      - "PARTIAL warning logged when 2/3 models pass"
+    estimated_complexity: 10
+
+  - id: "A-4"
+    title: "Implement verify_coverage: run_verification orchestrator"
+    type: implementation
+    priority: 85
+    description: >
+      Implement `run_verification(h_e1_results_dir, output_dir, smoke_test=False, force_regenerate=False)` → dict.
+      Orchestrates: load_or_recompute → split → compute_coverage → compute_distribution_stats → verify_gate → verify_mechanism_activated.
+      smoke_test=True: truncate each model's pass_at_1 to first 10 HE + 10 MBPP task_ids.
+      Returns full results dict: {pass_at_1_by_model, coverage_data, stats_by_model, gate_results, all_ok}.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-8: Smoke Test + Gate Output"
+      - file: h-m1/03_architecture.md
+        section: "## Data Flow"
+    acceptance_criteria:
+      - "run_verification returns dict with all required keys"
+      - "smoke_test=True produces gate-checkable results on subset"
+      - "gate_results['gate_pass'] is bool"
+    estimated_complexity: 8
+
+  - id: "A-5"
+    title: "Implement run_hm1_verification: argparse + IO"
+    type: implementation
+    priority: 83
+    description: >
+      Implement h-m1/code/src/h_m1/run_hm1_verification.py:
+      - `parse_args()`: --h_e1_results_dir, --output_dir, --figures_dir, --smoke_test, --force_regenerate
+      - `save_verified_output(pass_at_1_by_model, coverage_data, gate_pass, output_path)`:
+        Write pass_at_1_hm1_verified.json with schema: {metadata: {source, verification_status,
+        coverage_combined, timestamp}, models: {hf_id: {task_id: float}}}
+      - `save_coverage_report(coverage_data, stats_by_model, gate_results, output_dir)`:
+        Write coverage_report.json (full nested) + coverage_report.csv (3 rows per model).
+      - `main()`: parse_args → run_verification → save_verified_output → save_coverage_report
+        → print gate result → sys.exit(0/1/2).
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-5: Save Outputs"
+      - file: h-m1/03_prd.md
+        section: "### FR-5: Canonical Output File Export"
+    acceptance_criteria:
+      - "pass_at_1_hm1_verified.json written with correct metadata.source='h-e1'"
+      - "coverage_report.csv has columns: model,benchmark,coverage,mean,std,min,max,gate_pass"
+      - "sys.exit(0) on gate PASS"
+    estimated_complexity: 11
+
+  - id: "A-6"
+    title: "Implement visualize_hm1: coverage figures"
+    type: implementation
+    priority: 78
+    description: >
+      Implement in h-m1/code/src/h_m1/visualize_hm1.py:
+      - Module constants: FIG_DPI=150, COVERAGE_THRESHOLD=0.95, HEATMAP_CMAP='RdYlGn',
+        THRESHOLD_LINE_COLOR='red', THRESHOLD_LINE_STYLE='--'
+      - `plot_coverage_rates(coverage_data, output_path)`: bar chart per model × benchmark
+        with red dashed threshold line at 0.95. Save to h-m1/figures/coverage_rates.png.
+      - `plot_coverage_heatmap(coverage_data, output_path)`: 3×2 heatmap (models × benchmarks)
+        color-coded by coverage fraction. Save to h-m1/figures/coverage_heatmap.png.
+      Use matplotlib Agg backend (match h-e1 pattern).
+    reference_files:
+      - file: h-m1/03_architecture.md
+        section: "### VisualizeHM1"
+      - file: h-m1/03_config.md
+        section: "## C-A7-1: Visualization Configuration Schema"
+    acceptance_criteria:
+      - "coverage_rates.png saved with red dashed threshold line at 0.95"
+      - "coverage_heatmap.png saved as 3-row × 2-col grid"
+      - "Both figures save without error when coverage=1.0"
+    estimated_complexity: 9
+
+  - id: "A-7"
+    title: "Implement visualize_hm1: distribution figures"
+    type: implementation
+    priority: 76
+    description: >
+      Implement in visualize_hm1.py:
+      - Constants: PASS_AT_1_BINS=[0.0,0.2,0.4,0.6,0.8,1.0], BAR_COLOR_HE='steelblue',
+        BAR_COLOR_MBPP='darkorange', BAR_WIDTH=0.35, CDF_LINESTYLES=['-','--','-.']
+      - `plot_pass_at_1_histograms(pass_at_1_by_model, output_path)`:
+        3-subplot figure (one per model), dual-benchmark side-by-side bars for 6-point histogram.
+        Save to h-m1/figures/pass_at_1_histograms.png.
+      - `plot_pass_at_1_cdf(pass_at_1_by_model, output_path)`:
+        CDF per model × benchmark overlaid. Shows bimodal hard/easy structure.
+        Save to h-m1/figures/pass_at_1_cdf.png.
+    reference_files:
+      - file: h-m1/03_config.md
+        section: "## C-A7-2: Pass@1 Histogram Figure Parameters"
+      - file: h-m1/03_prd.md
+        section: "### FR-6: Visualization"
+    acceptance_criteria:
+      - "pass_at_1_histograms.png has 3 subplots (one per model)"
+      - "pass_at_1_cdf.png shows CDF curves for all 3 models"
+      - "Both figures saved without error"
+    estimated_complexity: 10
+
+  - id: "A-8"
+    title: "Integration + smoke test"
+    type: integration
+    priority: 72
+    description: >
+      Wire all modules in run_hm1_verification.main().
+      Smoke test execution: `python run_hm1_verification.py --smoke_test --h_e1_results_dir <path>`.
+      Verify: gate result dict has all keys, figures not written in smoke mode.
+      Full execution dry-run: verify argparse works, output_dir created.
+      Add format_gate_output() for structured stdout printing.
+      Validate: sys.exit(0) on PASS, sys.exit(1) on FAIL, sys.exit(2) on exception.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-8: Smoke Test + Gate Output"
+    acceptance_criteria:
+      - "smoke test runs in < 30 seconds on CPU"
+      - "all required output keys present in results dict"
+      - "sys.exit codes correct per gate result"
+    estimated_complexity: 10
+
+  - id: "A-9"
+    title: "Fallback path implementation"
+    type: implementation
+    priority: 68
+    description: >
+      Implement full 5-path fallback in load_or_recompute_pass_at_1:
+      PATH 1: primary JSON load (pass_at_1_*.json)
+      PATH 2: recompute from correctness_*.json (CPU only)
+      PATH 3: re-run evaluate_all_solutions from solutions_*.jsonl (no generation)
+      PATH 4: FileNotFoundError (all missing, force_regenerate=False)
+      PATH 5: NotImplementedError (force_regenerate=True → out of scope)
+      Implement _check_file_integrity() for all 3 file types.
+      Log fallback path taken for each model.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-9: Fallback Path"
+      - file: h-m1/02c_experiment_brief.md
+        section: "### Mechanism Failure Detection"
+    acceptance_criteria:
+      - "PATH 2 activated when pass_at_1_*.json missing but correctness_*.json present"
+      - "PATH 3 activated when both JSON files missing but solutions.jsonl present"
+      - "NotImplementedError raised for force_regenerate=True"
+    estimated_complexity: 12
+
+  - id: "A-10"
+    title: "Full experiment run + output validation"
+    type: validation
+    priority: 55
+    description: >
+      Execute full pipeline on real h-e1 data:
+        `python run_hm1_verification.py --h_e1_results_dir ../../h-e1/results --output_dir results`
+      Verify outputs:
+      - h-m1/results/pass_at_1_hm1_verified.json exists with 3 model entries, each with 542 task_ids
+      - h-m1/results/coverage_report.json + coverage_report.csv exist
+      - h-m1/figures/coverage_rates.png, pass_at_1_histograms.png, coverage_heatmap.png, pass_at_1_cdf.png saved
+      - Gate result: coverage >= 0.95 AND std > 0 for all 3 models
+      - sys.exit(0) returned
+      Record gate result in 04_validation.md (created by Phase 4 validator).
+    reference_files:
+      - file: h-m1/03_prd.md
+        section: "## 7. Success Criteria"
+      - file: h-m1/03_architecture.md
+        section: "## Data Flow"
+    acceptance_criteria:
+      - "pass_at_1_hm1_verified.json exists with metadata.verification_status='PASS'"
+      - "4 PNG figures saved in h-m1/figures/"
+      - "gate PASS: coverage >= 0.95 AND std > 0 for all 3 models"
+    estimated_complexity: 8
+
+  # ─── SUBTASKS from Logic Agent ────────────────────────────────────────────
+
+  - id: "L-A9-1"
+    title: "_check_file_integrity: check all 3 file types per model"
+    type: subtask
+    parent_epic: A-9
+    priority: 49
+    description: >
+      Implement _check_file_integrity(h_e1_results_dir, model_short) returning
+      {pass_at_1: bool, correctness: bool, solutions: bool} per model.
+      Uses pathlib.Path.exists() checks for all 3 expected files.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-9: Fallback Path"
+    estimated_complexity: 4
+
+  - id: "L-A9-2"
+    title: "load_or_recompute PATH 1-2: primary load + correctness fallback"
+    type: subtask
+    parent_epic: A-9
+    priority: 48
+    description: >
+      Implement PATH 1 (load pass_at_1 JSON) and PATH 2 (recompute from correctness JSON).
+      Reuse h_e1.analyze_tiers.compute_pass_at_1 for PATH 2 computation.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-9: Fallback Path"
+    estimated_complexity: 5
+
+  - id: "L-A9-3"
+    title: "load_or_recompute PATH 3: solutions JSONL re-evaluation fallback"
+    type: subtask
+    parent_epic: A-9
+    priority: 47
+    description: >
+      Implement PATH 3: load solutions_*.jsonl → call h_e1.evaluate_solutions.evaluate_all_solutions
+      → save correctness JSON → compute pass_at_1. No GPU needed for evaluation.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-9: Fallback Path"
+    estimated_complexity: 6
+
+  - id: "L-A9-4"
+    title: "Force-regenerate guard + error messages"
+    type: subtask
+    parent_epic: A-9
+    priority: 46
+    description: >
+      Implement PATH 4 (FileNotFoundError with helpful message) and PATH 5
+      (NotImplementedError for force_regenerate=True). Include clear error messages.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-9: Fallback Path"
+    estimated_complexity: 3
+
+  - id: "L-A5-1"
+    title: "save_verified_output: FR-5.1 JSON schema"
+    type: subtask
+    parent_epic: A-5
+    priority: 44
+    description: >
+      Implement save_verified_output() writing pass_at_1_hm1_verified.json with exact FR-5.1 schema:
+      {metadata: {source, verification_status, coverage_combined (short_names), timestamp},
+       models: {hf_model_id: {task_id: float}}} — keys use HF model IDs (not short names).
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-5: Save Outputs"
+    estimated_complexity: 5
+
+  - id: "L-A5-2"
+    title: "save_coverage_report: dual JSON+CSV output"
+    type: subtask
+    parent_epic: A-5
+    priority: 43
+    description: >
+      Implement save_coverage_report() writing both coverage_report.json (full nested) and
+      coverage_report.csv (columns: model,benchmark,coverage,mean,std,min,max,gate_pass).
+      3 rows per model (humaneval, mbpp, combined). Include timestamp.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-5: Save Outputs"
+    estimated_complexity: 5
+
+  - id: "L-A3-1"
+    title: "compute_distribution_stats: 6-bin histogram + non_trivial"
+    type: subtask
+    parent_epic: A-3
+    priority: 40
+    description: >
+      Implement compute_distribution_stats using np.isclose for histogram bin matching.
+      non_trivial = (std > 0) AND (n_nonzero_buckets >= 3).
+      Handle edge cases: empty dict → all zeros; all same value → std=0.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-3: Stats + Gate"
+    estimated_complexity: 5
+
+  - id: "L-A3-2"
+    title: "verify_gate: per-model aggregation + PARTIAL condition"
+    type: subtask
+    parent_epic: A-3
+    priority: 39
+    description: >
+      Implement verify_gate returning (overall_bool, per_model_dict). Gate PASS requires ALL 3
+      models passing. Log WARN when 2/3 models pass (PARTIAL). Return structured per-model checks.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-3: Stats + Gate"
+    estimated_complexity: 5
+
+  - id: "L-A8-1"
+    title: "Smoke test: 10-problem subset + state isolation"
+    type: subtask
+    parent_epic: A-8
+    priority: 36
+    description: >
+      In run_verification, when smoke_test=True: slice each model's pass_at_1 to first 10
+      HumanEval/ + first 10 Mbpp/ task_ids (sort keys first). Do NOT write to output_dir.
+      Assert gate result dict has all required keys.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-8: Smoke Test + Gate Output"
+    estimated_complexity: 4
+
+  - id: "L-A8-2"
+    title: "format_gate_output + sys.exit exit codes"
+    type: subtask
+    parent_epic: A-8
+    priority: 35
+    description: >
+      Implement format_gate_output() producing structured stdout string with per-model PASS/FAIL,
+      coverage and std values, PARTIAL warning. main() calls sys.exit(0) on PASS, sys.exit(1)
+      on FAIL, sys.exit(2) on unhandled exception.
+    reference_files:
+      - file: h-m1/03_logic.md
+        section: "## A-8: Smoke Test + Gate Output"
+    estimated_complexity: 4
+
+  # ─── SUBTASKS from Config Agent ───────────────────────────────────────────
+
+  - id: "C-A7-1"
+    title: "Visualization constants: figure config"
+    type: subtask
+    parent_epic: A-7
+    priority: 33
+    description: >
+      Define in visualize_hm1.py: FIG_DPI=150, COVERAGE_THRESHOLD=0.95, HEATMAP_CMAP='RdYlGn',
+      THRESHOLD_LINE_COLOR='red', THRESHOLD_LINE_STYLE='--', THRESHOLD_LINE_WIDTH=1.5,
+      HIST_FIGURE_SIZE=(15,5), HIST_N_COLS=3, HIST_N_ROWS=1.
+    reference_files:
+      - file: h-m1/03_config.md
+        section: "## C-A7-1: Visualization Configuration Schema"
+    estimated_complexity: 3
+
+  - id: "C-A7-2"
+    title: "Histogram/CDF constants: bins, colors, linestyles"
+    type: subtask
+    parent_epic: A-7
+    priority: 32
+    description: >
+      Define in visualize_hm1.py: PASS_AT_1_BINS=[0.0,0.2,0.4,0.6,0.8,1.0],
+      BAR_COLOR_HE='steelblue', BAR_COLOR_MBPP='darkorange', BAR_WIDTH=0.35,
+      CDF_LINESTYLES=['-','--','-.'], CDF_ALPHA=0.85, CDF_FIGURE_SIZE=(8,5).
+    reference_files:
+      - file: h-m1/03_config.md
+        section: "## C-A7-2: Pass@1 Histogram Figure Parameters"
+    estimated_complexity: 3
+
+  - id: "C-A2-1"
+    title: "Model name mapping + h-e1 path resolution"
+    type: subtask
+    parent_epic: A-2
+    priority: 30
+    description: >
+      Define in verify_coverage.py: MODEL_IDS (3 HF IDs), MODEL_SHORT_NAMES dict
+      (verified from h-e1 actual code), BENCHMARK_PREFIXES, DEFAULT_H_E1_RESULTS='../../h-e1/results'.
+    reference_files:
+      - file: h-m1/03_config.md
+        section: "## C-A2-1: Model Name Mapping Configuration"
+    estimated_complexity: 3
+
+  - id: "C-A6-1"
+    title: "Coverage threshold constants + benchmark totals"
+    type: subtask
+    parent_epic: A-6
+    priority: 28
+    description: >
+      Define in verify_coverage.py: COVERAGE_GATE=0.95, HE_TOTAL=164, MBPP_TOTAL=378,
+      COMBINED_TOTAL=542, BENCHMARK_TOTALS dict, GATE_LINE_COLOR='red', N_SMOKE=10.
+    reference_files:
+      - file: h-m1/03_config.md
+        section: "## C-A6-1: Coverage Threshold Configuration"
+    estimated_complexity: 3
+
+  # ─── FAILSAFE (priority 1) ────────────────────────────────────────────────
+
+  - id: "FAILSAFE-1"
+    title: "Pipeline continuation checkpoint"
+    type: failsafe
+    priority: 1
+    description: >
+      After full experiment run (A-10), verify gate result and write 04_validation.md summary.
+      If gate PASS: set implementation_planning.status=COMPLETED in verification_state.yaml.
+      If gate FAIL: log failure details, prepare for Phase 4 retry or Phase 0 routing.
+      This task ensures Phase 4 Validator has the necessary output to evaluate MUST_WORK gate.
+    reference_files:
+      - file: h-m1/03_prd.md
+        section: "## 7. Success Criteria"
+    acceptance_criteria:
+      - "04_validation.md created with gate result and key findings"
+      - "verification_state.yaml updated with Phase 4 outcome"
+    estimated_complexity: 3

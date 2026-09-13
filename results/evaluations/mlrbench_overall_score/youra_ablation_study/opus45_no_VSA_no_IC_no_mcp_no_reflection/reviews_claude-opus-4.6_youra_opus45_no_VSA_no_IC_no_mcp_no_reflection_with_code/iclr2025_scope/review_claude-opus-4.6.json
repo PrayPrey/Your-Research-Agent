@@ -1,0 +1,37 @@
+{
+    "Clarity": {
+        "score": 7,
+        "justification": "The paper is generally well-structured with a clear two-stage verification framework (h-e1 for stability, h-m1 for reconstruction). The abstract and introduction clearly state the main finding. The use of tables to summarize results is effective. However, several aspects reduce clarity: (1) The methodology section (Section 3) is quite thin on details about how exactly the duality equations are operationalized—the mapping from QK^T SVD to A, B, C matrices is presented as if it follows directly from Mamba-2 SSD, but the actual derivation choices (e.g., why B comes from Vh and C from U, why D=0.1, why dt=1/sqrt(768)) are not well justified theoretically. (2) The paper conflates 'duality-based conversion' with what is essentially an ad-hoc SVD-based parameter extraction that may not faithfully implement the SSD framework. (3) The causal chain verification table is a nice touch but the 'BLOCKED' status for step 3 feels like padding."
+    },
+    "Novelty": {
+        "score": 3,
+        "justification": "The paper claims to be the 'first empirical test of Mamba-2 duality for distillation,' but the actual contribution is quite limited. The core experiment is straightforward: extract SSM parameters from BERT attention via SVD, run a forward pass, and compare reconstruction error against random initialization. This is a relatively simple experiment that does not deeply engage with the Mamba-2 SSD framework. The negative result itself—that a naive parameter extraction doesn't work well—is not particularly surprising given that: (1) BERT uses bidirectional attention while SSMs are causal, (2) multi-head attention is fundamentally different from the SSD assumptions, and (3) the paper acknowledges MOHAWK already exists as a more sophisticated approach. The 'separation of validity from fidelity' framing, while clean, is not a deep conceptual contribution."
+    },
+    "Soundness": {
+        "score": 3,
+        "justification": "There are several significant methodological concerns: (1) **The duality conversion is questionable.** The paper claims to follow the Mamba-2 SSD framework, but the actual implementation (duality_conversion.py) performs SVD on QK^T and assigns components to A, B, C in a somewhat arbitrary manner. The A matrix is set to negative absolute singular values expanded across all d_model dimensions, B is the top-d_state right singular vectors, and C is the top-d_state left singular vectors. This does not clearly follow from the SSD duality equations in Dao & Gu (2024). The choices of D=0.1 and dt=1/sqrt(768) appear arbitrary. (2) **BERT is bidirectional; SSMs are causal.** This is a fundamental mismatch that the paper acknowledges in the discussion but proceeds to test anyway. The SSD framework specifically concerns causal (1-semiseparable) masks, making BERT an inappropriate test case. (3) **The random baseline uses a fixed seed per layer (seed=42+layer_idx)**, meaning the same random initialization is used for every sample within a layer. This is not a proper random baseline—it should ideally be averaged over multiple random seeds. (4) **The 0.11x magnitude ratio** suggests the duality-derived SSM produces outputs that are an order of magnitude smaller than the attention outputs. This alone could explain the higher reconstruction error—it's not that the structure is wrong, but that the scale is off. The paper notes this but doesn't control for it (e.g., by normalizing outputs before comparison). (5) **The input to the SSM is always the embedding layer output**, not the actual input to each attention layer. For layers 1-11, the SSM receives the wrong input, making the per-layer comparison meaningless. Looking at the code, `embeddings = bert.embeddings(input_ids)` is used as input to the SSM for all 12 layers, while `attn_out = capture.get_layer_output(layer_idx)` captures the actual attention output at each layer (which receives different inputs). This is a critical flaw."
+    },
+    "Significance": {
+        "score": 3,
+        "justification": "The paper addresses a relevant topic (Transformer-to-SSM conversion) for the workshop's scope on efficient and adaptive foundation models. However, the significance is limited because: (1) The negative result is not surprising given the known mismatches between BERT and SSD assumptions. (2) The experimental setup has fundamental flaws (wrong inputs to SSM layers, bidirectional vs. causal mismatch) that undermine the conclusions. (3) MOHAWK already provides a more sophisticated approach to this problem, and the paper doesn't compare against it. (4) The practical guidance ('test reconstruction quality, not just parameter validity') is somewhat obvious. (5) The scope is very narrow—single model (BERT-base), single dataset (WikiText-103), single metric (Frobenius norm), no downstream task evaluation, no optimization/fine-tuning phase."
+    },
+    "Overall": {
+        "score": 3,
+        "strengths": [
+            "Clear two-stage experimental framework separating parameter validity from structural fidelity",
+            "Reproducible code provided with detailed experimental logs and results",
+            "The paper addresses a relevant topic for the workshop on efficient foundation models",
+            "Statistical analysis is thorough with paired t-tests and effect sizes reported per layer"
+        ],
+        "weaknesses": [
+            "Critical experimental flaw: SSM receives embedding-layer output for all 12 layers instead of the actual input to each attention layer, making per-layer comparisons invalid",
+            "The duality conversion implementation does not clearly follow from the Mamba-2 SSD framework—the mapping from SVD components to A, B, C appears ad-hoc rather than principled",
+            "BERT is bidirectional while SSMs are causal, making this an inappropriate test case for SSD duality which assumes causal masks",
+            "The 0.11x magnitude ratio is not controlled for—scale mismatch alone could explain the reconstruction error difference, but no normalization experiment is conducted",
+            "The negative result is unsurprising given the known theoretical mismatches, limiting the contribution",
+            "No comparison with MOHAWK or any other existing conversion method",
+            "Very narrow experimental scope: single model, single dataset, no downstream tasks, no fine-tuning"
+        ]
+    },
+    "Confidence": 4
+}

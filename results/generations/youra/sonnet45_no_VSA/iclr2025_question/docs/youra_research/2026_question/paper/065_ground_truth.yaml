@@ -1,0 +1,348 @@
+# Phase 6.5 Ground Truth Extraction
+# Date: 2026-07-10
+# Paper: Replication Failure of CCP Hallucination Detection
+# Purpose: Extract falsifiable claims for adversarial review
+
+metadata:
+  paper_title: "A Replication Study of CCP: Measurement Validity Failure in NLI-Based Hallucination Detection"
+  hypothesis_tested: "h-e1: Ontology-Dependent Hallucination Detection"
+  gate_status: "FAILED (MUST_WORK 1/9)"
+  extraction_date: "2026-07-10"
+  adversarial_review_ready: true
+
+# ==================== QUANTITATIVE CLAIMS ====================
+
+quantitative_claims:
+  QC1:
+    statement: "ρ_j values are 50× lower than expected (0.01-0.04 vs 0.75-0.85)"
+    data_source: "Table 1 (Section 4.2)"
+    evidence:
+      - "Median ρ_j: factual 0.0354, creative 0.0103"
+      - "Expected range: 0.75-0.85 (inferred from CCP paper ROC-AUC claims)"
+      - "Deviation: -95.8% (factual), -98.5% (creative)"
+    falsifiability_test: "FT1: Re-run h-e1 experiment → should reproduce ρ_j within ±0.005"
+    adversarial_strength: "HIGH"
+    adversarial_objections:
+      - "Objection: Expected range (0.75-0.85) is inferred, not explicitly stated in CCP paper"
+      - "Rebuttal: CCP paper reports +0.05-0.10 ROC-AUC improvements, which require ρ_j in this range to be statistically meaningful"
+      - "Objection: Maybe CCP paper used different ρ_j computation formula"
+      - "Rebuttal: We followed published equations; any deviation should be documented in paper"
+
+  QC2:
+    statement: "No domain separation between factual and creative text (p=1.0, d=-0.0635)"
+    data_source: "Table 1 (Section 4.2), Statistical Tests"
+    evidence:
+      - "Wilcoxon rank-sum: W=323,304, p=1.0000"
+      - "Cohen's d=-0.0635 (negligible, wrong direction)"
+      - "Expected: Δρ_j > 0.15, p < 0.05, d > 0.5"
+    falsifiability_test: "FT2: Re-run statistical tests → should confirm p=1.0, d≈-0.06"
+    adversarial_strength: "HIGH"
+    adversarial_objections:
+      - "Objection: Sample size (792 factual, 817 creative) may be insufficient for detecting small effects"
+      - "Rebuttal: Power analysis shows n>100 per domain sufficient for d>0.5 with 80% power; we have 8× that"
+      - "Objection: Wilcoxon may be inappropriate for non-independent samples"
+      - "Rebuttal: Samples are independent (different texts from different datasets)"
+
+  QC3:
+    statement: "NLI neutral-class dominance (~90% probability mass) explains ρ_j collapse"
+    data_source: "Table 3 (Section 4.4)"
+    evidence:
+      - "Mean P(neutral): factual 0.910, creative 0.967"
+      - "Mean P(entail): factual 0.045, creative 0.017"
+      - "Mean P(contradict): factual 0.045, creative 0.016"
+      - "ρ_j = (P(entail)+P(contradict)) / 1.0 ≈ 0.09 (factual), 0.03 (creative)"
+    falsifiability_test: "FT3: Extract raw NLI outputs → should confirm neutral mass ~90%"
+    adversarial_strength: "HIGH"
+    adversarial_objections:
+      - "Objection: NLI distribution could be bimodal (some samples high entail/contradict)"
+      - "Rebuttal: Figure 3 (heatmap) shows uniform neutral dominance across all samples"
+      - "Objection: Maybe sentence tokenization produced non-claims (e.g., incomplete fragments)"
+      - "Rebuttal: Claim quality is Tier 2 contributory factor (Section 5.3), not primary cause"
+
+  QC4:
+    statement: "Autocorrelation inverted: factual (0.264) > creative (0.046)"
+    data_source: "Table 4 (Section 4.5)"
+    evidence:
+      - "Lag-1 autocorr: factual 0.264, creative 0.046"
+      - "Predicted: creative > 0.4, factual < 0.2"
+      - "Observed pattern opposite to prediction"
+    falsifiability_test: "FT4: Re-compute autocorrelation → should confirm factual > creative"
+    adversarial_strength: "MEDIUM"
+    adversarial_objections:
+      - "Objection: Autocorrelation reflects dataset structure, not hallucination behavior"
+      - "Rebuttal: Exactly our finding (Section 4.5) — TruthfulQA has repeated entities, WritingPrompts has diverse narratives"
+      - "Objection: Lag-1 autocorr is too simplistic; need partial autocorrelation or spectral analysis"
+      - "Rebuttal: Lag-1 is standard in time series; more complex methods would not change qualitative pattern"
+
+  QC5:
+    statement: "Claim decomposition reliability (Krippendorff's α=0.75) is acceptable"
+    data_source: "Section 4.3, Gate Metrics"
+    evidence:
+      - "Krippendorff's α = 0.75 (threshold: >0.7)"
+      - "Only gate criterion met (1/7)"
+    falsifiability_test: "FT5: Compare NLTK vs LLM extraction → should confirm α>0.7"
+    adversarial_strength: "MEDIUM"
+    adversarial_objections:
+      - "Objection: α=0.75 is barely above threshold; claim quality may still be issue"
+      - "Rebuttal: True, which is why we rank claim decomposition as Tier 2 (contributory), not Tier 1 (primary)"
+      - "Objection: No manual validation of claims (only inter-method agreement)"
+      - "Rebuttal: Manual validation is future work (Section 6.5, Tier 1.2)"
+
+# ==================== ROOT CAUSE CLAIMS ====================
+
+root_cause_claims:
+  RC1:
+    statement: "Out-of-distribution generalization gap (SNLI/MNLI → factual verification) is PRIMARY cause"
+    mechanism: "DeBERTa-v3-base trained on semantic similarity (SNLI/MNLI) does not generalize to factual verification; defaults to neutral class for claim-context pairs"
+    evidence_tier: "Tier 1 (PRIMARY)"
+    supporting_evidence:
+      - "Uniform degradation across both domains (not domain-specific)"
+      - "Sanity check failure: P(entail|correct)=0.11, P(contradict|incorrect)=0.08"
+      - "Literature triangulation: Himal-Badu (NLI features dominate, r<0.1), Shaguns26 (threshold tuning required)"
+    likelihood: "HIGH"
+    falsifiability_test: "FT6: Fine-tune DeBERTa on FEVER (1000-5000 examples) → if ρ_j improves to 0.70-0.85, RC1 confirmed"
+    adversarial_strength: "HIGH"
+    adversarial_objections:
+      - "Objection: SNLI/MNLI and factual verification are not fundamentally different tasks"
+      - "Rebuttal: SNLI/MNLI optimize for semantic similarity (same situation?), not factual consistency (same facts?)"
+      - "Objection: DeBERTa-v3-base achieves 88.1% on MNLI-matched; should generalize well"
+      - "Rebuttal: Accuracy on MNLI does not guarantee calibration for factual verification (different task objective)"
+
+  RC2:
+    statement: "Claim decomposition quality (sentence tokenization) is CONTRIBUTORY cause"
+    mechanism: "Sentence boundaries ≠ logical propositions; NLI receives incomplete/compound claims that are genuinely neutral"
+    evidence_tier: "Tier 2 (CONTRIBUTORY)"
+    supporting_evidence:
+      - "Example failure modes: incomplete claims ('After the meeting'), compound claims ('walked and bought')"
+      - "No ablation study comparing NLTK vs LLM vs Spacy"
+      - "Krippendorff's α=0.75 (acceptable but not excellent)"
+    likelihood: "MEDIUM"
+    falsifiability_test: "FT7: Compare NLTK vs LLM extraction → if ρ_j improves by >0.10, RC2 confirmed"
+    adversarial_strength: "MEDIUM"
+    adversarial_objections:
+      - "Objection: Sentence tokenization is standard practice in NLP; should be acceptable"
+      - "Rebuttal: Standard ≠ optimal; claim extraction for factual verification may require semantic parsing"
+      - "Objection: Claim quality cannot explain 50× magnitude shift"
+      - "Rebuttal: Correct; RC2 is contributory (amplifies Tier 1), not sufficient alone"
+
+  RC3:
+    statement: "Context pairing strategy (full-text vs windowed) is CONTRIBUTORY cause"
+    mechanism: "Full-text context creates long-distance premise-hypothesis pairs; NLI attention fails to locate relevant contradictions"
+    evidence_tier: "Tier 2 (CONTRIBUTORY)"
+    supporting_evidence:
+      - "CCP paper does not specify context windowing strategy"
+      - "DeBERTa max sequence length 512 tokens; long contexts may truncate"
+      - "SNLI/MNLI training distribution has local premise-hypothesis pairs"
+    likelihood: "MEDIUM"
+    falsifiability_test: "FT8: Test full-text vs ±1/±2/±3 sentence windows → if optimal window achieves ρ_j>0.70, RC3 confirmed"
+    adversarial_strength: "MEDIUM"
+    adversarial_objections:
+      - "Objection: Full-text context provides more information → should improve entailment detection"
+      - "Rebuttal: More information ≠ better if attention mechanisms cannot focus on relevant parts"
+      - "Objection: Context windowing is implementation detail, not methodological issue"
+      - "Rebuttal: Implementation details are first-class contributions when they affect metrics by 50×"
+
+  RC4:
+    statement: "Temperature/calibration issue is UNLIKELY cause"
+    mechanism: "NLI outputs overconfident in neutral; temperature scaling could shift probability mass"
+    evidence_tier: "Tier 3 (UNLIKELY)"
+    supporting_evidence:
+      - "Neural network calibration literature (Guo et al., 2017)"
+      - "Magnitude argument: calibration improves 5-20%, not 50×"
+    likelihood: "LOW"
+    falsifiability_test: "FT9: Apply temperature scaling → if ρ_j improves by <0.10, RC4 refuted"
+    adversarial_strength: "LOW"
+    adversarial_objections:
+      - "Objection: Temperature scaling is cheap to try; should be tested"
+      - "Rebuttal: Agree (it's in Tier 1 future work), but magnitude argument suggests it's not primary cause"
+
+# ==================== METHODOLOGICAL CLAIMS ====================
+
+methodological_claims:
+  MC1:
+    statement: "CCP paper lacks critical implementation details (raw ρ_j, NLI calibration, claim decomposition)"
+    evidence:
+      - "CCP paper reports only ROC-AUC (aggregate), not raw ρ_j distributions"
+      - "No NLI calibration diagnostics documented"
+      - "No claim decomposition methodology specified"
+      - "No public code or baseline replication notebook"
+    implication: "Replication attempts must infer missing details from literature precedents"
+    adversarial_strength: "HIGH"
+    falsifiability_test: "FT10: Contact CCP authors for implementation details → if provided, compare to our assumptions"
+    adversarial_objections:
+      - "Objection: Space constraints in papers limit implementation detail reporting"
+      - "Rebuttal: Appendices are unlimited; reproducibility packages (code) have no space constraints"
+      - "Objection: Implementation details are 'obvious' to domain experts"
+      - "Rebuttal: Our work shows they are NOT obvious — independent implementations (cavaquinho, ours) produce different results"
+
+  MC2:
+    statement: "Measurement validity is prerequisite for hypothesis testing"
+    principle: "When a metric produces values far outside expected range (50× deviation), validate measurement before testing domain-specific hypotheses"
+    evidence:
+      - "Logical impossibility: cannot distinguish 'hypothesis wrong' from 'measurement broken'"
+      - "Uniform degradation (both domains 50× too low) suggests measurement issue, not domain effect"
+    implication: "Always replicate baseline on original domain BEFORE testing domain transfer"
+    adversarial_strength: "HIGH"
+    falsifiability_test: "FT11: Methodological principle; not directly falsifiable but applies broadly"
+    adversarial_objections:
+      - "Objection: 'Expected range' (0.75-0.85) is not explicitly stated in CCP paper"
+      - "Rebuttal: ROC-AUC improvements (+0.05-0.10) are only meaningful if ρ_j is in discriminative range (0.5-0.9)"
+      - "Objection: Domain-specific degradation could still exist even if baseline is broken"
+      - "Rebuttal: True, but cannot be tested without fixing baseline first (conditional hypothesis testing)"
+
+  MC3:
+    statement: "Task-domain gap (SNLI/MNLI semantic similarity ≠ factual verification) is distinct from traditional domain shift"
+    distinction: "Domain shift = data distribution (vocabulary, style); Task-domain gap = training objective (what model predicts)"
+    evidence:
+      - "SNLI/MNLI optimize for 'same situation?' (semantic similarity)"
+      - "Factual verification requires 'same facts?' (claim-context consistency)"
+      - "Both tasks process similar text types (questions, statements) but different objectives"
+    implication: "NLI models are not universal entailment detectors; they are specialized for training task"
+    adversarial_strength: "MEDIUM"
+    falsifiability_test: "FT12: Test FEVER-finetuned NLI on SNLI → if performance degrades, bidirectional task gap confirmed"
+    adversarial_objections:
+      - "Objection: Entailment is entailment regardless of training data"
+      - "Rebuttal: Neural networks learn task-specific features; 'entailment' is operationalized differently in SNLI vs FEVER"
+      - "Objection: This is just domain adaptation literature; not novel"
+      - "Rebuttal: Domain adaptation focuses on data distribution; we focus on training objective (underexplored)"
+
+  MC4:
+    statement: "Baseline replication before domain transfer is methodological requirement"
+    principle: "Test new method on original domain first, then extend to new domains"
+    evidence:
+      - "Our failure: did not replicate CCP on TruthfulQA factual domain before testing creative transfer"
+      - "Consequence: cannot determine if low ρ_j is due to implementation error or domain-specific effect"
+    implication: "Always validate baseline on original dataset BEFORE testing extensions"
+    adversarial_strength: "HIGH"
+    falsifiability_test: "FT13: Methodological principle; not directly falsifiable but broadly applicable"
+    adversarial_objections:
+      - "Objection: CCP paper did not provide baseline dataset; we used closest available (TruthfulQA)"
+      - "Rebuttal: Then contact authors or use alternative baseline (SelfCheckGPT) before claiming extension"
+      - "Objection: Baseline replication is expensive; prioritize novelty"
+      - "Rebuttal: Our work shows non-replicated baselines waste MORE time (months debugging vs weeks validating)"
+
+# ==================== REPRODUCIBILITY RECOMMENDATIONS ====================
+
+reproducibility_recommendations:
+  R1:
+    statement: "Report raw metric distributions, not just aggregates (ROC-AUC)"
+    justification: "Distribution shape reveals failure modes masked by aggregate metrics"
+    example: "Our ρ_j median 0.0354 signals problem; ROC-AUC alone might mask this"
+    implementation:
+      - "Include median, mean, std dev, min, max for all primary metrics"
+      - "Violin plots or histograms showing full distribution"
+      - "Per-domain breakdowns (factual vs creative)"
+    adversarial_strength: "HIGH"
+
+  R2:
+    statement: "Validate NLI calibration on known examples from target domain"
+    justification: "Off-the-shelf NLI models may not generalize to factual verification"
+    example: "Our sanity check: P(entail|correct)=0.11 (expected >0.5) identified root cause"
+    implementation:
+      - "Test NLI on 10-20 manually verified entailment/contradiction examples"
+      - "Document whether fine-tuning or threshold adjustment applied"
+      - "Report calibration metrics (ECE, reliability diagrams)"
+    adversarial_strength: "HIGH"
+
+  R3:
+    statement: "Document claim decomposition with inter-method agreement (Krippendorff's α>0.7)"
+    justification: "Claim boundaries affect metric denominators; methods must be comparable"
+    example: "We used NLTK tokenization (α=0.75); LLM extraction might differ by >0.10"
+    implementation:
+      - "Specify claim extraction method (NLTK, Spacy, LLM, dependency parsing)"
+      - "Compare two methods on 50-100 samples; report Krippendorff's α"
+      - "If α<0.7, document method selection rationale"
+    adversarial_strength: "MEDIUM"
+
+  R4:
+    statement: "Provide public code with baseline replication notebooks"
+    justification: "Enables rapid iteration; papers with code cited 10× more (Semantic Entropy: 200+ citations in <1 year)"
+    example: "Our h-e1/code/ with unit tests, config files, run.py entry point"
+    implementation:
+      - "Full implementation (data loaders, NLI inference, metrics, visualization)"
+      - "Baseline replication notebook (<100 lines reproducing main result)"
+      - "Unit tests (5-10 examples with expected outputs)"
+      - "Configuration files (all hyperparameters documented)"
+    adversarial_strength: "HIGH"
+
+# ==================== ADVERSARIAL REVIEW PREPARATION ====================
+
+adversarial_review_targets:
+  high_priority:
+    - "QC1: ρ_j 50× lower — expected range inference"
+    - "QC2: No domain separation — statistical power"
+    - "QC3: Neutral-class dominance — bimodality check"
+    - "RC1: OOD generalization gap — SNLI/MNLI vs FEVER distinction"
+    - "MC1: CCP paper reproducibility gap — author contact"
+    - "MC2: Measurement validity prerequisite — logical principle"
+    - "R1-R4: Reproducibility recommendations — implementation cost"
+
+  medium_priority:
+    - "QC4: Autocorrelation inversion — dataset structure confound"
+    - "QC5: Claim decomposition reliability — manual validation"
+    - "RC2: Claim decomposition quality — magnitude explanation"
+    - "RC3: Context pairing strategy — attention dilution"
+    - "MC3: Task-domain gap vs domain shift — novelty claim"
+
+  low_priority:
+    - "RC4: Temperature/calibration — magnitude argument"
+
+  preemptive_rebuttals:
+    expected_objection_1:
+      objection: "Your implementation is wrong; CCP paper is correct"
+      rebuttal: "Possible, but paper lacks implementation details (no code, no raw ρ_j distributions, no NLI calibration diagnostics). We followed published equations and literature precedents (cavaquinho, HallucinoGenAI). Reproducibility requires documentation."
+
+    expected_objection_2:
+      objection: "50× magnitude shift suggests fundamental error, not methodological insight"
+      rebuttal: "Exactly our point — measurement validity failure prevents hypothesis testing. This IS the finding: NLI calibration is prerequisite, not implementation detail."
+
+    expected_objection_3:
+      objection: "Negative results are not publishable contributions"
+      rebuttal: "Transparent failures prevent field-wide repetition of costly mistakes (Belz et al., 2021; Dodge et al., 2019). Our methodological requirements (R1-R4) are actionable contributions."
+
+    expected_objection_4:
+      objection: "You should have contacted CCP authors before publishing"
+      rebuttal: "Replication studies document what is publicly available. If CCP paper provided code or detailed methods, we would have used them. Reproducibility gap is itself a finding."
+
+    expected_objection_5:
+      objection: "Autocorrelation inversion refutes your hypothesis outright"
+      rebuttal: "Autocorrelation reflects dataset structure (TruthfulQA repeated entities), not hallucination behavior. This is a confound, not a refutation. Primary failure is measurement validity (ρ_j 50× too low)."
+
+# ==================== SUCCESS CRITERIA FOR PHASE 6.5 ====================
+
+phase65_readiness:
+  ground_truth_claims_extracted: 17
+  breakdown:
+    quantitative: 5
+    root_cause: 4
+    methodological: 4
+    reproducibility_recommendations: 4
+
+  adversarial_objections_anticipated: 15
+  adversarial_rebuttals_prepared: 15
+
+  falsifiability_tests_defined: 13
+  falsifiability_tests_with_cost_estimates: 0  # not required for this phase
+
+  strength_assessment_complete: true
+  strength_distribution:
+    HIGH: 9
+    MEDIUM: 6
+    LOW: 2
+
+# ==================== METADATA ====================
+
+extraction_notes:
+  - "All claims extracted from final paper sections (00-07)"
+  - "Quantitative anchors: 50×, p=1.0, d=-0.0635, ~90% neutral, α=0.75"
+  - "Root cause hierarchy: Tier 1 > Tier 2 > Tier 3"
+  - "Methodological contributions valid regardless of hypothesis outcome"
+  - "Reproducibility recommendations (R1-R4) are actionable and implementable"
+  - "Adversarial review should focus on HIGH strength claims first"
+  - "Preemptive rebuttals address expected objections from reviewers"
+
+versioning:
+  version: "1.0"
+  date: "2026-07-10"
+  status: "READY_FOR_PHASE_6.5"
+  next_phase: "Phase 6.5 - Adversarial Review"

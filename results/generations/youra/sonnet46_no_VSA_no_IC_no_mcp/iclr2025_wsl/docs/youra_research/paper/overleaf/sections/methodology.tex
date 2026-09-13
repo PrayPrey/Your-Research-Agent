@@ -1,0 +1,91 @@
+\section{Methodology}
+\label{sec:method}
+
+Our methodology is organized around four interconnected experimental questions, each with a distinct measurement protocol. The central design principle is \textbf{oracle orbit construction}: rather than inferring symmetry structure from natural variation in the zoo, we directly construct ground-truth functional equivalents by applying explicit symmetry transforms. This provides controlled probes unavailable from zoo statistics alone.
+
+\subsection{Setting and Data}
+
+\textbf{Model Zoo.} We use the Schürholt MNIST model zoo \citep{Schurholt2022ModelZoos}, a collection of 2-layer MLPs trained on MNIST with architecture $784 \to 64 \to 10$ (ReLU activations, no bias in the final layer). Models vary in learning rate, weight decay, and random initialization seed. We use a locally archived subset of $N=500$ models with ground-truth property labels: test accuracy, generalization gap (train $-$ test accuracy), and learning rate recovery. Weights are stored as flat tensors of dimension $D=51{,}850$ ($784 \times 64 + 64 \times 10$).
+
+\textbf{Why this zoo.} The $M=2$ architecture makes scaling and sign-flip canonicalization well-defined: for a single hidden layer with $h=64$ neurons, scaling orbits have dimension 64 (one free scale per neuron), and sign-flip orbits have discrete order $2^{64}$. The majority-sign algorithm for sign-flip canonicalization is unambiguous in theory for $M=2$ (only one consecutive layer pair exists). As we show, this theoretical unambiguity does not hold in practice for even $d_{\mathrm{in}}$ --- a structural finding of independent interest.
+
+\subsection{Symmetry Orbit Construction}
+
+\textbf{Scaling orbits.} For a 2-layer ReLU MLP with weight matrices $W_1 \in \mathbb{R}^{d_{\mathrm{in}} \times h}$ and $W_2 \in \mathbb{R}^{h \times d_{\mathrm{out}}}$, the scaling symmetry transform applies per-neuron positive rescaling:
+\begin{equation}
+W_1[:, i] \leftarrow \alpha_i W_1[:, i], \quad W_2[i, :] \leftarrow W_2[i, :] / \alpha_i
+\end{equation}
+for any $\alpha_i > 0$. The resulting network computes the same function as the original for any input. We sample scaling factors log-uniformly: $\log \alpha_i \sim \mathrm{Uniform}(\log 0.1, \log 10)$, covering a $100\times$ dynamic range per neuron.
+
+\textbf{Sign-flip orbits.} The sign-flip symmetry transform applies per-neuron sign changes:
+\begin{equation}
+W_1[:, i] \leftarrow s_i W_1[:, i], \quad W_2[i, :] \leftarrow s_i W_2[i, :]
+\end{equation}
+for $s_i \in \{-1, +1\}$. After flipping both weight sets, the output contribution from neuron $i$ becomes $(s_i W_2[i,:])\cdot\mathrm{ReLU}(s_i W_1[:,i]\cdot x)$. For $s_i = -1$: $(-W_2[i,:])\cdot\mathrm{ReLU}(-W_1[:,i]\cdot x)$. This equals the original $W_2[i,:]\cdot\mathrm{ReLU}(W_1[:,i]\cdot x)$ exactly only when the neuron is in its linear regime. In practice, we treat sign-flip orbits as \textbf{approximate} functional equivalence classes. We sample signs uniformly: $s_i \sim \mathrm{Bernoulli}(0.5)$ mapped to $\{-1, +1\}$.
+
+\textbf{Oracle construction.} For each base model $b$ in the zoo, we construct an oracle orbit member $b'$ by applying the transform with randomly sampled parameters ($\alpha$ or $s$). This yields 500 oracle orbit pairs per symmetry type per condition. All random seeds are fixed for reproducibility.
+
+\subsection{NFT Invariance Probe}
+
+\textbf{Encoder.} We use NFT \citep{Zhou2023NeuralFunctionalNetworks} with $d_{\mathrm{model}}=256$, 4 attention layers, 8 heads, and CLS-token pooling. NFT was trained on Condition A (raw weights) for property prediction, then frozen. Weights are tokenized row-by-row from each weight matrix; the CLS token's final-layer representation serves as the model embedding.
+
+\textbf{Within-orbit vs.\ cross-orbit similarity.} For each oracle orbit pair $(b, b')$, we extract embeddings $e(b)$ and $e(b')$. Within-orbit similarity is $\cos(e(b), e(b'))$. For cross-orbit comparison, for each base model $b$ we select a different model $c$ from the zoo with the same test accuracy decile.
+
+\textbf{Invariance gap.} We define the invariance gap as:
+\begin{equation}
+\text{gap} = \overline{\text{cross-orbit same-property similarity}} - \overline{\text{within-orbit similarity}}
+\end{equation}
+A positive gap indicates the encoder does NOT treat symmetry-related models as more similar (non-invariant). We compute bootstrap 95\% confidence intervals ($n_{\mathrm{boot}}=1{,}000$) on the gap.
+
+\subsection{Canonicalization Conditions}
+
+We evaluate five experimental conditions:
+
+\begin{table}[h]
+\centering
+\caption{Canonicalization conditions evaluated.}
+\label{tab:conditions}
+\begin{tabular}{llp{5cm}}
+\toprule
+Condition & Preprocessing & Purpose \\
+\midrule
+A & Raw weights (no preprocessing) & NFT baseline \\
+B & Scaling canonicalization only & Isolate scaling effect \\
+C & Sign-flip canonicalization only & Isolate sign-flip effect \\
+D & Scaling + sign-flip canonicalization & Full canonicalization \\
+E & Random normalization control & Test normalization artifact hypothesis \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Scaling canonicalization.} Per-layer L2 normalization: each hidden neuron's incoming weight vector is scaled to unit L2 norm, with the corresponding outgoing weights scaled by the inverse. This collapses all scaling-orbit members to the same canonical representative.
+
+\textbf{Sign-flip canonicalization (majority-sign).} For each hidden neuron $i$, compute the sign majority of row $W_1[:, i]$. If more weights are negative than positive, flip: $W_1[:, i] \leftarrow -W_1[:, i]$, $W_2[i, :] \leftarrow -W_2[i, :]$.
+
+\textbf{Random normalization control (Condition E).} Each hidden neuron's incoming weights are scaled by a random factor drawn from $\mathcal{N}(1, 0.1)$.
+
+\subsection{Canonicalization Uniqueness Audit}
+
+The majority-sign algorithm requires a strict sign majority per neuron. For $d_{\mathrm{in}}=784$ weights per neuron, a tie occurs when exactly 392 components are positive and 392 are negative. The binomial probability of this event is:
+\begin{equation}
+P(\text{tie}) = \binom{784}{392} 0.5^{784} \approx 2.8\%
+\end{equation}
+For $h=64$ neurons per model, the probability of at least one tie per model is:
+\begin{equation}
+P(\text{at least one tie}) \approx 1 - (1 - 0.028)^{64} \approx 83\%
+\end{equation}
+We empirically audit all $N=500$ zoo models, recording: fraction with unique canonical form, number of tied neurons per model, and idempotency verification.
+
+\subsection{Geometric Concentration Analysis}
+
+To test whether canonicalization concentrates property-relevant geometric structure, we apply PCA to both raw (Condition A) and canonicalized (Condition D) weight matrices. We measure:
+\begin{itemize}
+\item \textbf{Explained Variance Ratio (EVR)} at $k \in \{10, 20, 50\}$ principal components.
+\item \textbf{Linear regression $R^2$} from top-$k$ PCs onto each property label, with bootstrap 95\% CIs.
+\end{itemize}
+
+\subsection{Property Prediction Experiments}
+
+\textbf{Protocol.} For each condition (A--E), we train NFT from scratch as a property predictor on the 400 training models ($N=500$ zoo, 80/10/10 split: 400 train, 50 validation, 50 test). Hyperparameters: Adam optimizer, lr$=10^{-3}$, weight\_decay$=10^{-4}$, max\_epochs$=50$, early stopping on validation Spearman $\rho$ (patience$=10$). Evaluation: Spearman $\rho$ on the 50-model held-out test split, averaged across 3 random seeds.
+
+\textbf{Statistical analysis.} Bootstrap 95\% CIs ($n_{\mathrm{boot}}=1{,}000$) on Spearman $\rho$ and condition differences ($\Delta\rho$). At $n=50$ test samples, CI width for Spearman $\rho$ is approximately $\pm 0.3$, yielding CI width $\approx 0.6$. To detect $\Delta\rho = 0.05$ with adequate power, approximately $n \geq 1{,}000$--$5{,}000$ test samples are required.

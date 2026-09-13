@@ -1,0 +1,356 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-08-04T16:15:00Z"
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+  budget_rebalancing:
+    applied: true
+    excluded_count: 4
+    excluded_ids:
+      - "L-4-1"
+      - "L-4-2"
+      - "L-4-3"
+      - "L-4-4"
+    excluded_reason: "Budget rebalancing — A-4 subtasks (parent complexity 16) excluded before A-2 subtasks (parent complexity 17)"
+
+tasks:
+  # ── DATA PREPARATION (priority 100–99) ──────────────────────────────────────
+  - id: "task-001"
+    epic: "Data Preparation"
+    title: "Download Dolma v1.7 dataset"
+    description: |
+      Download Dolma v1.7 from HuggingFace Hub using streaming mode.
+      HuggingFace ID: allenai/dolma
+      Method: datasets.load_dataset("allenai/dolma", split="train", streaming=True)
+      Store raw data to: data/h-e1/corpora/dolma_raw/
+      Verify download completeness before proceeding.
+    feature_tag: "data-preparation"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: null
+      config: "03_config.md"
+
+  - id: "task-002"
+    epic: "Data Preparation"
+    title: "Download FineWeb dataset"
+    description: |
+      Download FineWeb from HuggingFace Hub using streaming mode.
+      HuggingFace ID: HuggingFaceFW/fineweb
+      Method: datasets.load_dataset("HuggingFaceFW/fineweb", split="train", streaming=True)
+      Store raw data to: data/h-e1/corpora/fineweb_raw/
+      This is the replication corpus for external validity.
+    feature_tag: "data-preparation"
+    priority: 99
+    source_document: "03_prd.md"
+    complexity: null
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: null
+      config: "03_config.md"
+
+  # ── ENVIRONMENT SETUP (priority 94) ─────────────────────────────────────────
+  - id: "task-003"
+    epic: "Environment Setup"
+    title: "Install dependencies and clone external repositories"
+    description: |
+      Install Python packages:
+        torch>=2.0.0, transformers>=4.35.0, datasets>=2.14.0,
+        deepspeed>=0.10.0, accelerate>=0.21.0, nemo-curator>=0.3.0,
+        lm-eval>=0.4.0, scipy>=1.11.0, statsmodels>=0.14.0,
+        numpy>=1.24.0, pandas>=2.0.0, matplotlib>=3.7.0,
+        seaborn>=0.12.0, pyyaml>=6.0, tqdm>=4.65.0
+
+      Clone external repos:
+        git clone https://github.com/EleutherAI/gpt-neox.git
+        git clone https://github.com/lm-sys/llm-decontaminator.git
+
+      Download NeoX tokenizer: 20B_tokenizer.json from EleutherAI/pythia repo.
+      Verify CUDA availability for NeMo-Curator GPU MinHash.
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: null
+      config: "03_config.md"
+
+  # ── EPIC IMPLEMENTATION TASKS (priority 93–50) ──────────────────────────────
+  - id: "A-1"
+    epic: "Config + Orchestrator"
+    title: "Implement config.py and orchestrate.py"
+    description: |
+      Implement code/config.py: ExperimentConfig dataclass with all hyperparameters,
+      paths, and factorial design axes. Single CONFIG = ExperimentConfig() singleton.
+
+      Implement code/orchestrate.py: top-level pipeline runner with stage selection
+      (curate/preprocess/train/evaluate/analyze/visualize/all) and resume support
+      via JSON state file between stages.
+    feature_tag: "experiment"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 6
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  - id: "A-2"
+    epic: "Corpus Curation"
+    title: "Implement corpus curation pipeline (curate.py)"
+    description: |
+      Implement code/curate.py with full corpus curation pipeline:
+      - score_and_filter_ppl(): GPT-2 PPL scoring (per-doc, streaming, batch_size=64)
+        Retain docs with PPL <= tau. tau in {20, 35, 50}.
+      - apply_minhash_dedup(): NeMo-Curator FuzzyDuplicates.
+        J=0.7 -> num_buckets=20; J=0.9 -> num_buckets=8; both hashes_per_bucket=13.
+      - curate_all_variants(): orchestrate 6 variants per corpus (3 PPL x 2 dedup).
+        Idempotent via _SUCCESS flag. Produces 12 JSONL dirs total.
+      - get_corpus_stream(): returns HF streaming dataset for dolma or fineweb.
+      - log_corpus_stats(): write token counts and CR to corpus_stats.csv.
+    feature_tag: "data-pipeline"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 17
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  - id: "A-3"
+    epic: "Preprocessing"
+    title: "Implement preprocessing pipeline (preprocess.py)"
+    description: |
+      Implement code/preprocess.py:
+      - convert_to_neox_binary(): call tools/preprocess_data.py via subprocess.
+        Converts JSONL to NeoX .bin/.idx memory-mapped format.
+        Tokenizer: 20B_tokenizer.json (NeoX tokenizer).
+      - run_decontaminator(): run llm-decontaminator against MMLU + HellaSwag test sets.
+        Returns contamination_rate (CR) for ANCOVA covariate.
+      - preprocess_all_variants(): process all 12 variants, adding binary_prefix
+        and contamination_rate to each variant_metadata dict.
+      Apply 95/2.5/2.5 train/val/test split during preprocessing.
+    feature_tag: "data-pipeline"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 13
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  - id: "A-4"
+    epic: "Training"
+    title: "Implement GPT-NeoX training launcher (train.py)"
+    description: |
+      Implement code/train.py:
+      - build_neox_config(): merge per-run overrides into base Pythia YAML.
+        Overrides: data_path, seed, save/load paths, train_iters=25000,
+        checkpoint_factor=2500 (every 5B tokens), FP16, DeepSpeed ZeRO-1.
+        Scale-specific: 70M (6L, d=512, h=8, lr=1e-3) or 160M (12L, d=768, h=12, lr=6e-4).
+      - launch_neox_run(): run `python deepy.py train.py <config>` as subprocess.
+      - run_all_training(): 12 variants x 2 scales x 3 seeds = 72 runs.
+        Sequential with state file resume. Skip done runs.
+      - list_checkpoints(): discover global_stepXXXXX dirs, auto-convert to HF format.
+      - convert_checkpoint_to_hf(): call tools/convert_to_hf.py via subprocess.
+      State tracking: atomic JSON writes via os.replace, crash detection.
+    feature_tag: "training"
+    priority: 80
+    source_document: "03_architecture.md"
+    complexity: 16
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  - id: "A-5"
+    epic: "Evaluation"
+    title: "Implement batch evaluation runner (evaluate.py)"
+    description: |
+      Implement code/evaluate.py:
+      - run_lm_eval(): run lm-evaluation-harness via subprocess for one checkpoint.
+        Tasks: mmlu (4-shot) + hellaswag (0-shot via task config).
+        Full standard test sets: MMLU 14,042 examples; HellaSwag 10,042 examples.
+        CLI: lm-eval --model hf --model_args pretrained=PATH --tasks mmlu,hellaswag
+             --num_fewshot 4 --batch_size auto --output_path OUTPUT
+      - parse_lm_eval_output(): parse JSON results, extract mmlu_4shot + hellaswag_0shot.
+      - evaluate_all_checkpoints(): batch 720 evaluations (72 runs x 10 checkpoints each).
+      - save_results(): write results_df to CSV + Parquet.
+        Columns: scale, ppl_threshold, dedup_j, corpus, seed, checkpoint_step,
+                 mmlu_4shot, hellaswag_0shot, contamination_rate.
+    feature_tag: "evaluation"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 14
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  - id: "A-6"
+    epic: "Analysis + Gate"
+    title: "Implement statistical analysis and gate check (analyze.py)"
+    description: |
+      Implement code/analyze.py:
+      - load_results(): load results.csv into DataFrame.
+      - compute_partial_eta2(): compute partial eta-squared from ANOVA table.
+      - run_ancova_interaction(): OLS with formula
+        "mmlu_4shot ~ C(scale) * C(ppl_threshold) + contamination_rate"
+        Returns interaction_p, interaction_eta2, anova_table.
+      - check_direction(): compute tau*(70M) and tau*(160M) via argmax.
+        direction_confirmed = tau*(70M) < tau*(160M).
+      - run_secondary_analyses(): Levene's test + Scale x Dedup ANOVA + post-hoc.
+      - gate_check(): MUST_WORK gate: p<0.05 AND eta2>=0.15 AND direction_confirmed.
+      - run_full_analysis(): top-level function, prints gate result.
+      Failure handling: if CR covariate absorbs >50% variance, pivot to HellaSwag DV.
+    feature_tag: "experiment"
+    priority: 70
+    source_document: "03_architecture.md"
+    complexity: 12
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  - id: "A-7"
+    epic: "Visualization"
+    title: "Implement visualization (visualize.py)"
+    description: |
+      Implement code/visualize.py with all required figures:
+      1. plot_bar_factorial(): MMLU + HellaSwag by Scale x PPL-threshold (2x3, error bars).
+      2. plot_interaction(): line plot score vs tau, separate lines per scale.
+      3. plot_dedup_interaction(): dedup effect (J=0.7 vs J=0.9) by scale.
+      4. plot_fineweb_replication(): side-by-side Dolma vs FineWeb interaction panels.
+      5. plot_corpus_size_heatmap(): token count per filter condition.
+      6. plot_contamination_table(): CR(condition) per corpus variant.
+      generate_all_figures(): top-level, saves all 6 figures to figures/ dir.
+      Output: docs/youra_research/h-e1/figures/
+    feature_tag: "experiment"
+    priority: 65
+    source_document: "03_architecture.md"
+    complexity: 9
+    reference_files:
+      architecture: "03_architecture.md"
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  # ── SUBTASKS from A-2 Corpus Curation (priority 49–2) ───────────────────────
+  - id: "L-2-1"
+    epic: "Corpus Curation"
+    title: "[Subtask] PPL scoring with batched GPT-2 inference"
+    description: |
+      Implement score_and_filter_ppl() in curate.py:
+      - Per-document GPT-2 forward pass (avoids padding bias).
+      - Streaming iteration over HF IterableDataset.
+      - Batch tokenization (batch_size=64), truncate to max_length=1024.
+      - Retain doc if exp(loss) <= ppl_threshold.
+      - Write retained docs to JSONL, return {retained, total, output_path}.
+      Memory safety: stream one doc at a time; never materialize full corpus.
+    feature_tag: "data-pipeline"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      architecture: null
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  - id: "L-2-2"
+    epic: "Corpus Curation"
+    title: "[Subtask] NeMo-Curator MinHash deduplication config"
+    description: |
+      Implement apply_minhash_dedup() in curate.py:
+      - Band params: J=0.7 -> num_buckets=20, J=0.9 -> num_buckets=8 (both hashes_per_bucket=13).
+      - char_ngrams=24, minhash_length=256 (from FuzzyDuplicatesConfig).
+      - seed=42, false_positive_check=True, num_anchors=2.
+      - Uses NeMo-Curator DocumentDataset for input/output.
+      - Returns {retained, total, output_path}.
+    feature_tag: "data-pipeline"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      architecture: null
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  - id: "L-2-3"
+    epic: "Corpus Curation"
+    title: "[Subtask] curate_all_variants orchestration (idempotent)"
+    description: |
+      Implement curate_all_variants() in curate.py:
+      - Iterate 6 combinations: PPL {20,35,50} x Dedup J {0.7,0.9}.
+      - condition key format: "{corpus}_ppl{tau}_j{int(j*10):02d}".
+      - Idempotent: skip variant if dedup_dir/_SUCCESS exists and non-empty.
+      - Fresh stream per variant (streaming datasets are single-pass).
+      - Write meta.json per variant dir, touch _SUCCESS flag on completion.
+      - Return list of 6 variant_metadata dicts.
+      - Caller runs for both corpora -> 12 total variants.
+    feature_tag: "data-pipeline"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      architecture: null
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  - id: "L-2-4"
+    epic: "Corpus Curation"
+    title: "[Subtask] Corpus statistics logging for ANCOVA"
+    description: |
+      Implement log_corpus_stats() in curate.py:
+      - Write per-variant stats to corpus_stats.csv.
+      - Columns: condition, corpus, ppl_threshold, dedup_j, token_count, contamination_rate.
+      - contamination_rate populated by preprocess.py::run_decontaminator before call.
+      - Print summary for ANCOVA input verification.
+      - CR field feeds analyze.py ANCOVA as the covariate.
+    feature_tag: "data-pipeline"
+    priority: 35
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      architecture: null
+      logic: "03_logic.md"
+      config: "03_config.md"
+
+  # ── FAILSAFE (priority 1) ────────────────────────────────────────────────────
+  - id: "task-failsafe"
+    epic: "Pipeline Continuation"
+    title: "Pipeline continuation checkpoint"
+    description: |
+      Final checkpoint task. Before proceeding to Phase 4 validation:
+      1. Verify all 4 output files exist: 03_prd.md, 03_architecture.md,
+         03_logic.md, 03_config.md.
+      2. Verify 03_tasks.yaml is valid and within budget.
+      3. Verify Archon has 5 documents uploaded for h-e1.
+      4. Run gate_check() in analyze.py to confirm the analysis pipeline is importable.
+      5. Confirm data/h-e1/ directory structure is in place.
+      If any check fails, fix before marking Phase 4 as ready.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_tasks.yaml"
+    complexity: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 2
+  environment_setup: 1
+  epic_tasks: 7
+  subtasks: 4
+  failsafe: 1
+  total: 15

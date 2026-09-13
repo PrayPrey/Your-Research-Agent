@@ -1,0 +1,324 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-22T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (independent-controller ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap_1"
+  gap_title: "Zero-Shot SWA Layer Conversion Accuracy Bounds Without Fine-Tuning in Llama-2-7B"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 7
+  convergence_reason: "All 6 criteria met at Exchange 7: SPECIFIC claim with thresholds, MECHANISM via residual stream bus, PREDICTIONS P1-P3 with quantified criteria, NOVELTY vs SWAA (zero-shot selective vs fine-tuning-required full-model), FEASIBILITY confirmed (<1 GPU-hour, existing code paths), OBJECTIONS addressed (depth position analysis, calibration stability, benchmark divergence)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "SWA reduces attention FLOPs from O(n²) to O(n·w) per layer"
+      status: "BUILD_ON"
+      evidence: "Longformer [Beltagy et al., 2020] — 5840 citations; mathematical derivation"
+    - claim: "SWA works in production at 7B scale (Mistral 7B with window=4096)"
+      status: "BUILD_ON"
+      evidence: "Mistral 7B [Jiang et al., 2023] — 3809 citations; pretrained from scratch"
+    - claim: "Naive full-model FA→SWA conversion (no pretraining, no fine-tuning) causes catastrophic quality collapse"
+      status: "BUILD_ON"
+      evidence: "SWAA [Yu et al., 2025] — primary reference; requires fine-tuning recovery"
+    - claim: "Attention entropy is a valid signal for identifying attention heads/layers with redundant or diffuse global attention"
+      status: "BUILD_ON"
+      evidence: "HIES [Choi et al., 2025] — head-level pruning with entropy: +15.2% quality; Michel et al. [2019] — head removability at test time"
+    - claim: "Some transformer layers learn fixed/positional attention patterns equivalent to local-window attention"
+      status: "BUILD_ON"
+      evidence: "Raganato et al. [2020] — fixed encoder patterns; Michel et al. [2019] — head removability"
+    - claim: "Zero-shot selective SWA conversion (k=4 of 32 layers, entropy-guided) maintains WikiText-103 perplexity within 2pt and GLUE SST-2 within 2pp of full-attention baseline"
+      status: "PROVE_NEW"
+      evidence: "No existing work; this is the primary empirical claim to test"
+    - claim: "Entropy-guided k-layer selection outperforms random-k and last-k selection for perplexity preservation"
+      status: "PROVE_NEW"
+      evidence: "No existing work; requires comparison experiment"
+  scope_reduction_percentage: 71  # 5 BUILD_ON / 7 total claims = 71% established context
+  phase2b_4_instructions: |
+    Phase 2B can treat claims 1-5 as established context requiring no re-verification.
+    Focus verification effort on claims 6-7 (PROVE_NEW): the empirical accuracy bounds
+    and the entropy criterion superiority over random/last-k baselines.
+    Do NOT test SWA theory or Mistral/Longformer foundations — these are BUILD_ON.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-EntropySWA-v1"
+  confidence_level: 0.72
+  core_hypothesis_statement: |
+    Under the setting of Llama-2-7B (32 attention layers, no fine-tuning, standard
+    WikiText-103 and GLUE SST-2 evaluation), if the k=4 layers with highest mean
+    per-layer attention entropy (measured on a 100-sequence calibration set using
+    output_attentions=True) are replaced with sliding window attention (window size
+    w=512 tokens) zero-shot, then WikiText-103 perplexity will remain within 2 points
+    and GLUE SST-2 accuracy within 2 percentage points of the full-attention baseline,
+    because high-entropy layers already contribute less unique global context than
+    low-entropy layers, and the residual stream of the 28 remaining full-attention
+    layers provides sufficient global context compensation for the converted layers.
+  alternative_hypothesis_h0: |
+    There is no significant difference in WikiText-103 perplexity or GLUE SST-2
+    accuracy between entropy-guided k=4 SWA conversion and random-k=4 SWA conversion
+    (i.e., entropy provides no predictive value for identifying SWA-safe layers);
+    OR any k≥1 selective SWA conversion causes >5pt perplexity degradation regardless
+    of selection criterion (i.e., zero-shot selective SWA is infeasible in Llama-2-7B).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Layer selection strategy"
+      type: "categorical"
+      operationalization: "Method for choosing which k layers to convert to SWA"
+      levels:
+        - "entropy-guided (top-k by mean per-layer attention entropy)"
+        - "random-k (k layers sampled uniformly at random)"
+        - "last-k (k=deepest layers by depth index)"
+        - "full-attention baseline (k=0, no conversion)"
+    - name: "Number of converted layers k"
+      type: "categorical"
+      operationalization: "Count of layers replaced with SWA(w=512)"
+      levels:
+        - "k=0 (baseline)"
+        - "k=4 (12.5% of layers)"
+        - "k=8 (25% of layers)"
+  dependent:
+    - name: "WikiText-103 perplexity"
+      type: "continuous"
+      operationalization: "Standard next-token perplexity on WikiText-103 test set via HuggingFace datasets; lower is better; reported as absolute value and delta from baseline"
+      primary: true
+    - name: "GLUE SST-2 accuracy"
+      type: "continuous"
+      operationalization: "Classification accuracy on GLUE SST-2 test set; reported as percentage and delta from full-attention baseline"
+      primary: false
+    - name: "Peak attention memory reduction"
+      type: "continuous"
+      operationalization: "torch.cuda.memory_allocated() delta before/after attention for converted vs baseline layers; reported as percentage reduction"
+      primary: false
+  controlled:
+    - name: "Model weights"
+      operationalization: "Llama-2-7B from meta-llama/Llama-2-7b-hf; no fine-tuning; same weights for all conditions"
+    - name: "SWA window size"
+      operationalization: "w=512 fixed across all SWA conditions; ablation on w=256, w=1024 secondary"
+    - name: "Calibration set"
+      operationalization: "100 sequences from WikiText-103 validation split; entropy scoring run once; same calibration for all entropy-guided conditions"
+    - name: "Random seed"
+      operationalization: "Fixed seed for random-k selection; 3 seeds reported for stability analysis"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: "Entropy scoring identifies layers with diffuse, low-information-value global attention patterns. Mean per-layer entropy (aggregated across heads and positions) on 100 calibration sequences is computed; high-entropy layers are those with already-flat attention distributions that rely less on sharp global token retrieval."
+      evidence: "HIES [Choi et al., 2025]: entropy validates attention redundancy at head level (+15.2% quality over importance-only pruning). Michel et al. [2019]: high-entropy heads are prunable at test time without accuracy loss. Entropy-Lens [Ali et al., 2025]: entropy characterizes layer-level information processing signature across depth."
+      falsifier: "If entropy rank ordering is unstable across calibration seeds (Spearman ρ < 0.7), the selection criterion is noise and the mechanism fails at this step."
+    - step: 2
+      description: "Replacing high-entropy layers with SWA(w=512) aligns the implemented attention mechanism with the measured attention behavior. Since these layers were already not exploiting sharp global attention, constraining them to a local window does not remove functionality they were using — it formalizes their de facto local behavior."
+      evidence: "Raganato et al. [2020]: some transformer layers already learn fixed positional/local attention patterns. Michel et al. [2019]: many heads can be removed entirely; SWA is a weaker constraint than removal. HF AttentionMaskConverter and PyTorch create_sliding_window_attn_mask provide production-grade implementation."
+      falsifier: "If k=4 entropy-guided conversion causes >2pt perplexity degradation on WikiText-103 (primary threshold), step 2 fails — the entropy criterion selected layers that WERE using global attention meaningfully."
+    - step: 3
+      description: "The 28 remaining full-attention layers compensate for the SWA layers' reduced global reach by propagating global context through the residual stream. The residual stream in transformer architectures accumulates representations from all preceding layers; full-attention layers provide global context that persists in the residual stream and is accessible to subsequent SWA layers."
+      evidence: "Transformer residual stream design [standard; Vaswani et al., 2017]. Selective conversion leaves 28/32 layers with full global attention. SWARR [Liu et al., 2026] found full-model SWA (0/32 full-attention) insufficient even with SFT — confirming global context loss is the failure mode; selective conversion avoids this by retaining 28/32 full-attention layers."
+      falsifier: "If entropy criterion selects primarily early-depth layers (positions 0-8), the residual stream has not yet accumulated sufficient global context at those positions, and compensation via residual stream fails. Layer depth distribution of selected layers is a key diagnostic output."
+  key_tension: "Entropy identifies diffuse attention globally, but does not distinguish between 'diffuse local' and 'diffuse global' attention. The mechanism relies on the residual stream compensating for any lost global context — but this compensation is stronger for later-depth converted layers than earlier ones."
+  evidence_summary: |
+    The three-step mechanism is supported by: (1) entropy as a selection signal (HIES, Michel et al.),
+    (2) local-pattern identification in pre-trained layers (Raganato et al., Michel et al.),
+    (3) residual stream as global context propagator (inherent to transformer architecture, confirmed
+    by SWARR's finding that removing ALL global attention is harmful while selective retention is
+    the proposed mitigation). The mechanism is novel in combining these three well-supported
+    components in a zero-shot selective conversion framework.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Mean per-layer attention entropy (averaged across heads and positions) on 100 calibration sequences produces a stable layer ranking (Spearman ρ > 0.8 across different calibration seeds)."
+    supporting_evidence: "100-sequence calibration is standard for quantization (GPTQ/AWQ); attention distributions at layer level aggregate across H heads × N positions, reducing variance. Prof. Rex concern — addressed by explicit stability test."
+    consequence_if_violated: "If ρ < 0.7, the entropy ranking is noise and the selection criterion is invalid. Mitigation: use 300 sequences; if still unstable, entropy-based criterion is infeasible for this model."
+  - id: "A2"
+    assumption: "High-entropy layers in Llama-2-7B have attention patterns that are functionally equivalent to or approximable by local-window attention (w=512) for the evaluated tasks."
+    supporting_evidence: "Michel et al. [2019]: high-entropy heads can be removed entirely without accuracy loss; SWA is weaker than removal. Raganato et al. [2020]: some layers learn positional/local patterns. This is the central empirical claim to be tested."
+    consequence_if_violated: "If high-entropy layers are actually doing diffuse global attention that is irreplaceable by local window, k=4 conversion will exceed the 2pt perplexity threshold. This is the primary falsification event."
+  - id: "A3"
+    assumption: "The residual stream of 28 retained full-attention layers provides sufficient global context compensation for 4 converted SWA layers."
+    supporting_evidence: "Transformer residual stream design accumulates representations across depth. SWARR [2026] confirms that FULL-model SWA (0 full-attention layers) fails even with SFT, while retaining some full-attention layers should preserve global context access."
+    consequence_if_violated: "If the 4 converted layers are positionally early and the residual stream hasn't accumulated sufficient global context, compensation fails. Diagnosed by examining depth positions of entropy-selected layers."
+  - id: "A4"
+    assumption: "WikiText-103 perplexity and GLUE SST-2 accuracy jointly characterize the accuracy-preservation of SWA conversion for general-purpose language understanding."
+    supporting_evidence: "WikiText-103 tests generative language modeling; SST-2 tests discriminative classification. Together they cover two major task families. Standard benchmarks used across the SWA literature (SWAA, Longformer)."
+    consequence_if_violated: "If only one benchmark is preserved and the other degrades, the hypothesis partially fails. The two benchmarks are treated as independent criteria (not required to jointly pass)."
+  - id: "A5"
+    assumption: "The attn_mask replacement approach (via HF AttentionMaskConverter or direct mask injection) correctly implements SWA semantics in Llama-2-7B without changing model weights or introducing numerical errors."
+    supporting_evidence: "HF AttentionMaskConverter(sliding_window=w) is production code used in Mistral 7B inference. PyTorch create_sliding_window_attn_mask is verified. No weight modification required."
+    consequence_if_violated: "If mask injection has bugs (e.g., off-by-one in causal masking), results will be confounded. Mitigation: validate mask by checking that attended positions in converted layers are within [i-512, i] for position i."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Llama-2-7B (meta-llama/Llama-2-7b-hf) as the primary test model
+    - Causal decoder transformer architectures with RoPE position encoding and 32 attention layers
+    - Standard language modeling and text classification tasks (WikiText-103, GLUE SST-2)
+    - Short-to-medium context evaluation (sequences up to ~512-1024 tokens for the evaluation benchmarks)
+    - Zero-shot, no-fine-tuning inference setting
+  does_not_apply_to: |
+    - Other causal decoder LLMs (Llama-3, Mistral, Falcon) — generalization is future work
+    - Long-context evaluation (>2048 tokens) where w=512 SWA limitation would be more impactful
+    - Encoder-only or encoder-decoder architectures
+    - Settings requiring fine-tuning (addressed by SWAA, SWARR instead)
+    - Full-model SWA conversion (all 32 layers) — addressed by SWAA
+  known_limitations: |
+    - w=512 window may be insufficient for tasks requiring cross-document attention (not tested)
+    - RoPE pre-training included positions >512; SWA layers' RoPE coefficients beyond w=512 are
+      "wasted" (trained but never activated at inference); this is acceptable overhead, not a failure
+    - Entropy criterion validated only on WikiText-103 calibration sequences; SST-2 domain
+      calibration may produce different layer rankings (tested as ablation)
+    - k* boundary (maximum safe conversion count) may be Llama-2-7B-specific
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Entropy-guided k=4 SWA conversion in Llama-2-7B maintains WikiText-103 perplexity within 2 points of the full-attention baseline (zero-shot, no fine-tuning)."
+    test_method: "Run Llama-2-7B with 4 SWA-converted layers (entropy-selected) on WikiText-103 test set; measure perplexity via standard next-token prediction evaluation using HuggingFace Trainer/evaluate; compare to full-attention baseline perplexity."
+    success_criterion: "Δperplexity = perplexity(SWA-k4-entropy) - perplexity(baseline) ≤ 2.0 points"
+    falsification: "Δperplexity > 2.0 points for entropy-guided k=4; OR Δperplexity > 5.0 points for any k≥1 configuration (suggests zero-shot SWA conversion is fundamentally infeasible in Llama-2-7B regardless of selection criterion)"
+  - id: "P2"
+    primary: false
+    statement: "Entropy-guided k=4 SWA conversion produces lower WikiText-103 perplexity degradation than random-k=4 and last-k=4 SWA conversion at matched k, demonstrating that entropy is a valid layer selection criterion."
+    test_method: "Compare perplexity delta for: (a) entropy-guided k=4, (b) random-k=4 (mean of 3 seeds), (c) last-k=4. All with SWA(w=512) on same Llama-2-7B model and WikiText-103 test set."
+    success_criterion: "Δperplexity(entropy-k4) < Δperplexity(random-k4) AND Δperplexity(entropy-k4) < Δperplexity(last-k4)"
+    falsification: "Δperplexity(entropy-k4) ≥ Δperplexity(random-k4) — entropy provides no selection advantage over random; OR Δperplexity(entropy-k4) ≥ Δperplexity(last-k4) — entropy is worse than a simple heuristic"
+  - id: "P3"
+    primary: false
+    statement: "Entropy-guided k=8 SWA conversion produces measurably higher perplexity degradation than k=4, characterizing the conversion capacity boundary (expected to exceed 5pt threshold)."
+    test_method: "Run Llama-2-7B with 8 SWA-converted layers (top-8 by entropy) on WikiText-103 test set; compare perplexity to k=4 and k=0 baselines."
+    success_criterion: "Δperplexity(entropy-k8) > Δperplexity(entropy-k4), characterizing the degradation curve; k* boundary estimate: largest k where Δperplexity ≤ 5pt"
+    falsification: "Δperplexity(entropy-k8) ≤ Δperplexity(entropy-k4) would be anomalous (non-monotone degradation); if Δperplexity(entropy-k8) ≤ 2pt, the hypothesis dramatically underestimated SWA tolerance"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "WikiText-103 + GLUE SST-2"
+    type: "standard"
+    source: "HuggingFace datasets (wikitext, glue)"
+    path: "datasets.load_dataset('wikitext', 'wikitext-103-raw-v1') / datasets.load_dataset('glue', 'sst2')"
+    hypothesis_fit: "WikiText-103 is the standard LM perplexity benchmark for transformer efficiency papers (used in SWAA, CoFiPruning). SST-2 is a standard discriminative classification benchmark for LLM evaluation. Both are existing, freely available HuggingFace datasets — no new benchmarks required."
+  model:
+    name: "Llama-2-7B"
+    type: "causal decoder transformer, 32 attention layers, RoPE position encoding"
+    source: "meta-llama/Llama-2-7b-hf (HuggingFace)"
+    hypothesis_fit: "7B-scale causal decoder with 32 layers provides sufficient layer count for k=4 and k=8 selective conversion while maintaining k/N << 1. RoPE position encoding is standard for modern decoder LLMs. SWAA [2025] used the same model class. h-e1 pilot constraints (< 1 GPU-hour) are satisfied."
+  baselines:
+    - name: "Full-attention baseline (k=0)"
+      method: "Llama-2-7B unmodified; all 32 layers use standard full causal attention"
+    - name: "Random-k=4 selection"
+      method: "4 layers selected uniformly at random (mean of 3 random seeds); SWA(w=512) applied to selected layers"
+    - name: "Last-k=4 selection"
+      method: "4 deepest layers (indices 28-31) converted to SWA(w=512); tests whether depth-based heuristic matches or beats entropy"
+    - name: "Entropy-guided k=8 (boundary characterization)"
+      method: "Top-8 entropy layers converted to SWA(w=512); tests degradation at higher conversion ratio"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "Zero-shot selective SWA layer conversion guided by per-layer attention entropy in a pre-trained causal decoder LLM, with no fine-tuning required."
+  key_innovation: "First empirical characterization of zero-shot accuracy bounds for selective FA→SWA layer conversion, using entropy as a layer-level convertibility signal. SWAA requires fine-tuning for recovery; this work tests the zero-shot frontier. The entropy criterion extends HIES head-level signal to layer-level conversion decisions."
+  differentiation:
+    - prior_work: "SWAA [Yu et al., 2025]"
+      difference: "SWAA converts ALL layers and requires fine-tuning recovery. This work converts k/32 << 1 layers (selective) with no fine-tuning. The selective approach is hypothesized to avoid catastrophic collapse via residual stream compensation."
+    - prior_work: "SWARR [Liu et al., 2026]"
+      difference: "SWARR addresses full-model SWA with RL recovery (SFT insufficient). This work's zero-shot selective conversion is a different regime — fewer layers converted, no training at all."
+    - prior_work: "HIES [Choi et al., 2025]"
+      difference: "HIES uses entropy for HEAD-level PRUNING in encoders. This work uses entropy for LAYER-level SWA CONVERSION in causal decoders — different granularity, different operation, different architecture family."
+    - prior_work: "Michel et al. [2019]"
+      difference: "Michel et al. demonstrates HEAD REMOVAL at test time. This work replaces attention operation with a functionally similar but computationally cheaper alternative (SWA), using entropy as the selection signal."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "SWAA (full-model FA→SWA with fine-tuning)"
+      performance: "Catastrophic collapse zero-shot; acceptable with fine-tuning recovery. 30-100% speedup for long-context."
+      dataset: "Not WikiText-103 specific; general LM benchmarks"
+      why_insufficient: "Uses fine-tuning; converts all layers; no entropy-based selection; does not address zero-shot partial conversion"
+    - method: "Mistral 7B (SWA from scratch)"
+      performance: "Outperforms Llama-2-13B on standard benchmarks with window=4096"
+      dataset: "Standard NLP benchmarks"
+      why_insufficient: "Pretrained from scratch with SWA; not a retrofitting method; not applicable to existing pre-trained models"
+    - method: "Michel et al. head pruning (random/importance-based)"
+      performance: "70-90% heads removable with modest accuracy loss"
+      dataset: "GLUE, WMT translation"
+      why_insufficient: "Removes heads entirely (harder constraint than SWA); importance-based criterion; not entropy-guided SWA"
+  best_baseline_performance: "Full-attention Llama-2-7B baseline (k=0) — WikiText-103 perplexity ~5.5-6.0 (standard for 7B scale); SST-2 accuracy ~90-93% (standard for instruction-tuned Llama-2-7B)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "High-entropy layers in Llama-2-7B have diffuse attention patterns that do not contribute unique global context (validated if entropy-guided k=4 produces ≤2pt perplexity degradation on WikiText-103)"
+  sh2_mechanism: "Entropy-guided selective SWA conversion — three-step: entropy scoring → SWA mask replacement → residual stream compensation. The core mechanism test is P1 (k=4 perplexity) and P2 (entropy vs random comparison)."
+  sh3_comparison: "Comparison to random-k and last-k baselines (deferred to Phase 5 for extended model comparison; Phase 4 implements the primary entropy-guided conversion and measures P1)"
+  open_questions:
+    - "Which depth positions does entropy criterion select in Llama-2-7B? Do they cluster in later layers (supporting residual bus mechanism) or early layers (challenging it)?"
+    - "Does calibration domain (WikiText vs SST-2 sentences) affect entropy ranking and thus selected layers?"
+    - "What is the empirical k* (maximum safe conversion count) for Llama-2-7B with entropy-guided selection?"
+    - "Does window size sensitivity (w=256 vs w=512 vs w=1024) significantly affect accuracy preservation?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All 6 convergence criteria met at Exchange 7 of 7. Discussion converged with STRONG verdicts from all 4 perspective personas (Dr. Nova, Prof. Vera, Dr. Sage, Prof. Pax). Major objections (calibration stability, depth position, benchmark divergence) received concrete mitigations within experimental scope."
+  clarity_verified: true
+  remaining_objections:
+    - "Entropy rank ordering may be Llama-2-7B-specific (noted as limitation, not blocker)"
+    - "Calibration domain sensitivity (WikiText vs SST-2) — addressed as ablation in experimental design"
+    - "Window size sensitivity (w=512 fixed) — addressed as secondary ablation"
+
+discussion_context:
+  total_exchanges: 7
+  agent_participation:
+    dr_nova: 1
+    prof_vera: 1
+    dr_sage: 1
+    prof_pax: 1
+    dr_ally: 2
+    prof_rex: 1
+  paper_citations: 9
+  convergence_type: "qualitative"

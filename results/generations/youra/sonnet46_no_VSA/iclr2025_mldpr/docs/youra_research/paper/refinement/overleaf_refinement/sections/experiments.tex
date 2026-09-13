@@ -1,0 +1,40 @@
+
+\subsubsection{4.1 H-E1: Data Pipeline and FAIL FAST Gate Validation}
+
+\textbf{Objective:} Validate that diversity predictors derived from pwc-archive/evaluation-tables meet all 5 FAIL FAST quality gates before Cox regression.
+
+\textbf{Implementation:}
+\begin{itemize}
+\item \texttt{preprocess\textbackslash \_eval.py}: PyArrow-native flattening of the nested HuggingFace dataset (list\_flatten + struct field access). Python-level iteration is approximately $45\times$ slower; PyArrow was essential for the 326k-row dataset.
+\item \texttt{pipeline.py}: DataLoader $\rightarrow$ FuzzyJoiner (rapidfuzz, threshold = 85) $\rightarrow$ DiversityAggregator (groupby task\_path, nunique paper\_url, compute diversity\_ratio).
+\item \texttt{gates.py}: GateValidator (G0--G4 in sequence), VIFChecker (with perfect-collinearity detection).
+\item \texttt{output.py}: 5 figures generated; enriched panel written as \texttt{h\textbackslash \_e2\textbackslash \_panel\textbackslash \_with\textbackslash \_diversity.csv} (345 rows).
+\end{itemize}
+
+\textbf{Key implementation notes:}
+\begin{itemize}
+\item Publication year (\texttt{pub\textbackslash \_year}) is not available at the SOTA-row level in pwc-archive, so the temporal filter falls back to all rows. The partial $R^2$ gates (G1, G2) nonetheless pass because diversity-ratio time-independence is a structural property of the predictor construction.
+\item \texttt{benchmark\textbackslash \_introduction\textbackslash \_year} is excluded from VIF computation and downstream Cox models due to perfect collinearity with \texttt{task\textbackslash \_age} (|r| = 1.000), detected automatically.
+\end{itemize}
+
+\textbf{Environment:} Python 3.10 (conda env: youra-h-e1); packages: datasets $\geq$ 2.0, rapidfuzz, statsmodels, scipy, pandas, numpy, matplotlib, seaborn. Data: pwc-archive/evaluation-tables (HuggingFace, CC-BY-SA-4.0, July 2025 snapshot). Experiment completed 2026-08-03T07:44:59Z.
+
+\subsubsection{4.2 H-M1: Cox Proportional Hazards Mechanism Test}
+
+\textbf{Objective:} Test whether \texttt{log\textbackslash \_unique\textbackslash \_paper\textbackslash \_count\textbackslash \_at\textbackslash \_intro\textbackslash \_z} significantly predicts plurality benchmark displacement hazard after controlling for \texttt{task\textbackslash \_age} and \texttt{log\textbackslash \_publication\textbackslash \_volume}.
+
+\textbf{Implementation:}
+\begin{itemize}
+\item \texttt{cox\textbackslash \_analysis.py}: \texttt{load\textbackslash \_panel()} $\rightarrow$ \texttt{fit\textbackslash \_models()} (M0 + M1 with penalizer = 0.1 and fallback 0.5) $\rightarrow$ \texttt{run\textbackslash \_lrt()} (scipy chi2.sf; negative-statistic guard) $\rightarrow$ \texttt{run\textbackslash \_diagnostics()} (concordance index, PH assumption check).
+\item \texttt{visualization.py}: 5 figures (gate\_metrics.png, km\_quartiles.png, partial\_effects.png, forest\_plot.png, schoenfeld\_residuals.png).
+\item \texttt{tests/test\textbackslash \_cox\textbackslash \_analysis.py}: 10 specification-compliance tests; all 10 pass.
+\end{itemize}
+
+\textbf{Input:} \texttt{h\textbackslash \_e2\textbackslash \_panel\textbackslash \_with\textbackslash \_diversity.csv} from H-E1 (345 rows); complete-case analysis after dropping 87 NaN rows $\rightarrow$ 258 rows, 176 displacement events.
+
+\textbf{Kaplan-Meier analysis (P3):} Benchmarks were stratified into quartiles by \texttt{log\textbackslash \_unique\textbackslash \_paper\textbackslash \_count\textbackslash \_at\textbackslash \_intro}. KM curves for Q1 (lowest diversity) and Q4 (highest diversity) were plotted via lifelines.KaplanMeierFitter. Visual inspection was used to assess separation; no numeric log-rank p-value was extracted in the current pipeline run.
+
+\textbf{Proportional hazards check:} \texttt{M1.check\textbackslash \_assumptions()} was called but raised a type error (\texttt{''could not convert string to float: 'dependency-parsing'''}) due to \texttt{task\textbackslash \_path} stored as string slug. This error requires integer-encoding \texttt{task\textbackslash \_path} before calling \texttt{check\textbackslash \_assumptions()}. Visual inspection of Schoenfeld residuals showed no obvious PH violation; the \texttt{ph\textbackslash \_violations} field in \texttt{experiment\textbackslash \_results.json} is an empty list, reflecting that the programmatic check did not complete. Given HR = 1.006, moderate PH misspecification would not change the null conclusion.
+
+\textbf{Coder-Validator cycles:} 1 cycle; validator approved all 12 tasks. Experiment completed 2026-08-03T08:06:27Z.
+

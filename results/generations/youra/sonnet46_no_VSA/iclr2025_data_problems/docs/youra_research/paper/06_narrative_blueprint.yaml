@@ -1,0 +1,251 @@
+# 06 Narrative Blueprint
+# Phase 6 Step 02: Narrative Design
+# Generated: 2026-07-30
+# Primary source: 045_validated_hypothesis.md
+
+hook:
+  opening_statement:
+    content: >
+      A practitioner applying CCNet's standard perplexity quality filter to the RedPajama-V2
+      dataset would retain 86% of Spanish documents but only 16% of English documents —
+      not because English web text is lower quality, but because a single global percentile
+      threshold applied to cross-language perplexity scores conflates quality with language identity.
+    strategy: "counterintuitive_finding"
+    why_effective: >
+      NLP audiences expect English to be over-represented in quality-filtered datasets;
+      discovering English is systematically excluded is immediately surprising and compels
+      the reader to understand the mechanism. The 86% vs. 16% contrast at k=30 is concrete,
+      memorable, and quantitatively precise.
+
+  why_reader_should_care:
+    main_reason: >
+      Practitioners building LLM pretraining pipelines routinely apply CCNet-style perplexity
+      filters without knowing this bias exists. The resulting training corpora have systematic
+      language-family imbalances unrelated to document quality.
+    concrete_example: >
+      At k=40, all Spanish documents pass the filter while 79% of German documents are excluded.
+      Any multilingual model trained on data processed this way will have structurally biased
+      language coverage.
+    stakes: >
+      Undetected, this bias propagates into every model trained on such data, potentially
+      amplifying cross-lingual performance gaps and reducing representation of Germanic-family
+      languages — the most widely used languages in scientific and technical domains.
+
+problem_framing:
+  surface_problem:
+    description: >
+      Multilingual LLM pretraining datasets require quality filtering to remove low-quality web text.
+    common_understanding: >
+      Perplexity-based filtering (using language models to score text quality) is a standard
+      approach, popularized by CCNet and widely adopted in datasets like RedPajama-V2.
+
+  deeper_problem:
+    description: >
+      When CCNet perplexity scores from per-language language models are combined into a
+      single global threshold, the cross-language incomparability of those scores creates
+      a retention disparity that tracks language family membership, not document quality.
+    why_overlooked: >
+      CCNet's original design applies per-language filtering (via language-specific cutoff.csv
+      values), but practitioners adapting it often apply a single global percentile threshold
+      across all languages simultaneously — losing the per-language calibration that CCNet intended.
+    our_perspective: >
+      The bias is not a flaw in perplexity as a quality signal per se, but a calibration
+      artifact: applying a global threshold to locally-calibrated scores breaks the implicit
+      assumption of comparability across language groups.
+
+  gap_in_existing_work:
+    description: >
+      No prior work quantifies the magnitude of this disparity using a standard associativity
+      metric (Cramér's V) across multiple threshold levels on a real large-scale multilingual dataset.
+    why_gap_exists: >
+      Caswell et al. (2021) documented qualitative per-language quality differences in
+      multilingual web corpora, but without a baseline measurement on the specific combination
+      of global k-th percentile thresholding and ccnet_perplexity on RedPajama-V2.
+    why_gap_matters: >
+      Without a calibrated baseline measurement, researchers designing correction strategies
+      cannot assess the magnitude of bias they are correcting, nor can they evaluate whether
+      a proposed correction is sufficient.
+
+key_insight:
+  aha_moment:
+    one_sentence: >
+      Global k-th percentile thresholding on ccnet_perplexity does not filter by quality —
+      it filters by language family membership, because CCNet's per-language KenLM models
+      produce perplexity scales that are structurally incomparable across language families.
+    expanded_explanation: >
+      CCNet trains separate KenLM language models on each language's Wikipedia. English Wikipedia
+      is roughly 10× larger than Italian Wikipedia, producing a more comprehensive language model
+      that assigns lower perplexity to English web text. When a global percentile threshold is
+      applied to all languages simultaneously, the resulting cutoff is anchored largely by the
+      Germanic-language mass (which has lower absolute perplexity), placing it below virtually
+      all Romance-language documents. The observed Cramér's V = 0.40–0.57 captures this
+      cross-language family divide precisely.
+
+  why_others_missed_it:
+    common_assumptions: >
+      Prior work assumed CCNet-style perplexity filtering is language-agnostic once applied
+      to pre-computed signals, or that per-language LM training adequately controls for
+      cross-language scale differences.
+    our_different_view: >
+      Per-language LM training creates locally-calibrated scores; applying a global threshold
+      to these scores reintroduces the cross-language incomparability that per-language training
+      was meant to avoid.
+    enabling_factor: >
+      RedPajama-V2 provides pre-computed ccnet_perplexity as a static metadata signal,
+      enabling direct measurement of the calibration effect without requiring LM retraining.
+
+  what_makes_it_work:
+    intuitive_explanation: >
+      Imagine grading students from different courses on a shared curve: a student who would
+      be median in Calculus might rank in the top 10% in an easier course. Merging grades
+      across courses before applying a single cutoff doesn't measure ability — it measures
+      course difficulty.
+    key_mechanism: >
+      CCNet per-language KenLM training on language-specific Wikipedia of differing sizes
+      produces structural perplexity scale differences across language families. A global
+      k-th percentile threshold is then calibrated by the combined distribution, which is
+      dominated by Germanic documents at lower PPL values.
+
+evidence_narrative:
+  main_claim:
+    statement: >
+      Global k-th percentile thresholding on pre-computed ccnet_perplexity scores from
+      RedPajama-V2 produces a large and statistically significant language-group retention
+      disparity (Cramér's V = 0.40–0.57) across all five tested threshold levels.
+    measurable_criteria: >
+      Cramér's V ∈ [0.40, 0.57] for all k ∈ {10, 20, 30, 40, 50}; Holm-corrected p ≈ 0;
+      n = 208,262; consistent Romance > Germanic retention ordering.
+
+  supporting_evidence:
+    - id: "evidence_1"
+      what: "Cramér's V = 0.40–0.57 across all 5 threshold levels (k10=0.4021, k20=0.5193, k30=0.5629, k40=0.5696, k50=0.5293)"
+      so_what: "The disparity is not a threshold-specific artifact — it is structural across the full practical range of filtering aggressiveness"
+      how_it_supports_claim: "Directly confirms V ∈ [0.40, 0.57] for all k; Holm p ≈ 0 rules out sampling noise"
+
+    - id: "evidence_2"
+      what: "Per-language retention ordering es > fr > it > en > de consistent across all 5 k values"
+      so_what: "The disparity maps precisely onto the Romance–Germanic language family divide, not individual language characteristics"
+      how_it_supports_claim: "Demonstrates the structural nature of the bias; supports the CCNet KenLM mechanism explanation"
+
+    - id: "evidence_3"
+      what: "72.7pp max–min retention gap at k=30; Spanish saturation (100% retention) at k=40"
+      so_what: "At practical thresholds, the bias is not marginal but extreme — the filter becomes de facto language exclusion"
+      how_it_supports_claim: "Provides the concrete 'so what' for practitioners; the scale of the effect motivates correction"
+
+    - id: "evidence_4"
+      what: "Effect size V = 0.40–0.57 is 25–40% larger than Phase 2B prior estimate of 0.29–0.41"
+      so_what: "Practitioners estimating bias from CCNet paper descriptions will substantially underestimate the actual effect, leading to underpowered corrections"
+      how_it_supports_claim: "Secondary empirical finding: calibration finding for the research community"
+
+  surprising_findings:
+    - finding: "Effect magnitude 25–40% larger than estimates derived from CCNet paper descriptions"
+      why_surprising: "CCNet descriptions do not suggest such large cross-language scale differences; prior literature did not quantify V for this specific setup"
+      our_interpretation: "English Wikipedia's dominance (~10× Italian) makes the English-Italian KenLM scale gap larger than generic CCNet descriptions imply"
+
+    - finding: "Spanish documents achieve 100% retention at k=40 while German achieves only 20.7%"
+      why_surprising: "Saturation (100% retention) means any per-language correction at k=40 must reduce Spanish retention — a qualitatively different problem than just 'reducing disparity'"
+      our_interpretation: "The global threshold at k=40 is calibrated almost entirely by Germanic-language mass, placing it below all Spanish documents"
+
+takeaway:
+  main_contribution:
+    one_sentence: >
+      We provide the first precise, reproducible measurement of language-group retention
+      disparity (Cramér's V = 0.40–0.57) from global ccnet_perplexity thresholding on
+      RedPajama-V2, establishing a calibrated baseline against which future correction
+      strategies can be evaluated.
+    why_significant: >
+      Without this baseline, correction strategies cannot be properly powered or evaluated.
+      The finding that prior estimates underestimate actual bias by 25–40% is itself an
+      empirical contribution that will affect how researchers design multilingual filtering experiments.
+
+  implications:
+    for_field: >
+      Multilingual dataset curation researchers should use per-language threshold calibration
+      as a default, not a correction. Our V baseline enables future comparison studies.
+    for_practice: >
+      Practitioners using CCNet-style perplexity filtering should be aware that global
+      percentile thresholds produce systematic language-family biases detectable with
+      a simple Cramér's V computation on pre-computed quality signals.
+
+  future_possibilities:
+    immediate_extensions: >
+      Execute h-m1 to test whether per-language percentile calibration reduces ΔV ≥ 0.10
+      for ≥3/5 k values (the primary correction hypothesis, already designed).
+    longer_term_vision: >
+      Full characterization of when perplexity-based quality filtering produces language
+      family bias — across different corpora, perplexity sources, and threshold types —
+      enabling principled multilingual dataset curation guidelines.
+
+section_goals:
+  abstract:
+    narrative_purpose: "Compress full story into ~150 words — prioritize storytelling over numerical detail"
+    key_message: "Global ccnet_perplexity thresholding produces language-family bias, not quality filtering — we measure it precisely for the first time"
+    one_striking_number: "86% vs. 16% retention at k=30"
+
+  introduction:
+    narrative_purpose: "Hook → Problem → Insight → Preview"
+    hook_strategy: "counterintuitive_finding: English under-retained despite expectation of over-representation"
+    opening: "Use 86% Spanish vs. 16% English at k=30 as hook"
+    problem_escalation: "Surface (need quality filtering) → Deeper (global threshold breaks calibration) → Gap (no quantified baseline)"
+    key_insight_preview: "CCNet KenLM per-language training creates structurally incomparable perplexity scales across language families"
+    contributions_framing: "Empirical baseline + recalibration finding + reusable statistical methodology"
+    transition_to_related: "Motivate why prior work lacks quantitative Cramér's V baseline for this specific setup"
+
+  related_work:
+    narrative_purpose: "Show existing work insufficient → justify our approach"
+    positioning_strategy: "CCNet pipeline → multilingual quality audits → retention disparities documented qualitatively → gap: no V measurement"
+    key_comparison_points:
+      - "CCNet per-language design (Wenzek et al. 2019) — correct design but practitioner adaptations lose per-language calibration"
+      - "Multilingual quality audits (Caswell et al. 2021) — documented disparities qualitatively, no V measurement on ccnet_perplexity"
+      - "RedPajama-V2 (Weber et al. 2024) — dataset source; acknowledges quality signal bias without quantifying it"
+      - "JQL / Turki et al. 2026 — retention rate tuning as closest prior; endorses percentile approach but on different setting"
+    limitation_to_highlight: "None of these works provide a calibrated Cramér's V measurement for global ccnet_perplexity thresholding on RedPajama-V2"
+
+  methodology:
+    narrative_purpose: "WHY this design solves the measurement problem"
+    connection_to_insight: "To measure the calibration artifact, we simulate global k-th percentile thresholding on pre-computed ccnet_perplexity — exactly the operation practitioners perform"
+    key_design_decisions:
+      - "Use RedPajama-V2 quality signal metadata (not the actual text) → enables CPU-only analysis on static Parquet files"
+      - "Cramér's V as association measure → captures magnitude and direction of language×retention association; standard effect size for chi-square"
+      - "Holm-Bonferroni correction across 5 k values → controls familywise error rate"
+      - "Stratified subsample (208k) → ensures per-language representation; validated by 3 consistent runs"
+
+  experiments:
+    narrative_purpose: "Design tests that verify our specific existence claim"
+    experimental_questions:
+      - "RQ1: Does global k-th percentile thresholding produce statistically significant language-group retention disparity (V > 0.10)?"
+      - "RQ2: Is the disparity consistent across the full practical range of k (k ∈ {10, 20, 30, 40, 50})?"
+      - "RQ3: Does the retention ordering align with the CCNet KenLM mechanism (Germanic < Romance)?"
+    dataset_rationale: "RedPajama-V2 quality signal Parquet sample — contains pre-computed ccnet_perplexity for 5 languages; enables CPU-only simulation"
+    baseline_rationale: "Global k-th percentile is the practitioner default; per-language analysis establishes the comparison baseline for future correction studies"
+
+  results:
+    narrative_purpose: "Present evidence supporting the existence claim"
+    main_result_highlight: "Cramér's V = 0.40–0.57 (V > 0.5 Cohen 'large') across all k; 72.7pp max-min gap at k=30"
+    story_arc: "First: show V confirms existence (RQ1) → Then: show consistency across k (RQ2) → Then: show language ordering (RQ3) → Surprising: saturation and underestimation findings"
+
+  discussion:
+    narrative_purpose: "Interpret results, acknowledge limits, connect to practice"
+    honest_limitations:
+      - "Existence-only scope: correction mechanism (h-m1) not tested"
+      - "Sample scope: 208k vs. 113B full corpus"
+      - "Document-length confound not controlled"
+    key_findings_interpretation: "V = 0.40–0.57 is not a noise artifact; it is structural. Prior estimates were conservative."
+    broader_impact: "Any practitioner using ccnet_perplexity with global percentiles is producing biased multilingual datasets"
+
+  conclusion:
+    narrative_purpose: "Callback to hook; summarize contributions; open future"
+    callback_to_hook: "Return to the 86% vs. 16% retention statistic — now explained by the mechanism"
+    memorable_ending: "Open call for per-language calibration as a default, not an exception, in multilingual dataset curation"
+
+narrative_coherence_checklist:
+  - check: "Hook (86%/16% at k=30) connects to Conclusion callback"
+    status: "PLANNED"
+  - check: "Each section naturally flows to the next"
+    status: "PLANNED"
+  - check: "Key insight (KenLM calibration artifact) consistently emphasized"
+    status: "PLANNED"
+  - check: "All major claims supported by h-e1-v3-v4 evidence"
+    status: "PLANNED"
+  - check: "Abstract is compelling and tells the story"
+    status: "PLANNED"

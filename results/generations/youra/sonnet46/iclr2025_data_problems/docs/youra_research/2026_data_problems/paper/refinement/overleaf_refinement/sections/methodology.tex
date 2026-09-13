@@ -1,0 +1,67 @@
+
+\subsubsection{3.1 Overview}
+
+The methodology is based on measuring two corpus-level statistics -- conditional entropy H(occupation|demographic) and conditional log-odds of demographic-occupation co-occurrences -- across a sweep of fastText filtering configurations. Both measurements are model-free and can be computed prior to any model training.
+
+\subsubsection{3.2 Corpus Configuration Space}
+
+Eight corpus configurations were constructed from DCLM-POOL (mlfoundations/dclm-baseline-1.0), a CommonCrawl-derived corpus:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Config & Description & Role \\
+\midrule
+C0 & Unfiltered & Reference baseline \\
+C1 & fastText >= 10th percentile & Low filter \\
+C2 & fastText >= 30th percentile & Moderate filter \\
+C3 & fastText >= 50th percentile & Median quality \\
+C4 & fastText >= 70th percentile & High filter \\
+C5 & fastText >= 90th percentile & Production threshold (DCLM-BASELINE) \\
+C6 & DoReMi domain reweighting & Alternative curation path \\
+C7 & C3 with shuffled demographic tokens & Negative control \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Each configuration used approximately 50,000 documents at quick-run scale. The fastText model used was fasttext-oh-eli5 (openhermes\_reddit\_eli5\_vs\_rw\_v2\_bigram\_200k\_train.bin), the same quality classifier used in DCLM-BASELINE. C7 was constructed by randomly permuting demographic tokens within documents of C3, preserving overall token frequencies while destroying conditional demographic-occupation associations.
+
+\subsubsection{3.3 Demographic Lexicon}
+
+A curated demographic-occupation lexicon derived from WinoBias \citep{Zhao2018WinoBias} was used: 20 occupations paired with gender-indicating pronouns and modifiers. Window-based co-occurrence counting (window\_size = 10, Laplace smoothing alpha = 0.5) produced 1,800 (demographic, occupation) pairs per configuration.
+
+\subsubsection{3.4 Conditional Entropy Measurement (H-E1)}
+
+Conditional demographic-occupation association entropy was computed as:
+
+\begin{verbatim}
+H(occupation|demographic) = -sum_{d,o} P(d,o) log_2 P(o|d)
+\end{verbatim}
+
+where P(d,o) was estimated from windowed co-occurrence counts. Bootstrap confidence intervals (n = 1,000 resamples) were computed for H(C5) - H(C1). The pre-registered gate criterion required at least 5\% relative entropy change between C1 and C5, Spearman rho != 0 (p < 0.05), and bootstrap CI excluding zero.
+
+\subsubsection{3.5 Log-Odds Analysis (H-M1)}
+
+For each (demographic d, occupation o) pair:
+
+\begin{verbatim}
+log-odds(d,o) = ln[P(o|d) / (1 - P(o|d))]
+\end{verbatim}
+
+with Laplace smoothing (alpha = 0.5). Mean log-odds across the 1,800 pairs was tested for Spearman rank correlation with filtering intensity. The gate criterion required |rho| > 0, p < 0.05.
+
+\subsubsection{3.6 Model Logit Margin Probe (H-M2)}
+
+For each (occupation, demographic) pair from WinoBias, 50+ completion templates were constructed. The model's logit margin was defined as the log-probability difference between demographic-congruent and incongruent completions.
+
+Due to compute constraints, H-M2 used a proxy training setup rather than full-scale Pythia-1B training. The verification\_state.yaml records this as a ''tiny 512-hidden proxy'' model trained with hf\_trainer\_fallback, while the validation report (h-m2/04\_validation.md) describes the intended architecture as Pythia-1B (GPT-NeoX, hidden\_size=2048, 16 layers). This discrepancy in the experimental records is noted; the training ran for approximately 95,368 steps on each of 8 corpus configurations. Full Pythia-1B training with the gpt-neox framework was planned but not executed.
+
+The pre-registered gate criterion required Spearman rho > 0 (p < 0.01) and $R^2$ > 0.3 for a log-linear fit. The gate type was SHOULD\_WORK (lenient), meaning failure routes to further exploration rather than rejection.
+
+\subsubsection{3.7 Causal Identification}
+
+Two causal identification strategies were specified: (1) matched-capability comparison via Mahalanobis distance on downstream metrics (MMLU, HellaSwag, perplexity, ECE) to control for capability differences; and (2) the shuffled-demographic negative control (C7) to isolate conditional association structure from base token frequency effects. The matched-capability comparison was not applied, as H-M3 was not executed.
+

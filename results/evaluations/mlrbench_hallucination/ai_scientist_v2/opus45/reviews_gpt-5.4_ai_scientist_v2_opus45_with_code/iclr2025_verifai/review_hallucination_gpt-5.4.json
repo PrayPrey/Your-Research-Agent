@@ -1,0 +1,42 @@
+{
+    "has_hallucination": true,
+    "hallucinations": [
+        {
+            "type": "Nonexistent Citations",
+            "description": "The paper contains numerous unresolved placeholder citations such as “(?)” and “(??)” instead of real references, while still making concrete claims about prior work. In addition, some cited system names appear dubious or unsupported by the provided materials (e.g., “Goedel-Prover-V2”, “Leanabell-Prover-V2”, “Goedel-Prover”). Because the references section is empty, these citations are not verifiable and functionally amount to nonexistent citations in the paper as submitted.",
+            "evidence": "Examples from the paper: “systems like GPT-f ( ? ), DeepSeek-Prover ( ? ), and Goedel-Prover ( ? )...” ; “Goedel-Prover-V2 ( ? ) and Leanabell-Prover-V2 ( ? ) use PPO ( ? )...” ; “REFERENCES” followed by no actual bibliography entries."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper frames the work as about neural theorem proving with verifier-guided reinforcement learning and Lean 4 proof errors, but the actual code does not implement theorem proving, Lean 4 interaction, proof assistants, or RL. Instead, it builds a synthetic 8-class classification task over random 64-dimensional feature vectors with labels determined by injected signals or hashes of text from unrelated datasets. This is a major mismatch between the claimed methodology and the implemented one.",
+            "evidence": "Paper claim: “Neural theorem provers have achieved remarkable progress through verifierguided reinforcement learning...” and “We define eight error categories motivated by common Lean 4 verification failures...”\n\nCode reality from multiple experiment scripts: `features = np.random.randn(64).astype(np.float32)`; `error_cat = hash(text) % NUM_ERROR_CATEGORIES`; model is `self.error_classifier = nn.Linear(hidden_dim // 2, num_categories)`; training optimizes classification loss on `error_category`, not proof generation or RL."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper states that ETCL uses input features 'including error category embeddings' and that ablation removing those features causes performance collapse. The code does not include explicit error-category embeddings as model inputs. Instead, the synthetic feature generator directly injects label information into feature dimensions by boosting slices based on the class index. This is not the same methodology as described; it is direct signal leakage through handcrafted features.",
+            "evidence": "Paper: “The encoder maps input features (including error category embeddings) to a classification head...” and “When error category features are removed from the input, validation accuracy collapses...”\n\nCode: in `generate_synthetic_proof_data`, `features[error_cat * 8 : (error_cat + 1) * 8] += 2.0`; in `process_huggingface_dataset`, `features[error_cat * 8 : (error_cat + 1) * 8] += 1.0`; the model forward pass only consumes `x` and ignores `error_labels` except as an unused argument."
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims evaluation on GSM8K, SciQ, and WinoGrande as 'mathematical reasoning benchmarks' for ETCL proof-error categorization. In the code, these datasets are not used for their original tasks; their text is merely hashed to generate synthetic class labels and random features. Thus the reported methodology of applying proof-error taxonomy learning to these benchmarks is inaccurate.",
+            "evidence": "Paper: “We evaluate on: (1) Synthetic ... (2) GSM8K: grade school math; (3) SciQ: science questions; and (4) WinoGrande: commonsense reasoning.”\n\nCode: `text = str(item.get(...))`; `np.random.seed(hash(text) % (2**31))`; `features = np.random.randn(64).astype(np.float32)`; `error_cat = hash(text) % NUM_ERROR_CATEGORIES`."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper reports specific figures and ablation conclusions (Figure 1, Figure 2, Figure 3, Table 1, Figures 4–8) as if they were coherent results from one study. However, the provided code consists of many separate ablation scripts with inconsistent outcomes across runs, and there is no single experiment in the code producing the exact collection of numbers claimed in the paper. Some headline numbers in the paper do not align with the available metrics in the code summaries.",
+            "evidence": "Paper: “GSM8K (84.8% vs 84.3%), SciQ (85.5% vs 83.3%), and WinoGrande (87.5% vs 87.5%).”\n\nBut the curriculum ablation summary reports different values: `Validation Accuracy (with_curriculum)` gsm8k 0.805, sciq 0.875, winogrande 0.8425; `Validation Accuracy (no_curriculum)` gsm8k 0.8175, sciq 0.875, winogrande 0.845. Other ablations also show different endpoint accuracies, with no code artifact matching the exact paper numbers."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper’s 'signal injection ablation' claims that removing category features causes validation accuracy to collapse to random chance (~12.5%) across all real-world datasets. While the codebase contains a no-signal ablation, it is not a clean removal of an input embedding as described in the paper, and the reported training accuracies in that ablation remain very high above chance (around 0.51–0.59), revealing a different setup than the paper suggests. The paper overstates and mischaracterizes what was tested.",
+            "evidence": "Paper: “When error category features are removed from the input, validation accuracy collapses to random chance (~12.5% for 8 classes)...”\n\nCode summary for `No Error Category Signal Injection`: `Validation Accuracy (NO_SIGNAL)` synthetic 0.116, gsm8k 0.13, sciq 0.12, winogrande 0.145, but `Training Accuracy (NO_SIGNAL)` remains synthetic 0.511, gsm8k 0.5687, sciq 0.58, winogrande 0.5881, indicating a different phenomenon than simply removing an input feature."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The curriculum-weight formula in the paper is presented as if ETCL gradually transitions to uniform sampling by 0.6T epochs, but the formula as written does not in fact become uniform at that point; it leaves category-dependent offsets determined by rank. This is a mismatch between the mathematical claim and the formula itself.",
+            "evidence": "Paper: “This prioritizes frequent errors early, gradually transitioning to uniform sampling.” with formula `wc(t) = 1 + (1 − rank(c)/|C|) · (1 − t/(0.6T))`.\nAt `t = 0.6T`, this becomes `wc(t)=1`, but for `t > 0.6T` the expression as written would continue decreasing below 1 unless implicitly clipped; in code they use `progress = min(1.0, (epoch + 1) / (total_epochs * 0.6))` and `base_weight = 1.0 + (1.0 - rank / len(sorted_cats)) * (1.0 - progress)`, which clips progress, but the paper’s standalone formula omits this clipping detail."
+        }
+    ],
+    "overall_assessment": "Hallucinations were found. The most serious issues are methodological: the paper presents a verifier-guided neural theorem proving/Lean 4 curriculum-learning study, but the code implements a synthetic classification setup with injected label signals and hashed dataset text. The citation apparatus is also nonfunctional, with placeholder or unverifiable references. Experimental claims are only loosely related to the provided code and in several cases do not match the available results.",
+    "confidence": 5
+}

@@ -1,0 +1,8 @@
+# Title
+Context-Aware Hallucination Detection: Balancing Safety and Creativity in Large Language Models Through Adaptive Threshold Modulation
+
+# Motivation
+Current hallucination detection methods apply uniform confidence thresholds across all tasks, forcing a problematic trade-off: strict thresholds ensure safety in factual domains (medical, legal) but suppress beneficial creativity in generative tasks (brainstorming, storytelling), while permissive thresholds enable creativity but risk dangerous fabrications. This one-size-fits-all approach limits foundation models' utility across diverse applications. We address this gap by developing context-aware detection that adapts to task-specific requirements, enabling safe deployment in high-stakes domains while preserving creative capabilities.
+
+# Main Idea
+We hypothesize that dynamically modulating hallucination detection thresholds based on pragmatic task classification achieves comparable safety (F1≥0.85) in factual domains while preserving 40%+ higher creativity in generative tasks versus fixed baselines. Our system uses a BERT classifier to categorize tasks from prompt context into {Factual, Analytical, Creative, Mixed}, then applies ROC-learned thresholds optimized per category. The causal mechanism: task context reveals pragmatic intent → classifier selects appropriate threshold → SelfCheckGPT consistency scoring flags outputs below threshold. We test on 1,000 multi-domain prompts (medical QA, legal analysis, creative writing) comparing against SelfCheckGPT and SEAL baselines, measuring hallucination F1, lexical diversity, and reasoning token preservation. A confidence-gated fallback (threshold=0.8) mitigates misclassification risks, ensuring safety failures remain below 5%.

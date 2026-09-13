@@ -1,0 +1,609 @@
+version: "1.1"
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_id_upper: H-E1
+  tier: LIGHT
+  total_budget: 15
+  generated_at: "2026-03-16T21:40:00Z"
+  source_documents:
+    - 03_prd.md
+    - 03_architecture.md
+    - 03_logic.md
+    - 03_config.md
+  budget_rebalancing:
+    applied: true
+    excluded_count: 2
+    excluded_ids:
+      - S-A-5-1
+      - S-A-5-2
+    exclusion_reason: >
+      Budget rebalancing: LIGHT tier max=15, raw count=17.
+      Excluded lowest-priority visualization config subtasks (A-5 complexity=9, Low tier).
+      Visualization config constants are embedded in 03_config.md and can be implemented
+      directly within the A-5 Epic task without separate subtasks.
+
+tasks:
+
+  # ─── DATA PREPARATION (priority 100) ───────────────────────────────────────
+  - id: task-001
+    epic: Data Preparation
+    title: Download Waterbirds dataset
+    description: |
+      Download the Waterbirds benchmark dataset (Sagawa et al. 2019 GroupDRO).
+
+      Source: https://nlp.stanford.edu/data/dro/waterbird_complete95_forest2water2.tar.gz
+      (or from WILDS benchmark: https://wilds.stanford.edu/datasets/)
+
+      Place extracted files in: .data_cache/datasets/waterbirds/
+      Required structure:
+        .data_cache/datasets/waterbirds/
+        ├── metadata.csv          # Required: split, y, place, img_filename columns
+        └── <image directories>   # CUB bird images + background composites
+
+      Verify: metadata.csv must have columns [img_filename, y, place, split]
+      Train split (split=0): n=4795 samples
+      Val split (split=1): n=1199 samples
+      Test split (split=2): n=5794 samples
+    feature_tag: data-preparation
+    priority: 100
+    source_document: 03_prd.md
+    complexity: null
+    reference_files:
+      prd: "03_prd.md#Dataset-Waterbirds"
+      architecture: null
+      logic: null
+      config: null
+    test_requirements: "Data download tasks do not require tests."
+
+  # ─── ENVIRONMENT SETUP (priority 99) ────────────────────────────────────────
+  - id: task-002
+    epic: Environment Setup
+    title: Setup development environment
+    description: |
+      Install required Python packages for H-E1 experiment.
+
+      Required packages (from 03_prd.md Section 8):
+        torch>=1.12
+        torchvision>=0.13
+        numpy>=1.21
+        pandas>=1.3
+        scikit-learn>=1.0
+        matplotlib>=3.5
+        seaborn>=0.11
+        Pillow>=9.0
+        scipy>=1.7
+
+      Install command:
+        pip install torch torchvision numpy pandas scikit-learn matplotlib seaborn Pillow scipy
+
+      Verify GPU availability:
+        python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+
+      Create output directories:
+        mkdir -p outputs/h-e1/checkpoints outputs/h-e1/figures
+        mkdir -p .data_cache/datasets/waterbirds
+
+      Reference implementations (for context only):
+        - Sagawa et al. 2019 GroupDRO: https://github.com/kohpangwei/group_DRO
+        - Kirichenko et al. 2023 DFR: https://github.com/izmailovpavel/spurious_feature_imbalance
+    feature_tag: setup
+    priority: 99
+    source_document: 03_prd.md
+    complexity: null
+    reference_files:
+      prd: "03_prd.md#Dependencies"
+      architecture: null
+      logic: null
+      config: null
+    test_requirements: "Environment setup does not require tests."
+
+  # ─── EPIC TASKS (priorities 98–93) ──────────────────────────────────────────
+  - id: task-003
+    epic: A-1 Dataset Module
+    title: Implement WaterbirdsDataset and get_dataloaders()
+    description: |
+      Implement src/dataset.py with:
+
+      1. WaterbirdsDataset(Dataset):
+         - __init__(self, root, split='train', transform=None)
+         - Reads metadata.csv; filters by split (0=train, 1=val, 2=test)
+         - __getitem__ returns (image_tensor, y_class, place_label)
+         - group_id = y * 2 + place  (G0=0, G1=1, G2=2, G3=3)
+
+      2. get_dataloaders(root, batch_size=128, num_workers=4) -> dict:
+         Returns 3 loaders:
+         - 'train_shuffle': train split, shuffle=True (for ERM training)
+         - 'train_ordered': train split, shuffle=False (for gradient norm collection)
+         - 'val': val split, shuffle=False
+
+      Transforms:
+         train_shuffle: Resize(256) → RandomCrop(224) → RandomHorizontalFlip → ToTensor → Normalize(ImageNet)
+         train_ordered + val: Resize(256) → CenterCrop(224) → ToTensor → Normalize(ImageNet)
+         mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+
+      Verify dataset statistics: assert len(train)==4795, len(val)==1199
+    feature_tag: data-pipeline
+    priority: 98
+    source_document: 03_architecture.md
+    complexity: 8
+    reference_files:
+      architecture: "03_architecture.md#WaterbirdsDataset"
+      logic: null
+      config: "03_config.md#Output-Paths"
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      Create tests/test_dataset.py with minimum 3 test methods:
+      - test_dataset_sizes(): assert train=4795, val=1199, test=5794
+      - test_getitem_returns_tuple(): assert (tensor, int, int) shape
+      - test_group_encoding(): assert group = y*2+place for sample
+
+  - id: task-004
+    epic: A-2 Model + Analyzer
+    title: Implement get_model() and GradientNormAnalyzer
+    description: |
+      Implement src/model.py with:
+
+      1. get_model(device) -> nn.Module:
+         - torchvision.models.resnet50(pretrained=True)
+         - Replace model.fc with nn.Linear(2048, 2)
+         - Move to device; return model
+
+      2. GradientNormAnalyzer:
+         - __init__(model): registers forward hook on model.fc
+           Hook captures input[0] (FC input h(x_i)) in self.features['fc_input']
+         - compute_batch_norms(images, labels) -> (g_raw, g_tilde, h_norm):
+           Uses outer-product decomposition (torch.no_grad, no backward pass):
+             logits = model(images)                # (B, 2)
+             h = self.features['fc_input']         # (B, 2048) from hook
+             p = F.softmax(logits, dim=1)          # (B, 2)
+             y_oh = F.one_hot(labels, 2).float()   # (B, 2)
+             residual = p - y_oh                   # (B, 2)
+             g_tilde = residual.norm(dim=1)        # (B,)
+             h_norm = h.norm(dim=1)                # (B,)
+             g_raw = g_tilde * h_norm              # (B,)
+           Returns all as CPU float32 tensors
+         - clear(): clears self.features dict
+
+      See 03_logic.md for full tensor shapes and pseudo-code.
+    feature_tag: model
+    priority: 97
+    source_document: 03_architecture.md
+    complexity: 12
+    reference_files:
+      architecture: "03_architecture.md#GradientNormAnalyzer"
+      logic: "03_logic.md#A-2-Model--Analyzer-Complexity-12-Budget-2-subtasks"
+      config: "03_config.md#Training-Hyperparameters"
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      Create tests/test_model.py with minimum 3 test methods:
+      - test_hook_fires(): forward pass → assert features['fc_input'].shape == (B, 2048)
+      - test_compute_batch_norms_shapes(): assert g_raw/g_tilde/h_norm shapes == (B,)
+      - test_g_tilde_nonnegative(): assert g_tilde.min() >= 0
+
+  - id: task-005
+    epic: A-3 Training Loop
+    title: Implement train_epoch() and collect_gradnorms()
+    description: |
+      Implement src/train.py with:
+
+      1. set_seed(seed=1):
+         torch.manual_seed, numpy.random.seed, random.seed, cudnn.deterministic=True
+
+      2. train_epoch(model, loader, optimizer, device, epoch, csv_path) -> dict:
+         Standard ERM: forward → CE loss → backward → step
+         Returns {'loss': float, 'acc': float}
+         Appends row to train_log.csv: epoch,loss,acc,ratio,auc,balance_deviation
+
+      3. collect_gradnorms(model, analyzer, loader, device, epoch, output_dir) -> dict:
+         model.eval() mode (no BN updates during collection)
+         Iterate full train_ordered loader (4795 samples, shuffle=False)
+         Per batch: compute_batch_norms() → accumulate arrays
+         Concatenate all batches → arrays of shape (4795,)
+         Save to outputs/h-e1/gradnorm_epoch_{epoch}.npz
+         Restore model.train() after collection
+         Return dict: {g_raw, g_tilde, h_norm, sample_indices, group_labels, class_labels}
+
+      See 03_logic.md for full pseudo-code including batch index tracking.
+    feature_tag: training
+    priority: 96
+    source_document: 03_architecture.md
+    complexity: 11
+    reference_files:
+      architecture: "03_architecture.md#Training"
+      logic: "03_logic.md#A-3-Training-Loop-Complexity-11-Budget-2-subtasks"
+      config: "03_config.md#Training-Hyperparameters"
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      Create tests/test_train.py with minimum 3 test methods:
+      - test_train_epoch_returns_dict(): assert keys 'loss','acc' present
+      - test_collect_gradnorms_shapes(): assert output arrays shape == (N,)
+      - test_npz_saved(): assert gradnorm_epoch_5.npz exists after collection
+
+  - id: task-006
+    epic: A-4 Evaluation + Gate
+    title: Implement compute_metrics(), gate_check(), and save_results()
+    description: |
+      Implement src/evaluate.py with:
+
+      1. compute_metrics(g_tilde, g_raw, h_norm, group_labels, class_labels) -> dict:
+         minority_mask = (group_labels==1) | (group_labels==2)
+         ratio = g_tilde[minority_mask].mean() / g_tilde[~minority_mask].mean()
+         auc = roc_auc_score(minority_mask.astype(int), g_tilde)
+         balance_deviation: top 25% (1199 samples) by g_tilde →
+           for y in [0,1]: compute max |P(place|y,selected) - 0.5|
+           balance_deviation = max over classes
+         Secondary: per-group mean g_tilde, g_raw, h_norm for G0-G3
+         Returns full metrics dict
+
+      2. gate_check(metrics) -> (bool, dict):
+         ratio >= 3.0 AND auc > 0.70 AND balance_deviation <= 0.10
+
+      3. verify_mechanism_activated(epoch_results) -> (bool, dict):
+         hook_fired, ratio_above_chance>1.5, auc_above_random>0.55, h_norm_std_ratio<0.5
+
+      4. save_results(per_epoch_metrics, gate_results, secondary_metrics, output_path):
+         Write results.json per FR-7.1 schema
+
+      See 03_logic.md for full pseudo-code and exact index arithmetic.
+    feature_tag: evaluation
+    priority: 95
+    source_document: 03_architecture.md
+    complexity: 9
+    reference_files:
+      architecture: "03_architecture.md#Evaluation"
+      logic: "03_logic.md#A-4-Evaluation--Gate-Complexity-9-Budget-2-subtasks"
+      config: "03_config.md#Gate-Thresholds"
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      Create tests/test_evaluate.py with minimum 3 test methods:
+      - test_gate_check_pass(): synthetic data with ratio=4, auc=0.8, dev=0.05 → pass
+      - test_gate_check_fail(): ratio=2 → fail
+      - test_compute_metrics_keys(): assert required keys in output dict
+
+  - id: task-007
+    epic: A-5 Visualization
+    title: Implement all 5 required figures
+    description: |
+      Implement src/visualize.py with 5 figure functions.
+      All figures: DPI=300, PNG format, axes labeled, title includes H-E1.
+      Group colors: G0='#4477AA', G1='#EE6677', G2='#228833', G3='#CCBB44'
+
+      1. plot_gate_metrics(per_epoch_metrics, output_path):
+         3-panel bar chart: (a) ratio epochs 1,3,5,10 + dashed line at 3.0
+                            (b) AUC epochs 1,3,5,10 + dashed line at 0.70
+                            (c) balance_deviation epochs + dashed line at 0.10
+         Figure size: (12, 4). Save: outputs/h-e1/figures/gate_metrics.png
+
+      2. plot_trajectory(per_epoch_metrics, output_path):
+         Line plot: mean g_tilde per group (G0-G3) vs epoch, log-scale y-axis
+         Figure size: (8, 5). Save: outputs/h-e1/figures/trajectory.png
+
+      3. plot_distribution(gradnorm_data, output_path):
+         Overlaid KDE: g_tilde for minority (G1+G2) vs majority (G0+G3) at T_id=5
+         Figure size: (8, 5). Save: outputs/h-e1/figures/distribution_epoch5.png
+
+      4. plot_balance_heatmap(gradnorm_data, output_path):
+         4×2 heatmap: group (G0-G3) × class (0,1) in top-25% vs full train set
+         Figure size: (8, 6). Save: outputs/h-e1/figures/balance_heatmap.png
+
+      5. plot_feature_norms(gradnorm_data, output_path):
+         Box plots: ||h(x_i)|| per group G0-G3 at T_id=5
+         Figure size: (8, 5). Save: outputs/h-e1/figures/feature_norms.png
+
+      See 03_config.md for full visualization configuration constants.
+    feature_tag: visualization
+    priority: 94
+    source_document: 03_architecture.md
+    complexity: 9
+    reference_files:
+      architecture: "03_architecture.md#Visualization"
+      logic: null
+      config: "03_config.md#A-5-Visualization-Complexity-9-Budget-2-subtasks"
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      Create tests/test_visualize.py with minimum 3 test methods:
+      - test_plot_gate_metrics_creates_file(): assert PNG file exists after call
+      - test_plot_trajectory_creates_file(): assert PNG file exists after call
+      - test_plot_distribution_creates_file(): assert PNG file exists after call
+
+  - id: task-008
+    epic: A-6 Main Script + Integration
+    title: Implement run_experiment.py end-to-end
+    description: |
+      Implement run_experiment.py as the main CLI entry point:
+
+      argparse args (see 03_config.md):
+        --data-root    str  default='.data_cache/datasets/waterbirds/'
+        --output-dir   str  default='outputs/h-e1/'
+        --seed         int  default=1
+        --smoke-test   flag (10 batches, verify hook, exit)
+        --device       str  default='cuda' (auto-detect)
+        --num-workers  int  default=4
+
+      main() orchestration:
+        1. set_seed(args.seed)
+        2. get_dataloaders() → loaders
+        3. get_model(device) → model; GradientNormAnalyzer(model) → analyzer
+        4. SGD optimizer: lr=0.001, momentum=0.9, weight_decay=1e-4
+        5. Training loop epochs 1-10:
+           a. train_epoch(model, loaders['train_shuffle'], optimizer, device, epoch, csv_path)
+           b. if epoch in {1,3,5,10}:
+              - collect_gradnorms(...) → gradnorm_data
+              - compute_metrics(gradnorm_data) → metrics
+              - gate_check(metrics) → (pass, details)
+              - print per-epoch gate summary (FR-7.2)
+           c. save checkpoint: outputs/h-e1/checkpoints/epoch_{epoch}.pt
+        6. Generate all 5 figures using per_epoch_metrics + gradnorm_data[5]
+        7. save_results(per_epoch_metrics, gate_results, secondary_metrics, results.json)
+
+      Smoke test mode (--smoke-test):
+        Run 10 batches only → assert hook fires → assert shapes → print PASSED → exit
+    feature_tag: experiment
+    priority: 93
+    source_document: 03_architecture.md
+    complexity: 8
+    reference_files:
+      architecture: "03_architecture.md#Main-Entry-Point"
+      logic: "03_logic.md#A-2-Model--Analyzer-Complexity-12-Budget-2-subtasks"
+      config: "03_config.md#argparse-CLI-Arguments"
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      Create tests/test_integration.py with minimum 3 test methods:
+      - test_smoke_test_passes(): run with --smoke-test flag, assert exit code 0
+      - test_results_json_schema(): run 1 epoch, check results.json has required keys
+      - test_csv_log_created(): assert train_log.csv exists and has correct columns
+
+  # ─── SUBTASKS (priorities 92–85) ────────────────────────────────────────────
+  - id: task-009
+    epic: A-2 Model + Analyzer
+    title: "S-A-2-1: GradientNormAnalyzer hook + outer-product decomposition"
+    description: |
+      Subtask for A-2. Implement the core gradient norm computation:
+
+      _register_hooks():
+        def hook_fn(module, input, output):
+            self.features['fc_input'] = input[0].detach().cpu()  # (B, 2048)
+        model.fc.register_forward_hook(hook_fn)
+
+      compute_batch_norms() outer-product decomposition:
+        with torch.no_grad():
+            logits = model(images)                    # (B, 2)
+            h = self.features['fc_input']             # (B, 2048)
+            p = F.softmax(logits, dim=1)              # (B, 2)
+            y_oh = F.one_hot(labels, num_classes=2).float().to(logits.device)  # (B, 2)
+            residual = p - y_oh                       # (B, 2)
+            g_tilde = residual.norm(dim=1)            # (B,) — on device
+            h_norm = h.norm(dim=1)                    # (B,) — on CPU (hook detached)
+            g_raw = g_tilde.cpu() * h_norm            # (B,)
+        return g_raw, g_tilde.cpu(), h_norm
+
+      Critical: hook stores features on CPU to avoid GPU memory accumulation.
+    feature_tag: model
+    priority: 92
+    source_document: 03_logic.md
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#A-2-Model--Analyzer-Complexity-12-Budget-2-subtasks"
+      architecture: "03_architecture.md#GradientNormAnalyzer"
+      config: null
+    test_requirements: "Covered by task-004 tests."
+
+  - id: task-010
+    epic: A-2 Model + Analyzer
+    title: "S-A-2-2: get_model() and BatchNorm mode management"
+    description: |
+      Subtask for A-2. ResNet-50 initialization and BN mode:
+
+      get_model(device):
+        model = torchvision.models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
+        model.fc = nn.Linear(2048, 2)
+        model = model.to(device)
+        return model
+
+      BatchNorm mode policy:
+        - During train_epoch(): model.train() → BN in training mode (update running stats)
+        - During collect_gradnorms(): model.eval() → BN uses running stats (no update)
+        - After collect_gradnorms(): model.train() restored
+
+      This ensures gradient norm collection uses stable BN statistics (post-training state),
+      consistent with the BatchNorm equalization hypothesis.
+    feature_tag: model
+    priority: 91
+    source_document: 03_logic.md
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#A-2-Model--Analyzer-Complexity-12-Budget-2-subtasks"
+      architecture: "03_architecture.md#GradientNormAnalyzer"
+      config: null
+    test_requirements: "Covered by task-004 tests."
+
+  - id: task-011
+    epic: A-3 Training Loop
+    title: "S-A-3-1: train_epoch() with ERM loss and CSV logging"
+    description: |
+      Subtask for A-3. ERM training loop with per-epoch CSV row:
+
+      train_epoch() implementation:
+        model.train()
+        total_loss, correct, total = 0.0, 0, 0
+        for images, y, place in loader:
+            images, y = images.to(device), y.to(device)
+            optimizer.zero_grad()
+            logits = model(images)                   # (B, 2)
+            loss = F.cross_entropy(logits, y)        # scalar
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item() * len(y)
+            correct += (logits.argmax(1) == y).sum().item()
+            total += len(y)
+        avg_loss = total_loss / total
+        acc = correct / total
+
+      CSV logging (append row):
+        columns: epoch, loss, acc, ratio, auc, balance_deviation
+        ratio/auc/balance_deviation filled after collect_gradnorms() in main loop
+        Use '' for fields not yet computed at train time
+    feature_tag: training
+    priority: 90
+    source_document: 03_logic.md
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#A-3-Training-Loop-Complexity-11-Budget-2-subtasks"
+      architecture: "03_architecture.md#Training"
+      config: null
+    test_requirements: "Covered by task-005 tests."
+
+  - id: task-012
+    epic: A-3 Training Loop
+    title: "S-A-3-2: collect_gradnorms() eval-mode pass with .npz saving"
+    description: |
+      Subtask for A-3. Full 4795-sample collection pass:
+
+      collect_gradnorms() implementation:
+        model.eval()
+        buffers = {k: [] for k in ['g_raw','g_tilde','h_norm','idx','group','class']}
+        for batch_idx, (images, y, place) in enumerate(loader):  # shuffle=False
+            images, y = images.to(device), y.to(device)
+            g_raw_b, g_tilde_b, h_norm_b = analyzer.compute_batch_norms(images, y)
+            analyzer.clear()
+            group_b = (y * 2 + place).cpu()
+            start_idx = batch_idx * loader.batch_size
+            idx_b = torch.arange(start_idx, start_idx + len(y))
+            buffers['g_raw'].append(g_raw_b);   buffers['g_tilde'].append(g_tilde_b)
+            buffers['h_norm'].append(h_norm_b); buffers['idx'].append(idx_b)
+            buffers['group'].append(group_b);   buffers['class'].append(y.cpu())
+        arrays = {k: torch.cat(v).numpy() for k, v in buffers.items()}
+        # rename keys for .npz
+        result = {
+            'g_raw': arrays['g_raw'], 'g_tilde': arrays['g_tilde'],
+            'h_norm': arrays['h_norm'], 'sample_indices': arrays['idx'],
+            'group_labels': arrays['group'], 'class_labels': arrays['class']
+        }
+        os.makedirs(output_dir, exist_ok=True)
+        np.savez(f"{output_dir}/gradnorm_epoch_{epoch}.npz", **result)
+        model.train()
+        return result
+    feature_tag: training
+    priority: 89
+    source_document: 03_logic.md
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#A-3-Training-Loop-Complexity-11-Budget-2-subtasks"
+      architecture: "03_architecture.md#Training"
+      config: null
+    test_requirements: "Covered by task-005 tests."
+
+  - id: task-013
+    epic: A-4 Evaluation + Gate
+    title: "S-A-4-1: compute_metrics() — ratio, AUC, balance_deviation"
+    description: |
+      Subtask for A-4. Three gate metrics + secondary:
+
+      minority_mask = (group_labels == 1) | (group_labels == 2)   # G1+G2
+
+      # Gate metric 1: ratio
+      ratio = g_tilde[minority_mask].mean() / g_tilde[~minority_mask].mean()
+
+      # Gate metric 2: AUC
+      from sklearn.metrics import roc_auc_score
+      auc = roc_auc_score(minority_mask.astype(int), g_tilde)
+
+      # Gate metric 3: balance deviation
+      N = len(g_tilde)
+      top_k = int(0.25 * N)           # 1199 samples
+      top_k_idx = np.argsort(g_tilde)[-top_k:]
+      selected_y = class_labels[top_k_idx]
+      selected_g = group_labels[top_k_idx]
+      deviations = []
+      for y_val in [0, 1]:
+          mask = (selected_y == y_val)
+          if mask.sum() > 0:
+              place_bits = selected_g[mask] % 2       # place within class
+              counts = np.bincount(place_bits, minlength=2)
+              p_place = counts / counts.sum()
+              deviations.append(float(np.max(np.abs(p_place - 0.5))))
+      balance_deviation = max(deviations)
+
+      # Secondary: per-group means
+      per_group_g_tilde = {g: float(g_tilde[group_labels==g].mean()) for g in range(4)}
+      per_group_h_norm  = {g: float(h_norm[group_labels==g].mean()) for g in range(4)}
+    feature_tag: evaluation
+    priority: 88
+    source_document: 03_logic.md
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#A-4-Evaluation--Gate-Complexity-9-Budget-2-subtasks"
+      architecture: "03_architecture.md#Evaluation"
+      config: "03_config.md#Gate-Thresholds"
+    test_requirements: "Covered by task-006 tests."
+
+  - id: task-014
+    epic: A-4 Evaluation + Gate
+    title: "S-A-4-2: gate_check() and save_results() JSON"
+    description: |
+      Subtask for A-4.
+
+      gate_check(metrics) -> (bool, dict):
+        criteria = {
+            'ratio_pass':   metrics['ratio'] >= 3.0,
+            'auc_pass':     metrics['auc'] > 0.70,
+            'balance_pass': metrics['balance_deviation'] <= 0.10,
+        }
+        return all(criteria.values()), criteria
+
+      verify_mechanism_activated(epoch_results) -> (bool, dict):
+        indicators = {
+            'hook_fired':            epoch_results.get('features_captured', 0) > 0,
+            'ratio_above_chance':    epoch_results['ratio'] > 1.5,
+            'auc_above_random':      epoch_results['auc'] > 0.55,
+            'feature_norms_equalized': epoch_results.get('h_norm_std_ratio', 1.0) < 0.5,
+        }
+        return all(indicators.values()), indicators
+
+      save_results(per_epoch_metrics, gate_results, secondary_metrics, output_path):
+        result = {
+            'hypothesis_id': 'H-E1',
+            'gate_results': {
+                'ratio_epoch5':           per_epoch_metrics[5]['ratio'],
+                'auc_epoch5':             per_epoch_metrics[5]['auc'],
+                'balance_deviation_epoch5': per_epoch_metrics[5]['balance_deviation'],
+                'gate_pass':              gate_results['all_pass'],
+            },
+            'per_epoch_metrics': {str(ep): m for ep, m in per_epoch_metrics.items()},
+            'secondary_metrics': secondary_metrics,
+            'seed': 1,
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+        }
+        with open(output_path, 'w') as f:
+            json.dump(result, f, indent=2)
+    feature_tag: evaluation
+    priority: 87
+    source_document: 03_logic.md
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#A-4-Evaluation--Gate-Complexity-9-Budget-2-subtasks"
+      architecture: "03_architecture.md#Evaluation"
+      config: null
+    test_requirements: "Covered by task-006 tests."
+
+  # ─── FAILSAFE (priority 1) ───────────────────────────────────────────────────
+  - id: task-015
+    epic: Pipeline Management
+    title: Pipeline Continuation Checkpoint
+    description: "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK"
+    feature_tag: pipeline-continue
+    priority: 1
+    source_document: system
+    complexity: null
+    reference_files: null
+    test_requirements: "Failsafe task does not require tests."
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks: 6
+  failsafe: 1
+  total: 15
+  budget_compliance: "PASS — 15/15 (LIGHT tier)"
+  excluded_subtasks_note: "S-A-5-1 and S-A-5-2 (visualization config) excluded; constants embedded in A-5 epic task description and 03_config.md"

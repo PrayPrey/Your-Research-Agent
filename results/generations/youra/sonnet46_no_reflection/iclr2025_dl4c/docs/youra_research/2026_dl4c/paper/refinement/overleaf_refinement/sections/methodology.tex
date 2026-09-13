@@ -1,0 +1,97 @@
+
+\subsubsection{3.1 Problem Setup}
+
+Let π_θ denote a code generation model fine-tuned from a base model π_ref using a post-training algorithm A (e.g., GRPO or DPO). Given a prompt x and generated completions y_θ ~ π_θ(·|x) and y_ref ~ π_ref(·|x):
+
+\begin{itemize}
+\item \textbf{KL divergence:} D_KL(π_θ ‖ π_ref) = E_{x,y ~ π_θ}[log π_θ(y|x) − log π_ref(y|x)], measuring total policy divergence from the base model at checkpoint step t.
+\item \textbf{Semantic AST edit distance:} d_sem(y_θ, y_ref), the minimum-cost tree edit distance restricted to control-flow and data-flow AST nodes between two code completions.
+\end{itemize}
+
+\textbf{Definition (Structural Efficiency):}
+
+$$\text{SE}(\pi_\theta, \pi_\text{ref}) = \frac{\mathbb{E}[d_\text{sem}(y_\theta, y_\text{ref})]}{D_\text{KL}(\pi_\theta \| \pi_\text{ref})}$$
+
+A high structural efficiency value indicates that policy change budget (KL divergence) is concentrated on transformations affecting semantically relevant program structures. A low value indicates that KL budget is consumed by surface-level changes that do not affect execution behavior.
+
+\subsubsection{3.2 FA-AST Node Classification}
+
+To restrict edit distance to semantically relevant nodes, the FA-AST taxonomy \citep{Wangetal2020} is used to classify Python AST node types:
+
+\begin{itemize}
+\item \textbf{Control-flow nodes:} \texttt{{If, For, While, Try, With}} — nodes governing execution branching and looping
+\item \textbf{Data-flow nodes:} \texttt{{Assign, Call, Return, FunctionDef}} — nodes governing data transformation and function structure
+\item \textbf{Surface nodes:} all other node types
+\end{itemize}
+
+The \textbf{Semantic Edit Proportion (SEP)} is the fraction of total edits targeting control-flow and data-flow nodes:
+
+$$\text{SEP} = \frac{d_\text{CF}(y_\theta, y_\text{ref}) + d_\text{DF}(y_\theta, y_\text{ref})}{d_\text{total}(y_\theta, y_\text{ref})}$$
+
+SEP provides a normalized measure of whether policy movement disproportionately targets functionally relevant code structures, independent of total edit volume.
+
+\subsubsection{3.3 ZSS Tree Edit Distance}
+
+The ZSS algorithm [Zhang and Shasha, 1989] computes minimum-cost tree edit distance in O(n²m²) time for trees of sizes n and m, using unit costs for node insertion, deletion, and relabeling. Semantic edit distance d_sem is computed by restricting ZSS to the control-flow and data-flow node types defined in Section 3.2: only insertions, deletions, or relabelings of semantically classified nodes are counted.
+
+This approach is preferred over token-level metrics such as BLEU or CodeBLEU, which are sensitive to variable renaming and formatting. Graph edit distance on program dependence graphs is NP-hard. ZSS on ASTs provides tractable, semantically grounded edit distance that has been validated against established code similarity measures \citep{Dingetal2024}.
+
+\subsubsection{3.4 KL-Matched Checkpoint Comparison}
+
+GRPO and DPO diverge from the base model at different rates per training step. Step-aligned comparison (comparing checkpoint at step t for both methods) conflates training speed with structural quality. KL-matched comparison avoids this confound.
+
+\textbf{KL matching procedure:}
+\begin{enumerate}
+\item Log KL divergence at each checkpoint step t: κ_t = D_KL(π_t ‖ π_ref).
+\item For each GRPO checkpoint π_t^GRPO with κ_t^GRPO, find a DPO checkpoint π_{t'}^DPO such that |κ_{t'}^DPO − κ_t^GRPO| ≤ ε.
+\item Form matched pairs (π_t^GRPO, π_{t'}^DPO) for structural comparison.
+\end{enumerate}
+
+The designed tolerance is ε = 0.05 (±5\%). The proof-of-concept run used ε = 0.15 due to limited checkpoint availability; this deviation is noted as a limitation.
+
+\textbf{Checkpoint diversity requirement:} Sufficient checkpoint density is a prerequisite for valid KL matching. A pre-flight check is recommended: assert that the number of unique checkpoints is ≥ N_min (recommended N_min = 10 for mechanism-level analysis) before proceeding to statistical comparison.
+
+\subsubsection{3.5 Statistical Testing}
+
+For a collection of K matched pairs, two tests are applied.
+
+\textbf{Mann-Whitney U test (primary):} Tests whether P(SEP^GRPO > SEP^DPO) > 0.5 without assuming normality. Requires K ≥ 10 unique pairs for adequate statistical power. Significance threshold: α = 0.05.
+
+\textbf{Bootstrap confidence interval (secondary):} 10,000 bootstrap resamples of the mean SEP differential Δ = mean(SEP^GRPO) − mean(SEP^DPO), yielding a 95\% CI.
+
+\subsubsection{3.6 Implementation}
+
+The framework is implemented as five Python modules:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+Module & Function \\
+\midrule
+`ast_decomposition.py` & FA-AST node classification; SEP computation \\
+`ast_metric.py` & ZSS semantic edit distance (CF+DF nodes only) \\
+`kl_metric.py` & KL log computation; checkpoint matching \\
+`sep_analysis.py` & SEP analysis across matched checkpoint pairs \\
+`statistical_tests.py` & Mann-Whitney U, Spearman correlation, bootstrap CI \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Training infrastructure:} TRL v1.3.0 [von Werra et al., 2020] GRPOTrainer and DPOTrainer on DeepSeek-Coder-7B-instruct-v1.5 \citep{Guoetal2024}.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+Parameter & GRPO & DPO \\
+\midrule
+Learning rate & 1e-6 & 5e-7 \\
+Batch size & 4 & 2 \\
+Gradient accumulation & 4 & 8 \\
+KL penalty β & 0.04 & 0.1 \\
+Training steps & 1000 & 1000 \\
+Checkpoint save interval & Every 100 steps & Every 100 steps \\
+\bottomrule
+\end{tabular}
+\end{table}

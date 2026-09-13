@@ -1,0 +1,67 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Motivation: Why Partial Spearman?}
+
+If MMLU functions as a shared scale covariate for alignment benchmarks --- because larger models tend to score higher on all metrics simultaneously --- then raw Spearman correlations between alignment benchmarks will be inflated by this shared variance. The appropriate correction is partial Spearman rank correlation: compute the rank correlation between two alignment benchmarks while removing the MMLU component from both.
+
+Formally, partial Spearman correlation between $X$ (TruthfulQA) and $Y$ (BBQ) controlling for $Z$ (MMLU) is computed via the inverse of the rank-based correlation matrix $\boldsymbol{\Sigma}$:
+\begin{equation}
+  \rho_{\text{partial}}(X,Y \mid Z) = -\boldsymbol{\Sigma}^{-1}_{XY} \big/ \sqrt{\boldsymbol{\Sigma}^{-1}_{XX} \cdot \boldsymbol{\Sigma}^{-1}_{YY}}
+\end{equation}
+We use \texttt{pingouin.partial\_corr(x=`TruthfulQA\_MC2', y=`BBQ\_accuracy', covar=[`MMLU'], method=`spearman')} \citep{vallat2018pingouin}, which implements this via the inverse covariance approach and returns exact $p$-values. This provides a single-number summary of alignment-specific co-movement after scale removal.
+
+The Fisher $z$ difference test then formalizes whether the confound is statistically significant:
+\begin{equation}
+  z = \frac{z_{\text{raw}} - z_{\text{partial}}}{\sqrt{2/(N-3)}}
+\end{equation}
+where $z_{\text{raw}}$ and $z_{\text{partial}}$ are the Fisher $z$ transforms of the respective Spearman estimates. We use the same-sample Fisher $z$ standard error $\sqrt{2/(N-3)}$ appropriate when $\rho_{\text{raw}}$ and $\rho_{\text{partial}}$ are both estimated from the same $N{=}296$ observations --- i.e., these are dependent (overlapping-samples) correlations. This formula is standard for testing $H_0{:}\ \rho_{\text{raw}} = \rho_{\text{partial}}$ on the same sample \citep{steiger1980}. A significant $z$ test ($p < 0.05$) indicates that MMLU control meaningfully changed the correlation --- confirming that scale confounding was present and quantifiable.
+
+\subsection{Data Assembly}
+
+\textbf{Data Source.} We use Open LLM Leaderboard v1 \citep{beeching2023openllm}, a publicly available CSV containing performance scores for approximately 500 open-weight language models. This source provides MMLU aggregate accuracy, TruthfulQA MC2 accuracy, and ARC Challenge normalized accuracy in a single file, enabling exact model-name joins without fuzzy matching.
+
+\textbf{BBQ Proxy.} HELM Lite BBQ per-model accuracy (the intended data source) was unavailable in our execution environment: \texttt{lighteval/bbq\_helm} on HuggingFace is a QA item corpus rather than per-model scores (format mismatch identified in H-E1), and \texttt{stanford-crfm/helm-lite} was inaccessible due to DNS restrictions. We substitute ARC Challenge normalized accuracy as a bias proxy. ARC Challenge measures logical reasoning in a multiple-choice format structurally similar to BBQ; however, it does not measure social bias specifically, and we accordingly qualify all claims about ``bias avoidance'' as reflecting performance on this proxy. This is a principal limitation discussed in Section~\ref{sec:discussion}.
+
+\textbf{Fuzzy Join.} Model names across sources were matched using rapidfuzz WRatio similarity (threshold=75). A sensitivity sweep across thresholds 65--80 confirmed $N{=}297$ complete rows at all tested thresholds, indicating robust matching. The final analysis dataset contains $N{=}296$ models with complete TruthfulQA, BBQ-proxy, and MMLU scores after dropping missing values.
+
+\textbf{Model Families.} We identified 51 model families by prefix-splitting model names. Thirty families contained at least 3 models. Family labels were used for clustered BCa bootstrap to account for within-family correlation.
+
+\subsection{MMLU Covariate Verification (H-M1)}
+
+Before computing partial correlations, we verify that MMLU is a substantive scale covariate for both alignment benchmarks --- a prerequisite for the partial Spearman analysis to be meaningful. We compute Spearman $\rho$ and the coefficient of determination $R^2$ for both MMLU $\times$ TruthfulQA and MMLU $\times$ BBQ-proxy, with a gate criterion $R^2 > 0.05$ for each pair.
+
+\subsection{Partial Spearman + Fisher $z$ Test (H-M2)}
+
+The primary analysis computes:
+\begin{enumerate}
+  \item Raw Spearman $\rho$ between TruthfulQA and BBQ-proxy ($N{=}296$)
+  \item Partial Spearman $\rho$ controlling for MMLU via \texttt{pingouin} 0.6.1
+  \item BCa 95\% confidence intervals for both via cluster-bootstrap ($B{=}5000$, seed=42, clustered by model family)
+  \item Fisher $z$ difference test between raw and partial estimates
+\end{enumerate}
+
+\textbf{Success criterion (pre-registered):} $p < 0.05$ OR non-overlapping BCa 95\% CIs (either criterion sufficient).
+
+\subsection{Scenario Classification (H-M3)}
+
+We pre-register three structural scenarios for the residual $\rho_{\text{partial}}$:
+\begin{itemize}
+  \item \textbf{Scenario (a):} $|\rho_{\text{partial}}| < 0.20$ --- independent constructs
+  \item \textbf{Scenario (b):} $\rho_{\text{partial}} > 0.40$ --- scale-free coherence
+  \item \textbf{Scenario (c):} $\rho_{\text{partial}} < -0.20$ --- alignment tradeoff
+  \item \textbf{AMBIGUOUS:} $\rho_{\text{partial}} \in (-0.20, +0.40)$ --- grey zone; insufficient $N$ for scenario assignment
+\end{itemize}
+AMBIGUOUS is pre-registered as a valid and informative outcome.
+
+\subsection{Robustness Analysis}
+
+We perform three robustness checks: (1) fuzzy join threshold sensitivity (thresholds 65--80); (2) family-weighted Fisher $z$ using model-family means; (3) scenario boundary sensitivity (tight and wide boundary variants).
+
+\subsection{Scope and Limitations}
+
+\textbf{Study scope:} Observational, cross-sectional, open-weight LLMs from the LLM LB v1 era (approximately 2022--2024).
+
+\textbf{BBQ proxy limitation:} ARC Challenge measures logical reasoning, not social bias. All claims about ``bias avoidance'' are qualified accordingly.
+
+\textbf{Safety dimension excluded:} HarmBench Table~2 returned $N{=}0$ model matches with LLM LB v1 after fuzzy join. This study is limited to two alignment dimensions.

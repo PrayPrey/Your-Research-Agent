@@ -1,0 +1,31 @@
+# Introduction
+
+When AI assistants match user communication style, do users engage more? Intuition suggests that accommodation—adapting one's linguistic style to match an interlocutor—should foster rapport and encourage continued interaction. Communication Accommodation Theory (CAT) predicts that convergence signals attentiveness and understanding, motivating reciprocal engagement \citep{giles1973accommodation}. Yet this intuition, grounded in decades of human-human interaction research, may not transfer directly to human-AI dialogue.
+
+We present a large-scale empirical analysis of formality accommodation in 111,000 human-AI conversations, testing whether accommodation predicts engagement as measured by conversation continuation. Our central finding challenges linear assumptions: **moderate accommodation predicts highest engagement**, while both under- and over-accommodation reduce continuation rates. This "Goldilocks zone" suggests that AI systems should adapt to users—but not too much.
+
+## The Problem of Optimal Accommodation
+
+Prior work establishes that linguistic accommodation exists in human-AI interaction. Chen et al. \citep{chen2026bidirectional} demonstrated bidirectional accommodation in GPT-4o conversations, finding that model adaptation is front-loaded while user convergence is gradual. However, this work measured *whether* accommodation occurs, not *how much* accommodation optimizes user engagement. The relationship between accommodation magnitude and interaction outcomes remains untested at scale.
+
+This gap matters for practical AI design. If maximal accommodation improves engagement, chatbots should mirror user style as closely as possible. If accommodation has diminishing returns—or negative effects at extremes—designers need to calibrate adaptation carefully. Without empirical guidance, systems risk either insufficient personalization or uncanny over-imitation.
+
+## Our Contribution
+
+We address this gap through systematic analysis of formality accommodation in the Anthropic hh-rlhf dataset. Using DeBERTa-based formality scoring (87.8% accuracy on GYAFC benchmark), we compute formality deltas between human messages and AI responses, then examine how these deltas relate to conversation continuation.
+
+Our analysis proceeds through four validated sub-hypotheses:
+
+1. **Accommodation is measurable** (H-E1): Formality convergence patterns show non-trivial variance (SD=0.569, n=26,395), confirming that accommodation signals exist in the data.
+
+2. **AI adapts to human formality** (H-M2): AI response formality correlates with human input formality (r=0.152, p<0.001, n=111,039), demonstrating that models exhibit stylistic accommodation.
+
+3. **Accommodation is asymmetric** (H-M1, H-M2): AI-to-human accommodation is 11× stronger than human-to-AI adaptation, suggesting training signals create accommodation tendencies that humans don't reciprocate.
+
+4. **Optimal accommodation is non-linear** (H-M3): Conversations in the middle tercile of formality delta show 71.4% continuation rate, compared to 65.9% for low-delta (high accommodation) and 60.9% for high-delta (low accommodation) conversations.
+
+The fourth finding—the inverted-U relationship—is our key contribution. Communication Accommodation Theory predicts monotonic benefits from convergence \citep{niederhoffer2002linguistic}. Our data reveal a boundary condition: excessive convergence may be perceived as artificial mimicry, triggering disengagement. This finding extends CAT to human-AI contexts and provides actionable guidance for conversational AI design.
+
+## Paper Organization
+
+Section 2 reviews Communication Accommodation Theory and prior human-AI dialogue research. Section 3 describes our methodology: DeBERTa formality scoring, tercile-based analysis, and statistical validation. Section 4 presents experimental setup and research questions. Section 5 reports results from our four sub-hypotheses. Section 6 discusses theoretical implications and limitations. Section 7 concludes with future directions.

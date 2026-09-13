@@ -1,0 +1,42 @@
+
+\subsubsection{4.1 Dataset and Groups}
+
+All experiments use the Waterbirds v1.0 benchmark \citep{sagawa2019distributionally}. Waterbirds constructs a synthetic dataset by compositing bird images (from CUB-200-2011) onto background scenes (from Places), creating a spurious correlation between bird type (label $y\in \{\text{waterbird}, \text{landbird}\}$) and background ($b\in \{\text{water}, \text{land}\}$). The spuriosity level is 95\%: 95\% of waterbirds appear on water backgrounds, 95\% of landbirds on land backgrounds. This yields four groups:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Group & Composition & Train Samples & Train Fraction \\
+\midrule
+0 (majority) & waterbird + water background & 3498 & 73.0\% \\
+1 (minority) & waterbird + land background & 184 & 3.8\% \\
+2 (majority) & landbird + land background & 1057 & 22.1\% \\
+3 (minority) & landbird + water background & 56 & 1.2\% \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Minority groups 1+3 together: 240 samples (5.0\% of 4795 training samples). Group labels are used \textbf{only for post-hoc AUROC evaluation}; the model receives only (x\_i, y\_i) during ERM training.
+
+\subsubsection{4.2 Model and Training}
+
+ResNet-50 with ImageNet pretrained weights (torchvision v0.15) is used. The last fully-connected layer is the $2048\rightarrow 2$ linear head (4098 parameters including bias). Hyperparameters: SGD with lr=$3\times 10^{-3}$, momentum=0.9, weight decay=$1\times 10^{-4}$, 50 epochs, batch size 32. Checkpoints are saved at $t\in {0,1,5,10,20,50}$. Five independent runs (seeds 1--5) control both data ordering and weight initialization.
+
+\subsubsection{4.3 Hessian Trace Computation}
+
+For each checkpoint t and each training sample i, Tr($H_i^{fc}$) is computed via K=50 Rademacher probes using reverse-over-reverse automatic differentiation (torch.func.vmap + torch.func.vjp). The computation is vectorized across samples. Total computation per checkpoint per seed is approximately 8 minutes on a single H100 GPU for all 4795 training samples with K=50.
+
+\subsubsection{4.4 Epoch-0 Control}
+
+The t=0 checkpoint is the pretrained ImageNet backbone before any Waterbirds training steps. Computing traces at t=0 measures minority-majority discriminability from ImageNet pretraining alone. Any candidate signal must satisfy AUROC(t=0) < 0.70 to pass the ERM-induction gate, ruling out pretrained-artifact confounds. A prior experiment (h-e2) illustrates the importance of this control: a gradient-direction signal achieved AUROC=0.987 at epoch 0, indicating that pretrained features already separate the groups --- making the h-e2 signal a pretrained artifact rather than an ERM signal.
+
+\subsubsection{4.5 Research Questions}
+
+\textbf{RQ1 (Existence):} Does per-sample last-fc Hessian trace achieve $AUROC\geq 0.85$ for minority membership prediction at t* across $\geq 4/5$ seeds?
+
+\textbf{RQ2 (ERM induction):} Is the trace signal ERM-induced rather than a pretrained artifact? Operationalized as AUROC(t=0) < 0.70 in all 5 seeds.
+
+\textbf{RQ3 (Mechanism --- confidence channel):} Is the confidence-differential mechanism active at t\textit{? Operationalized as p\_minority(t}) $\in$ [0.3, 0.7] in $\geq 4/5$ seeds (pre-registered H-M1 gate).

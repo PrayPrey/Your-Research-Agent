@@ -1,0 +1,142 @@
+\section{Experimental Setup}
+
+Our experiments test two hypotheses: (1) \textbf{h-e1 (EXISTENCE):} Do data quality components Q(D) correlate with information density? and (2) \textbf{h-m1 (MECHANISM):} Does curation causally increase information density? The first is our primary contribution; the second encountered scale limitations we discuss honestly in Section 5.
+
+\subsection{Hypothesis h-e1: Quality Metrics Correlation}
+
+\textbf{Research Question:} Do deduplication ratio, domain diversity, perplexity score, and token efficiency correlate ($r > 0.5$, $p < 0.01$) with information density?
+
+\subsubsection{Datasets}
+
+We created 12 controlled C4 subsets (10GB each, 120GB total) using fractional factorial sampling to isolate quality dimensions:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lllllr}
+\hline
+\textbf{Subset ID} & \textbf{Dedup} & \textbf{Diversity} & \textbf{Perplexity} & \textbf{Efficiency} & \textbf{Tokens} \\
+\hline
+C4-L1 & None (40\%) & Low (1 dom) & Low (clean) & Low ($<$50th) & 2.1B \\
+C4-L2 & Med (20\%) & Med (4 dom) & Medium & Med (50-75th) & 2.3B \\
+C4-L3 & High ($<$5\%) & High (8 dom) & High (noisy) & High ($>$75th) & 2.5B \\
+\ldots & \ldots & \ldots & \ldots & \ldots & \ldots \\
+C4-L12 & High & Low & Low & High & 2.4B \\
+\hline
+\end{tabular}
+\caption{C4 subset design (12 fractional factorial samples)}
+\end{table}
+
+Each subset isolates specific quality variations while holding other factors approximately constant via stratified sampling from C4 (allenai/c4, en split). Document selection uses MinHash LSH for deduplication detection (128 hash functions, Jaccard threshold 0.9), GPT-2 small perplexity scoring, automated domain classification, and efficiency filtering via regex-based heuristics.
+
+\subsubsection{Metrics}
+
+For each subset, we compute:
+
+\textbf{Q(D) components:}
+\begin{itemize}
+\item Deduplication ratio: 1 - (duplicate\_tokens / total\_tokens)
+\item Domain diversity: Shannon entropy over 8 C4 source categories
+\item Perplexity score: 1 - normalized log(GPT-2\_perplexity)
+\item Token efficiency: content\_tokens / total\_tokens (excludes whitespace/boilerplate)
+\end{itemize}
+
+\textbf{Information density:}
+\begin{itemize}
+\item Token entropy: H(unigram distribution) normalized by $\log_2|V|$
+\item N-gram redundancy: 1 - (repeated 3-grams / total 3-grams)
+\item Semantic diversity: 1 - average cosine similarity of SentenceTransformer embeddings
+\end{itemize}
+
+Combined info\_density = average of three normalized components $\in [0,1]$.
+
+\subsubsection{Evaluation Protocol}
+
+\begin{enumerate}
+\item \textbf{Correlation analysis:} Compute Pearson $r$ and Spearman $\rho$ between each Q(D) component and info\_density across 12 subsets
+\item \textbf{Statistical significance:} Two-tailed t-test for $H_0$: $r = 0$ at $\alpha = 0.01$ with Bonferroni correction (8 tests $\rightarrow$ $\alpha = 0.00125$)
+\item \textbf{Effect size:} Report $R^2$ (variance explained) for composite Q(D) fitted via linear regression
+\item \textbf{Success criterion:} ALL four components must achieve $r > 0.5$, $p < 0.01$ (h-e1 MUST\_WORK gate)
+\end{enumerate}
+
+\subsubsection{Reproducibility Test}
+
+We independently resampled three additional C4 subsets at ``Medium'' quality level (middle of all dimensions) and computed coefficient of variation (CV = $\sigma/\mu$) for each Q(D) component across the four instances.
+
+\textbf{Success criterion:} CV $< 10\%$ for all components (stable enough for production use)
+
+\subsubsection{Baseline Comparisons}
+
+\begin{itemize}
+\item \textbf{Random baseline:} Correlate Q(D) with shuffled info\_density (expect $r \approx 0$, validates null hypothesis)
+\item \textbf{Single-metric baseline:} Best individual component (dedup\_ratio alone)
+\item \textbf{Composite advantage:} Does weighted Q(D) outperform best single metric?
+\end{itemize}
+
+\subsection{Hypothesis h-m1: Curation Mechanism (Proof-of-Concept)}
+
+\textbf{Research Question:} Does data curation (deduplication + filtering + domain mixing) causally increase information density ($>$20\% entropy reduction, $>$15\% Fisher information increase)?
+
+\subsubsection{Experimental Design (Planned vs Actual)}
+
+\textbf{Planned (from 02c\_experiment\_brief.md):}
+\begin{itemize}
+\item 9 curation conditions (factorial: \{dedup, filter, mix\} $\times$ \{none, medium, aggressive\})
+\item 50GB per condition ($\sim$10B tokens)
+\item 50,000 training steps per condition
+\item GPT-2 small (125M params) trained from scratch
+\item Measure entropy and Fisher information trace at convergence
+\end{itemize}
+
+\textbf{Actual (PoC in batch mode):}
+\begin{itemize}
+\item 3 curation conditions (baseline, medium, full) due to resource constraints
+\item 1,000 C4 samples per condition ($\sim$500k tokens, \textbf{0.005\% of planned scale})
+\item 500 training steps (1\% of planned)
+\item Simplified curation: length-based filtering only (no MinHash LSH, no perplexity filter)
+\end{itemize}
+
+\textbf{Scale mismatch:} The PoC is 20,000$\times$ below specification in token count. We executed it to validate code correctness and measure PoC-scale effects, but we do NOT claim it tests the full hypothesis.
+
+\subsubsection{Metrics}
+
+\textbf{Entropy reduction:}
+\begin{equation}
+\Delta H = \frac{H_{\text{baseline}} - H_{\text{curated}}}{H_{\text{baseline}}} \times 100\%
+\end{equation}
+
+Expected $>$20\% if curation removes redundancy (Shannon theory prediction).
+
+\textbf{Fisher information increase:}
+\begin{equation}
+\Delta F = \frac{F_{\text{curated}} - F_{\text{baseline}}}{F_{\text{baseline}}} \times 100\%
+\end{equation}
+
+where F = trace(Fisher information matrix) computed via diagonal approximation of second derivatives of loss. Expected $>$15\% if curation increases gradient informativeness.
+
+\subsubsection{Success Criterion (h-m1 MUST\_WORK gate)}
+
+Both thresholds must be met:
+\begin{itemize}
+\item Entropy reduction $\geq 20\%$
+\item Fisher increase $\geq 15\%$
+\end{itemize}
+
+Failure triggers either (a) one modification attempt, or (b) route to Phase 2A for hypothesis reformulation.
+
+\subsection{Compute Resources}
+
+\begin{itemize}
+\item \textbf{h-e1:} V100 GPUs (32GB), 9.2 GPU-hours total for all subset creation and analysis
+\item \textbf{h-m1 PoC:} H100 NVL GPUs (95GB), 2.5 GPU-hours for 3-condition training
+\item \textbf{Environment:} PyTorch 2.6.0, Transformers 4.46.0, datasketch 1.6.0
+\item \textbf{Code:} Open-sourced at [URL]
+\end{itemize}
+
+\subsection{Limitations (By Design)}
+
+\textbf{Web text only:} C4 represents web-crawled English text. Generalization to code (The Stack), scientific text (arXiv), or multilingual corpora (mC4) is untested. This is a principled boundary condition (Section 5), not an oversight---web text is the most common pretraining domain (GPT-3, T5, LLaMA).
+
+\textbf{Single model scale:} GPT-2 small (125M params) for perplexity scoring and h-m1 training. Scale-invariance (whether Q(D) weights hold at 1B-100B params) is future work (hypothesis h-c1, blocked by h-m1).
+
+\textbf{Correlation, not causation:} h-e1 tests correlation only. Causality requires h-m1 validation at full scale (900 GPU-hours budgeted for future work).

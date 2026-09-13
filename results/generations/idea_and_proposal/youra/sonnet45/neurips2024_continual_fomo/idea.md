@@ -1,0 +1,8 @@
+# Title
+ADORE: Adaptive Orchestration for Parameter-Efficient Continual Learning in Foundation Models
+
+# Motivation
+Foundation models trained on static data become outdated and require costly retraining. While continual learning (CL) enables incremental updates, existing methods use fixed combinations of parameter-efficient fine-tuning (PEFT) and forgetting mitigation strategies, leading to either catastrophic forgetting or wasted computation. Current approaches like PIECE, SSR, and MoE-CT cannot adapt their strategies to varying task difficulties—applying expensive replay to simple tasks or insufficient regularization to complex ones. This creates a critical gap: no framework dynamically selects optimal CL configurations based on task characteristics at foundation model scale (1B-70B parameters).
+
+# Main Idea
+ADORE meta-learns to predict catastrophic forgetting severity from automatically extracted task features (domain shift, data size, vocabulary overlap) and dynamically selects optimal PEFT methods (LoRA/Adapters/Prefix-Tuning) combined with forgetting mitigation strategies (EWC/replay/architectural isolation). A BERT-based task encoder predicts forgetting on a 0-1 scale, then a hierarchical predictor selects method families and tunes hyperparameters. During training, online monitoring detects unexpected forgetting and adapts configurations in real-time using Model Reference Adaptive Control principles. Evaluated on 100+ task sequences across NLP, vision, and multimodal domains, ADORE is expected to achieve 10-20% higher accuracy, 15-25% better backward transfer, and 40-60% lower training costs versus fixed baselines, while updating <1% parameters per task and maintaining <5% orchestration overhead.

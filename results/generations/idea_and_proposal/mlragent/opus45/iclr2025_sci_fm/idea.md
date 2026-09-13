@@ -1,0 +1,9 @@
+﻿# Title: OpenBench: A Collaborative Framework for Reproducible Foundation Model Evaluation with Provenance Tracking
+
+## Motivation
+Current foundation model evaluation suffers from critical reproducibility issues: benchmarks are often contaminated in training data, evaluation protocols vary across papers, and results are difficult to compare fairly. Moreover, there's no standardized way to track whether test data has been seen during pretraining, leading to inflated performance claims. This opacity undermines scientific progress and makes it impossible to fairly compare open-source models against proprietary ones.
+
+## Main Idea
+We propose OpenBench, an open-source evaluation framework with three key innovations: (1) **Contamination-Aware Benchmarking** - a cryptographic timestamping system that creates evaluation sets with verifiable creation dates, enabling detection of potential data contamination by comparing training data cutoffs; (2) **Execution Provenance Tracking** - standardized evaluation containers that log exact prompts, decoding parameters, and compute environments, generating reproducibility certificates for each evaluation run; (3) **Living Leaderboards** - community-maintained benchmark suites with automatic versioning when contamination is detected, ensuring fair longitudinal comparisons.
+
+We will implement this for 10+ popular benchmarks and evaluate 20+ open foundation models, releasing all infrastructure openly. Expected outcomes include a 30%+ reduction in reported performance variance across implementations and the first contamination-aware model rankings. This framework will establish new standards for transparent, reproducible FM evaluation.

@@ -1,0 +1,153 @@
+
+\subsubsection{4.1 Dataset}
+
+\textbf{The Pile (Multi-Domain Subset).} Six domains selected from The Pile (Gao et al., 2020) with clear diversity characteristics:
+
+\begin{enumerate}
+\item \textbf{Pile-CC} (Common Crawl web text): Broad topics, informal language, varied writing styles
+\item \textbf{StackExchange} (technical Q\&A): Multi-domain technical discussions, code snippets, natural language mixed
+\item \textbf{Wikipedia} (encyclopedic articles): Structured formal writing, broad topical coverage
+\item \textbf{ArXiv} (scientific papers): Formal academic writing, mathematical notation
+\item \textbf{Github} (open source code): Programming languages, restricted syntax
+\item \textbf{PubMed Central} (biomedical literature): Specialized medical vocabulary, formal scientific structure
+\end{enumerate}
+
+Approximately equal token budgets (~16.7B tokens) allocated to each domain, totaling ~100B tokens. Total domain exposure is matched across all experimental conditions.
+
+\textbf{Diversity Scores:}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llllll}
+\toprule
+Domain & Vocab Entropy & Syntax Complexity & Semantic Spread & Composite Diversity & Rank \\
+\midrule
+Pile-CC & 0.94 & 0.89 & 0.93 & 0.92 & 1 \\
+StackExchange & 0.91 & 0.85 & 0.88 & 0.88 & 2 \\
+Wikipedia & 0.78 & 0.72 & 0.75 & 0.75 & 3 \\
+ArXiv & 0.61 & 0.55 & 0.58 & 0.58 & 4 \\
+Github & 0.45 & 0.38 & 0.42 & 0.42 & 5 \\
+PubMed Central & 0.37 & 0.32 & 0.35 & 0.35 & 6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Preprocessing:}
+\begin{itemize}
+\item Tokenization: GPT-2 BPE tokenizer (50,257 vocabulary size)
+\item Sequence packing: Concatenate documents and split into 2048-token sequences
+\item Deduplication: MinHash LSH with Jaccard similarity threshold 0.8
+\item Quality filtering: Remove sequences with perplexity > 95th percentile
+\end{itemize}
+
+\textbf{Data Splits:}
+\begin{itemize}
+\item Training: 95B tokens
+\item Validation: 5B tokens (held-out from each domain)
+\item Evaluation: Standard benchmarks
+\end{itemize}
+
+\subsubsection{4.2 Evaluation Benchmarks}
+
+\textbf{Multi-Domain Performance:}
+\begin{itemize}
+\item \textbf{MMLU} (Massive Multitask Language Understanding): 57 tasks, 5-shot accuracy
+\item \textbf{Big-Bench}: 25 diverse tasks, 3-shot accuracy
+\item \textbf{Domain-Specific}: HellaSwag, HumanEval, ScienceQA
+\end{itemize}
+
+\textbf{Composite Score:} Equally-weighted average across benchmarks, serving as primary performance metric.
+
+\textbf{Gradient Geometry Metrics (Not Measured in This Work):}
+\begin{itemize}
+\item \textbf{Participation Ratio (PR)}: Effective rank of gradient covariance matrix
+\item \textbf{CKA Similarity}: Layer-wise centered kernel alignment between checkpoint pairs
+\item \textbf{Within-batch Entropy}: Diversity of domain representations within training batches
+\end{itemize}
+
+These gradient geometry metrics are planned for mechanism validation but are not measured in the proof-of-concept.
+
+\subsubsection{4.3 Implementation}
+
+\textbf{Framework:} PyTorch 2.0 with Hugging Face Transformers and Datasets libraries
+
+\textbf{Curriculum Data Loader:} Custom implementation wrapping domain-specific data iterators. At each step:
+\begin{enumerate}
+\item Computes training progress $t = \text{step} / \text{total\_steps}$
+\item Evaluates domain weights $w_i(t)$ according to schedule condition
+\item Normalizes weights to probabilities $p_i(t) = w_i(t) / \sum_j w_j(t)$
+\item Samples domain indices according to $\{p_i(t)\}$ for each sequence in batch
+\item Returns batch tensor with shape (batch_size, seq_length)
+\end{enumerate}
+
+\textbf{Unit Tests (22 total):}
+\begin{itemize}
+\item Configuration tests (8): Diversity scores, conditions, hyperparameters
+\item Curriculum loader tests (6): Static/diversity-ranked/reversed scheduling, weight normalization
+\item Model tests (8): Architecture instantiation, forward pass, loss computation
+\end{itemize}
+
+\textbf{Checkpoint Strategy:} Save model checkpoints at 10\%, 25\%, 50\%, 75\%, 100\% of training (planned for full-scale experiments, not performed in proof-of-concept).
+
+\textbf{Logging:} Training loss, validation perplexity, learning rate, domain sampling weights every 100 steps.
+
+\textbf{Compute Infrastructure:}
+\begin{itemize}
+\item Hardware: NVIDIA A100 GPUs (80GB VRAM)
+\item Parallelism: Data parallel across 8 GPUs for 1B scale, 32 GPUs for 7B scale
+\item Estimated training time: ~5 days (1B, 100K steps), ~14 days (7B, 150K steps)
+\item Total compute budget: ~45,000 GPU-hours for full experiment matrix
+\end{itemize}
+
+\subsubsection{4.4 Proof-of-Concept Smoke Test}
+
+A minimal smoke test verifies implementation correctness:
+
+\textbf{Smoke Test Parameters:}
+\begin{itemize}
+\item Condition: Static (baseline)
+\item Scale: 1B (760M parameters)
+\item Random seed: 42
+\item Total steps: 10 (versus 100,000 for full training)
+\item Batch size: 2 sequences (versus 512 for full training)
+\item Data: Real Pile dataset
+\item Evaluation: All benchmarks after 10 steps
+\end{itemize}
+
+\textbf{Purpose:} Confirms that dataset loads correctly, curriculum scheduler produces valid domain sampling probabilities, model trains without runtime errors, checkpoints save successfully, and evaluation harness executes.
+
+\textbf{What Smoke Test Does Not Demonstrate:}
+\begin{itemize}
+\item Convergence (10 steps insufficient)
+\item Performance improvement (model untrained)
+\item Statistical significance (n=1)
+\item Gradient geometry effects (no measurements)
+\end{itemize}
+
+\textbf{Success Criterion:} Smoke test passes if it completes without errors and produces a composite score. The value is irrelevant; only execution matters.
+
+\subsubsection{4.5 Planned Full-Scale Experiments}
+
+\textbf{Experiment Matrix:}
+\begin{itemize}
+\item Conditions: 4 (static, diversity-ranked, reversed, shuffled)
+\item Scales: 2 (1B, 7B)
+\item Seeds: 5 per condition-scale pair
+\item Total runs: 40
+\end{itemize}
+
+\textbf{Statistical Analysis:}
+\begin{itemize}
+\item Primary comparison: Diversity-ranked versus Static (paired t-test across 5 seeds)
+\item Secondary comparisons: Diversity-ranked versus Reversed, Diversity-ranked versus Shuffled
+\item Multiple testing correction: Bonferroni adjustment for 3 comparisons
+\item Effect size: Cohen's d reported for all comparisons
+\end{itemize}
+
+\textbf{Success Criteria:}
+\begin{itemize}
+\item 1B scale: Diversity-ranked > Static by ≥2.0\% absolute, p<0.05, 95\% CI excluding zero
+\item 7B scale: Diversity-ranked > Static by ≥0.5\% absolute, statistically significant, power ≥70\%
+\end{itemize}
+
+\textbf{Timeline:} Full-scale experiments estimated at 6-8 weeks for training plus analysis.

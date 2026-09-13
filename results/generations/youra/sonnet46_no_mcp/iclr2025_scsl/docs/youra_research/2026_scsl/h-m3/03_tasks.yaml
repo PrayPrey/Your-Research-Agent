@@ -1,0 +1,329 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: H-M3
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  complexity_score: 12
+  complexity_level: Moderate
+  created_at: "2026-05-04T17:00:00"
+  description: "Transition Epoch t* Reproducibility Analysis — post-hoc statistical analysis of H-E1 delta(t) curves"
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 8
+  subtasks: 14
+  failsafe: 1
+  total: 24
+
+tasks:
+
+  # ── Environment Setup ───────────────────────────────────────────────────────
+
+  - id: ENV-1
+    title: "Environment Setup"
+    type: setup
+    priority: 94
+    description: "Create h-m3/code/ directory structure, install Python dependencies, verify H-E1 output availability"
+    acceptance_criteria:
+      - "h-m3/code/ directory created with all module files scaffolded"
+      - "pip install numpy scipy matplotlib seaborn scikit-learn pyyaml succeeds"
+      - "h-e1/results/ or h-e1/checkpoints/ accessible (delta(t) source verified)"
+    reference_files:
+      - file: "h-m3/03_prd.md"
+        section: "7. Dependencies"
+      - file: "h-m3/03_architecture.md"
+        section: "File Structure"
+
+  # ── Epic Tasks ───────────────────────────────────────────────────────────────
+
+  - id: A-1
+    title: "Project Setup"
+    type: implementation
+    priority: 93
+    complexity: 5
+    description: "Create h-m3/code/ file structure, config.py with AnalysisConfig/PathConfig/ExperimentConfig dataclasses, configs/waterbirds.yaml"
+    acceptance_criteria:
+      - "All module files created: analyze_t_star.py, data_loader.py, analyzer.py, statistical_validator.py, visualizer.py, results_exporter.py, config.py"
+      - "configs/waterbirds.yaml matches schema in 03_config.md"
+      - "load_config() and validate_config() implemented"
+      - "import smoke test passes (no ImportError)"
+    reference_files:
+      - file: "h-m3/03_config.md"
+        section: "ExperimentConfig"
+      - file: "h-m3/03_architecture.md"
+        section: "File Structure"
+
+  - id: A-2
+    title: "Data Loader (DeltaCurveLoader)"
+    type: implementation
+    priority: 92
+    complexity: 14
+    description: "Implement DeltaCurveLoader: primary load from h-e1/results/ JSON or .npy files, fallback checkpoint regeneration via ResNet-50 probe evaluation"
+    acceptance_criteria:
+      - "load() tries JSON first, then per-seed .npy files"
+      - "_load_from_json() parses per_seed[i].delta_curve from h-e1_results.json"
+      - "_load_from_npy(seed) loads delta_t_seed{N}.npy"
+      - "_regenerate_from_checkpoints(seed) loads H-E1 checkpoints, extracts ResNet-50 features, runs L2 probe"
+      - "validate() asserts n_checkpoints >= 15 and n_seeds >= 3"
+      - "Returns Dict[int, np.ndarray] where values have shape (n_checkpoints,)"
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-2: Data Loader"
+      - file: "h-m3/03_prd.md"
+        section: "FR-1: Data Loading Module"
+
+  - id: A-3
+    title: "TransitionEpochAnalyzer"
+    type: implementation
+    priority: 91
+    complexity: 12
+    description: "Implement find_t_star (threshold-based with consecutive checkpoint condition), find_t_star_adaptive (fallback with 0.5*min), compute_gap_area, analyze_across_seeds"
+    acceptance_criteria:
+      - "find_t_star returns first epoch (int) where delta < threshold for n_consecutive consecutive checkpoints"
+      - "Returns None if no qualifying window found"
+      - "Epoch = checkpoint_index * checkpoint_interval (2)"
+      - "find_t_star_adaptive retries with threshold = 0.5 * min(delta_curve) when primary returns None"
+      - "compute_gap_area returns sum(max(delta, 0))"
+      - "analyze_across_seeds aggregates t_star_per_seed, mean_t_star, std_t_star, gap_areas"
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-3: TransitionEpochAnalyzer"
+      - file: "h-m3/03_prd.md"
+        section: "FR-2: t* Detection"
+
+  - id: A-4
+    title: "StatisticalValidator"
+    type: implementation
+    priority: 90
+    complexity: 14
+    description: "Implement bootstrap CI for std(t*) and mean gap area, MUST_WORK gate evaluation (std < 10 epochs), mechanism verification (4 indicators)"
+    acceptance_criteria:
+      - "bootstrap_std_ci returns (ci_low, ci_high) 95% CI for std(t*) using 10000 resamples"
+      - "evaluate_gate returns gate_passed=True when std(t*) < 10.0 AND >= 3 seeds have valid t*"
+      - "evaluate_gate handles partial-pass: std in [10,20]"
+      - "verify_mechanism_activated checks 4 indicators: all_seeds_found_t_star, std_below_threshold, gap_area_positive, curves_loaded"
+      - "run_full_validation combines gate + mechanism + CI into unified dict"
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-4: StatisticalValidator"
+      - file: "h-m3/03_prd.md"
+        section: "FR-3: Statistical Variance Analysis"
+
+  - id: A-5
+    title: "Visualizer"
+    type: implementation
+    priority: 89
+    complexity: 11
+    description: "Implement 4 plot types: gate metrics bar chart, delta(t) timeline with t* vertical lines, gap area boxplot with CI, cross-dataset comparison (if CelebA available)"
+    acceptance_criteria:
+      - "plot_gate_metrics: bar chart of std(t*) vs 10-epoch threshold, seed scatter points"
+      - "plot_delta_timeline: all 3 seeds on same axes, vertical lines at each seed's t*"
+      - "plot_gap_area_boxplot: box plot with 95% bootstrap CI band"
+      - "All figures saved to h-m3/figures/ directory"
+      - "save_all() runs all applicable plots and returns list of saved paths"
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "Visualizer"
+      - file: "h-m3/03_prd.md"
+        section: "FR-6: Visualization"
+
+  - id: A-6
+    title: "ResultsExporter"
+    type: implementation
+    priority: 88
+    complexity: 7
+    description: "Implement JSON results save (t_star_per_seed, mean, std, CI, gate_passed), CSV delta(t) curves, stdout gate summary"
+    acceptance_criteria:
+      - "save_json writes h-m3_results.json with all analysis + validation fields"
+      - "save_csv writes per-seed delta(t) curves for reproducibility"
+      - "print_summary prints PASS/FAIL/PARTIAL-PASS gate summary to stdout"
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "ResultsExporter"
+      - file: "h-m3/03_prd.md"
+        section: "FR-7: Results Export"
+
+  - id: A-7
+    title: "Orchestrator (analyze_t_star.py)"
+    type: implementation
+    priority: 87
+    complexity: 8
+    description: "Implement main() orchestrating: load_config → DeltaCurveLoader → TransitionEpochAnalyzer → StatisticalValidator → Visualizer → ResultsExporter. Argparse --config flag."
+    acceptance_criteria:
+      - "main(config_path) executes full pipeline end-to-end"
+      - "argparse --config defaults to configs/waterbirds.yaml"
+      - "Logs each stage with timing"
+      - "Returns results dict for programmatic use"
+      - "CUDA_VISIBLE_DEVICES respected via validate_config()"
+    reference_files:
+      - file: "h-m3/03_architecture.md"
+        section: "Main Entry Point"
+      - file: "h-m3/03_config.md"
+        section: "load_config"
+
+  - id: A-8
+    title: "Integration Test"
+    type: evaluation
+    priority: 86
+    complexity: 9
+    description: "Run full pipeline on H-E1 JSON outputs; verify gate PASS (std(t*) < 10 epochs across 3 seeds); generate all figures; verify JSON results structure"
+    acceptance_criteria:
+      - "Pipeline runs end-to-end without error on H-E1 data"
+      - "std(t*) computed and compared against 10-epoch threshold"
+      - "All 3 seeds produce valid t* (not None)"
+      - "gate_passed field present in results JSON"
+      - "Figures saved to h-m3/figures/"
+      - "Results JSON saved to h-m3/results/h-m3_results.json"
+    reference_files:
+      - file: "h-m3/03_prd.md"
+        section: "9. Success Criteria"
+      - file: "h-m3/03_architecture.md"
+        section: "Epic Tasks"
+
+  # ── Subtasks for A-2 (DeltaCurveLoader) ─────────────────────────────────────
+
+  - id: L-2-1
+    title: "DeltaCurveLoader: JSON + NPY primary loaders"
+    type: subtask
+    parent_epic: A-2
+    priority: 48
+    description: "_load_from_json() parses h-e1_results.json per_seed[i].delta_curve fields. _load_from_npy(seed) loads delta_t_seed{N}.npy. load() tries JSON first, then per-seed NPY."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-2: Data Loader — Subtask L-2-1"
+
+  - id: L-2-2
+    title: "DeltaCurveLoader: validate() + load() orchestration"
+    type: subtask
+    parent_epic: A-2
+    priority: 47
+    description: "validate() asserts n_checkpoints >= 15 and n_seeds >= 3 on loaded curves dict. load() orchestrates primary → fallback path with logging."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-2: Data Loader — Subtask L-2-2"
+
+  - id: L-2-3
+    title: "DeltaCurveLoader: checkpoint regeneration fallback"
+    type: subtask
+    parent_epic: A-2
+    priority: 46
+    description: "_regenerate_from_checkpoints(seed): load ResNet-50 checkpoint, extract backbone features, fit L2 logistic regression probes on spurious/core labels, compute delta(t) per checkpoint."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-2: Data Loader — fallback regeneration"
+
+  - id: L-2-4
+    title: "DeltaCurveLoader: error handling + logging"
+    type: subtask
+    parent_epic: A-2
+    priority: 45
+    description: "Handle FileNotFoundError gracefully, log array shapes and seed count on successful load, raise descriptive errors when all load paths fail."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-2: Data Loader"
+
+  # ── Subtasks for A-3 (TransitionEpochAnalyzer) ──────────────────────────────
+
+  - id: L-3-1
+    title: "find_t_star + find_t_star_adaptive"
+    type: subtask
+    parent_epic: A-3
+    priority: 44
+    description: "find_t_star: scan delta_curve for n_consecutive checkpoints below threshold, return epoch = idx * checkpoint_interval or None. find_t_star_adaptive: retry with threshold = 0.5 * min(delta_curve)."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-3: TransitionEpochAnalyzer — find_t_star"
+
+  - id: L-3-2
+    title: "compute_gap_area + analyze_across_seeds"
+    type: subtask
+    parent_epic: A-3
+    priority: 43
+    description: "compute_gap_area: sum(max(delta, 0)). analyze_across_seeds: iterate seeds, collect t_stars and gap_areas, compute mean/std, flag used_adaptive_threshold."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-3: TransitionEpochAnalyzer — analyze_across_seeds"
+
+  # ── Subtasks for A-4 (StatisticalValidator) ─────────────────────────────────
+
+  - id: L-4-1
+    title: "bootstrap_std_ci + bootstrap_mean_ci"
+    type: subtask
+    parent_epic: A-4
+    priority: 42
+    description: "bootstrap_std_ci: 10k resamples of t_star_values with replacement, compute std per resample, return (2.5th, 97.5th) percentiles. bootstrap_mean_ci: same for mean (used for gap area CI)."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-4: StatisticalValidator — bootstrap_std_ci"
+
+  - id: L-4-2
+    title: "evaluate_gate + verify_mechanism_activated + run_full_validation"
+    type: subtask
+    parent_epic: A-4
+    priority: 41
+    description: "evaluate_gate: std < 10 PASS, [10,20] PARTIAL-PASS, >= 20 FAIL. verify_mechanism_activated: check 4 indicators. run_full_validation: compose gate + mechanism + CI."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "A-4: StatisticalValidator — evaluate_gate"
+
+  # ── Subtasks for A-5 (Visualizer) ───────────────────────────────────────────
+
+  - id: C-5-1
+    title: "plot_gate_metrics + plot_delta_timeline"
+    type: subtask
+    parent_epic: A-5
+    priority: 40
+    description: "plot_gate_metrics: bar of std(t*) vs 10-epoch threshold line, scatter of individual seed t* values. plot_delta_timeline: multi-seed delta(t) curves on same axes, vertical dashed lines at each t*."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "Visualizer"
+
+  - id: C-5-2
+    title: "plot_gap_area_boxplot + save_all"
+    type: subtask
+    parent_epic: A-5
+    priority: 39
+    description: "plot_gap_area_boxplot: box + strip of gap area per seed, horizontal CI band. save_all: run all applicable plots, return list of saved paths."
+    reference_files:
+      - file: "h-m3/03_logic.md"
+        section: "Visualizer"
+
+  # ── Subtasks for A-8 (Integration Test) ─────────────────────────────────────
+
+  - id: T-8-1
+    title: "Integration test: data loading + t* detection"
+    type: subtask
+    parent_epic: A-8
+    priority: 38
+    description: "Load H-E1 delta(t) data, run TransitionEpochAnalyzer.analyze_across_seeds(), verify all seeds return valid t* (not None), log per-seed t* values."
+    reference_files:
+      - file: "h-m3/03_prd.md"
+        section: "PoC Success Check"
+
+  - id: T-8-2
+    title: "Integration test: gate evaluation + results export"
+    type: subtask
+    parent_epic: A-8
+    priority: 37
+    description: "Run StatisticalValidator.run_full_validation(), check std(t*) < 10, save JSON results, verify figures generated in h-m3/figures/."
+    reference_files:
+      - file: "h-m3/03_prd.md"
+        section: "9. Success Criteria"
+
+  # ── Failsafe ─────────────────────────────────────────────────────────────────
+
+  - id: FAILSAFE-1
+    title: "Pipeline Continuation Checkpoint"
+    type: failsafe
+    priority: 1
+    description: "If any upstream task fails: save partial results, log failure reason to h-m3/results/error_log.txt, set gate_passed=False in results JSON with failure_mode field, continue to Phase 4 validation with partial data."
+    acceptance_criteria:
+      - "error_log.txt created on any exception"
+      - "Partial results saved even on failure"
+      - "Phase 4 can read results JSON even in failure case"
+    reference_files:
+      - file: "h-m3/03_prd.md"
+        section: "Failure Response"

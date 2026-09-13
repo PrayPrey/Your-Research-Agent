@@ -1,0 +1,55 @@
+
+\subsubsection{3.1 Overview}
+
+The core design insight is that adversarial vulnerability viewed as a scalar discards the multivariate structure that carries architecture-family signal. Each model is therefore represented as a $\Delta^*$-vector --- one normalized vulnerability score per attack category --- and architecture-family effects are tested by permutation MANOVA on the resulting model $\times$ category matrix.
+
+\subsubsection{3.2 The $\Delta^*$-Vector Framework}
+
+\textbf{Normalized vulnerability ($\Delta^*$).} For a model $m$ evaluated on attack category $c$:
+
+\[ \Delta^*(m, c) = (\text{Acc\_clean}(m, c) - \text{Acc\_adv}(m, c)) / \text{Acc\_clean}(m, c) \]
+
+Normalization by Acc\_clean removes the clean-accuracy confound: $\Delta^*$ measures proportional degradation from each model's own baseline, isolating adversarial vulnerability from task difficulty and model capacity. Across $K$ reliable attack categories, the $\Delta^*$ scores for model \textit{m} form a vector \textbf{x}(m) $\in \mathbb{R}^K$. The data matrix \textbf{X} $\in \mathbb{R}^{N\times K}$ (N=9, K=6) is the input to statistical analysis.
+
+\textbf{Reliability filtering.} For each attack category \textit{c}, the Spearman-Brown corrected split-half reliability $r_{SB}$ is computed. Categories with $r_{SB} < 0.7$ or fewer than 50 examples are excluded. This filter makes effect-size estimates conservative by restricting analysis to stable attack categories.
+
+\subsubsection{3.3 Model Selection and Scale Matching}
+
+Nine transformer models spanning three architecture families, all in the 110--350M parameter range, were evaluated.
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+Family & Models \\
+\midrule
+Encoder-only & bert-base-uncased, roberta-base, google/electra-base-discriminator, albert-base-v2 \\
+Decoder-only & gpt2, facebook/opt-125m, facebook/opt-350m \\
+Encoder-decoder & t5-base, facebook/bart-base \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Scale matching controls for the capacity confound. Models at 1B+ parameters were excluded from this proof-of-concept.
+
+\subsubsection{3.4 Fine-Tuning Protocol}
+
+Rather than fine-tuning from scratch, models were loaded from pre-existing GLUE-task checkpoints available via HuggingFace Hub (e.g., \texttt{textattack/bert-base-uncased-SST-2}, \texttt{textattack/roberta-base-MNLI}). This approach is equivalent in evaluation logic to GLUE fine-tuning from scratch, with checkpoint sources detailed in the replication package. Where textattack shortcuts were not available for all task-family combinations, models were fine-tuned using AdamW optimizer with family-specific learning rates (encoder-only: $2\times 10^{-5}$; decoder-only: $5\times 10^{-5}$; encoder-decoder: $1\times 10^{-4})$, 10\% linear warmup, batch sizes of 32 (encoder-only, encoder-decoder) or 16 (decoder-only), and seed=42 throughout.
+
+\textbf{Encoder-decoder task coverage.} T5-base and BART-base were fine-tuned on SST-2 only in this experiment; no MNLI fine-tuning was performed for these models. This produces degenerate ANLI-R3 results for the encoder-decoder family, as discussed in Section 5.1 and Section 6.2.
+
+\subsubsection{3.5 Statistical Methods}
+
+\textbf{Permutation MANOVA.} Architecture-family effects on the $\Delta^*$-matrix are tested using permutation MANOVA with Pillai's trace as the test statistic and $\eta^2$ = SS\_between / SS\_total as the effect size. Pillai's trace and $\eta^2$ are monotonically related in the balanced three-group case (both bounded [0,1]) but are not identical; $\eta^2$ is reported throughout for interpretability, with Pillai's trace as the basis for the permutation p-value. The empirical p-value is the fraction of 1,000 permuted $\eta^2$ values exceeding the observed $\eta^2$. With N=9 and K=6, the within-group scatter matrix W has sufficient rank for Pillai's trace computation; the permutation approach eliminates the distributional assumptions that would otherwise make N=9 invalid for parametric MANOVA. Per-category $\eta^2$ values are computed via univariate ANOVA for decomposition.
+
+\textbf{LOMO classification.} Leave-one-model-out nearest-neighbor classification (cosine distance, k=1) tests whether $\Delta^*$-vectors support above-chance architecture-family classification. Accuracy and a $3\times 3$ confusion matrix are reported. \textit{Validity caveat:} at N=3 models per family, LOMO is geometrically near-degenerate (each fold trains on only 2 reference points per family in 6-dimensional space); results are exploratory only and should not be read as a test of the classification hypothesis.
+
+\textbf{Mixed-effects sensitivity check.} A sensitivity analysis uses the model formula: \texttt{\$\textbackslash Delta\$*(m,c) \~{} arch\textbackslash \_family \$\textbackslash times\$ attack\textbackslash \_type + objective + clean\textbackslash \_acc + (1|model\textbackslash \_id)}. At N=9, this model is severely underdetermined, with most terms showing $p\approx 1.0$ or NaN due to collinearity and separation, particularly for the encoder-decoder family (N=2). Results are reported with explicit degeneracy caveats.
+
+\textbf{Bootstrap confidence intervals.} Bootstrap CIs (200 iterations) are computed for mixed-effects model coefficients. The criterion that 95\% CIs exclude zero was pre-specified as a gate condition; it is not met in this experiment.
+
+\subsubsection{3.6 Implementation}
+
+Seven Python modules comprise the pipeline: \texttt{data\textbackslash \_loader.py} (115 lines), \texttt{fine\textbackslash \_tuner.py} (296 lines), \texttt{evaluator.py} (384 lines), \texttt{delta\textbackslash \_star.py} (136 lines), \texttt{statistical\textbackslash \_analysis.py} (358 lines), \texttt{visualizer.py} (206 lines), and \texttt{run\textbackslash \_experiment.py} (293 lines) --- 1,788 lines total, 62.7 KB. The pipeline checkpoints results as JSON after each stage for crash recovery; a stage-resumption mechanism was exercised during this experiment.

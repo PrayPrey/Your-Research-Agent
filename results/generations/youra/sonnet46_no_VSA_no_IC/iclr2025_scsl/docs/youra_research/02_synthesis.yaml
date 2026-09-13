@@ -1,0 +1,126 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-21T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent-Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap1"
+
+hypothesis_draft:
+  title: "SAM-SSL Sharpness Anisotropy Hypothesis for Spurious Correlation Reduction"
+  hypothesis_id: "H-SAMSSL-v1"
+  core_claim: |
+    SSL models (SimCLR/MoCo/DINO) trained on spurious correlation benchmarks develop
+    anisotropic loss landscapes: higher Hessian sharpness along spurious feature directions
+    (identifiable via linear-probe loss variance proxy, annotation-free) than along random
+    directions. This anisotropy predicts worst-group accuracy. SAM during SSL pre-training
+    reduces this anisotropy and improves worst-group accuracy by ≥2pp on ≥2/3 benchmarks
+    (Waterbirds/CelebA/CMNIST) without group annotations.
+  mechanism: |
+    SSL contrastive pre-training (InfoNCE) creates a loss landscape with anisotropic curvature:
+    shortcut features (spurious, low-rank) correspond to sharper loss landscape directions than
+    core features. SAM's perturbation-based optimization flattens these sharper directions during
+    training. In SSL's InfoNCE landscape (unlike supervised cross-entropy), SAM's flattening
+    may preferentially target spurious directions because they are sharper, without the rank-1
+    simplicity bias that Gatmiry (2024) proves for supervised settings. The intervention is
+    annotation-free because SAM operates only on the loss gradient; the diagnostic measurement
+    uses linear-probe loss variance as a proxy for spurious direction identification (LFR protocol).
+  predictions:
+    - P1: "Sharpness anisotropy (spurious vs. random direction, ratio > 1.2) correlates negatively with worst-group accuracy across SSL model checkpoints (r < -0.5, p < 0.05)"
+    - P2: "SAM training reduces spurious anisotropy ratio by ≥15% vs. SGD, preserving majority accuracy within 2pp"
+    - P3: "SAM-trained SSL improves worst-group accuracy ≥2pp on ≥2/3 datasets vs. SGD baseline"
+
+variables_summary:
+  independent: "Optimizer (SAM rho=0.05 / ASAM rho=0.5 / SGD baseline) × SSL method (SimCLR/MoCo-v2/DINO) × Dataset (Waterbirds/CelebA/CMNIST)"
+  dependent_primary: "Worst-group accuracy (standard kohpangwei/group_DRO protocol)"
+  controlled: "ResNet-50 backbone, identical augmentation pipeline, identical linear probe evaluation, 200 pre-training epochs"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in worst-group accuracy between SAM-trained and
+    SGD-trained SSL models on Waterbirds, CelebA, and CMNIST (< 1pp on all three).
+    Equivalently, loss landscape sharpness anisotropy along spurious feature directions
+    does not correlate with worst-group accuracy (|r| < 0.2, p > 0.05).
+  statistical_test: "Paired t-test (SAM vs. SGD worst-group accuracy across 3 datasets × 3 SSL methods); Pearson correlation for P1"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First empirical measurement of loss landscape sharpness anisotropy along spurious feature directions in SSL models; first annotation-free SSL pre-training optimizer intervention for spurious correlation benchmarks"
+  differentiation_summary: |
+    G2-SAM (Ji 2025): group-aware SAM, supervised, annotation-required — this work: annotation-free, SSL.
+    DGSAM (Song 2025): domain generalization, not spurious correlation benchmarks — different target.
+    Cross-Variant SSL (Yadav 2026): augmentation-based, not optimizer-based — orthogonal mechanism.
+    LFR/EVaLS: post-hoc reweighting on fixed representations — this work intervenes during pre-training.
+    Gatmiry (2024): theory for supervised cross-entropy — this work tests empirically in SSL InfoNCE setting.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "SimCLR (ResNet-50, 200 epochs)"
+    - "MoCo-v2 (ResNet-50, 200 epochs)"
+    - "DINO (ResNet-50, 200 epochs)"
+  datasets:
+    - "Waterbirds (landbird/waterbird × land/water background; 4 groups)"
+    - "CelebA (blond/nonblond hair × male/female; 4 groups)"
+    - "CMNIST (digit × background color; spurious correlation strength 0.9)"
+  baselines:
+    - "SGD-trained SSL (SimCLR/MoCo/DINO) — primary comparison"
+    - "LFR annotation-free (Ghaznavi 2023) on SSL features"
+    - "EVaLS (2024) on SSL features"
+    - "JTT (Liu 2021) annotation-free on SSL features"
+    - "Group DRO (Sagawa 2019) — oracle upper bound (uses group labels)"
+
+measurement_plan:
+  data_collection:
+    - source: "Waterbirds dataset from kohpangwei/group_DRO"
+    - source: "CelebA from PyTorch/torchvision official loader"
+    - source: "CMNIST from torchvision with spurious correlation injection (p=0.9)"
+  procedure:
+    - step: "Train SSL models (SimCLR/MoCo/DINO × SGD/SAM/ASAM) for 200 epochs — 9 training runs"
+    - step: "Save checkpoints at epochs 50, 100, 150, 200 for each run"
+    - step: "Train linear probe on frozen representations (100 epochs, SGD, lr=0.01, no group labels)"
+    - step: "Compute linear probe loss distribution — identify top-25% high-loss samples as spurious proxy directions"
+    - step: "Measure SAM perturbation loss increase along spurious proxy directions vs. 100 random direction samples (rho=0.05, same as SAM training)"
+    - step: "Compute sharpness anisotropy ratio = spurious_sharpness / random_sharpness"
+    - step: "Evaluate worst-group accuracy using standard group_DRO protocol (group labels used ONLY for evaluation)"
+    - step: "Compute Pearson r between anisotropy ratio and worst-group accuracy across checkpoints"
+  success_criteria:
+    - "P1: anisotropy ratio > 1.2 AND |r| > 0.5 in ≥7/9 model-dataset pairs"
+    - "P2: SAM anisotropy ratio ≤ 0.85 × SGD AND majority accuracy drop < 2pp in ≥2/3 datasets"
+    - "P3: worst-group accuracy improvement ≥2pp on ≥2/3 datasets for ≥1 SSL method"
+
+validation:
+  internal_validity:
+    - "Use identical linear probe protocol across all SSL methods and optimizers to control for evaluation variance"
+    - "Measure majority accuracy alongside minority accuracy to detect fake flat minima (uniform flattening)"
+    - "Include ASAM variant to check sensitivity to SAM hyperparameter (rho vs. adaptive rho)"
+    - "Validate linear probe proxy quality: report precision/recall vs. ground-truth group labels in evaluation-only mode"
+  external_validity:
+    - "Test across 3 distinct spurious correlation benchmarks (different spurious feature types: texture/background, appearance, color)"
+    - "Test across 3 SSL architectures (SimCLR/MoCo-v2/DINO — different contrastive objectives)"
+    - "Compare against established annotation-free baselines (LFR, EVaLS, JTT) to contextualize absolute improvement"
+
+discussion_synthesis:
+  key_insights:
+    - "Gatmiry's rank-1 simplicity bias result for supervised SAM does NOT automatically transfer to InfoNCE SSL — the InfoNCE landscape's uniform distribution pressure creates qualitatively different dynamics. This is the central theoretical uncertainty and the motivation for empirical test."
+    - "The annotation-free constraint is fully satisfiable: SAM training needs no labels; measurement uses linear probe loss variance as proxy (LFR-validated mechanism); evaluation uses group labels only for metrics."
+    - "Two-part hypothesis (diagnostic P1 + intervention P2/P3) ensures scientific value regardless of outcome: if P1 fails, SSL doesn't have the anisotropy mechanism; if P1 succeeds but P3 fails, anisotropy exists but SAM's fake flat minima problem dominates."
+    - "Fake flat minima (DGSAM's failure mode) is diagnostically distinguishable from true shortcut reduction by checking majority accuracy preservation — built into the measurement plan."
+  breakthrough_moments:
+    - "Exchange 6 (Prof. Rex): Revealed that Gatmiry's theory predicts SAM → MORE shortcuts (rank-1 = simpler = spurious), requiring a theoretical counter-argument for the InfoNCE setting."
+    - "Exchange 7 (Dr. Nova): InfoNCE landscape argument — uniform distribution pressure with no single rank-1 attractor makes the simplicity bias transfer non-obvious and empirically testable."
+    - "Exchange 6 (Prof. Rex) + Exchange 7 (Dr. Nova): Annotation problem identified and resolved — use LFR's loss variance proxy instead of Izmailov's group-label-requiring subspace extraction."
+  resolved_tensions:
+    - "Tension: Gatmiry rank-1 result suggests SAM → more shortcuts. Resolution: InfoNCE landscape differs from supervised cross-entropy; empirical test is the answer."
+    - "Tension: 'annotation-free' measurement requires group labels in Izmailov's approach. Resolution: use linear probe loss variance proxy (LFR protocol) — validated annotation-free."
+    - "Tension: Fake flat minima (DGSAM) — SAM may flatten everything uniformly, not selectively. Resolution: distinguishable failure mode — uniform flattening + no worst-group improvement vs. selective flattening + improvement. Built into measurement design."

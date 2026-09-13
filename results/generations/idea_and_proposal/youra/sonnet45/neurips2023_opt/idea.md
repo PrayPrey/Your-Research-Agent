@@ -1,0 +1,10 @@
+# Title
+Renormalization Group Theory for Hyperparameter Scaling: Predicting Optimal Configurations Across Model Sizes via β-Function Fixed Points
+
+# Motivation
+Training large language models requires extensive hyperparameter tuning, consuming millions of dollars and significant energy. Current approaches rely on exhaustive grid search or empirical heuristics at each model scale. While recent work observes that loss curves "collapse" onto universal trajectories when hyperparameters are optimally set, no theoretical framework explains *why* this occurs or enables *prediction* of optimal hyperparameters at new scales. This research addresses the critical gap between empirical scaling observations and predictive theory, potentially reducing hyperparameter search costs by 10-100× while maintaining performance.
+
+# Main Idea
+We hypothesize that optimal hyperparameters (learning rate, batch size, weight decay) evolve according to renormalization group β-functions as model size scales from 10⁶ to 10¹² parameters. The core mechanism: when model size transforms N→λN, loss landscape geometry changes systematically, inducing hyperparameter flow describable by differential equations β=d(log HP)/d(log N). Fixed points where β(HP*)=0 correspond to scale-invariant configurations manifesting as the empirically-observed collapse phenomenon.
+
+We will extract β-functions from published scaling studies using nonlinear regression (R²>0.9 required), identify fixed points, and validate that predicted hyperparameters achieve <5% loss degradation versus grid-search optimal. This bridges statistical physics and ML optimization, transforming hyperparameter tuning from expensive empirical search into theory-guided prediction, with immediate practical impact on AI training efficiency and environmental sustainability.

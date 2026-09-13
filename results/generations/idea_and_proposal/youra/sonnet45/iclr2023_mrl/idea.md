@@ -1,0 +1,10 @@
+# Title
+GeometricWatch: Automated Multi-Scale Monitoring and Intervention for Geometric Pathologies in Multimodal Contrastive Learning
+
+# Motivation
+CLIP-style vision-language models suffer from geometric pathologies during training—representation collapse (embeddings cluster too tightly) and cross-modal misalignment (vision and text representations drift apart)—that degrade downstream task performance. Current practice lacks real-time diagnostic tools and relies on manual hyperparameter tuning. Existing work proposes geometric regularizers but provides no monitoring system or adaptive triggering mechanism. This creates a critical gap: practitioners cannot detect when pathologies occur or intervene appropriately, wasting computational resources on models with poor representation quality.
+
+# Main Idea
+We propose GeometricWatch, a lightweight framework that monitors geometric health at two scales during CLIP training: **micro-level** (intra-modal variance via dispersion metrics) detects representation collapse, and **macro-level** (cross-modal alignment via Representational Similarity Analysis) tracks semantic consistency. When anomalies are detected using bootstrap-calibrated thresholds, the system automatically triggers a dispersive regularizer with graduated application (gradual ramp-up, cooldown periods) to restore geometric health without destabilizing optimization. 
+
+We hypothesize this approach will reduce collapse events by ≥30%, improve downstream accuracy by ≥1%, and maintain <5% computational overhead. Validation on CC3M with ImageNet zero-shot classification and COCO retrieval will test whether: (1) pathologies are reliably detectable, (2) interventions improve geometry within 500 steps, and (3) geometric health correlates with task performance (r>0.3). This provides practitioners an interpretable diagnostic tool while establishing principles for adaptive geometric regularization in multimodal learning.

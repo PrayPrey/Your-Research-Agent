@@ -1,0 +1,37 @@
+# Introduction
+
+While matrix-level distillation faithfully captures attention patterns at training lengths, token-level alignment produces representations 5× more stable across sequence lengths—a mechanistic advantage suggesting superior generalization potential. This finding reframes Transformer-to-SSM distillation as an objective selection problem rather than purely an architectural one.
+
+## The Long-Context Challenge
+
+Transformers achieve remarkable performance on natural language tasks but scale quadratically with sequence length, making long-context processing prohibitively expensive. A 32K-token sequence requires 256× more compute than a 2K sequence for attention alone. This scaling barrier has motivated extensive research into linear-time alternatives, particularly State Space Models (SSMs) like Mamba \citep{gu2023mamba}.
+
+Rather than training SSMs from scratch—requiring billions of tokens and substantial compute—distillation offers a compelling alternative. MOHAWK \citep{bick2024mohawk} demonstrates that Phi-Mamba can match 85% of Phi-1.5's performance using only 3B tokens (<1% of typical pretraining cost). CAB \citep{wang2025cab} shows that token-level alignment avoids O(L²) attention map materialization entirely.
+
+## The Overlooked Question
+
+Yet a fundamental question remains unexplored: *which distillation objective generalizes better when target sequences exceed training lengths?*
+
+MOHAWK employs matrix-level supervision, minimizing ||TeacherMixer - StudentMixer|| to directly transfer attention patterns. CAB uses token-level supervision, aligning query/key projections (Q,K) to SSM parameters (B,C) via learned bridges. Both achieve competitive results at training lengths, but neither has been evaluated for length extrapolation under controlled conditions.
+
+This gap matters because practitioners increasingly need models that handle sequences longer than their training distribution. If one objective produces representations that transfer better to unseen lengths, this provides a principled criterion for distillation design.
+
+## Key Insight: Position-Agnostic Supervision Transfers Better
+
+We hypothesize that token-level objectives produce more stable representations across lengths because:
+
+1. **Token-level supervision is position-agnostic**: Aligning individual Q/K projections to B/C parameters creates supervision independent of sequence-specific relationships.
+
+2. **Matrix-level supervision encodes positional patterns**: Attention maps capture position-position relationships that fundamentally change with sequence length.
+
+Our experiments confirm this mechanism. Measuring hidden state drift (L2 distance between teacher and student representations) across sequence lengths 512-2048, we find CAB produces drift slope 0.00090506 versus MOHAWK's 0.00452495—a 5× difference. CAB's drift ratio remains bounded at 1.34; MOHAWK's increases without bound.
+
+## Contributions
+
+This work makes three contributions:
+
+First, we construct a unified Phi-Mamba framework implementing both MOHAWK and CAB objectives in a single codebase (Section 3). This enables the first controlled comparison of distillation objective types, eliminating confounds from implementation differences.
+
+Second, we demonstrate that token-level distillation produces 5× more stable representations across sequence lengths (Section 5). This quantified stability gap provides mechanistic evidence that objective type fundamentally affects length generalization.
+
+Third, we establish scope conditions for Transformer-to-SSM distillation: Phi-1.5's hard 2048-token context limit (Section 4) reveals that length extrapolation research requires teachers with explicit position extrapolation capabilities (RoPE, ALiBi). Our findings suggest token-level objectives may be preferred when target lengths exceed the teacher's training distribution.

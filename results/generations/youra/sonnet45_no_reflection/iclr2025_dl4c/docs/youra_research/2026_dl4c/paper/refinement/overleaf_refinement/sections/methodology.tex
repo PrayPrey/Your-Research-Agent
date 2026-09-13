@@ -1,0 +1,123 @@
+
+Our methodology distinguishes statistical independence from directional factorization in multi-objective code modifications.
+
+\subsubsection{Overview}
+
+The analysis pipeline consists of five stages:
+
+\begin{enumerate}
+\item \textbf{Data Collection}: Mine commits with aspect labels (security, refactor, performance, bugfix)
+\item \textbf{Metric Computation}: Measure quality changes (Δcorrectness, Δquality, Δsecurity, Δefficiency)
+\item \textbf{Confound Regression}: Remove spurious structure from confounding variables (edit size, file entropy)
+\item \textbf{Spectral Analysis}: Eigendecomposition of residual covariance to test for aspect-dominant structure
+\item \textbf{Statistical Validation}: Permutation testing, directional stability analysis, cross-validation
+\end{enumerate}
+
+This enables precise claims: if spectral gap > 2.0 and permutation p < 0.05, aspect-dominant structure exists. If coupling ≤ 0.2 but gap ≤ 2.0 and p > 0.5, independence without factorization exists—spherical geometry rather than aspect-aligned.
+
+\subsubsection{Dataset Construction}
+
+Commit selection criteria:
+\begin{itemize}
+\item \textbf{AST Distance < 20 nodes}: Ensures focused changes using tree-sitter parsers
+\item \textbf{Aspect Labels}: Commit messages containing keywords ("security", "refactor", "optimize", "fix")
+\item \textbf{File Type Filter}: Python and JavaScript source files
+\item \textbf{Temporal Range}: Last 3 years (2023-2026)
+\item \textbf{Exclusions}: Merge commits, bot-generated commits, dependency updates
+\end{itemize}
+
+\subsubsection{Quality Metrics}
+
+For each commit, we compute pre→post metric changes:
+
+\textbf{Δcorrectness} = (tests_passing_post / tests_total) - (tests_passing_pre / tests_total)  
+Range: [-1, 1]. Measures functional correctness via unit test execution (pytest for Python, jest for JavaScript).
+
+\textbf{Δquality} = maintainability_rating_post - maintainability_rating_pre  
+SonarQube maintainability rating. Scale: A (best) to E (worst), converted to numeric [-4, 4].
+
+\textbf{Δsecurity} = -(alerts_post - alerts_pre)  
+Negative sign ensures positive Δ means improvement. CodeQL detects vulnerabilities (SQL injection, XSS, path traversal).
+
+\textbf{Δefficiency} = (runtime_pre - runtime_post) / runtime_pre  
+Percentage improvement in benchmark runtime via pytest-benchmark.
+
+\subsubsection{Residual Covariance Analysis}
+
+Raw covariance matrices conflate outcome-space structure with confounding factors. We regress out edit size and file entropy:
+
+For each metric dimension d:
+```
+Δd = β₀ + β₁·edit_size + β₂·file_entropy + ε
+Residual_d = ε
+```
+
+We compute residual covariance matrix Σ_residual from regression residuals, isolating outcome-space geometry.
+
+\subsubsection{Spectral Decomposition}
+
+We perform eigendecomposition:
+```
+Σ_residual = VΛV^T
+```
+where V are eigenvectors, Λ = diag(λ₁, λ₂, λ₃, λ₄) are eigenvalues sorted descending.
+
+\textbf{Spectral Gap Metric}:
+```
+spectral_gap = λ₁ / λ₄
+```
+
+Interpretation:
+\begin{itemize}
+\item Gap > 2.0: Anisotropic structure—one direction dominates, suggesting aspect-aligned geometry
+\item Gap ≈ 1.0-1.5: Spherical geometry—variance approximately equal in all directions
+\item Gap < 1.0: Impossible (λ₁ is always largest)
+\end{itemize}
+
+The threshold of 2.0 indicates maximum variance direction is at least twice the minimum variance direction, providing clear anisotropic signature.
+
+\textbf{Cross-Aspect Coupling}:
+```
+coupling = median(|Σ_ij|) / median(|Σ_ii|) for i ≠ j
+```
+
+Coupling ≤ 0.2 indicates independence.
+
+\subsubsection{Statistical Validation}
+
+\textbf{Permutation Test} (1000 iterations):
+```
+FOR iteration k = 1 to 1000:
+\begin{enumerate}
+\item Randomly shuffle aspect labels
+\item Recompute residual covariance
+\item Compute spectral_gap_null[k]
+\end{enumerate}
+
+p_value = count(spectral_gap_null >= spectral_gap_observed) / 1000
+```
+
+Null hypothesis: Aspect labels are unrelated to covariance structure.
+
+\textbf{Directional Stability Analysis}: For each aspect a and eigenvector v_a, compute on-axis projection z-scores. Threshold: z > 2.0 indicates significant alignment.
+
+\textbf{Leave-One-Repo-Out Cross-Validation}: For each repository R, train eigendecomposition on all commits except R, test on R, measure eigenspace alignment. Threshold: consistency ≥ 0.7 indicates robust structure.
+
+\subsubsection{Validation Criteria}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Criterion & Metric & Threshold & Purpose \\
+\midrule
+C1: Independence & Cross-aspect coupling & ≤ 0.2 & Confirm metrics measure distinct constructs \\
+C2: Spectral Gap & λ₁/λ₄ & > 2.0 & Test for anisotropic aspect-dominant structure \\
+C3: Label Informativeness & Permutation p-value & < 0.05 & Rule out chance, verify labels meaningful \\
+C4: Directional Alignment & On-axis z-score & > 2.0 & Test eigenvector-aspect correspondence \\
+C5: Robustness & LORO consistency & ≥ 0.7 & Ensure structure generalizes across repos \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Decision rule: If C1 passes but C2-C5 fail, independence without factorization—metrics uncorrelated but geometry spherical.

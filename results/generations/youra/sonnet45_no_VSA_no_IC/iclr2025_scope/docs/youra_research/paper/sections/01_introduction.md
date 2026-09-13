@@ -1,0 +1,33 @@
+# Introduction
+
+Retrieval-augmented generation (RAG) systems have become the standard architecture for long-context question answering, combining the parametric knowledge of large language models (LLMs) with the dynamic access to external knowledge through dense retrieval. Applications span multi-document QA, legal research, scientific literature search, and code understanding—tasks requiring reasoning over 8k-32k token contexts that exceed the working memory of typical GPU deployments.
+
+However, long-context RAG faces a fundamental memory bottleneck. The key-value (KV) cache used to avoid recomputing attention states during generation grows quadratically with sequence length, consuming 4-6 GB of GPU memory for 32k tokens on Llama-2-7B models. A single A100 40GB GPU can accommodate only 2-3 concurrent inference requests at this scale, limiting throughput for production deployments.
+
+Existing KV cache compression methods rely on uniform attention-based eviction policies. H2O (Zhang et al., 2024) tracks accumulated attention scores across layers and evicts tokens with lowest "heavy-hitter" weights. StreamingLLM (Xiao et al., 2024) preserves a sliding window plus attention sink tokens (initial positions). DynamicKV (Liu et al., 2024) introduces per-layer budget allocation based on layer-specific attention patterns. While effective for general language modeling, these methods discard a critical structural signal available in RAG systems: **retrieval provenance**—the metadata linking generated tokens to retrieved passages (passage boundaries, relevance scores, semantic diversity).
+
+We hypothesize that retrieval metadata predicts which KV cache entries will be useful during answer generation. Dense retrievers (Contriever, DPR) score passages by semantic similarity to the query, implicitly ranking passages by expected utility for reasoning. Passage diversity metrics (MMR) prevent redundant retrieval results, preserving contrastive evidence needed for multi-hop reasoning. Yet existing cache eviction policies treat all context tokens uniformly, ignoring these provenance signals.
+
+This work introduces **ProvenanceCache**, a retrieval-aware KV cache eviction policy that leverages passage boundaries and relevance scores to guide retention decisions. Our method applies three innovations:
+
+1. **Tiered eviction** based on retrieval provenance: query tokens (highest priority, 10% cache budget) → high-relevance passages (60% budget) → low-relevance passages for contrastive evidence (30% budget).
+
+2. **Diversity-aware selection** within each tier using Maximal Marginal Relevance (MMR, λ=0.5): balance relevance scores with embedding-based semantic distance to prevent redundant passage retention.
+
+3. **Empirical validation** that retrieval scores correlate moderately with attention weights (Spearman ρ=0.612 for Contriever, ρ=0.391 for BM25), demonstrating that retrieval metadata generalizes from passage ranking to attention prediction.
+
+We evaluate ProvenanceCache on LongBench multi-document QA (hotpotqa, narrativeqa, triviaqa), comparing against H2O uniform eviction baseline. At 25% cache budget (4× memory compression), ProvenanceCache achieves:
+
+- **+15.35% relative F1 gain** over H2O baseline (0.692 vs 0.600, p<0.001, Cohen's d=2.01)
+- **98.9% of full-KV accuracy** (0.692 vs 0.698) while using 4× less memory
+- **+14.71% gain from diversity-aware scoring** on multi-hop questions (2.4× larger than +6.16% gain on single-hop questions)
+
+Our contributions are threefold:
+
+1. **Empirical finding**: Retrieval relevance scores (Contriever) correlate ρ=0.612 with attention weights during generation, validating that retrieval metadata predicts cache utility. Semantic retrieval (Contriever) shows 57% stronger correlation than lexical retrieval (BM25 ρ=0.391).
+
+2. **Algorithmic contribution**: Tiered provenance-aware eviction combined with MMR diversity selection outperforms uniform attention-based baselines by 15% on multi-hop QA. Diversity-aware scoring matters 2.4× more for multi-hop reasoning than single-hop factoid QA.
+
+3. **Practical impact**: 4× memory compression enables long-context RAG on memory-constrained GPUs (8GB-16GB consumer hardware) while maintaining 98.9% of full-context accuracy.
+
+The remainder of this paper is organized as follows. Section 2 reviews related work on KV cache eviction, RAG systems, and diversity in retrieval. Section 3 describes the ProvenanceCache method (tiered eviction + MMR diversity). Section 4 presents experimental setup and hypotheses. Section 5 reports results validating 15% F1 gain and retrieval-attention correlation. Section 6 discusses why diversity matters for multi-hop reasoning and analyzes the failed query-complexity hypothesis. Section 7 concludes with limitations and future work.

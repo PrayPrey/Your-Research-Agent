@@ -1,0 +1,57 @@
+
+We introduce a Hierarchical Variational Autoencoder for cross-architecture weight space learning. The architecture comprises three levels: (1) architecture-specific equivariant encoders, (2) permutation-invariant pooling, and (3) Transformer sequence modeling. We train this VAE with reconstruction loss, KL divergence, contrastive triplet loss, and task classification loss.
+
+\subsubsection{3.1 Problem Formulation}
+
+Let M = {($\theta_i$, $a_i$, $t_i$)} be a heterogeneous model zoo containing N neural networks, where $\theta_i$ denotes weight parameters, $a_i$ denotes architecture family (CNN, ResNet), and $t_i$ denotes training task (CIFAR-10, ImageNet, etc.).
+
+Goal: Learn encoder f: $\Theta \times A \rightarrow \mathbb{R}^D$ mapping weights $\theta_i$ and architecture type $a_i$ to D-dimensional latent embedding $z_i$ such that same-task different-architecture models cluster tightly: $d(z_i, z_j) < d(z_i, z_k)$ when $t_i = t_j \neq t_k$.
+
+\subsubsection{3.2 Architecture Design}
+
+\textbf{Level 1: Architecture-Specific Equivariant Encoders}
+
+For each architecture family a, we train a dedicated NFN encoder $g_a: \Theta_a \rightarrow \mathbb{R}^{L \times d}$ mapping raw weight tensors to neuron-level embeddings while preserving permutation equivariance. We implement four encoders: CNN-small (3-layer NFN, L=8), CNN-large (4-layer NFN, L=12), ResNet-18 (5-layer NFN with residual block handling), ResNet-34 (6-layer NFN, L=20).
+
+Each encoder outputs layer-wise embeddings $h^{(a)} = [h_1, h_2, \ldots, h_L] \in \mathbb{R}^{L \times d}$, where $h_\ell$ encodes all neurons in layer $\ell$ via permutation-invariant pooling.
+
+\textbf{Level 2: Permutation-Invariant Hierarchical Pooling}
+
+For each layer $\ell$, compute mean and standard deviation of neuron embeddings:
+
+$s_\ell = \text{Concat}(\text{mean}(h_\ell), \text{std}(h_\ell))$
+
+This produces fixed-size summary $s_\ell \in \mathbb{R}^{2d}$ regardless of layer width. Hierarchical grouping applies second pooling stage: $s_{\text{block}} = \text{MaxPool}([s_{\ell_1}, s_{\ell_2}, \ldots, s_{\ell_k}])$.
+
+Mean and max pooling are permutation-invariant (not equivariant), discarding neuron identities while retaining distributional statistics. This loss of equivariance enables comparison between CNN convolutional layers and ResNet residual blocks.
+
+\textbf{Level 3: Transformer Sequence Modeling}
+
+Pooled layer summaries $s = [s_1, s_2, \ldots, s_B]$ form a variable-length sequence. We apply Transformer sequence modeling (6-layer, 8 attention heads, hidden dimension 512) with architecture-type-aware tokenization:
+
+$\tilde{s}_\ell = s_\ell + e_a$
+
+where $e_a \in \mathbb{R}^{2d}$ is learned embedding for architecture family a.
+
+Global pooling extracts latent code via mean pooling: $z_{\text{global}} = (1/B) \sum_\ell z_\ell \in \mathbb{R}^{512}$.
+
+\subsubsection{3.3 Training Protocol}
+
+\textbf{Loss Function:} Weighted combination of reconstruction loss (MSE), KL divergence (regularization), contrastive triplet loss (task-based clustering), and task classification loss (auxiliary supervision):
+
+$L_{\text{total}} = \alpha L_{\text{recon}} + \beta L_{\text{KL}} + \gamma L_{\text{triplet}} + \delta L_{\text{task}}$
+
+We set $\alpha = 1.0, \gamma = 0.5, \delta = 0.1$ and anneal $\beta$ from 1.0 to 0.1 over training.
+
+\textbf{Optimization:} AdamW optimizer with learning rate $10^{-4}$, weight decay $10^{-5}$, batch size 32, gradient clipping max norm 1.0.
+
+\textbf{Dataset Splits:} Train 70\% (1,484 models), Validation 15\% (318 models), Test 15\% (318 models), stratified by task.
+
+\subsubsection{3.4 Evaluation Metrics}
+
+\textbf{Within-Cluster Sum of Squares (WCSS):} For cluster C, $\text{WCSS}(C) = \sum_i \|z_i - \mu_C\|^2$ where $\mu_C$ is cluster centroid. We compare WCSS for same-task different-architecture clusters vs random baseline clusters via bootstrap resampling (30 iterations). Success criterion: $p < 0.01$ and Cohen's $d > 0.5$.
+
+\textbf{Centered Kernel Alignment (CKA):} Measures representation similarity between architecture-specific encoders. Feasibility gate: same-task CKA median $> 0.6$ and different-task CKA median $< 0.4$.
+
+\textbf{Reconstruction Task Accuracy:} Decode task labels from reconstructed layer summaries using linear probe. Accuracy $> 60\%$ indicates pooling retains task-relevant information.
+

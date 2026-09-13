@@ -1,0 +1,34 @@
+
+\subsubsection{3.1 Problem Formulation}
+
+Given a set of LLM failures on TruthfulQA single-entity factual questions, the objective is to classify each failure as entity-error (model substitutes incorrect entity) or non-entity-error (other failure modes). Classification enables failure-type-specific routing to matched correction methods.
+
+\subsubsection{3.2 Dataset}
+
+The dataset consists of 100 manually labeled failures from TruthfulQA, stratified into 50 entity-errors and 50 non-entity errors. Entity-errors are defined as cases where the model substitutes an incorrect entity of the same type as the correct answer. Non-entity errors include reasoning failures, knowledge gaps, and other failure modes.
+
+Manual annotation was performed by labeling each failure based on gold-standard correct answers and model-generated incorrect answers. Annotation requires approximately 2-4 hours for 100 samples.
+
+\subsubsection{3.3 Attention Entropy Extraction}
+
+Attention weights are extracted from the final layer of GPT-2 (124M parameters, 12 layers, 12 attention heads). For a given question and incorrect answer, the model processes the input sequence and outputs attention weights $A \in \mathbb{R}^{L \times L}$, where $L$ is sequence length.
+
+Named entity recognition (spaCy \texttt{en\textbackslash \_core\textbackslash \_web\textbackslash \_lg}) identifies entity spans in the question. Attention entropy over entity spans is calculated as:
+
+$$H = -\sum_{i \in \text{entity\_span}} a_i \log a_i$$
+
+where $a_i$ are the normalized attention weights over the entity span, averaged across all 12 attention heads in the final layer.
+
+Character-level entity spans from spaCy are mapped to GPT-2 BPE token indices using HuggingFace's \texttt{char\textbackslash \_to\textbackslash \_token} API. Samples with unmappable spans (27\% of non-entity errors) are excluded from analysis.
+
+\subsubsection{3.4 Classification}
+
+A threshold-based binary classifier is trained by exhaustive grid search over 101 candidate thresholds in the range [0.0, 1.0]. The training set (80\% of samples, N=58, stratified by error type) is used to select the optimal threshold maximizing classification accuracy. The selected threshold is then evaluated on a held-out test set (20\% of samples, N=15, stratified).
+
+Classification rule: entropy < threshold $\rightarrow$ entity-error; entropy $\geq$ threshold $\rightarrow$ non-entity-error.
+
+\subsubsection{3.5 Correction Routing (Structural Validation Only)}
+
+The matched routing hypothesis states that entity-errors should be routed to RAG (retrieval-augmented generation) rather than COT (chain-of-thought prompting), because entity-errors reflect entity-level knowledge gaps that RAG addresses through factual retrieval, whereas COT targets reasoning-level failures.
+
+This hypothesis was tested using mock RAG and COT pipelines with configurable synthetic success rates (RAG = 55\% $\pm 5$\%, COT = 30\% $\pm 5$\%). No Wikipedia API retrieval, LLM generation, or GPT-judge evaluation was deployed. The experiment validates pipeline structure but not real-world correction effectiveness.

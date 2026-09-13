@@ -1,0 +1,149 @@
+# Hypothesis Context: h-m2
+
+**Generated from:** Phase 2B Verification Plan
+**Date:** 2026-03-27
+**Main Hypothesis:** Hierarchical Lifecycle Taxonomy of HuggingFace Dataset Adoption Patterns
+**Phase 2B Source:** 02b_verification_plan.md
+
+---
+
+## Hypothesis Information
+
+### Statement
+Under the clustered dataset population, if different adoption mechanisms (benchmark designation, publication cycles, trend following) drive download behavior, then cluster centroids will exhibit distinct shape signatures measurable via shape descriptors (derivative sign patterns, peak timing, changepoint count), because mechanism differences manifest as trajectory shape differences.
+
+### Type
+MECHANISM
+
+### Rationale
+This tests whether the clusters are merely statistical artifacts or reflect meaningful differences in adoption dynamics. Shape descriptors provide objective criteria for archetype matching.
+
+---
+
+## Verification Protocol
+
+### Conceptual Test
+1. Compute shape descriptors for each cluster centroid.
+2. Define a priori thresholds for each descriptor dimension.
+3. Test whether centroids occupy distinct regions of descriptor space.
+4. Measure inter-cluster descriptor variance vs intra-cluster variance.
+
+### Success Criteria
+- Primary: Cluster centroids show distinct shape descriptor profiles
+- Secondary: Inter-cluster variance > 2x intra-cluster variance on key descriptors
+
+### Variables (if applicable)
+- **Independent Variable:** Cluster assignment
+- **Dependent Variable:** Shape descriptor profiles (derivative patterns, peak timing, changepoint density)
+- **Controlled Variables:** Normalization, Cluster count from H-E1
+
+---
+
+## Experimental Setup (from Phase 2A via Phase 2B)
+
+> **Note:** Dataset and model were selected in Phase 2A Dialogue based on hypothesis Variables.
+> Phase 2C experiment design MUST use this selection.
+
+### Selected Dataset
+- **Name:** HuggingFace Dataset Download Statistics
+- **Type:** custom (API-based collection)
+- **Source:** HuggingFace Hub API (huggingface_hub library)
+- **Path:** API query - reuse cached data from h-e1/h-m1
+- **Hypothesis Fit:** Direct measurement of adoption dynamics; clusters already computed in h-e1
+
+### Selected Model
+- **Name:** Shape Descriptor Analysis Pipeline
+- **Type:** Feature extraction + statistical analysis
+- **Source:** Custom implementation using scipy, numpy
+- **Hypothesis Fit:** Measures trajectory shape characteristics to differentiate adoption mechanisms
+
+---
+
+## Baseline & Comparison Targets
+
+### Baseline Methods
+- Raw centroid comparison without shape descriptors
+- Simple summary statistics (mean, std, trend coefficient)
+- Random cluster assignment baseline
+
+### Baseline Performance
+- h-e1 achieved silhouette score 0.289 with k=4 clusters
+- h-m1 achieved 81% changepoint detection rate
+
+### Gap Analysis
+- Need to demonstrate clusters have distinct shape profiles, not just statistical separation
+- Shape descriptors should reveal mechanism-level differences
+
+---
+
+## Dependencies and Gate Conditions
+
+### Prerequisites
+- h-m1 (PELT phase detection must be validated) - **PASSED**
+
+### Gate Information
+
+**Gate Type:** SHOULD_WORK
+- MUST_WORK: Failure stops entire workflow
+- SHOULD_WORK: Failure documented as limitation, workflow continues
+- DETERMINES_SUCCESS: Final validation gate
+
+**Consequence if Fails:** Document limitation, continue to h-m3
+
+**Phase Assignment:** Phase 2 (Mechanisms)
+
+**Estimated Duration:** 1 week
+
+---
+
+## Dependency Context
+
+### Relationship to Other Hypotheses
+- **Depends on h-m1:** Uses changepoint count as one of the shape descriptors
+- **Feeds into h-m3:** Shape descriptors needed for archetype alignment scoring
+- **Builds on h-e1:** Uses cluster assignments and centroids from DTW clustering
+
+---
+
+## Previous Hypothesis Results (h-m1)
+
+**Gate Result:** PASS
+**Key Metrics:**
+- Detection Rate: 81% (threshold: >50%)
+- Mean Changepoints: 0.96 per series
+- 405/500 series have at least one changepoint
+
+**Proven Components:**
+- PELT algorithm with BIC penalty (2*log(n)) works well
+- HuggingFace time series exhibit discrete phase transitions
+- Changepoint count is a viable shape descriptor
+
+---
+
+## Verification State Reference
+
+**State File:** verification_state.yaml
+**Current Status:** IN_PROGRESS
+**Workflow Status:** ACTIVE
+
+---
+
+## Phase 2C Usage Notes
+
+**This context file provides:**
+1. Complete hypothesis specification for experiment design
+2. Gate conditions for prerequisite validation
+3. Dependency information for controlled experiments
+4. Success criteria for evaluation design
+5. Previous hypothesis results for continuation context
+
+**Phase 2C will:**
+1. Load this file instead of full Phase 2B roadmap (91% smaller)
+2. Search for implementation patterns (Archon, Exa MCP)
+3. Design concrete experiment specification (Level 1.5)
+4. Output: h-m2/02c_experiment_brief.md
+
+---
+
+*Generated by Phase 2C Workflow (JIT)*
+*Optimized for single-hypothesis experiment design*

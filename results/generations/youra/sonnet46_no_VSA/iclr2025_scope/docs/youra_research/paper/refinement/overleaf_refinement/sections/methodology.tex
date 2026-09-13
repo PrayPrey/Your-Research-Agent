@@ -1,0 +1,57 @@
+
+\subsubsection{3.1 Design: Mechanism Gate Before Behavioral Test}
+
+The experiment is structured in two sequential parts. The \textbf{mechanism gate (H-M1)} asks whether the SSD mixer approximates LLaMA-3.1-8B attention sub-linearly across sequence lengths. The \textbf{behavioral test (H-E1)} asks whether conversion strategy produces a task-type interaction on LongBench v2. This ordering is deliberate: if the mechanism gate had failed (slope > 0.5 or high 90th percentile error), behavioral retrieval degradation could be attributed to approximation failure; since the gate passes, behavioral degradation must be attributed to the bounded-state architecture.
+
+\subsubsection{3.2 Mechanism Gate: SSD Frobenius Scaling (H-M1)}
+
+\textbf{Teacher model:} LLaMA-3.1-8B loaded in bfloat16 from \texttt{meta-llama/Llama-3.1-8B} (32 transformer layers, d\_model = 4096).
+
+\textbf{Input data:} Random sequences drawn from \texttt{monology/pile-uncopyrighted} (seed = 42). Sample counts: 50 sequences at N = 512, 5 sequences at N = 1024, 5 sequences at N = 2048. (N = 8192 was the original target but exceeded memory limits; see Section 6.3.)
+
+\textbf{Measurement counts:} 50 $\times$ 32 = 1,600 at N = 512; 5 $\times$ 32 = 160 at N = 1,024; 5 $\times$ 32 = 160 at N = 2,048. Total: 1,920 attention matrix measurements.
+
+\textbf{SSD fitting:} For each layer at each N, the $N\times N$ attention matrix and SSD transfer matrix are materialized using MOHAWK's official \texttt{materialize\textbackslash \_mixer} from \texttt{goombalab/mohawk}. SSD parameters $\theta$ are fit by minimizing Frobenius distance:
+
+\begin{verbatim}
+L(θ) = ‖materialize_mixer(θ, N) − M_attn‖_F
+\end{verbatim}
+
+using Adam (lr = 1e-3, $\beta$ = (0.9, 0.999), 500 steps, float32). The optimization budget of 500 steps is reduced from MOHAWK's reported 10,000 steps for computational feasibility. The gate passes with large margin (see Section 5), suggesting the result is robust to this reduction.
+
+\textbf{Normalization:} Raw Frobenius norm scales linearly with N (a full $N\times N$ matrix has Frobenius norm bounded by N). Normalized error = raw\_error / N enables fair comparison across lengths. At N = 512, the raw mean error is 20.05; normalized: 20.05 / 512 = 0.039, consistent in order of magnitude with MOHAWK's reported 0.097 at N = 512 (the difference is attributable to the shorter optimization budget).
+
+\textbf{Gate criteria:} (1) log-log slope $\beta \leq$ 0.5; (2) 90th percentile normalized error $\leq$ 0.3 at the maximum available N. Both must pass for the gate to be considered satisfied.
+
+\subsubsection{3.3 Controlled Conversion Comparison (H-E1)}
+
+Four model variants, all using the same LLaMA-3.1-8B base:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Model & Method & Training budget \\
+\midrule
+Teacher & Unconverted LLaMA-3.1-8B & --- \\
+MOHAWK-SSM & Three-stage distillation (matrix align, hidden-state align, logit distill), SSD structured mixer & ~1B tokens (~26M + 52M + 922M) \\
+LAWCAT & Two-phase distillation (Conv1D + gated linear attention), alpaca\_clean fine-tuning & ~1B tokens \\
+Hybrid-4 & MOHAWK Stage 3 with 4 middle attention layers retained (LayeredMambaLM) & ~1B tokens \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\textbf{Primary metric:} $\Delta _norm$ = (Acc\_teacher $-$ Acc\_student) / Acc\_teacher per LongBench v2 category.
+
+\textbf{Primary gate:} $\Delta _norm^MOHAWK(retrieval) / \Delta _norm^LAWCAT(retrieval) \geq$ 2.0, with bootstrap 95\% CI lower bound strictly > 1.0 and mixed-effects interaction p < 0.01 (Holm correction).
+
+\textbf{Statistical model:} Mixed-effects regression $\Delta _norm$ ~ TaskType $\times$ Strategy + (1|Task).
+
+\textbf{Status at report time:} MOHAWK Stage 1 launched on $4\times$ H100 NVL 96GB GPUs (PIDs 786132--786135, started 2026-08-03T14:12Z). Final $\Delta _norm$ values and interaction statistics are pending experiment completion (estimated 20--40 hours from launch).
+
+\subsubsection{3.4 Depth-Slope Analysis (H-M2)}
+
+Needle depth percentile is computed as keyword\_start\_offset / context\_length per LongBench v2 retrieval example. Logistic regression P(correct) ~ DepthPercentile + (1|Task) is fit per model. Gate: |$\beta _depth^MOHAWK| \geq$ 2 $\times |\beta _depth^LAWCAT|$ with non-overlapping 95\% CIs. The statistical pipeline was implemented and validated end-to-end (158 retrieval examples, 111 unique depth percentile values); however, it was executed on proxy data (identical base LLaMA-3.1-8B weights for both ''MOHAWK-SSM'' and ''LAWCAT'' conditions) because H-E1 distillation checkpoints were not available due to a port conflict. H-M2 results on proxy data are not valid evidence for the hypothesis and are not reported as findings.
+

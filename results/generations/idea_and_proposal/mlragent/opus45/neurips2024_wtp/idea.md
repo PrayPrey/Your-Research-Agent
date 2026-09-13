@@ -1,0 +1,9 @@
+﻿# Title: Self-Supervised Temporal Annotation Propagation for Scalable Video-Language Dataset Construction
+
+## Motivation
+The scarcity of high-quality annotated video data remains a critical bottleneck for video-language model development. While images benefit from abundant caption datasets, video annotation is prohibitively expensive due to temporal complexity—annotators must describe actions, state changes, and temporal relationships across hundreds of frames. Current approaches either rely on sparse keyframe annotations or expensive dense labeling, both yielding suboptimal training data. This gap severely limits video foundation models from learning fine-grained temporal semantics.
+
+## Main Idea
+I propose a self-supervised framework that automatically propagates and refines sparse human annotations across video timelines using temporal consistency constraints. The method works in three stages: (1) collect minimal keyframe annotations (e.g., one caption per 30 seconds), (2) train a lightweight temporal interpolation network that learns to generate intermediate descriptions by leveraging visual-semantic coherence and action continuity priors, and (3) employ a verification module using vision-language models to filter hallucinated content through frame-text alignment scoring.
+
+The framework incorporates contrastive learning between adjacent generated captions to ensure smooth semantic transitions and uses optical flow features to ground annotations in actual motion patterns. Expected outcomes include 10x annotation efficiency improvement while maintaining 85%+ quality compared to dense human labeling. This approach can transform existing sparsely-annotated video datasets into densely-captioned resources, significantly accelerating video-language research.

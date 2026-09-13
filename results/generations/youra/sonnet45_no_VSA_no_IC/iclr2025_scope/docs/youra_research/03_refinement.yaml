@@ -1,0 +1,300 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# PRIMARY input for Phase 2B step-01-init-parsing
+# Section numbers match Phase 2B parsing expectations
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-20T08:30:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap1_rag_aware_cache"
+  gap_title: "RAG-Aware Cache Management Strategies"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 7
+  convergence_reason: "All criteria met - specific claim, mechanism explained, testable predictions with falsifiers, novelty articulated, feasibility validated, objections addressed via diversity-aware refinement"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "H2O heavy-hitter eviction reduces memory usage while maintaining accuracy on generation tasks (Zhang et al., 2023)"
+      status: "BUILD_ON"
+      evidence: "NeurIPS 2023, 878 citations - 20% cache retention maintains accuracy, 29× throughput improvement"
+    - claim: "StreamingLLM enables infinite-length inference via attention sinks + sliding window (Xiao et al., 2024)"
+      status: "BUILD_ON"
+      evidence: "ICLR 2024, 44 citations - MIT implementation with 7.2K GitHub stars"
+    - claim: "LongBench provides standardized multi-doc QA evaluation across 21 datasets (Bai et al., 2023)"
+      status: "BUILD_ON"
+      evidence: "ACL 2024, 1563 citations - 6 task categories, 6711 avg words (EN)"
+    - claim: "Retrieval provenance (query vs passage vs generated tokens) predicts cache utility better than uniform attention-based eviction"
+      status: "PROVE_NEW"
+      evidence: "No prior work analyzed cache strategies conditioned on retrieval metadata - this is the hypothesis under test"
+  scope_reduction_percentage: 75
+  phase2b_4_instructions: |
+    Three established facts (H2O baseline, StreamingLLM architecture, LongBench benchmarks) are
+    BUILD_ON - use them as baselines and evaluation framework without re-proving. One claim
+    (provenance predicts utility) is PROVE_NEW - this is the core experimental validation target.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-ProvenanceCache-v1"
+  confidence_level: 0.80
+  core_hypothesis_statement: |
+    Under RAG-based long-context QA tasks (LongBench multi-doc QA, 8k-32k tokens), if we implement
+    provenance-aware KV cache eviction with diversity-aware scoring (query tokens prioritized →
+    diverse high-relevance passages → diverse low-relevance passages for contrastive evidence →
+    redundant passages evicted), then answer accuracy at restrictive cache budgets (10-25% retention)
+    will improve by ≥10% relative to uniform eviction baselines (H2O, StreamingLLM), because retrieval
+    relevance scores and passage diversity jointly predict attention concentration and reasoning utility
+    during answer generation.
+  alternative_hypothesis_h0: |
+    There is no significant difference in answer accuracy between provenance-aware eviction and
+    uniform eviction (H2O baseline) at 10-25% cache budgets on LongBench multi-doc QA tasks
+    (two-tailed t-test, α=0.05).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Cache Eviction Strategy"
+      type: "categorical"
+      operationalization: "Algorithm for selecting which KV tokens to evict under memory budget constraints"
+      levels:
+        - "FullKV (no eviction, upper bound)"
+        - "H2O (uniform attention-based eviction, baseline)"
+        - "StreamingLLM (sliding window + attention sinks, baseline)"
+        - "ProvenanceCache (tiered eviction: query > diverse high-rel > diverse low-rel > redundant)"
+        - "Random eviction (lower bound control)"
+    - name: "Cache Budget (% retention)"
+      type: "continuous"
+      operationalization: "Percentage of KV cache retained after eviction (10%, 25%, 50%, 75%)"
+      levels: [10, 25, 50, 75]
+  dependent:
+    - name: "Answer Accuracy"
+      type: "continuous"
+      operationalization: "Exact match or F1 score on LongBench multi-doc QA (primary metric, range 0-100%)"
+      primary: true
+    - name: "Cache Hit Rate"
+      type: "continuous"
+      operationalization: "Fraction of attended tokens present in cache (secondary, range 0-1)"
+      primary: false
+    - name: "Inference Latency"
+      type: "continuous"
+      operationalization: "Time to generate answer in milliseconds (tertiary, log-scale)"
+      primary: false
+  controlled:
+    - name: "Retriever Type"
+      operationalization: "Fixed to BM25 (Pilot 1-2) and DPR/Contriever (Full Experiment) for multi-retriever validation"
+    - name: "Model Architecture"
+      operationalization: "Fixed to Llama-2-7B or similar open-weight model with known long-context performance"
+    - name: "Question Type Stratification"
+      operationalization: "Separate analysis for single-hop vs multi-hop questions (detected via entity count or manual annotation)"
+    - name: "Query Complexity"
+      operationalization: "Measured by word count and entity density, used for stratified analysis in Pilot 1"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 4
+  steps:
+    - step: 1
+      description: "Retrieval relevance scores correlate with attention concentration during answer generation"
+      evidence: "H2O (Zhang et al., 2023) established attention weights predict token importance. Hypothesis extends this: retrieval scores ALSO predict importance for RAG tasks, validated via Pilot 1 attention analysis (target Spearman ρ > 0.3)."
+      falsifier: "If Pilot 1 shows ρ ≤ 0.3 or low-relevance passages systematically get high attention in correct answers, the relevance-attention correlation assumption breaks."
+    - step: 2
+      description: "Diverse passage retention preserves contrastive evidence needed for multi-hop reasoning"
+      evidence: "Information retrieval MMR (Maximal Marginal Relevance) principle: diverse results improve coverage. Adapted to cache eviction: retaining passages with low embedding similarity or entity non-overlap preserves contrastive/negative evidence."
+      falsifier: "If Pilot 2 shows no accuracy difference between diversity-aware and pure relevance-based eviction on multi-hop questions, diversity hypothesis fails."
+    - step: 3
+      description: "Query tokens serve as attention anchors for simple queries but not complex/ambiguous queries"
+      evidence: "Stratified attention analysis in Pilot 1: measure query-token attention concentration by query complexity (word count, entity density). Simple queries expected to show higher query-anchoring than complex queries."
+      falsifier: "If simple queries do NOT show query-token attention concentration (e.g., attention spreads uniformly across all passages), tiered eviction loses its anchor."
+    - step: 4
+      description: "Provenance-aware eviction policy synthesizes relevance + diversity + query complexity to outperform uniform baselines"
+      evidence: "Full Experiment tests integrated policy: Tier 0 (query + top-1 passage), Tier 1 (diverse high/low-rel passages via MMR), Tier 2 (redundant passages). Baseline comparisons show whether synthesis improves over components."
+      falsifier: "If ProvenanceCache performs no better than H2O baseline (or worse) at 10-25% budgets, the integrated policy adds no value."
+  key_tension: "Diversity heuristic (embedding distance, entity overlap) might miss temporal or causal multi-hop dependencies where passages are semantically dissimilar but logically connected (e.g., 'Event in 1990' + 'Policy in 1991' for causation question)."
+  evidence_summary: |
+    Mechanism builds on established H2O principle (attention predicts importance) by adding retrieval-specific
+    signals (relevance scores, passage diversity, query complexity). Three-tier pilot sequence validates each
+    component before full integration. Key risk is diversity heuristic insufficiency for complex reasoning patterns.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Retriever scoring function aligns with LLM reasoning needs (i.e., high relevance scores correspond to passages the LLM attends to during answer generation)"
+    supporting_evidence: "Standard assumption in RAG systems, but Prof. Rex challenged it - BM25 lexical scores might not align with semantic reasoning. Pilot 1 directly tests this via attention analysis."
+    consequence_if_violated: "If retrieval scores anti-correlate with attention (ρ < 0), provenance-aware caching performs worse than uniform eviction. Mitigation: test with multiple retrievers (BM25 + semantic DPR/Contriever)."
+  - id: "A2"
+    assumption: "Passage diversity (embedding distance, entity non-overlap) serves as a proxy for contrastive/negative evidence utility"
+    supporting_evidence: "Information retrieval MMR principle, but Prof. Rex noted temporal/causal dependencies might be missed. Pilot 2 tests this on single-hop (controlled) before full multi-hop experiment."
+    consequence_if_violated: "If diversity metric fails to capture multi-hop dependencies, accuracy on multi-hop questions degrades below baseline. Mitigation: qualitative failure analysis + potential pivot to learned co-retention scoring."
+  - id: "A3"
+    assumption: "Query tokens are stable attention anchors for simple/specific queries but not for complex/ambiguous queries"
+    supporting_evidence: "Intuition from QA literature (specific questions have focused attention), but Prof. Rex challenged vague query scenarios. Pilot 1 stratifies by query complexity to test this."
+    consequence_if_violated: "If query-anchoring holds uniformly regardless of query complexity, tiered eviction over-retains query tokens unnecessarily. If it never holds, Tier 0 (query priority) is invalid."
+  - id: "A4"
+    assumption: "Cache budget range 10-25% is practically relevant for RAG systems (not just academic extreme)"
+    supporting_evidence: "H2O paper tested 20% retention, Prof. Rex questioned 10% as too extreme. Full experiment tests 10-75% range to find practical operating points."
+    consequence_if_violated: "If real RAG systems operate at 50-75% budgets, provenance-awareness might show no benefit (all methods perform well when memory is abundant). Mitigation: report full Pareto frontier, not just restrictive budgets."
+  - id: "A5"
+    assumption: "LongBench multi-doc QA generalizes to other RAG benchmarks (NarrativeQA, SCROLLS)"
+    supporting_evidence: "LongBench is standard benchmark (1563 citations, ACL 2024), but Prof. Rex noted dataset-specificity risk. Phase 1 Gap 1 mentioned SCROLLS/NarrativeQA as target domains."
+    consequence_if_violated: "If findings don't transfer to NarrativeQA or SCROLLS, contribution is LongBench-specific. Mitigation: test on secondary benchmark if LongBench results are positive (within compute budget)."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - RAG-based long-context QA tasks (8k-32k tokens) where retrieval metadata is available
+    - Multi-doc QA scenarios requiring reasoning over retrieved passages
+    - Settings with memory constraints requiring KV cache eviction (restrictive budgets 10-50%)
+    - Open-weight models (Llama-2, MPT) where attention weights can be extracted
+  does_not_apply_to: |
+    - Static long-document understanding without retrieval (provenance signals unavailable)
+    - Short-context tasks (< 2k tokens) where full KV retention is feasible
+    - Closed-API models (GPT-4, Claude) where attention weights are inaccessible
+    - Real-time streaming inference where cache decisions must be made before seeing full context
+  known_limitations: |
+    - Diversity heuristic (embedding distance + entity overlap) may miss temporal/causal multi-hop dependencies
+    - Requires competent retriever baseline (garbage-in-garbage-out if retrieval is poor)
+    - Assumes retrieval metadata (relevance scores, passage boundaries) is available and accurate
+    - Pilot experiments use BM25 + semantic retrieval; may not generalize to learned sparse retrievers (e.g., SPLADE)
+    - LongBench multi-doc QA may not represent all RAG use cases (e.g., code QA, scientific literature search)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Provenance-aware eviction achieves ≥10% relative accuracy gain at 25% cache budget on LongBench multi-doc QA vs H2O baseline"
+    test_method: "Compare answer accuracy (exact match or F1) between ProvenanceCache and H2O at 25% retention budget, averaged across LongBench multi-doc QA subset (stratified by question type)"
+    success_criterion: "Relative accuracy improvement ≥10% with statistical significance (two-tailed t-test, p < 0.05, n ≥ 100 questions)"
+    falsification: "If accuracy improvement < 5% or p ≥ 0.05, provenance-awareness provides no practical benefit at realistic budgets"
+  - id: "P2"
+    primary: false
+    statement: "Diversity-aware scoring outperforms pure relevance-based scoring on multi-hop questions by ≥5% accuracy"
+    test_method: "Ablation study: ProvenanceCache with diversity (full) vs ProvenanceCache without diversity (relevance-only) on multi-hop subset"
+    success_criterion: "Accuracy gain ≥5% on multi-hop questions, demonstrating diversity preserves contrastive evidence"
+    falsification: "If no accuracy difference or diversity version performs worse, diversity heuristic is ineffective or harmful"
+  - id: "P3"
+    primary: false
+    statement: "Retrieval scores correlate moderately with attention weights (Spearman ρ > 0.3) during answer generation"
+    test_method: "Pilot 1 attention analysis: measure attention weights from generated tokens to retrieved passage tokens, compute correlation with retrieval relevance scores"
+    success_criterion: "Spearman ρ > 0.3 for both BM25 and semantic retriever (DPR/Contriever), indicating relevance scores predict reasoning utility"
+    falsification: "If ρ ≤ 0.3 or negative correlation, retrieval scores do not align with LLM attention patterns - provenance hypothesis invalidated"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "LongBench Multi-Doc QA Subset"
+    type: "standard"
+    source: "https://github.com/THUDM/LongBench (1.2K⭐, MIT license)"
+    path: "longbench/multidoc_qa/"
+    hypothesis_fit: "Standard benchmark (1563 citations, ACL 2024) with multi-doc QA requiring retrieval-like reasoning. Avoids custom benchmark creation. Provides single-hop vs multi-hop stratification for ablation analysis."
+  model:
+    name: "Llama-2-7B or similar open-weight long-context model"
+    type: "Transformer decoder"
+    source: "HuggingFace transformers library"
+    hypothesis_fit: "Open-weight model enables attention weight extraction for Pilot 1 validation. Known long-context performance baseline. 7B scale balances compute feasibility with representativeness."
+  baselines:
+    - name: "FullKV"
+      method: "No eviction (upper bound accuracy, high memory)"
+    - name: "H2O"
+      method: "Uniform attention-based heavy-hitter eviction (primary baseline for comparison)"
+    - name: "StreamingLLM"
+      method: "Sliding window + attention sinks (architectural baseline)"
+    - name: "Random Eviction"
+      method: "Uniform random token eviction (lower bound control)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First analysis of KV cache strategies conditioned on retrieval provenance metadata (query vs passage vs generated tokens). Exploits semantic structure in RAG that uniform methods ignore."
+  key_innovation: "Diversity-aware provenance scoring synthesizes retrieval relevance + passage diversity + query complexity into unified eviction policy, addressing both efficiency (via tiering) and robustness (via diversity for contrastive evidence)."
+  differentiation:
+    - prior_work: "H2O (Zhang et al., 2023)"
+      difference: "H2O uses uniform attention-based eviction without retrieval-awareness. ProvenanceCache augments H2O with tiered eviction based on token provenance + retrieval metadata."
+    - prior_work: "StreamingLLM (Xiao et al., 2024)"
+      difference: "StreamingLLM uses fixed sliding window + attention sinks. ProvenanceCache dynamically prioritizes based on retrieval context, not just recency."
+    - prior_work: "LongBench evaluation (Bai et al., 2023)"
+      difference: "LongBench evaluated models on static long documents. ProvenanceCache targets RAG scenarios with dynamic retrieval metadata."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "H2O Heavy-Hitter Oracle"
+      performance: "20% cache retention maintains accuracy, 29× throughput vs FullKV (Zhang et al., NeurIPS 2023)"
+      dataset: "PG-19, arXiv-summarization (generation tasks, not RAG)"
+      why_insufficient: "Treats all tokens uniformly, ignores retrieval provenance that RAG provides"
+    - method: "StreamingLLM"
+      performance: "Enables infinite-length inference with constant memory via attention sinks + sliding window (Xiao et al., ICLR 2024)"
+      dataset: "PG-19, GovReport (long-context understanding, not RAG)"
+      why_insufficient: "Fixed sliding window doesn't exploit retrieval metadata for selective retention"
+    - method: "KVCache-Factory (Cai et al., 2024)"
+      performance: "Unified platform comparing 6 cache methods (FullKV, StreamingLLM, H2O, SnapKV, Quest, PyramidKV)"
+      dataset: "LongBench evaluation suite"
+      why_insufficient: "Provides platform but no RAG-specific method - opportunity for contribution"
+  best_baseline_performance: "H2O at 20% retention on generation tasks (established in NeurIPS 2023 paper). LongBench multi-doc QA baseline accuracy ~60% (from LongBench paper) without cache eviction."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Retrieval relevance scores must correlate with attention weights during answer generation (validated in Pilot 1, Spearman ρ > 0.3 for BM25 and semantic retrievers)"
+  sh2_mechanism: "Provenance-aware eviction with diversity scoring (Tier 0: query + top-1, Tier 1: diverse passages via MMR, Tier 2: redundant passages) preserves reasoning utility better than uniform eviction"
+  sh3_comparison: "Phase 5 baseline comparison deferred - current hypothesis is measurement study comparing ProvenanceCache vs H2O/StreamingLLM/Random on LongBench, not repository-level baseline adaptation"
+  open_questions:
+    - "Does diversity heuristic (embedding distance + entity overlap) generalize to temporal/causal multi-hop reasoning?"
+    - "What is the practical cache budget operating point for production RAG systems (10% vs 30-50%)?"
+    - "Do findings transfer from LongBench to other RAG benchmarks (NarrativeQA, SCROLLS)?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All convergence criteria met at Exchange 7 - specific claim formulated, mechanism explained with 4-step causal chain, 3 testable predictions with falsifiers, novelty articulated as first RAG-conditioned cache analysis, feasibility validated (no fundamental barriers, 25 GPU-hour budget), objections addressed via diversity-aware refinement"
+  clarity_verified: true
+  remaining_objections: []
+
+discussion_context:
+  total_exchanges: 7
+  agent_participation:
+    dr_nova: 2
+    prof_vera: 1
+    dr_sage: 1
+    prof_pax: 1
+    dr_ally: 1
+    prof_rex: 1
+  paper_citations: 3
+  convergence_type: "qualitative"

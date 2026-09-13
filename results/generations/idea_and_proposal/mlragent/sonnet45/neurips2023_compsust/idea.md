@@ -1,0 +1,10 @@
+﻿# Title
+Uncertainty-Aware Deep Learning for Climate Model Emulation: Bridging the Gap Between Prediction Accuracy and Decision-Making Trust
+
+## Motivation
+Climate models are crucial for sustainability planning but computationally expensive, limiting their use in real-time decision-making. While deep learning emulators can accelerate predictions, deployed systems often fail because they don't adequately communicate prediction uncertainty to policymakers and stakeholders. This gap between model performance metrics and deployment trust is a critical pitfall in computational sustainability, where decisions have long-term societal and environmental consequences.
+
+## Main Idea
+Develop a framework that combines physics-informed neural networks with calibrated uncertainty quantification specifically designed for sustainability decision-makers. The methodology includes: (1) Training ensemble-based emulators that preserve physical constraints while learning from climate simulations; (2) Implementing conformal prediction techniques to provide statistically valid uncertainty bounds rather than just point estimates; (3) Creating interpretable uncertainty visualizations tailored to non-technical stakeholders (policymakers, NGOs); (4) Validating the framework through case studies with actual sustainability organizations on problems like crop yield prediction and flood forecasting.
+
+Expected outcomes include demonstrable improvements in stakeholder trust and adoption rates, measured through user studies and deployment metrics. This addresses both workshop themes: providing a concrete pathway from theory to deployment while acknowledging the pitfall that accuracy metrics alone don't ensure real-world impact. The framework would establish best practices for responsible ML deployment in high-stakes sustainability applications.

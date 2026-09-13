@@ -1,0 +1,117 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Our methodology operationalizes the insight that metadata completeness constrains preprocessing degrees of freedom, reducing implementation heterogeneity and thereby reducing reproducibility variance. We describe our metadata scoring scheme, variance operationalization, mediation framework, and statistical approach.
+
+\subsection{Overview}
+
+Building on our observation that documentation reduces epistemic entropy---the space of valid implementations---we design a predictive framework with three components:
+
+\begin{enumerate}
+    \item \textbf{Metadata Completeness Score}: A 5-field binary checklist capturing documentation coverage
+    \item \textbf{Reproducibility Variance (IQR)}: Interquartile range of performance across matched experimental configurations
+    \item \textbf{Preprocessing Entropy}: Shannon entropy of preprocessing component distributions as the mediating mechanism
+\end{enumerate}
+
+The causal model under test:
+\begin{equation}
+\text{Metadata} \xrightarrow{a} \text{Preprocessing Entropy} \xrightarrow{b} \text{Variance}
+\end{equation}
+with a direct path $c'$ from Metadata to Variance.
+
+\subsection{Metadata Completeness Score}
+
+We operationalize metadata completeness as a 5-field binary checklist, scored 0--5:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lp{5cm}@{}}
+\toprule
+Field & Rationale \\
+\midrule
+Train/test split specified & Removes data splitting ambiguity \\
+Preprocessing enumerated & Constrains pipeline design \\
+Missing value handling documented & Removes common divergence point \\
+Feature semantics provided & Enables domain-appropriate preprocessing \\
+Versioning present & Ensures temporal reproducibility \\
+\bottomrule
+\end{tabular}
+\caption{Metadata completeness checklist fields.}
+\label{tab:checklist}
+\end{table}
+
+\textbf{Rationale for binary checklist}: Continuous quality metrics introduce subjectivity; binary presence/absence is objectively verifiable from metadata. The checklist targets fields most likely to cause implementation divergence based on the leakage taxonomy \citep{kapoor2022leakage}.
+
+We analyze by quartile (Q1: 0--1, Q2: 2, Q3: 3, Q4: 4--5) for interpretable effect sizes.
+
+\subsection{Reproducibility Variance Operationalization}
+
+We define reproducibility variance as the IQR of accuracy/F1 scores across \emph{matched runs}---experiments sharing identical:
+\begin{itemize}
+    \item Flow (sklearn pipeline specification)
+    \item Hyperparameters (identical configuration)
+    \item Evaluation protocol (same cross-validation scheme)
+\end{itemize}
+
+\textbf{Why IQR rather than standard deviation}: IQR is robust to outliers from crashed runs or infrastructure failures, providing a conservative variance estimate.
+
+\textbf{Matched-run requirement}: This design controls for algorithm-level variance, isolating implementation-level heterogeneity. If researcher A and researcher B use the same RandomForest with identical hyperparameters on the same dataset, variance in their results reflects preprocessing differences.
+
+\subsection{Preprocessing Entropy}
+
+We compute Shannon entropy over preprocessing component distributions:
+\begin{equation}
+H_{\text{prep}} = -\sum_{c} p(c) \log p(c)
+\end{equation}
+where $p(c)$ is the proportion of runs using preprocessing component $c$. Components include:
+\begin{itemize}
+    \item \textbf{Imputation}: mean, median, mode, KNN, iterative, none
+    \item \textbf{Scaling}: standard, minmax, robust, none
+    \item \textbf{Encoding}: onehot, ordinal, target, none
+\end{itemize}
+
+Higher entropy indicates greater preprocessing diversity; lower entropy indicates convergence on standard approaches.
+
+\subsection{Statistical Framework}
+
+\textbf{Primary Analysis: Mixed-Effects Regression}
+\begin{equation}
+\text{IQR} \sim \beta_0 + \beta_1 \cdot \text{metadata} + \beta_2 \cdot \text{stability} + \beta_3 \cdot \log(\text{popularity}) + \gamma_{\text{algo}} + (1|\text{dataset})
+\end{equation}
+
+Random effects account for dataset-level clustering; datasets from similar domains may share unobserved confounders.
+
+\textbf{Mediation Analysis}: We test whether preprocessing entropy mediates the metadata-variance relationship using the Baron-Kenny framework with Sobel test:
+
+\begin{enumerate}
+    \item \textbf{Path c (total)}: Metadata $\to$ IQR (should be significant)
+    \item \textbf{Path a}: Metadata $\to$ $H_{\text{prep}}$ (should be significant negative)
+    \item \textbf{Path b}: $H_{\text{prep}}$ $\to$ IQR, controlling metadata (should be significant positive)
+    \item \textbf{Path c' (direct)}: Metadata $\to$ IQR, controlling $H_{\text{prep}}$ (should be smaller than c)
+\end{enumerate}
+
+\textbf{Proportion mediated}: $ab/(ab + c')$
+
+Significance tested via Sobel Z-statistic and bias-corrected bootstrap (1000 iterations).
+
+\subsection{Robustness Checks}
+
+\begin{enumerate}
+    \item \textbf{Early-run test}: Restrict to first 50 runs (within 90 days of upload). If effect persists, reverse causality is unlikely.
+    \item \textbf{Single-algorithm test}: Restrict to RandomForest flows only. If effect persists, algorithm-mix confounding is ruled out.
+    \item \textbf{Permutation test}: Shuffle metadata scores 1000 times. Observed effect should exceed 95th percentile of permuted distribution.
+\end{enumerate}
+
+\subsection{Data Collection}
+
+\textbf{Source}: OpenML platform via REST API
+
+\textbf{Filtering criteria}:
+\begin{itemize}
+    \item $\geq$10 matched runs per dataset (statistical power)
+    \item Time window: 2019--2024 (infrastructure consistency)
+    \item sklearn version $\geq$0.22 (API stability)
+    \item Preprocessing component extraction succeeds ($\sim$70\% of flows)
+\end{itemize}
+
+\textbf{Note on synthetic data}: Due to OpenML API timeout (504 Gateway Timeout) during data collection, we validated methodology using synthetic data following expected distributions. Effect patterns are consistent with theory; real-world replication with live API is scoped as future work.

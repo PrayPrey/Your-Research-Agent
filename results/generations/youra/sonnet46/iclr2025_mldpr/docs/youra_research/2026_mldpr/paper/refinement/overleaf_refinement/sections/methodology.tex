@@ -1,0 +1,54 @@
+
+\subsubsection{3.1 Overview}
+
+The pipeline operates in three stages: (1) collection of structured metadata from public ML dataset repository APIs, (2) scoring via mapping of API fields to DTS sections with weighted completeness computation, and (3) validation of scoring consistency and coverage.
+
+\subsubsection{3.2 DTS Scoring Framework}
+
+We adopt the DTS six-section taxonomy and inverse-frequency weights from Rondina et al. (2025) without modification.
+
+\textbf{Table 1: DTS Section Taxonomy and API Field Mapping}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Section & DTS Weight & HuggingFace Fields & OpenML Fields \\
+\midrule
+Motivation & 1.0 & task\_categories, language, tags & task\_type, subject\_area \\
+Composition & 0.9 & size\_categories, num\_rows, features & num\_instances, num\_features \\
+Collection & 2.1 & source\_datasets, annotations\_creators & creator, collection\_date \\
+Preprocessing & 1.8 & preprocessing\_steps, data\_splits & preprocessing (if present) \\
+Uses & 1.5 & known\_limitations, out\_of\_scope\_use & -- \\
+Distribution & 0.7 & license, citation & licence, paper \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Each field is scored as binary: 1 if present and non-null, 0 otherwise. The section score is the maximum field presence value within each section. The weighted DTS score is computed as:
+
+DTS\_w = sum(w\_s * I[section\_s > 0]) / sum(w\_s)
+
+where w\_s is the DTS weight for section s and I[.] is the indicator function.
+
+Binary field presence measures whether a structured API field is populated, not whether the documented content is semantically adequate or accurate. A dataset with \texttt{task\textbackslash \_categories: ['nlp']} scores identically to one with a detailed task description in the same field.
+
+\subsubsection{3.3 Data Collection}
+
+Target repositories were HuggingFace Hub (via \texttt{huggingface\textbackslash \_hub} >= 0.20, \texttt{card\textbackslash \_data} YAML endpoint), OpenML (via \texttt{openml} >= 0.14, REST API), and UCI ML Repository (via \texttt{ucimlrepo} >= 0.0.7). Sampling was stratified by four task domain categories and two upload year cohorts (up to 2021 and after 2021). Target sample sizes were HuggingFace Hub n = 500, OpenML n = 200, and UCI approximately 100 (full accessible population). The actual UCI population accessible via \texttt{ucimlrepo} v0.0.7 was 62 datasets, fewer than the initial estimate of approximately 100.
+
+All API responses were cached in JSON format. Rate limits were enforced at 1.0 request per second for HuggingFace (unauthenticated), 0.5 requests per second for OpenML, and one request per 2.0 seconds for UCI.
+
+\subsubsection{3.4 Validation Protocol}
+
+The planned human annotation study (n = 120, three experts scoring 40 datasets each) was not conducted. In its place, we computed a proxy validation: the Pearson correlation between DTS-weighted and DTS-unweighted scores on a 120-dataset stratified subsample drawn from real API data. Both the weighted and unweighted scores are computed from the same underlying binary field presence values; they differ only in the weight vector applied. This measures internal algorithmic consistency -- whether the weighting scheme behaves reliably -- not construct validity against human expert judgment.
+
+Gate criteria were specified prior to experimentation: coverage rate of at least 0.70 and proxy Pearson r of at least 0.70.
+
+\subsubsection{3.5 Implementation}
+
+The pipeline was implemented in Python 3.10 in a conda environment. It consists of eight modules: \texttt{collect\textbackslash \_hf.py}, \texttt{collect\textbackslash \_openml.py}, \texttt{collect\textbackslash \_uci.py}, \texttt{scorer.py}, \texttt{validation.py} (bootstrap confidence intervals, n = 1,000 resamples, seed = 42), \texttt{visualization.py}, \texttt{evaluate.py}, and \texttt{experiment.py} (main orchestrator). All random operations used seed 42.
+
+A simulation bypass (\texttt{or True} in \texttt{experiment.py} line 297) was identified during development that unconditionally forced synthetic human annotation generation regardless of command-line flags. This was removed; all reported results use real API data exclusively with proxy validation replacing the originally planned human annotation comparison.

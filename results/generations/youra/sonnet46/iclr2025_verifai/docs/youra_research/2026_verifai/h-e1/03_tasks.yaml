@@ -1,0 +1,501 @@
+version: "1.1"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-03-18T03:40:00+00:00"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: true
+    excluded_count: 1
+    excluded_ids:
+      - "L-1-1"  # EvalPlus Loader subtask excluded — lowest-complexity parent (A-1, score 8); EvalPlus loading is self-contained enough to be covered within the epic task
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASKS — Priority order: env setup → epics → subtasks → failsafe
+# ═══════════════════════════════════════════════════════════════════════════════
+tasks:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # ENVIRONMENT SETUP (priority 94)
+  # Source: 03_prd.md Section 5 (Technical Dependencies)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Setup development environment and install dependencies"
+    description: |
+      Install required Python packages and verify GPU setup.
+
+      pip install torch>=2.0 transformers>=4.35 evalplus>=0.3.0 numpy>=1.24 matplotlib>=3.7 pandas>=2.0
+
+      GPU setup:
+        export CUDA_VISIBLE_DEVICES=<empty_gpu>  # Single GPU per CLAUDE.md
+        python -c "import torch; print(torch.cuda.is_available())"  # Verify CUDA
+
+      EvalPlus dataset verification:
+        python -c "from evalplus.data import get_human_eval_plus, get_mbpp_plus; he=get_human_eval_plus(); mb=get_mbpp_plus(); print(f'HumanEval+: {len(he)}, MBPP+: {len(mb)}')"
+        # Expected: HumanEval+: 164, MBPP+: 378
+
+      Create directory structure:
+        mkdir -p h-e1/code/src/h_e1 h-e1/results h-e1/figures
+
+      Create requirements.txt with pinned versions.
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: "03_architecture.md#external-dependencies"
+      logic: null
+      config: "03_config.md#requirements"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # EPIC IMPLEMENTATION TASKS (priority 93-50)
+  # Source: 03_architecture.md Epic Tasks section
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - id: "task-002"
+    epic: "A-1: Setup & Data Loading"
+    title: "Implement project structure and EvalPlus dataset loading"
+    description: |
+      Create the module skeleton and implement EvalPlus dataset loading.
+
+      Files to create:
+        h-e1/code/src/h_e1/__init__.py
+        h-e1/code/src/h_e1/generate_solutions.py  (skeleton)
+        h-e1/code/src/h_e1/evaluate_solutions.py  (skeleton)
+        h-e1/code/src/h_e1/analyze_tiers.py       (skeleton)
+        h-e1/code/src/h_e1/visualize.py            (skeleton)
+        h-e1/code/src/h_e1/run_experiment.py       (skeleton)
+
+      Implement load_all_problems() and partition_by_benchmark():
+        - get_human_eval_plus() -> 164 problems (keys: "HumanEval/N")
+        - get_mbpp_plus()       -> 378 problems (keys: "Mbpp/N")
+        - partition_by_benchmark() -> {task_id: "humaneval"|"mbpp"} (542 entries)
+
+      Smoke test: verify loader works on first 5 problems.
+      Gate: assert len(problems_he)==164 and len(problems_mbpp)==378
+    feature_tag: "data-pipeline"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      Create tests/test_data_loading.py with:
+        - test_humaneval_count(): assert len(get_human_eval_plus()) == 164
+        - test_mbpp_count(): assert len(get_mbpp_plus()) == 378
+        - test_partition_complete(): assert len(benchmark_map) == 542
+    reference_files:
+      architecture: "03_architecture.md#solutiongenerator-h-e1codesrch_e1generate_solutionspy"
+      logic: "03_logic.md#a-1-data-prep-evalplus-dataset-loading-complexity-8-budget-1-subtask"
+      config: "03_config.md#shared-constants-run_experimentpy"
+
+  - id: "task-003"
+    epic: "A-2: Solution Generation"
+    title: "Implement HuggingFace model loading and k=5 solution generation"
+    description: |
+      Implement solution generation for all 3 models × 542 problems.
+
+      Load each model: float16, device_map="auto"
+        models = [
+          "NousResearch/Meta-Llama-3-8B",
+          "codellama/CodeLlama-7b-hf",
+          "deepseek-ai/deepseek-coder-6.7b-base",
+        ]
+
+      For each model:
+        1. Check if solutions file exists (REUSE — no regeneration if found)
+        2. Load model + tokenizer if not reusing
+        3. Generate k=5 solutions per problem (temperature=0.8, top_p=0.95, max_new_tokens=512, seed=42)
+        4. Save to h-e1/results/solutions_{model_short}.jsonl
+
+      Format prompt: problem prompt string → use problem["prompt"] field
+      Output: {task_id: [str x 5]} per model
+
+      Estimated time: 2-4 hours per model on single GPU.
+    feature_tag: "model"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      Create tests/test_generation.py with:
+        - test_load_model(): load model, assert model is not None
+        - test_generate_k_solutions(): generate 5 solutions, assert len==5
+        - test_reuse_logic(): create dummy JSONL, assert load_existing_solutions returns it
+    reference_files:
+      architecture: "03_architecture.md#solutiongenerator-h-e1codesrch_e1generate_solutionspy"
+      logic: "03_logic.md#a-2-solution-generation-complexity-14-budget-3-subtasks"
+      config: "03_config.md#shared-constants-run_experimentpy"
+
+  - id: "task-004"
+    epic: "A-3: EvalPlus Evaluation"
+    title: "Implement EvalPlus correctness evaluation for all solutions"
+    description: |
+      Evaluate all generated solutions via EvalPlus check_correctness() oracle.
+
+      For each (model, task_id, solution) triple:
+        result = check_correctness(
+            dataset=benchmark_map[task_id],
+            problem=problems[task_id],
+            solution=solution,
+            max_as_limit=30, max_data_limit=30, max_stack_limit=10,
+            min_time_limit=1, gt_time_limit_factor=4.0,
+        )
+        passed = (result["base_status"] == "pass") and (result["plus_status"] == "pass")
+
+      Compute coverage_rate = evaluated_count / total_problems
+      Assert coverage_rate >= 0.95
+
+      Save correctness as JSON: {task_id: [bool x k]}
+      Path: h-e1/results/correctness_{model_short}.json
+    feature_tag: "evaluation"
+    priority: 80
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      Create tests/test_evaluation.py with:
+        - test_evaluate_single_solution(): verify check_correctness returns dict with base_status/plus_status
+        - test_coverage_rate(): compute coverage on mock dict
+        - test_save_load_correctness(): save JSON, reload and assert equal
+    reference_files:
+      architecture: "03_architecture.md#correctnessevaluator-h-e1codesrch_e1evaluate_solutionspy"
+      logic: "03_logic.md#a-3-eval-evalplus-evaluation-loop-complexity-12-budget-0-subtasks-from-logic-budget"
+      config: "03_config.md#a-3-evalplus-evaluation-complexity-12-budget-2-subtasks"
+
+  - id: "task-005"
+    epic: "A-4: Tier Analysis & Gate"
+    title: "Implement tier assignment, gate evaluation, and threshold relaxation"
+    description: |
+      Implement pass@1 computation, tier assignment, and MUST_WORK gate check.
+
+      compute_pass_at_1(correctness, k=5) -> {task_id: float in {0.0, 0.2, 0.4, 0.6, 0.8, 1.0}}
+
+      assign_tiers(pass_at_1, hard_thresh=0.0, easy_thresh=0.6) -> {task_id: "hard"|"easy"|"medium"}
+
+      count_tiers(tiers, ids_he, ids_mbpp) -> {benchmark: {tier: count}}
+
+      evaluate_gate(all_tier_counts, min_n=20):
+        Gate PASS: n_hard >= 20 AND n_easy >= 20 for >= 2/3 models on >= 1 benchmark
+
+      relax_and_retry(correctness_all, relaxed_hard_thresh=0.2):
+        Recompute with hard_thresh=0.2 if primary gate fails
+
+      verify_tier_mechanism_activated(): assert n_hard > 0, n_easy > 0, coverage >= 0.95
+
+      compute_cross_model_overlap(): Jaccard similarity of hard-tier sets (prep for H-M2)
+
+      Save:
+        h-e1/results/pass_at_1_{model_short}.json   — {task_id: float}
+        h-e1/results/tier_statistics.csv             — model, benchmark, n_hard, n_easy, coverage_rate, gate_pass
+    feature_tag: "evaluation"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      Create tests/test_tier_analysis.py with:
+        - test_compute_pass_at_1(): mock correctness dict, assert correct values
+        - test_assign_tiers(): test hard/easy/medium assignment at boundary values
+        - test_evaluate_gate(): test gate pass/fail with mock counts
+        - test_relax_and_retry(): verify relaxation changes tier counts
+    reference_files:
+      architecture: "03_architecture.md#tieranalyzer-h-e1codesrch_e1analyze_tierspy"
+      logic: "03_logic.md#a-4-tier-analysis--gate-complexity-13-budget-1-subtask"
+      config: "03_config.md#a-5-visualization-complexity-10-budget-1-subtask"
+
+  - id: "task-006"
+    epic: "A-5: Visualization & Report"
+    title: "Generate 4 required figures and run_experiment.py orchestration"
+    description: |
+      Implement all required visualizations and main pipeline orchestrator.
+
+      Required figures (save to h-e1/figures/):
+        1. tier_sizes_bar.png — n_hard and n_easy per (model, benchmark) vs threshold n=20
+           Bar chart with red bars (hard), green bars (easy), orange dashed line at n=20
+        2. pass_at_1_distribution.png — 6-point histogram per model per benchmark
+        3. tier_size_heatmap.png — (model × benchmark) → (n_hard, n_easy) matrix
+        4. coverage_rate.png — coverage fraction per model (bar chart)
+
+      Figure settings: DPI=150, colors: hard=#d62728, easy=#2ca02c, threshold=#ff7f0e
+
+      Implement run_experiment.py:
+        - Orchestrates: generate → evaluate → analyze → visualize
+        - argparse: --output_dir, --figures_dir, --smoke_test, --skip_generation, --gpu_id, --hard_threshold, --easy_threshold
+        - sys.exit(0) if gate_pass, sys.exit(1) if gate_fail
+
+      Print gate summary:
+        Gate result: PASS/FAIL
+        n_hard/n_easy per (model, benchmark)
+    feature_tag: "experiment"
+    priority: 70
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      Create tests/test_visualization.py with:
+        - test_plot_tier_sizes_bar(): create mock stats, verify file is created
+        - test_run_pipeline_smoke(): run full pipeline on 5 problems, assert outputs exist
+    reference_files:
+      architecture: "03_architecture.md#visualizer-h-e1codesrch_e1visualizepy"
+      logic: "03_logic.md#a-5-viz-cross-model-jaccard-h-m2-prep-complexity-10-budget-0-subtasks-from-logic-budget"
+      config: "03_config.md#a-5-visualization-complexity-10-budget-1-subtask"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SUBTASKS — Logic agent (priority 49-2)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - id: "task-007"
+    epic: "A-2: Solution Generation"
+    title: "L-2-1: Implement load_model_and_tokenizer() with float16 and device_map"
+    description: |
+      Implement load_model_and_tokenizer(model_id: str) -> tuple[AutoModelForCausalLM, AutoTokenizer]
+
+      from transformers import AutoModelForCausalLM, AutoTokenizer
+      import torch
+
+      model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16, device_map="auto")
+      tokenizer = AutoTokenizer.from_pretrained(model_id)
+      if tokenizer.pad_token is None:
+          tokenizer.pad_token = tokenizer.eos_token
+
+      Reference: 03_logic.md L-2-1
+    feature_tag: "model"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_generation.py test_load_model()"
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#a-2-solution-generation-complexity-14-budget-3-subtasks"
+      config: "03_config.md#shared-constants-run_experimentpy"
+
+  - id: "task-008"
+    epic: "A-2: Solution Generation"
+    title: "L-2-2: Implement generate_k_solutions() with deterministic seed"
+    description: |
+      Implement generate_k_solutions(model, tokenizer, problem, k=5, seed=42) -> list[str]
+
+      torch.manual_seed(seed)
+      inputs = tokenizer(format_prompt(problem), return_tensors="pt").to(model.device)
+      outputs = model.generate(
+          **inputs, do_sample=True, temperature=0.8, top_p=0.95,
+          max_new_tokens=512, num_return_sequences=k
+      )
+      solutions = [tokenizer.decode(o[inputs["input_ids"].shape[1]:], skip_special_tokens=True) for o in outputs]
+
+      Implement format_prompt(problem, benchmark) to extract the prompt string from problem dict.
+      Reference: 03_logic.md L-2-2
+    feature_tag: "model"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_generation.py test_generate_k_solutions()"
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#a-2-solution-generation-complexity-14-budget-3-subtasks"
+      config: "03_config.md#shared-constants-run_experimentpy"
+
+  - id: "task-009"
+    epic: "A-2: Solution Generation"
+    title: "L-2-3: Implement JSONL save/load with reuse-check logic"
+    description: |
+      Implement save_solutions(solutions: dict, output_path: str) -> None
+        Write JSONL: one line per task_id: {"task_id": str, "solutions": [str x k]}
+
+      Implement load_existing_solutions(path: str) -> dict | None
+        Return None if file not found, else load JSONL and return {task_id: [str x k]}
+
+      Implement generate_solutions_for_model(model_id, problems, output_path, k, seed):
+        existing = load_existing_solutions(output_path)
+        if existing is not None:
+            print(f"Reusing solutions from {output_path}")
+            return existing
+        # ... generate and save
+
+      Reference: 03_logic.md L-2-3
+    feature_tag: "model"
+    priority: 44
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_generation.py test_reuse_logic()"
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#a-2-solution-generation-complexity-14-budget-3-subtasks"
+      config: null
+
+  - id: "task-010"
+    epic: "A-4: Tier Analysis & Gate"
+    title: "L-4-1: Implement full gate evaluation pipeline with relaxation"
+    description: |
+      Implement the complete gate evaluation logic:
+
+      compute_pass_at_1(correctness: dict[str, list[bool]], k=5) -> dict[str, float]
+        return {tid: sum(r)/k for tid, r in correctness.items()}
+
+      assign_tiers(pass_at_1, hard_thresh=0.0, easy_thresh=0.6) -> dict[str, str]
+        hard if p == hard_thresh; easy if p >= easy_thresh; else medium
+
+      evaluate_gate(all_tier_counts, min_n=20) -> dict
+        models_passing = count of models where n_hard>=min_n AND n_easy>=min_n on >= 1 benchmark
+        gate_pass = models_passing >= 2
+
+      relax_and_retry(correctness_all, relaxed_hard_thresh=0.2)
+        Rerun with hard_thresh=0.2
+
+      Run gate. If fail, relax and retry. If still fail: sys.exit(1).
+      Reference: 03_logic.md L-4-1
+    feature_tag: "evaluation"
+    priority: 42
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by test_tier_analysis.py"
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#a-4-tier-analysis--gate-complexity-13-budget-1-subtask"
+      config: "03_config.md#shared-constants-run_experimentpy"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SUBTASKS — Config agent (priority 40-2)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - id: "task-011"
+    epic: "A-3: EvalPlus Evaluation"
+    title: "C-3-1: Define EVALPLUS_PARAMS, COVERAGE_MIN, N_SMOKE, output naming"
+    description: |
+      In evaluate_solutions.py, define top-level constants:
+
+      EVALPLUS_PARAMS = dict(
+          max_as_limit=30, max_data_limit=30, max_stack_limit=10,
+          min_time_limit=1, gt_time_limit_factor=4.0,
+      )
+      COVERAGE_MIN = 0.95
+      N_SMOKE = 5
+      MODEL_SHORT_NAMES = {
+          "NousResearch/Meta-Llama-3-8B": "llama3_8b",
+          "codellama/CodeLlama-7b-hf": "codellama_7b",
+          "deepseek-ai/deepseek-coder-6.7b-base": "deepseek_6.7b",
+      }
+      # Output files: correctness_{model_short}.json, solutions_{model_short}.jsonl, pass_at_1_{model_short}.json
+
+      Reference: 03_config.md C-3-1
+    feature_tag: "evaluation"
+    priority: 38
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "No separate test required — verified via evaluation tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#a-3-evalplus-evaluation-complexity-12-budget-2-subtasks"
+
+  - id: "task-012"
+    epic: "A-3: EvalPlus Evaluation"
+    title: "C-3-2: Implement evaluate_solutions.py argparse CLI"
+    description: |
+      Implement parse_args() in evaluate_solutions.py:
+
+      parser.add_argument("--solutions_path", type=str, required=True)
+      parser.add_argument("--output_dir", type=str, default="h-e1/results")
+      parser.add_argument("--smoke_test", action="store_true")
+
+      Implement main(args) to load solutions JSONL, load problems, run evaluate_all_solutions(),
+      save correctness JSON, and print coverage_rate.
+
+      Reference: 03_config.md C-3-2
+    feature_tag: "evaluation"
+    priority: 36
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "Covered by test_evaluation.py integration test."
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#a-3-eval-evalplus-evaluation-loop-complexity-12-budget-0-subtasks-from-logic-budget"
+      config: "03_config.md#a-3-evalplus-evaluation-complexity-12-budget-2-subtasks"
+
+  - id: "task-013"
+    epic: "A-5: Visualization & Report"
+    title: "C-5-1: Define figure settings (DPI, sizes, colors) in visualize.py"
+    description: |
+      In visualize.py, define top-level constants:
+
+      FIG_DPI = 150
+      FIG_SIZE_BAR = (10, 5)
+      FIG_SIZE_HIST = (12, 4)
+      FIG_SIZE_HEATMAP = (8, 4)
+      COLOR_HARD = "#d62728"
+      COLOR_EASY = "#2ca02c"
+      COLOR_MEDIUM = "#aec7e8"
+      COLOR_THRESHOLD = "#ff7f0e"
+      COLOR_COVERAGE = "#1f77b4"
+      CMAP_HEATMAP = "YlOrRd"
+      MIN_N_LINE = 20
+      FIGURES_DIR = "h-e1/figures"
+
+      Implement parse_args(): --results_dir (default: h-e1/results), --figures_dir (default: h-e1/figures)
+
+      Reference: 03_config.md C-5-1
+    feature_tag: "experiment"
+    priority: 34
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: "No separate test — verified via test_visualization.py."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#a-5-visualization-complexity-10-budget-1-subtask"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # FAILSAFE (priority 1)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - id: "task-014"
+    epic: "Pipeline Continuation"
+    title: "FAILSAFE: Verify gate result and pipeline continuation checkpoint"
+    description: |
+      Final checkpoint to verify H-E1 gate status and prepare for pipeline continuation.
+
+      Steps:
+      1. Read h-e1/results/tier_statistics.csv — verify file exists with all 3 models
+      2. Print gate summary:
+           For each (model, benchmark): n_hard, n_easy, gate_pass
+           Overall: PASS (n models passing >= 2 on >= 1 benchmark) or FAIL
+      3. If gate_pass=True:
+           Print "H-E1 GATE PASS — H-M1 unblocked"
+           sys.exit(0)
+      4. If gate_pass=False after relaxation:
+           Print "H-E1 GATE FAIL — Pipeline stopping"
+           sys.exit(1)
+      5. Save final summary to h-e1/results/gate_summary.json:
+           {"gate_pass": bool, "models_passing": int, "n_hard_per": {...}, "n_easy_per": {...}}
+
+      Phase 4 Coder: If this task fails (sys.exit=1), report GATE_FAIL to Phase 4 validator.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: "No test required — this is a checkpoint task."
+    reference_files:
+      architecture: "03_architecture.md#experimentrunner-h-e1codesrch_e1run_experimentpy"
+      logic: "03_logic.md#a-4-tier-analysis--gate-complexity-13-budget-1-subtask"
+      config: null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUDGET SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+budget_summary:
+  data_preparation: 0    # EvalPlus auto-downloads via pip — no manual download task
+  environment_setup: 1   # task-001
+  epic_tasks: 5          # task-002 through task-006 (A-1 through A-5)
+  subtasks: 7            # task-007 through task-013 (L-2-1, L-2-2, L-2-3, L-4-1, C-3-1, C-3-2, C-5-1)
+  failsafe: 1            # task-014
+  total: 14              # 14 <= 15 (LIGHT budget) ✅

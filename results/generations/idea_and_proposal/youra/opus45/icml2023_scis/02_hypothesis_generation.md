@@ -1,0 +1,283 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-CIL-Framework-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under the condition that spurious correlations in benchmark datasets exhibit compositional structure, if a hierarchical decomposition learning architecture is applied (feature-level primitives → module-level compositions → model-level objectives), then unified expression of IRM, Group DRO, and OOD objectives within a single framework will be achieved, because compositional learning enables discovery and reuse of invariance structure that each community-specific method implicitly targets.
+
+**Alternative Hypothesis (H0):**
+There is no meaningful relationship between hierarchical compositional decomposition and the ability to unify IRM, Group DRO, and OOD objectives. The three community approaches are fundamentally incompatible and cannot be expressed within a single compositional formalism, or compositional structure does not exist in real-world spurious correlations.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Compositional structure depth | Independent | Number of hierarchical levels (L) in the learning architecture | L ∈ {2, 3} levels |
+| Invariance primitive complexity | Independent | Dimensionality and abstraction level of learned feature primitives | 64-512 dimensional vectors |
+| Training environment diversity | Independent | Number and heterogeneity of training domains in DomainBed | 3-5 training domains |
+| Credit assignment learning rate | Independent | Learning rate for hierarchical option credit assignment mechanism | 1e-4 to 1e-2 |
+| OOD accuracy | Dependent | Classification accuracy on held-out test domains in DomainBed | 60-90% (dataset dependent) |
+| Worst-group accuracy | Dependent | Minimum accuracy across demographic/domain groups | 50-85% |
+| Compositional transfer efficiency | Dependent | Performance gain when reusing learned primitives vs learning from scratch | 2-10% improvement |
+| Cross-community unification | Dependent | Ability to express IRM/GroupDRO/OOD as special cases mathematically | Binary (achievable/not) |
+| Calibration error | Dependent | Expected calibration error (ECE) on OOD test sets | 0.02-0.15 |
+| Network architecture | Controlled | ResNet-50 pretrained on ImageNet | Fixed |
+| Dataset spurious correlation types | Controlled | Standard DomainBed datasets (PACS, VLCS, OfficeHome, TerraIncognita, DomainNet) | Fixed per experiment |
+| Training procedure | Controlled | DomainBed standard protocol with leave-one-domain-out evaluation | Fixed |
+| Evaluation protocol | Controlled | DomainBed model selection with validation domain | Fixed |
+
+### 1.3 Causal Mechanism
+
+**4-Step Causal Chain:**
+
+```
+Feature-Level Primitive Learning
+        ↓ (Link 1)
+Module-Level Compositional Learning
+        ↓ (Link 2)
+Model-Level Multi-Objective Optimization
+        ↓ (Link 3)
+Community-Specific Objective Expression
+        ↓ (Link 4)
+Unified Framework with Compositional Transfer
+```
+
+**Step 1: Feature-Level Primitive Learning**
+Gradient-based invariance regularization identifies atomic invariant features that serve as the building blocks for compositional structure. Each primitive captures a simple, environment-invariant pattern (e.g., "edge orientation invariant to lighting").
+
+**Step 2: Module-Level Compositional Learning**
+Differentiable module selection enables flexible composition of primitives into task-specific modules. The hierarchical credit assignment mechanism (adapted from Li et al. 2022) determines when to learn new primitives versus reuse existing ones.
+
+**Step 3: Model-Level Multi-Objective Optimization**
+The compositional framework accommodates IRM, Group DRO, and OOD losses simultaneously by formulating each as different weightings of the same compositional modules.
+
+**Step 4: Community-Specific Objective Expression → Unified Framework**
+Once expressed in common formalism, theoretical conditions for compositional transfer can be characterized, complementing Mehta (2025)'s static equivalence theory with dynamic learning mechanisms.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Saanum et al. (2021) | Humans transfer knowledge of simpler reward structures to make compositional generalizations | Strong |
+| Step 2 → Step 3 | Li et al. (2022) | Precise credit assignment in hierarchical option transfer; humans create and compose hierarchical options | Strong |
+| Step 3 → Step 4 | Kamath et al. (2021) | Gap between linear IRM and full formulation suggests different feature combination strategies | Medium |
+| Step 4 → Outcome | Mehta (2025) | Information-theoretic conditions for method equivalence provide foundation for unification | Medium |
+
+**Key Tension:**
+- **Tension:** Rosenfeld et al. (2020) shows IRM can fail catastrophically unless test data is sufficiently similar to training distribution. However, Saanum et al. (2021) demonstrates compositional generalization enables transfer to novel contexts in cognitive science.
+- **Resolution:** This verification plan tests whether compositional decomposition provides additional robustness that monolithic IRM lacks, by isolating invariant primitives that remain stable even when their compositions change.
+
+### 1.4 Key Assumptions
+
+1. **Spurious correlations in DomainBed datasets exhibit compositional structure**
+   - Evidence: Saanum et al. (2021) showed humans use compositional learning for generalization; DomainBed datasets contain multi-level spurious features (texture, background, style)
+   - *Consequence if violated:* Primitive learning fails; framework reduces to standard multi-task learning with no compositional advantage
+
+2. **Simple invariance primitives are easier to learn than monolithic invariance**
+   - Evidence: Hierarchical representation learning in deep networks; early layers learn simple features, later layers compose them
+   - *Consequence if violated:* Computational advantage disappears; may require exponentially more data to learn primitives
+
+3. **Cognitive science insights on compositional generalization transfer to deep learning at moderate scale**
+   - Evidence: Li et al. (2022) credit assignment mechanism tested on structured tasks
+   - *Consequence if violated:* Credit assignment doesn't scale to DomainBed image dimensions; requires significant algorithmic modification
+
+4. **Existing methods (IRM, Group DRO, OOD) can be expressed within compositional framework**
+   - Evidence: Shared goal of spurious correlation robustness; Kamath (2021) shows IRM variants differ in feature combination
+   - *Consequence if violated:* Theoretical unification claim fails; framework becomes "yet another method" rather than unifying architecture
+
+5. **Hierarchical credit assignment is computationally tractable at DomainBed scale**
+   - Evidence: O(L*N) complexity where L=2-3 levels, comparable to standard training
+   - *Consequence if violated:* Training becomes impractically slow; limits practical applicability
+
+6. **Two to three hierarchical levels are sufficient for DomainBed-scale problems**
+   - Evidence: Cognitive science studies used similar hierarchical depth; ResNet-50 effective depth
+   - *Consequence if violated:* Requires deeper hierarchies increasing complexity and training difficulty
+
+### 1.5 Scope & Boundaries
+
+**Where hypothesis applies:**
+- Computer vision domain generalization tasks
+- DomainBed benchmark datasets (PACS, VLCS, OfficeHome, TerraIncognita, DomainNet)
+- Settings with multiple training environments/domains available
+- Moderate scale (up to DomainNet ~600K images)
+
+**Where it does NOT apply:**
+- ImageNet-scale single-domain training (no multi-environment signal)
+- NLP or RL domains without significant adaptation
+- Applications without access to environment/domain labels during training
+- Real-time inference requirements (hierarchical structure adds overhead)
+
+**Known limitations:**
+- Moderate scale validation only (not ImageNet-scale)
+- Computer vision focus; other modalities require adaptation
+- Semi-automated structure discovery (primitives not fully interpretable)
+- Theoretical contribution limited to sufficient conditions (not necessary and sufficient)
+- Requires environment labels during training (unlike some recent methods)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1 (OOD Accuracy on DomainBed):**
+The Compositional Invariance Learning (CIL) framework will achieve OOD accuracy ≥ SOTA mean on DomainBed benchmarks while simultaneously achieving worst-group accuracy improvement.
+
+*Measurement:*
+- OOD accuracy across 5 DomainBed datasets with leave-one-domain-out evaluation
+- Statistical test: Paired t-test across random seeds, n ≥ 20 runs
+- Significance level: p < 0.05
+
+*Basis:*
+DomainBed SOTA methods (ERM, IRM, Group DRO, SWAD, JTT) achieve 65-85% depending on dataset. CIL targets compositional advantage through primitive reuse.
+
+*Success Criteria for Phase 2B:*
+- Primary: OOD accuracy ≥ SWAD/SWAD mean across datasets
+- Falsification: OOD accuracy < ERM baseline (statistically significant) triggers rejection
+
+**Secondary Predictions:**
+
+**P2 (Compositional Transfer Efficiency):**
+Models trained with CIL will achieve 2-5% higher OOD accuracy when transferred to novel domain combinations compared to methods without explicit compositional structure.
+
+**P3 (Unification Verification):**
+IRM, Group DRO, and ERM objectives can be mathematically derived as special cases of the CIL compositional formalism with specific module weighting configurations.
+
+**P4 (Credit Assignment Scalability):**
+CIL training time will be within 2x of standard ERM training time on DomainBed, demonstrating O(L*N) complexity is tractable.
+
+**P5 (Complementarity with Mehta 2025):**
+Combining CIL's dynamic learning with Mehta (2025)'s static equivalence conditions will outperform either approach alone on datasets where both apply.
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any of the following occur:
+
+1. **Primary Failure:** OOD accuracy statistically worse than ERM baseline across majority of DomainBed datasets (p < 0.05)
+
+2. **Mechanism Failure:** Compositional structure analysis shows no meaningful primitive decomposition (primitives are not reusable across domains)
+
+3. **Unification Failure:** Cannot mathematically express at least 2 of 3 community methods (IRM, Group DRO, OOD) within the compositional formalism
+
+4. **Scalability Failure:** Training time exceeds 5x ERM training time, making approach impractical
+
+5. **Assumption Violation:** Ablation studies show compositional structure assumption does not hold for majority of DomainBed datasets
+
+### 1.7 SOTA Baseline
+
+**DomainBed Benchmark Performance Reference:**
+
+| Method | PACS | VLCS | OfficeHome | TerraIncognita | DomainNet | Average |
+|--------|------|------|------------|----------------|-----------|---------|
+| ERM | 85.5% | 77.5% | 66.5% | 46.1% | 40.9% | 63.3% |
+| IRM | 83.5% | 78.5% | 64.3% | 47.6% | 33.9% | 61.6% |
+| Group DRO | 84.4% | 76.7% | 66.0% | 43.2% | 33.3% | 60.7% |
+| SWAD | 88.1% | 79.1% | 70.6% | 50.0% | 46.5% | 66.9% |
+| JTT | 84.8% | 77.2% | 65.8% | 45.8% | N/A | ~68.4% |
+
+**Performance Tier:** Medium (63-67% average OOD accuracy)
+**Target Strategy:** Standard Improvement (2-5% over SWAD mean)
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size target (Cohen's d): 0.5 (medium effect)
+- Required runs per configuration: n ≥ 20
+- Statistical power: 0.8
+- Significance level: α = 0.05
+
+**Test Specification:**
+- Primary method: Paired t-test (same random seeds across methods)
+- Secondary method: Wilcoxon signed-rank test (non-parametric alternative)
+- Multiple comparison correction: Bonferroni for dataset-wise comparisons
+
+**Report Format:**
+- Mean ± Standard Deviation across seeds
+- 95% Confidence Interval
+- Cohen's d effect size
+- p-value with correction
+
+**Reproducibility Requirements:**
+- Fixed random seeds: 5 seeds × 4 runs = 20 total runs per method
+- DomainBed evaluation protocol adherence
+- Hyperparameter selection via validation domain
+- Code release with configuration files
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does compositional structure exist in DomainBed spurious correlations, such that learned invariance primitives can be identified and reused across domains?"
+- Maps to: Primary prediction (OOD accuracy) + ablation on primitive reusability
+- Verification type: Empirical (primitive analysis, transfer experiments)
+- Critical: MUST PASS for framework viability
+
+**SH2 (Mechanism):**
+"Is hierarchical compositional learning (feature → module → model) the actual mechanism enabling unified IRM/GroupDRO/OOD expression?"
+
+Phase 2B will decompose into 4 sub-hypotheses:
+- **H-M1:** Feature-level primitive learning successfully isolates invariant features (Link 1)
+- **H-M2:** Module-level composition with credit assignment enables flexible primitive reuse (Link 2)
+- **H-M3:** Model-level multi-objective optimization accommodates community-specific losses (Link 3)
+- **H-M4:** Compositional formalism enables theoretical characterization of transfer conditions (Link 4)
+
+Verification type: Causal analysis + ablation studies
+Critical: Determines explanatory power of framework
+
+**SH3 (Comparison):**
+"Does CIL outperform or match SOTA (SWAD, JTT) on DomainBed while providing additional benefits (unification, interpretability, transfer efficiency)?"
+- Maps to: Secondary predictions (P2, P3, P5)
+- Verification type: Comparative empirical
+- Critical: Determines practical value proposition
+
+**Total sub-hypotheses for Phase 2B:** 6 (SH1: 1 + SH2: 4 + SH3: 1)
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-CIL-Framework-v1
+- [x] Confidence level specified: 0.82
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (4 steps, evidence table provided)
+- [x] Causal chain length (N=4) determined and documented
+- [x] Key tension identified (IRM failure vs. compositional robustness) and resolution proposed
+- [x] Key assumptions list consequences if violated (6 assumptions)
+- [x] At least 2 testable predictions exist with primary marked (5 predictions, P1 primary)
+- [x] Falsification criteria are defined (5 criteria)
+- [x] Baselines are identified: ERM, IRM, Group DRO, SWAD, JTT
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:** What compute budget is available? CIL with credit assignment may require 1.5-2x ERM training time. Estimated: 4-8 GPU-days for full DomainBed evaluation.
+
+2. **Primitive Interpretability:** How will we analyze whether learned primitives are meaningful? Need visualization and probing methods for intermediate representations.
+
+3. **Priority Verification Order:** Should SH1 (existence) be verified before investing in full mechanism implementation? Recommend: SH1 → SH2 (H-M1, H-M2 first) → SH3
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-12*

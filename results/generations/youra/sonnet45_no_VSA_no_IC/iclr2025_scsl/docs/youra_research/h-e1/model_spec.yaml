@@ -1,0 +1,118 @@
+model:
+  name: ResNet-50 Waterbirds Classifier
+  architecture: ResNet-50
+  task: binary_classification
+
+  source:
+    library: torchvision
+    method: torchvision.models.resnet50(pretrained=True)
+    pretrained: ImageNet
+    checkpoint_url: https://download.pytorch.org/models/resnet50-*.pth
+    cache_path: ~/.cache/torch/hub/checkpoints/
+
+  modifications:
+    - layer: fc
+      original: Linear(2048, 1000)
+      modified: Linear(2048, 2)
+      reason: Binary classification (waterbird vs landbird)
+
+  architecture_details:
+    input_size: [3, 224, 224]
+    output_size: [2]
+    total_params: ~25M
+    backbone_params: ~23M
+    classifier_params: ~4K
+
+    layers:
+      conv1: Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
+      bn1: BatchNorm2d(64)
+      relu: ReLU(inplace=True)
+      maxpool: MaxPool2d(kernel_size=3, stride=2, padding=1)
+      layer1: ResNet block (64 → 256, 3 blocks)
+      layer2: ResNet block (256 → 512, 4 blocks)
+      layer3: ResNet block (512 → 1024, 6 blocks)
+      layer4: ResNet block (1024 → 2048, 3 blocks)
+      avgpool: AdaptiveAvgPool2d((1, 1))
+      fc: Linear(2048, 2)
+
+    gradcam_target:
+      layer: layer4
+      reason: Final conv block, highest semantic features
+      output_shape: [batch, 2048, 7, 7]
+
+  training:
+    optimizer:
+      type: SGD
+      lr: 0.001
+      momentum: 0.9
+      weight_decay: 0.0001
+      nesterov: false
+
+    scheduler:
+      type: CosineAnnealingLR
+      T_max: 300
+      eta_min: 0.0
+
+    loss:
+      type: CrossEntropyLoss
+      reduction: mean
+
+    batch_size: 128
+    epochs: 300
+    gradient_clipping: null
+    mixed_precision: false
+
+    early_stopping:
+      monitor: worst_group_accuracy
+      patience: 50
+      mode: max
+
+    data_augmentation:
+      train:
+        - RandomResizedCrop(224)
+        - RandomHorizontalFlip(p=0.5)
+        - ColorJitter(brightness=0.1, contrast=0.1)
+        - ToTensor()
+        - Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
+
+      val_test:
+        - Resize(256)
+        - CenterCrop(224)
+        - ToTensor()
+        - Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
+
+  performance_targets:
+    average_accuracy: ">0.95"
+    worst_group_accuracy: "<0.80"
+    minority_accuracy: ">=0.60"
+
+    expected_group_accuracies:
+      group_0: ~0.97  # waterbird-water (majority aligned)
+      group_1: ~0.65  # waterbird-land (minority conflict)
+      group_2: ~0.65  # landbird-water (minority conflict)
+      group_3: ~0.97  # landbird-land (majority aligned)
+
+  validation:
+    metrics:
+      - accuracy (overall)
+      - accuracy_per_group
+      - worst_group_accuracy
+      - minority_group_accuracy
+      - loss
+
+    checkpointing:
+      save_best: true
+      criterion: worst_group_accuracy
+      save_last: true
+      save_every_n_epochs: 50
+
+  computational_requirements:
+    gpu_memory: ~6GB (training with batch_size=128)
+    training_time: ~3 hours (single GPU, RTX 3070+)
+    inference_time: ~15 minutes (5794 test samples)
+
+  reproducibility:
+    seed: 42
+    deterministic: true
+    cudnn_benchmark: false
+    notes: Set torch.manual_seed, torch.cuda.manual_seed, np.random.seed

@@ -1,0 +1,208 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADVERSARY AGENT - Phase 6.5 Adversarial Review
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: "adversary-agent"
+version: "2.1.0"
+description: "Multi-persona hostile reviewer checking accuracy AND persuasiveness"
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# EXECUTION CONFIG
+# ─────────────────────────────────────────────────────────────────────────────────
+
+execution:
+  mode: "task_agent"
+  context_isolation: true
+  subagent_type: "general-purpose"
+
+  # Detailed instructions file (referenced by step files)
+  instructions_file: "adversary-instructions.md"
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# PERSONA CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────────────────
+
+personas:
+  # Load persona definitions from separate files for maintainability
+  accuracy_checker:
+    file: "personas/accuracy-checker.yaml"
+    active_rounds: ["R1", "R2"]
+    priority: 1 # Runs first
+
+  bored_reviewer:
+    file: "personas/bored-reviewer.yaml"
+    active_rounds: ["R1", "R3"]
+    priority: 2
+
+  skeptical_expert:
+    file: "personas/skeptical-expert.yaml"
+    active_rounds: ["R1", "R2"]
+    priority: 3 # Runs last
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# INPUT/OUTPUT SPECIFICATIONS
+# ─────────────────────────────────────────────────────────────────────────────────
+
+inputs:
+  required:
+    - name: "paper_file"
+      description: "Path to paper being reviewed"
+      type: "file_path"
+
+    - name: "ground_truth_file"
+      description: "Path to 065_ground_truth.yaml"
+      type: "file_path"
+
+    - name: "round"
+      description: "Current round (R1, R2, R3)"
+      type: "string"
+      enum: ["R1", "R2", "R3"]
+
+    - name: "output_file"
+      description: "Where to write review"
+      type: "file_path"
+
+  optional:
+    - name: "sections_folder"
+      description: "Path to individual section files"
+      type: "directory_path"
+
+    - name: "narrative_blueprint"
+      description: "Path to 06_narrative_blueprint.yaml"
+      type: "file_path"
+
+    - name: "verification_state_file"
+      description: "Path to verification_state.yaml"
+      type: "file_path"
+
+    - name: "previous_review"
+      description: "Path to previous round's review"
+      type: "file_path"
+
+outputs:
+  primary:
+    - name: "review_file"
+      description: "Comprehensive review with issues"
+      format: "markdown"
+      template: "templates/065_review_template.md"
+
+  return_schema:
+    agent: "string"
+    round: "string"
+    status: "enum[COMPLETED, FAILED]"
+    output_file: "file_path"
+    summary:
+      accuracy:
+        fatal: "integer"
+        major: "integer"
+        ground_truth_discrepancies: "integer"
+      engagement:
+        fatal: "integer"
+        major: "integer"
+        would_continue_reading: "boolean"
+        attention_lost_at: "string|null"
+      credibility:
+        fatal: "integer"
+        major: "integer"
+        false_novelty_claims: "integer"
+        unfair_baselines: "integer"
+      totals:
+        fatal: "integer"
+        major: "integer"
+      human_review_notes_count: "integer"
+      recommendation: "enum[MAJOR_REVISION, MINOR_REVISION, CONDITIONAL_ACCEPT]"
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# MCP REQUIREMENTS
+# ─────────────────────────────────────────────────────────────────────────────────
+
+mcp_servers:
+  required:
+    - name: "serena"
+      purpose: "Verify claims against actual code/results"
+      tools:
+        - "find_file"
+        - "search_for_pattern"
+        - "list_dir"
+        - "find_symbol"
+
+  recommended:
+    - name: "semantic_scholar"
+      purpose: "Verify citation accuracy and baseline values"
+      tools:
+        - "paper_relevance_search"
+        - "paper_details"
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# ISSUE CLASSIFICATION
+# ─────────────────────────────────────────────────────────────────────────────────
+
+issue_severity:
+  FATAL:
+    definition: "Fundamental contradiction or impossible claim"
+    action: "MUST fix or WITHDRAW claim"
+    blocks_convergence: true
+
+  MAJOR:
+    definition: "Significant weakness attackable by reviewers"
+    action: "MUST fix with evidence"
+    blocks_convergence: true
+
+  # MINOR issues are NOT tracked here - they go to human_review_notes
+
+human_review_notes:
+  description: "Minor issues collected for human review (not auto-fixed)"
+  categories:
+    - "typo"
+    - "grammar"
+    - "style"
+    - "clarity"
+    - "formatting"
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# ROUND CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────────────────
+
+rounds:
+  R1:
+    name: "Accuracy and Engagement"
+    personas: ["accuracy_checker", "bored_reviewer", "skeptical_expert"]
+    focus_categories:
+      - "logical_conflicts"
+      - "methodology_contradictions"
+      - "novelty_overclaims"
+      - "definition_inconsistency"
+      - "attention_loss_points"
+      - "unclear_problem_statement"
+
+  R2:
+    name: "Verification and Credibility"
+    personas: ["accuracy_checker", "skeptical_expert"]
+    focus_categories:
+      - "mathematical_validity"
+      - "baseline_fairness"
+      - "signal_performance_gap"
+      - "metric_consistency"
+      - "missing_limitations"
+
+  R3:
+    name: "Final Check"
+    personas: ["bored_reviewer"]
+    focus_categories:
+      - "narrative_flow"
+      - "figure_text_mismatch"
+      - "hook_callback_missing"
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# QUALITY CHECKLIST
+# ─────────────────────────────────────────────────────────────────────────────────
+
+quality_checklist:
+  before_returning:
+    - "All active personas for this round applied"
+    - "Ground truth compared for all numerical claims"
+    - "Engagement check completed (if bored_reviewer active)"
+    - "Novelty claims audited (if skeptical_expert active)"
+    - "All FATAL issues have required fixes specified"
+    - "Human review notes separated from actionable issues"
+    - "Review is constructive, not just critical"

@@ -1,0 +1,578 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: "H-M2"
+  hypothesis_type: "MECHANISM"
+  tier: "FULL"
+  total_budget: 30
+  created_at: "2026-05-04T16:20:00+00:00"
+  description: "Feature Complexity Measurement — Spurious vs. Core Feature Analysis"
+  gate_type: "SHOULD_WORK"
+  base_hypothesis: "H-M1"
+
+budget_summary:
+  data_preparation: 2
+  environment_setup: 1
+  epic_tasks: 12
+  subtasks: 14
+  failsafe: 1
+  total: 30
+
+tasks:
+  # ============================================================
+  # DATA PREPARATION (priority 100-95)
+  # ============================================================
+
+  - id: "D-1"
+    title: "Download and verify Waterbirds dataset with segmentation masks"
+    type: "data-preparation"
+    priority: 100
+    description: >
+      Clone kohpangwei/group_DRO repository and verify Waterbirds dataset.
+      Confirm metadata.csv and segmentation mask files are present.
+      Cache at .data_cache/datasets/waterbirds/.
+      If masks unavailable, log fallback to quadrant-based extraction.
+    acceptance_criteria:
+      - ".data_cache/datasets/waterbirds/ exists with metadata.csv"
+      - "4795 train images verified"
+      - "Segmentation masks present (or fallback logged)"
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-1: Data Preparation — Waterbirds Dataset"
+      - file: "02c_experiment_brief.md"
+        section: "Dataset / Primary Dataset: Waterbirds"
+
+  - id: "D-2"
+    title: "Download and verify CelebA dataset via torchvision"
+    type: "data-preparation"
+    priority: 99
+    description: >
+      Download CelebA via torchvision.datasets.CelebA(root='.data_cache/datasets/celeba',
+      split='train', target_type='attr', download=True).
+      Verify attr indices: hair_color=9, gender=20.
+      Confirm stratified sample of 5000/group is extractable.
+    acceptance_criteria:
+      - ".data_cache/datasets/celeba/ exists with attr files"
+      - "CelebA attributes loaded, indices 9 and 20 verified"
+      - "~162K train images accessible"
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-2: Data Preparation — CelebA Dataset"
+      - file: "02c_experiment_brief.md"
+        section: "Dataset / Replication Dataset: CelebA"
+
+  # ============================================================
+  # ENVIRONMENT SETUP (priority 94)
+  # ============================================================
+
+  - id: "E-1"
+    title: "Set up Python environment with required packages"
+    type: "setup"
+    priority: 94
+    description: >
+      Install all required Python packages:
+      torch>=1.9.0, torchvision>=0.10.0, numpy>=1.21.0,
+      scipy>=1.7.0, scikit-learn>=0.24.0, matplotlib>=3.4.0,
+      seaborn>=0.11.0, pandas>=1.3.0, Pillow>=8.0.0,
+      pyyaml>=5.4.0, tqdm>=4.60.0.
+      Verify GPU available: nvidia-smi, set CUDA_VISIBLE_DEVICES.
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "torch.cuda.is_available() returns True"
+      - "CUDA_VISIBLE_DEVICES set to empty GPU"
+    reference_files:
+      - file: "03_prd.md"
+        section: "7. Dependencies / 7.1 Python Packages"
+
+  # ============================================================
+  # EPIC IMPLEMENTATION TASKS (priority 93-50)
+  # ============================================================
+
+  - id: "A-1"
+    title: "Setup & Config — ExperimentConfig dataclasses and experiment.yaml"
+    type: "setup"
+    priority: 93
+    complexity: 5
+    description: >
+      Implement config.py with DataConfig, MetricConfig, ModelConfig, FigureConfig,
+      ExperimentConfig dataclasses. Write configs/experiment.yaml with all default values.
+      Create h-m2/code/ directory structure with all __init__.py files.
+    acceptance_criteria:
+      - "config.py importable; ExperimentConfig instantiates with defaults"
+      - "configs/experiment.yaml parseable; load_config() returns ExperimentConfig"
+      - "validate_config() passes on default config"
+      - "All subdirectory __init__.py files created"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Config (config.py)"
+      - file: "03_config.md"
+        section: "ExperimentConfig Composition"
+
+  - id: "A-2"
+    title: "Patch Extractor — mask-based and quadrant fallback extraction"
+    type: "data-pipeline"
+    priority: 92
+    complexity: 12
+    description: >
+      Implement PatchExtractor in data_pipeline/patch_extractor.py.
+      extract_from_mask(): use fg/bg bounding boxes from binary mask, resize to 64x64 uint8.
+      extract_quadrant(): top-40% background, center-60% foreground fallback.
+      extract_celeba_patches(): top-25% hair crop vs center 112x112 face crop.
+      to_imagenet_tensor(): uint8 patch → ImageNet-normalized tensor.
+    acceptance_criteria:
+      - "extract_from_mask() returns (64,64,3) uint8 patches for valid mask"
+      - "extract_quadrant() fallback works when mask is None/degenerate"
+      - "extract_celeba_patches() returns (64,64,3) hair and face patches"
+      - "to_imagenet_tensor() output shape (3,224,224) float32 in ImageNet range"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "PatchExtractor (data_pipeline/patch_extractor.py)"
+      - file: "03_logic.md"
+        section: "A-2: Patch Extractor"
+
+  - id: "A-3"
+    title: "Waterbirds Data Pipeline — dataset loader with segmentation masks"
+    type: "data-pipeline"
+    priority: 91
+    complexity: 13
+    description: >
+      Implement waterbirds_loader.py: WaterbirdsDataset (metadata.csv + mask paths),
+      extract_waterbirds_patches() dispatching mask-based vs quadrant extraction,
+      get_waterbirds_feature_loader() returning DataLoader with ImageNet transforms.
+      Log fallback when masks unavailable.
+    acceptance_criteria:
+      - "WaterbirdsDataset __len__ returns 4795 for train split"
+      - "extract_waterbirds_patches() returns dict with spurious_patches (N,64,64,3) and core_patches (N,64,64,3)"
+      - "n_spurious_patches >= 100 and n_core_patches >= 100"
+      - "Fallback logged if use_masks=False or masks missing"
+      - "get_waterbirds_feature_loader() yields (B,3,224,224) tensors"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "WaterbirdsLoader (data_pipeline/waterbirds_loader.py)"
+      - file: "03_logic.md"
+        section: "A-3: Waterbirds Data Pipeline"
+
+  - id: "A-4"
+    title: "CelebA Data Pipeline — stratified group loader"
+    type: "data-pipeline"
+    priority: 90
+    complexity: 11
+    description: >
+      Implement celeba_loader.py: extract_celeba_patches() with stratified sampling
+      (4 groups × 5000 samples, attrs[9]=hair_color, attrs[20]=gender).
+      get_celeba_feature_loader() returning DataLoader with ImageNet transforms.
+    acceptance_criteria:
+      - "extract_celeba_patches() returns 4 groups × 5000 patches each"
+      - "spurious_patches shape (20000,64,64,3), core_patches shape (20000,64,64,3)"
+      - "Group balance verified: 5000 samples per group ±5%"
+      - "get_celeba_feature_loader() yields (B,3,224,224) tensors"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "CelebALoader (data_pipeline/celeba_loader.py)"
+      - file: "03_logic.md"
+        section: "A-4: CelebA Data Pipeline"
+
+  - id: "A-5"
+    title: "ResNet-50 Feature Extractor — frozen backbone layer-4 (2048-dim)"
+    type: "model"
+    priority: 89
+    complexity: 10
+    description: >
+      Implement ResNetExtractor in feature_extractor/resnet_extractor.py.
+      build_model(): resnet50(pretrained=True), fc=Identity(), frozen, eval mode.
+      extract_features(): batch inference (B=256), returns (N,2048) numpy float32, no gradient.
+      extract_split_features(): convenience wrapper for spurious/core separate loaders.
+    acceptance_criteria:
+      - "model.training == False after build_model()"
+      - "All parameters frozen (requires_grad=False)"
+      - "extract_features() output shape (N,2048) float32"
+      - "No gradient computed (torch.no_grad() context)"
+      - "Batch size 256 used for inference"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "ResNetExtractor (feature_extractor/resnet_extractor.py)"
+      - file: "03_config.md"
+        section: "ModelConfig"
+
+  - id: "A-6"
+    title: "FFT Complexity Metric — mean spatial frequency (metric1)"
+    type: "evaluation"
+    priority: 88
+    complexity: 11
+    description: >
+      Implement fft_metric.py:
+      compute_mean_spatial_frequency(patch): grayscale → fft2 → fftshift → power spectrum
+      → radial freq grid → power-weighted mean. Returns float (lower=simpler).
+      compute_fft_metric(spurious_patches, core_patches): vectorized over patches,
+      ttest_ind, direction_correct check. Returns dict with t_stat, p_value, direction_correct.
+    acceptance_criteria:
+      - "compute_mean_spatial_frequency() returns float in [0, 0.5]"
+      - "Smooth patch (constant image) returns near-zero frequency"
+      - "compute_fft_metric() processes 9590 patches in <60s on CPU"
+      - "Returns direction_correct=True when spurious_mean_freq < core_mean_freq"
+      - "p_value computed via scipy.stats.ttest_ind"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "FFTMetric (complexity_metrics/fft_metric.py)"
+      - file: "03_logic.md"
+        section: "A-6: FFT Complexity Metric"
+
+  - id: "A-7"
+    title: "Intra-class Variance Metric — layer-4 feature variance (metric2)"
+    type: "evaluation"
+    priority: 87
+    complexity: 9
+    description: >
+      Implement variance_metric.py:
+      compute_intraclass_variance(features): trace(Cov(features.T)) on (N,2048) array.
+      compute_variance_metric(spurious_feats, core_feats): per-feature variance arrays,
+      ttest_ind on per-feature std, direction_correct check.
+    acceptance_criteria:
+      - "compute_intraclass_variance() returns positive scalar"
+      - "compute_variance_metric() returns dict with var_spurious, var_core, t_stat, p_value"
+      - "direction_correct=True when var_spurious < var_core"
+      - "per_feature_var arrays shape (2048,)"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "VarianceMetric (complexity_metrics/variance_metric.py)"
+      - file: "03_logic.md"
+        section: "A-7: Intra-class Variance Metric (if present)"
+
+  - id: "A-8"
+    title: "Linear Separability Probe — learning curve AUC (metric3)"
+    type: "evaluation"
+    priority: 86
+    complexity: 13
+    description: >
+      Implement separability_metric.py:
+      probe_learning_curve(features, labels, n_samples_list, seeds): LogisticRegression
+      sweep N∈{50,100,200,500,1000,2000,full} × 3 seeds, log-AUC, samples_to_90pct.
+      compute_separability_metric(): run for spurious and core labels, compute
+      auc_ratio and direction_correct (spurious_auc < core_auc → simpler).
+    acceptance_criteria:
+      - "probe_learning_curve() returns accs shape (3,7) (seeds × n_samples)"
+      - "AUC computed via trapz on log-normalized N axis"
+      - "samples_to_90pct returns first N where mean_acc >= 0.90 (None if not reached)"
+      - "compute_separability_metric() direction_correct=True when spurious reaches 90% with fewer samples"
+      - "3 seeds × 7 N values = 21 LogisticRegression fits per label type"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "SeparabilityMetric (complexity_metrics/separability_metric.py)"
+      - file: "03_logic.md"
+        section: "A-8: Linear Separability Probe"
+
+  - id: "A-9"
+    title: "Statistical Analysis & Gate Evaluation"
+    type: "evaluation"
+    priority: 85
+    complexity: 12
+    description: >
+      Implement statistical_tests.py and mechanism_verifier.py:
+      apply_bonferroni_correction(): 6 tests (3 metrics × 2 datasets), threshold=alpha/6=0.0083.
+      evaluate_gate(): >=2/3 metrics with direction_correct + p<alpha on Waterbirds;
+      directional replication on CelebA. Returns gate_pass bool.
+      compute_complexity_delta_ci(): 10k bootstrap for 95% CI of delta=mean(core)-mean(spurious).
+      verify_mechanism_activated(): checks patches>100, feats shape (N,2048), direction_correct_fft.
+    acceptance_criteria:
+      - "evaluate_gate() returns gate_pass=True when >=2/3 metrics pass"
+      - "Bonferroni threshold=0.0083 applied correctly (alpha/6)"
+      - "Bootstrap CI: ci_low > 0 indicates significant positive delta"
+      - "verify_mechanism_activated() returns (bool, dict) with all indicator keys"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "StatisticalTests (analysis/statistical_tests.py)"
+      - file: "03_logic.md"
+        section: "A-9: Statistical Analysis & Gate"
+
+  - id: "A-10"
+    title: "Visualization — 5 required figures"
+    type: "evaluation"
+    priority: 84
+    complexity: 11
+    description: >
+      Implement visualization/figures.py with 5 figure functions:
+      1. plot_complexity_comparison(): bar chart spurious vs core on 3 metrics × 2 datasets + p-values
+      2. plot_fft_spectrum(): 2D FFT heatmap for example patches
+      3. plot_learning_curves(): probe accuracy vs N for spurious/core (both datasets)
+      4. plot_feature_pca(): PCA 2D projection of layer-4 features
+      5. plot_complexity_gap(): delta_complexity with 95% CI per metric per dataset
+      generate_all_figures() wrapper. Save all to figures/ dir.
+    acceptance_criteria:
+      - "All 5 PNG files created in figures/ directory"
+      - "complexity_comparison.png contains p-value annotations"
+      - "learning_curves.png shows 7 N-points per curve"
+      - "generate_all_figures() runs without error on valid results dict"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Figures (visualization/figures.py)"
+      - file: "03_config.md"
+        section: "FigureConfig"
+
+  - id: "A-11"
+    title: "Experiment Orchestrator — main runner (run_experiment.py)"
+    type: "training"
+    priority: 83
+    complexity: 10
+    description: >
+      Implement run_experiment.py:
+      run_dataset(cfg, dataset): patch extraction → feature extraction → 3 metrics → stats.
+      main(config_path, device): run both datasets, gate evaluation, mechanism verification,
+      generate 5 figures, write results/results_h_m2.json.
+      CLI entrypoint: --config, --device args.
+    acceptance_criteria:
+      - "python run_experiment.py --config configs/experiment.yaml runs end-to-end"
+      - "results/results_h_m2.json created with all metric values and gate result"
+      - "All 5 figures generated in figures/"
+      - "verify_mechanism_activated() called and result logged"
+      - "Runtime < 30min on single GPU"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "RunExperiment (run_experiment.py)"
+      - file: "03_config.md"
+        section: "ExperimentConfig Composition"
+
+  - id: "A-12"
+    title: "End-to-End Validation — pipeline smoke test"
+    type: "evaluation"
+    priority: 82
+    complexity: 8
+    description: >
+      Run full pipeline on both datasets. Verify:
+      - patches > 100 per class (Waterbirds and CelebA)
+      - features shape (N,2048) for all loaders
+      - At least 1 of 3 metrics direction_correct (even if gate not satisfied)
+      - All 5 figures generated without error
+      - results_h_m2.json contains gate_pass key
+    acceptance_criteria:
+      - "No Python exceptions during full run"
+      - "n_patches_waterbirds_spurious >= 100, n_patches_waterbirds_core >= 100"
+      - "spurious_feats.shape[1] == 2048, core_feats.shape[1] == 2048"
+      - "results_h_m2.json[gate_pass] is not None"
+      - "figures/ contains 5 PNG files"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Epic Tasks / A-12"
+      - file: "03_prd.md"
+        section: "6. Success Criteria"
+
+  # ============================================================
+  # LOGIC SUBTASKS (priority 49-20)
+  # ============================================================
+
+  - id: "L-3-1"
+    title: "WaterbirdsDataset: __getitem__ with mask path resolution"
+    type: "subtask"
+    parent_epic: "A-3"
+    priority: 49
+    description: >
+      Implement WaterbirdsDataset.__getitem__ returning dict with image (PIL),
+      core_label (int), spurious_label (int), mask_path (str or None), img_path (str).
+      Read metadata.csv in __init__; resolve mask path from img filename convention.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-3: Waterbirds Data Pipeline / L-3-1"
+
+  - id: "L-3-2"
+    title: "extract_waterbirds_patches: mask dispatch and fallback logging"
+    type: "subtask"
+    parent_epic: "A-3"
+    priority: 48
+    description: >
+      Implement extract_waterbirds_patches() iterating full train split:
+      for each image, attempt mask-based extraction (extract_from_mask);
+      fallback to extract_quadrant if mask missing/degenerate.
+      Log n_mask_success, n_quadrant_fallback counts. Return patches dict.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-3: Waterbirds Data Pipeline / L-3-2"
+
+  - id: "L-8-1"
+    title: "probe_learning_curve: LogisticRegression sweep with log-AUC"
+    type: "subtask"
+    parent_epic: "A-8"
+    priority: 47
+    description: >
+      Implement probe_learning_curve() with seed loop × N loop.
+      For each (seed, N): rng.choice(len(features), min(N, len), replace=False).
+      Compute log-normalized AUC via trapz on log10(n_samples_list).
+      samples_to_90pct: first N where mean_acc >= 0.90.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-8: Linear Separability Probe / L-8-1"
+
+  - id: "L-8-2"
+    title: "compute_separability_metric: auc_ratio and direction_correct"
+    type: "subtask"
+    parent_epic: "A-8"
+    priority: 46
+    description: >
+      Implement compute_separability_metric() calling probe_learning_curve for both
+      spurious_labels and core_labels. Compute auc_ratio = spurious_auc / core_auc.
+      direction_correct = True when spurious_auc < core_auc (simpler = lower AUC needed).
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-8: Linear Separability Probe / L-8-2"
+
+  - id: "L-2-1"
+    title: "extract_from_mask: bounding box crop with degenerate fallback"
+    type: "subtask"
+    parent_epic: "A-2"
+    priority: 45
+    description: >
+      Implement extract_from_mask() using binary mask: compute fg/bg bounding boxes
+      via np.where; crop and resize to (64,64,3) uint8. If mask sum < 100px or
+      bounding box < 16x16, trigger degenerate fallback to extract_quadrant.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-2: Patch Extractor / L-2-1"
+
+  - id: "L-2-2"
+    title: "extract_celeba_patches: hair/face crop with resize"
+    type: "subtask"
+    parent_epic: "A-2"
+    priority: 44
+    description: >
+      Implement extract_celeba_patches() in PatchExtractor:
+      hair_patch = image[:int(H*hair_top_frac), :, :] → resize to (64,64,3).
+      face_patch = center crop (face_crop_size × face_crop_size) → resize to (64,64,3).
+      Both as uint8 numpy arrays.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-2: Patch Extractor / L-2-2"
+
+  - id: "L-9-1"
+    title: "evaluate_gate: >=2/3 metrics gate with Waterbirds primary"
+    type: "subtask"
+    parent_epic: "A-9"
+    priority: 43
+    description: >
+      Implement evaluate_gate() iterating over 3 metric results for Waterbirds:
+      count metrics where direction_correct=True AND p_value < alpha.
+      gate_pass = (n_metrics_pass_waterbirds >= 2). Also check CelebA directional match.
+      Return dict with gate_pass, n_metrics_pass_waterbirds, n_metrics_pass_celeba, gate_label.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-9: Statistical Analysis & Gate / L-9-1"
+
+  - id: "L-9-2"
+    title: "compute_complexity_delta_ci: 10k bootstrap 95% CI"
+    type: "subtask"
+    parent_epic: "A-9"
+    priority: 42
+    description: >
+      Implement compute_complexity_delta_ci() with 10000 bootstrap resamples (seed=42).
+      delta_obs = mean(core_vals) - mean(spurious_vals).
+      Bootstrap: resample both arrays, compute delta each iteration.
+      CI = np.percentile(deltas, [2.5, 97.5]). ci_low > 0 → significant.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-9: Statistical Analysis & Gate / L-9-2"
+
+  - id: "L-6-1"
+    title: "compute_mean_spatial_frequency: FFT power-weighted mean"
+    type: "subtask"
+    parent_epic: "A-6"
+    priority: 41
+    description: >
+      Implement compute_mean_spatial_frequency():
+      grayscale = patch.mean(axis=-1); fft = np.fft.fft2(grayscale);
+      power = abs(fftshift(fft))^2; freq_grid = sqrt(fftfreq(W)^2 + fftfreq(H)^2).
+      return (power * freq_grid).sum() / power.sum(). Range [0, 0.5].
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: FFT Complexity Metric / L-6-1"
+
+  - id: "L-6-2"
+    title: "compute_fft_metric: vectorized over patches with t-test"
+    type: "subtask"
+    parent_epic: "A-6"
+    priority: 40
+    description: >
+      Implement compute_fft_metric(): apply compute_mean_spatial_frequency() to each patch
+      in spurious_patches (N,64,64,3) and core_patches. Use list comprehension or vectorized ops.
+      scipy.stats.ttest_ind(spurious_freqs, core_freqs). direction_correct = spurious_mean < core_mean.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: FFT Complexity Metric / L-6-2"
+
+  - id: "L-4-1"
+    title: "extract_celeba_patches (module): stratified group sampling"
+    type: "subtask"
+    parent_epic: "A-4"
+    priority: 39
+    description: >
+      Implement extract_celeba_patches() in celeba_loader.py:
+      load full CelebA attr array; group by (hair_color, gender) → 4 groups.
+      For each group: rng.choice(group_indices, samples_per_group, replace=False).
+      Call extractor.extract_celeba_patches() per image. Return patches dict.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-4: CelebA Data Pipeline / L-4-1"
+
+  - id: "L-4-2"
+    title: "get_celeba_feature_loader: feature-ready DataLoader"
+    type: "subtask"
+    parent_epic: "A-4"
+    priority: 38
+    description: >
+      Implement get_celeba_feature_loader() wrapping CelebA in a custom Dataset
+      that returns ImageNet-normalized tensors (3,224,224).
+      DataLoader with batch_size=256, num_workers=4, shuffle=False.
+      Labels include hair_color and gender attrs.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-4: CelebA Data Pipeline / L-4-2"
+
+  # ============================================================
+  # CONFIG SUBTASKS (priority 19-10) — 2 retained (A-10 only)
+  # ============================================================
+
+  - id: "C-10-1"
+    title: "FigureConfig dataclass with validation"
+    type: "subtask"
+    parent_epic: "A-10"
+    priority: 19
+    description: >
+      Implement FigureConfig dataclass: figures_dir (str), dpi (int=150),
+      format (str='png'), n_fft_examples (int=4), pca_method (str='pca'),
+      colormap (str='viridis'), figsize_default (tuple=(10,6)).
+      Validate: dpi in [72,300], format in ['png','pdf','svg'], pca_method in ['pca','tsne'].
+    reference_files:
+      - file: "03_config.md"
+        section: "FigureConfig"
+
+  - id: "C-10-2"
+    title: "Visualization parameter validation schema"
+    type: "subtask"
+    parent_epic: "A-10"
+    priority: 18
+    description: >
+      Implement validate_figure_config(cfg: FigureConfig) raising ValueError
+      for invalid dpi, format, or pca_method. Create figures_dir if not exists.
+      Called by validate_config() in ExperimentConfig validation.
+    reference_files:
+      - file: "03_config.md"
+        section: "Config Validation"
+
+  # ============================================================
+  # FAILSAFE TASK (priority 1)
+  # ============================================================
+
+  - id: "F-1"
+    title: "Failsafe: Pipeline continuation checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: >
+      If experiment fails mid-run, save partial results to results/partial_results_h_m2.json.
+      Record which metrics completed, which failed, and the failure reason.
+      Phase 4 validator reads this file to determine if SHOULD_WORK gate can be partially evaluated.
+      Gate is SHOULD_WORK — partial results are acceptable; document as limitation.
+    acceptance_criteria:
+      - "Partial results saved on any unhandled exception"
+      - "partial_results_h_m2.json contains completed_metrics list"
+      - "failure_reason string recorded"
+    reference_files:
+      - file: "03_prd.md"
+        section: "6. Success Criteria / PoC Pass Condition"
+      - file: "02c_experiment_brief.md"
+        section: "Mechanism Failure Detection"

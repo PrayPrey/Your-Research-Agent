@@ -1,0 +1,321 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-26T12:00:00+00:00"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent-Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-2"
+  gap_title: "Cross-Paradigm Spurious Feature Encoding Comparison (Supervised vs SSL vs Contrastive)"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 10
+  convergence_reason: "All 6 convergence criteria met: SPECIFIC (clear core claim), MECHANISM (augmentation invariance operationalized), PREDICTIONS (P1-P3 with success criteria), NOVELTY (no prior 4-paradigm controlled probe study), FEASIBILITY (9 hours, single GPU, existing checkpoints), OBJECTIONS (architecture confound, train saturation, metric conflation all addressed)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "SGD-trained ERM models encode both spurious and task features in their representations"
+      status: "BUILD_ON"
+      evidence: "Kirichenko et al. (2022) DFR: ERM features are sufficient for robustness when last layer is retrained on group-balanced data — implies features are present, not absent"
+    - claim: "Waterbirds and CelebA provide group-annotated benchmarks with explicit spurious attribute labels"
+      status: "BUILD_ON"
+      evidence: "Sagawa et al. (2020) Group DRO official repo; WILDS package — standard availability"
+    - claim: "Linear probing on frozen representations is a valid measure of feature encoding"
+      status: "BUILD_ON"
+      evidence: "Standard SSL evaluation methodology (SimCLR, DINO papers); widely used in representation learning"
+    - claim: "Contrastive learning objectives use augmentation invariance to learn representations"
+      status: "BUILD_ON"
+      evidence: "Chen et al. (2020) SimCLR, Grill et al. (2020) BYOL — fundamental to contrastive SSL"
+    - claim: "Training paradigms differ in how they encode spurious vs task features (paradigm-specific probe accuracy difference)"
+      status: "PROVE_NEW"
+      evidence: "No controlled 4-paradigm × same-backbone × spurious-attribute-probe study exists — this is the gap"
+    - claim: "Augmentation invariance (not just label conditioning) causally determines spurious feature encoding in SSL"
+      status: "PROVE_NEW"
+      evidence: "Hypothesis mechanism — testable via augmentation ablation (SimCLR-Original vs SimCLR-NoBackground)"
+  scope_reduction_percentage: 67
+  phase2b_4_instructions: |
+    BUILD_ON claims (4): Do not re-verify. Use as established baselines and infrastructure.
+    PROVE_NEW claims (2): These are the primary hypothesis claims for Phase 2B verification.
+    Phase 2B H-E1 should test: paradigm × spurious probe accuracy ratio difference.
+    Phase 2B H-M should test: augmentation invariance mechanism via ablation.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-SPEnc-v1"
+  confidence_level: 0.75
+  core_hypothesis_statement: |
+    Under ImageNet-scale pretraining with identical ResNet-50 backbone architecture,
+    if we compare four training paradigms (supervised ERM, SimCLR contrastive,
+    DINO self-distillation, BarlowTwins non-contrastive SSL),
+    then the spurious/task probe accuracy ratio on frozen representations will differ
+    significantly across at least one paradigm pair (≥ 2%, p < 0.05) on Waterbirds
+    and CelebA group-annotated benchmarks,
+    because the training objective determines which visual features become
+    instance-discriminative and thus preferentially encoded — specifically,
+    contrastive objectives encode visually prominent spurious features (Waterbirds
+    background) more strongly than supervised ERM because background texture is
+    highly instance-discriminative but not invariant under standard augmentation sets.
+  alternative_hypothesis_h0: |
+    There is no significant difference in spurious/task probe accuracy ratio across
+    training paradigms on the same ResNet-50 backbone, on either Waterbirds or CelebA
+    balanced group-annotated test splits.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Training Paradigm"
+      type: "categorical"
+      operationalization: "Pretraining objective used for ResNet-50 backbone: ERM (supervised cross-entropy on ImageNet), SimCLR (contrastive loss on ImageNet), DINO (self-distillation on ImageNet), BarlowTwins (redundancy-reduction SSL on ImageNet)"
+      levels:
+        - "ERM (supervised)"
+        - "SimCLR (contrastive)"
+        - "DINO (self-distillation)"
+        - "BarlowTwins (non-contrastive SSL)"
+    - name: "Dataset"
+      type: "categorical"
+      operationalization: "Benchmark with group annotations: Waterbirds (spurious=background type, task=bird species) or CelebA (spurious=gender, task=hair color)"
+      levels:
+        - "Waterbirds"
+        - "CelebA"
+  dependent:
+    - name: "Spurious/Task Probe Accuracy Ratio"
+      type: "continuous"
+      operationalization: "spurious_probe_accuracy / task_probe_accuracy, where both are linear probe (logistic regression) accuracies on balanced group-annotated test split of frozen ResNet-50 features. Range: (0, ~2); values > 1 indicate preferential spurious encoding."
+      primary: true
+    - name: "Spurious Attribute Linear Probe Accuracy"
+      type: "continuous"
+      operationalization: "Logistic regression accuracy predicting spurious attribute label (background type / gender) from frozen 2048-dim ResNet-50 features, trained on group-balanced probe train split, evaluated on group-annotated test split. Range: [0, 1]."
+      primary: false
+    - name: "Worst-Group Accuracy (WGA)"
+      type: "continuous"
+      operationalization: "Accuracy on the worst-performing group defined by (task label, spurious attribute) combination. Evaluated using linear probe for task label on frozen features. Range: [0, 1]."
+      primary: false
+  controlled:
+    - name: "Backbone Architecture"
+      operationalization: "ResNet-50 for all 4 paradigms; same feature dimensionality (2048-dim), same architecture family"
+    - name: "Pretraining Dataset"
+      operationalization: "All backbones pretrained on ImageNet-1k or ImageNet-21k (standardize to ImageNet-1k where available)"
+    - name: "Probe Architecture"
+      operationalization: "Single linear layer (logistic regression) — no nonlinear probes to avoid confounding"
+    - name: "Probe Training Data"
+      operationalization: "Group-balanced subset of Waterbirds/CelebA train split (equal examples per group)"
+    - name: "Probe Test Data"
+      operationalization: "Group-annotated test split (balanced: 50% spurious-correlated, 50% anti-spurious)"
+    - name: "Number of Seeds"
+      operationalization: "5 random seeds per probe training run; report mean ± std"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: "Training objective selects the 'instance-discriminative' features. Contrastive objectives (SimCLR) maximize agreement between two augmented views of the same image while minimizing agreement with other images — features stable across augmentations AND different across images get preferentially encoded."
+      evidence: "Chen et al. (2020) SimCLR mechanism; Zimmermann et al. (2021) contrastive learning inverts data generating process"
+      falsifier: "If probe accuracy is the same for features trained with identical augmentations but different objectives (SimCLR vs BarlowTwins vs DINO), objective alone does not determine encoding"
+    - step: 2
+      description: "Standard augmentation sets (random crop, color jitter) do NOT eliminate visually prominent background features (Waterbirds background). Background texture remains stable across augmented views AND is visually different across images — making it instance-discriminative for contrastive objectives."
+      evidence: "Waterbirds construction: different photos have different backgrounds (land vs water); random crop at typical scale (0.2-1.0) preserves background in many crops; color jitter does not change background structure"
+      falsifier: "If background-replacement augmentation (SimCLR-NoBackground) does not significantly reduce spurious probe accuracy, augmentation invariance is not the mechanism"
+    - step: 3
+      description: "Higher spurious feature encoding in frozen representations leads to higher spurious/task ratio, which predicts larger worst-group accuracy gap when the linear head is trained on biased (spurious-correlated) data."
+      evidence: "Kirichenko (2022) DFR logic: if features encode spurious, head trained on biased data will rely on them; head trained on group-balanced data can ignore them. Higher encoding → more head training data needed to suppress spurious reliance."
+      falsifier: "If spurious/task ratio does not correlate with worst-group accuracy gap (r < 0.1), encoding differences do not cause downstream robustness differences"
+  key_tension: "It is possible that all paradigms encode spurious features at ceiling levels (~95% probe accuracy on Waterbirds due to 95% train correlation), making paradigm differences unmeasurable with probe accuracy. Ratio metric and balanced probe training split are the key design choices to avoid this."
+  evidence_summary: |
+    The causal chain (objective → augmentation invariance → differential feature encoding → downstream robustness gap)
+    is grounded in contrastive learning theory (Chen 2020, Zimmermann 2021) and the DFR robustness framework
+    (Kirichenko 2022). Steps 1 and 2 are mechanistic claims about pretraining; Step 3 connects them to
+    downstream evaluation. The augmentation ablation (Exchange 7) directly tests Step 2 causally.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Pretrained ResNet-50 checkpoints from official sources (torchvision, PyTorch Hub) are comparable in quality and feature capacity across paradigms"
+    supporting_evidence: "All 4 paradigms have published ResNet-50 checkpoints with reported linear probe accuracies on ImageNet; backbone is identical architecture"
+    consequence_if_violated: "Paradigm differences in probe accuracy could reflect checkpoint quality/convergence differences rather than objective-induced feature selection"
+  - id: "A2"
+    assumption: "Linear probe accuracy on balanced group-annotated test split is a valid proxy for spurious feature encoding in frozen representations"
+    supporting_evidence: "Standard SSL evaluation methodology; used by DFR, Group DRO, and WILDS papers for representation quality measurement"
+    consequence_if_violated: "Probe accuracy may reflect task-relevant features that happen to correlate with spurious attributes, not spurious encoding per se"
+  - id: "A3"
+    assumption: "Waterbirds and CelebA group annotations correctly identify the spurious attribute (background type / gender) as the annotation used in training data curation"
+    supporting_evidence: "Sagawa et al. (2020) Group DRO paper documents Waterbirds construction (CUB birds + Places365 background); CelebA Blond_Hair/Male attributes are standard"
+    consequence_if_violated: "Group annotations may be noisy or misspecified, contaminating spurious probe targets"
+  - id: "A4"
+    assumption: "5 random seeds provide sufficient statistical power to detect a ≥ 2% difference in spurious/task ratio across paradigms"
+    supporting_evidence: "h-e1 experience: 5 seeds were sufficient to detect stable means for SGD probes with small variance; linear probes typically have lower variance than full training runs"
+    consequence_if_violated: "Insufficient power to detect small but real paradigm differences; would need more seeds or larger effect size threshold"
+  - id: "A5"
+    assumption: "Augmentation sets used in official checkpoints for SimCLR, DINO, BarlowTwins are standard (random crop, color jitter, gaussian blur) without custom background removal"
+    supporting_evidence: "Published augmentation details in Chen et al. (2020), Caron et al. (2021), Zbontar et al. (2021) papers"
+    consequence_if_violated: "If any paradigm already uses background-aware augmentation, the comparison is confounded"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - ResNet-50 backbone architecture (2048-dim features)
+    - ImageNet-scale pretraining (supervised ERM, SimCLR, DINO, BarlowTwins)
+    - Vision classification tasks with group-annotated spurious attributes
+    - Waterbirds (background-based spurious correlation) and CelebA (demographic-based)
+    - Spurious attributes that are visually prominent (coarse texture/background)
+    - Settings where spurious attribute is NOT invariant under standard augmentation sets
+  does_not_apply_to: |
+    - NLP spurious correlations (HANS, PAWS) — different modality, different mechanism
+    - Fine-grained spurious correlations that survive standard augmentation (e.g., low-level color biases in color jitter)
+    - ViT backbone (attention mechanism may confound results; would need separate study)
+    - Fine-tuned models (measures frozen representation only; fine-tuning may homogenize paradigm differences)
+    - Small pretraining scales (toy datasets) — mechanism assumes ImageNet-scale learned representations
+  known_limitations: |
+    - All paradigm checkpoints pretrained on ImageNet; pretraining data distribution affects spurious feature encoding
+    - Cannot distinguish augmentation-invariance from objective-induced differences without augmentation ablation
+    - 5 seeds may be insufficient for detecting small effects; CelebA has higher variance due to larger dataset
+    - SimCLR PyTorch checkpoint quality needs verification (TF-native)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "At least one paradigm pair will show a statistically significant difference in spurious/task probe accuracy ratio on Waterbirds balanced test split (p < 0.05, t-test across 5 seeds, ≥ 2% ratio difference)"
+    test_method: "Train logistic regression probe separately for spurious attribute (background) and task label (bird species) on group-balanced Waterbirds train subset using frozen ResNet-50 features from each paradigm. Compute ratio = spurious_acc / task_acc. Run ANOVA or pairwise t-tests across 4 paradigms × 5 seeds."
+    success_criterion: "min(p-value) < 0.05 across 6 paradigm pairs AND max(ratio_difference) ≥ 0.02"
+    falsification: "All 6 pairwise t-tests p > 0.05 OR max ratio difference < 0.02 across all paradigm pairs"
+  - id: "P2"
+    primary: false
+    statement: "SimCLR representations will show the highest spurious/task ratio on Waterbirds (background is instance-discriminative and not augmented away), but not necessarily on CelebA (hair color is less instance-discriminative)"
+    test_method: "Compare SimCLR ratio vs ERM ratio specifically on Waterbirds and CelebA. Directional test: SimCLR_Waterbirds_ratio > ERM_Waterbirds_ratio AND SimCLR_CelebA_ratio ≤ ERM_CelebA_ratio (or no significant difference on CelebA)"
+    success_criterion: "SimCLR ratio > ERM ratio on Waterbirds (p < 0.05) AND SimCLR vs ERM difference on CelebA not significant (p > 0.1)"
+    falsification: "SimCLR ratio ≤ ERM ratio on Waterbirds OR SimCLR ratio > ERM ratio on CelebA as well (would suggest label-correlation not augmentation-invariance)"
+  - id: "P3"
+    primary: false
+    statement: "SimCLR-NoBackground (background-replacement augmentation) will show significantly lower spurious/task ratio than SimCLR-Original on Waterbirds probe (p < 0.05, ≥ 5% reduction)"
+    test_method: "Train SimCLR from scratch on Waterbirds train split under 2 augmentation conditions: standard (crop+jitter+blur) and NoBackground (random background replacement from Places365). Freeze backbone, run spurious/task probe comparison."
+    success_criterion: "SimCLR_NoBackground_ratio < SimCLR_Original_ratio (p < 0.05 across 5 seeds, difference ≥ 0.05)"
+    falsification: "No significant ratio reduction from background augmentation (p > 0.05 or difference < 0.02)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "Waterbirds (PRIMARY) + CelebA (SECONDARY)"
+    type: "standard"
+    source: "Waterbirds: WILDS package (p-lambda/wilds), constructed from CUB-200-2011 + Places365. CelebA: torchvision.datasets.CelebA"
+    path: "Waterbirds: wilds.get_dataset('waterbirds'). CelebA: torchvision.datasets.CelebA(root='./data')"
+    hypothesis_fit: "Both have explicit group annotations (spurious attribute × task label), group-balanced train/test splits, and established codebase. Waterbirds has 95% train spurious correlation (strong signal). CelebA has weaker correlation (~80%), making cross-dataset comparison informative."
+  model:
+    name: "ResNet-50 (4 pretrained checkpoints)"
+    type: "CNN backbone (frozen for all probe experiments)"
+    source: |
+      ERM: torchvision.models.resnet50(pretrained=True)
+      SimCLR: SimCLR-v2 PyTorch port or MoCo-v3 as alternative
+      DINO: torch.hub.load('facebookresearch/dino:main', 'dino_resnet50')
+      BarlowTwins: torch.hub.load('facebookresearch/barlowtwins:main', 'resnet50')
+    hypothesis_fit: "Same architecture across all 4 paradigms eliminates architecture confound. ResNet-50 is the standard backbone used in DFR and Group DRO baselines, enabling direct comparison."
+  baselines:
+    - name: "ERM (supervised)"
+      method: "Standard ImageNet-pretrained ResNet-50 (torchvision default); represents the supervised paradigm baseline"
+    - name: "Chance level probe"
+      method: "Random feature probe (shuffled labels) to establish lower bound and verify probe is learning"
+    - name: "DFR result"
+      method: "Kirichenko et al. (2022) DFR accuracy on Waterbirds/CelebA as downstream performance reference point"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "4-paradigm controlled comparison of spurious attribute linear probe accuracy on same ResNet-50 backbone with group-annotated balanced test splits"
+  key_innovation: "Spurious/task probe accuracy ratio as a scale-free paradigm discriminator, combined with augmentation ablation (SimCLR-NoBackground) as a causal mechanism test for augmentation invariance hypothesis"
+  differentiation:
+    - prior_work: "DomainBed (Gulrajani & Lopez-Paz 2021)"
+      difference: "DomainBed compares paradigms on average accuracy across domain shifts, not on spurious attribute linear probe accuracy on same backbone. Does not freeze backbone or probe for spurious attributes specifically."
+    - prior_work: "WILDS (Koh et al. 2021)"
+      difference: "WILDS evaluates fine-tuned models on distribution shift; does not isolate pretraining paradigm effect by freezing backbone."
+    - prior_work: "DFR (Kirichenko et al. 2022)"
+      difference: "DFR shows ERM features are sufficient but does not compare to SSL paradigms. Our study extends the question: are SSL features equally sufficient, more sufficient, or less sufficient?"
+    - prior_work: "Group DRO (Sagawa et al. 2020)"
+      difference: "Group DRO focuses on optimization objective at fine-tuning time, not pretraining paradigm effect on feature encoding."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "ERM (supervised ResNet-50)"
+      performance: "Waterbirds WGA ~72-74% (from WILDS leaderboard, consistent with h-e1 experience)"
+      dataset: "Waterbirds"
+      why_insufficient: "Does not compare to SSL paradigms; does not report spurious attribute probe accuracy specifically"
+    - method: "DFR (last-layer retraining on ERM features)"
+      performance: "Waterbirds WGA ~88-91%"
+      dataset: "Waterbirds"
+      why_insufficient: "Shows ERM features are sufficient but does not establish whether SSL features need more or less intervention"
+    - method: "Group DRO (Sagawa et al. 2020)"
+      performance: "Waterbirds WGA ~91%"
+      dataset: "Waterbirds"
+      why_insufficient: "Robustification method, not pretraining paradigm comparison; requires group labels at training time"
+  best_baseline_performance: "DFR achieves ~91% WGA on Waterbirds using ERM pretrained features with group-balanced fine-tuning; this is the reference for what 'sufficient features' achieves"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Spurious/task probe accuracy ratio must differ across at least one paradigm pair by ≥ 2% (p < 0.05) on Waterbirds or CelebA balanced test split — this establishes that pretraining paradigm has a measurable effect on spurious feature encoding"
+  sh2_mechanism: "Augmentation invariance mechanism: SimCLR-NoBackground should show lower spurious/task ratio than SimCLR-Original on Waterbirds, causally linking augmentation set to spurious encoding level"
+  sh3_comparison: "Downstream comparison deferred to Phase 5: does lower spurious/task ratio translate to better worst-group accuracy after DFR-style last-layer retraining? Are SSL features equally DFR-sufficient as ERM features?"
+  open_questions:
+    - "Does the paradigm effect on spurious probe accuracy scale with spurious correlation strength? (Waterbirds 95% vs CelebA ~80%)"
+    - "Is DINO (self-distillation with object-focused attention) fundamentally different from SimCLR/BarlowTwins in spurious encoding?"
+    - "Can targeted augmentation design replace group annotation entirely for spurious feature suppression in SSL?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All 6 convergence criteria met after 10 exchanges: SPECIFIC (clear Under-If-Then-Because hypothesis), MECHANISM (augmentation invariance, step-by-step causal chain), PREDICTIONS (P1-P3 with explicit success/falsification criteria), NOVELTY (confirmed vs DomainBed, WILDS, DFR, Group DRO), FEASIBILITY (9 hours single GPU, official checkpoints), OBJECTIONS (architecture confound, train saturation, metric conflation all addressed with specific design choices)"
+  clarity_verified: true
+  remaining_objections:
+    - "SimCLR checkpoint format (TF-native) — mitigation: use MoCo-v3 as alternative"
+    - "Balanced probe training data size — must verify group_balanced_sample=True in WILDS dataloader"
+
+discussion_context:
+  total_exchanges: 10
+  agent_participation:
+    dr_nova: 2
+    prof_vera: 2
+    dr_sage: 2
+    prof_pax: 2
+    dr_ally: 1
+    prof_rex: 1
+  paper_citations: 12
+  convergence_type: "qualitative"

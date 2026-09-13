@@ -1,0 +1,200 @@
+budget_summary:
+  environment: 1
+  epics: 6
+  subtasks: 8
+  total: 15
+metadata:
+  generated_at: '2026-08-22T04:00:00+00:00'
+  hypothesis_id: h-e2
+  tier: LIGHT
+  total_budget: 15
+tasks:
+- acceptance_criteria: pip install succeeds; huggingface-cli whoami shows access to
+    meta-llama/Llama-2-7b-hf
+  description: 'Install Python dependencies: transformers>=4.37.0, datasets>=2.16.0,
+    torch>=2.1.0, accelerate>=0.26.0, tqdm>=4.66.0, matplotlib>=3.8.0, numpy>=1.26.0.
+    Verify HuggingFace token with meta-llama/Llama-2-7b-hf access.'
+  id: T-0
+  priority: 94
+  reference_files:
+  - file: docs/youra_research/h-e2/03_prd.md
+    section: 7. Dependencies
+  title: Environment Setup
+  type: setup
+- acceptance_criteria: Model loads without error; model.config.attn_implementation=='eager'
+  complexity: 6
+  description: Write requirements.txt. Implement model loading (AutoModelForCausalLM,
+    attn_implementation='eager', torch_dtype=bfloat16, device_map='auto'). Implement
+    tokenizer loading. Set seed=1.
+  id: E-1
+  priority: 93
+  reference_files:
+  - file: docs/youra_research/h-e2/03_architecture.md
+    section: '#E-1'
+  - file: docs/youra_research/h-e2/03_config.md
+    section: ExperimentConfig
+  title: Environment & Model Loading
+  type: setup
+- acceptance_criteria: Returns list of 32 unique layer indices; top-4 indices are
+    stable across runs with seed=1
+  complexity: 10
+  description: 'Implement entropy_ranking.py: compute_entropy_layer_ranking() and
+    compute_entropy_layer_ranking_with_scores(). Forward pass with output_attentions=True
+    on 100-sequence calibration set (WikiText-103 validation split). Head-MEAN pooling
+    (not head-max). Returns ranked list of 32 layer indices.'
+  id: E-2
+  priority: 85
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E2-1
+  - file: docs/youra_research/h-e2/03_architecture.md
+    section: EntropyRanker
+  title: Entropy Layer Ranking
+  type: data-pipeline
+- acceptance_criteria: apply_entropy_guided_swa returns list of 4 layer indices; patched
+    layers produce different attention output than unpatched
+  complexity: 11
+  description: 'Implement swa_patch.py: make_sliding_window_causal_mask(), patch_layer_with_swa(),
+    apply_entropy_guided_swa(). Additive float mask (0.0/−inf). Patch injects mask
+    as (1,1,seq,seq).'
+  id: E-3
+  priority: 80
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E3-1, L-E3-2
+  - file: docs/youra_research/h-e2/03_architecture.md
+    section: SWAPatch
+  title: SWA Mask + Monkey-Patch
+  type: model
+- acceptance_criteria: Baseline PPL within ±0.5 of literature value ~5.47; identical
+    chunking for baseline and SWA
+  complexity: 8
+  description: 'Implement evaluation.py: compute_perplexity() (stride-chunked NLL)
+    and load_wikitext103_test_text(). max_length=4096, stride=512. torch.no_grad()
+    throughout.'
+  id: E-4
+  priority: 75
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E4-1
+  - file: docs/youra_research/h-e2/03_architecture.md
+    section: Evaluator
+  title: Perplexity Evaluation
+  type: evaluation
+- acceptance_criteria: validate_swa_mask prints PASSED; verify_swa_mechanism returns
+    dict with all values == 512
+  complexity: 10
+  description: 'Implement verification.py: validate_swa_mask() and verify_swa_mechanism().
+    Hook-based check that target layers attend to exactly window_size=512 positions
+    at seq position 599.'
+  id: E-5
+  priority: 70
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E5-1, L-E5-2
+  - file: docs/youra_research/h-e2/03_architecture.md
+    section: Verifier
+  title: Mask Validation + Mechanism Verification
+  type: evaluation
+- acceptance_criteria: results/h-e2_results.json written; gate_pass field matches
+    delta_ppl <= 2.0; figures generated
+  complexity: 9
+  description: Implement run_experiment.py main() pipeline and visualization.py. Save
+    results/h-e2_results.json with ppl_baseline, ppl_swa_k4, delta_ppl, target_layers,
+    depth_positions, gate_pass. Generate figures/ppl_comparison.png and optional figures/entropy_scatter.png.
+  id: E-6
+  priority: 65
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: Orchestrator
+  - file: docs/youra_research/h-e2/03_config.md
+    section: ExperimentConfig, save_results
+  title: Orchestration + Results + Visualization
+  type: training
+- description: Vectorized mask builder. Shape (seq_len, seq_len). Additive float,
+    0.0 = attend, -inf = block. Position i attends to [max(0, i-window_size+1), i].
+  id: L-E3-1
+  parent: E-3
+  priority: 49
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E3-1
+  title: 'Subtask: make_sliding_window_causal_mask implementation'
+  type: subtask
+- description: Closure-based monkey-patch. swa_forward injects (1,1,S,S) mask. apply_entropy_guided_swa
+    patches top-k layers, returns target_layers list.
+  id: L-E3-2
+  parent: E-3
+  priority: 48
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E3-2
+  title: 'Subtask: patch_layer_with_swa and apply_entropy_guided_swa'
+  type: subtask
+- description: Forward pass loop over 100 calibration sequences. Collect per-layer
+    attn weights. Head-mean pool → entropy per row → mean over positions and sequences.
+  id: L-E2-1
+  parent: E-2
+  priority: 47
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E2-1
+  title: 'Subtask: calibration forward pass with output_attentions'
+  type: subtask
+- description: Spot-check 10 positions. Assert attended.min() >= max(0,i-w+1) and
+    attended.max()==i.
+  id: L-E5-1
+  parent: E-5
+  priority: 46
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E5-1
+  title: 'Subtask: validate_swa_mask spot-check'
+  type: subtask
+- description: register_forward_pre_hook with_kwargs=True on target layers. Dummy
+    forward seq_len=600. Assert captured[layer]==512 for all target layers.
+  id: L-E5-2
+  parent: E-5
+  priority: 45
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E5-2
+  title: 'Subtask: verify_swa_mechanism hook-based check'
+  type: subtask
+- description: compute_perplexity full implementation. load_wikitext103_test_text()
+    helper. Handles trailing chunk discard.
+  id: L-E4-1
+  parent: E-4
+  priority: 44
+  reference_files:
+  - file: docs/youra_research/h-e2/03_logic.md
+    section: L-E4-1
+  title: 'Subtask: stride-chunked NLL perplexity computation'
+  type: subtask
+- description: ExperimentConfig dataclass with all hyperparameters. save_results()
+    function. depth_positions computation helper.
+  id: C-E6-1
+  parent: E-6
+  priority: 43
+  reference_files:
+  - file: docs/youra_research/h-e2/03_config.md
+    section: C-E6-1
+  title: 'Subtask: ExperimentConfig dataclass + results JSON schema'
+  type: subtask
+- description: 'argparse setup with --skip-baseline flag. main() pipeline flow: load
+    → entropy → baseline_ppl → patch → validate → verify → swa_ppl → results → figures.'
+  id: C-E6-2
+  parent: E-6
+  priority: 42
+  reference_files:
+  - file: docs/youra_research/h-e2/03_config.md
+    section: C-E6-2
+  title: 'Subtask: run_experiment.py argparse + orchestration flow'
+  type: subtask
+- description: Phase 4 pipeline continuation checkpoint. If all previous tasks complete,
+    mark h-e2 Phase 4 as DONE regardless of any skipped optional tasks.
+  id: FAILSAFE
+  priority: 1
+  title: Pipeline Continuation Checkpoint
+  type: failsafe
+version: '1.0'

@@ -1,0 +1,386 @@
+# 03_refinement.yaml - Phase 2A Output (v10.0.0 Free-Parse Schema)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-05-20"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap_1"
+  gap_title: "Joint LoRA Adapter Training and KV Cache Eviction Policy Co-Optimization"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 15
+  convergence_reason: "All 6 criteria met at Exchange 15: SPECIFIC, MECHANISM, PREDICTIONS, NOVELTY, FEASIBILITY, OBJECTIONS"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "LoRA (Low-Rank Adaptation) effectively fine-tunes LLMs with <1% parameter overhead via A·B matrix injection into Q/K/V projections"
+      status: "BUILD_ON"
+      evidence: "LoRA paper (Hu et al., 2021); HuggingFace PEFT library; QLoRA (Dettmers et al., 2023)"
+    - claim: "KV cache compression (eviction/quantization) can reduce memory footprint by 50-80% with manageable accuracy loss"
+      status: "BUILD_ON"
+      evidence: "Locret [Huang et al., 2024] achieves 20x compression; kvpress (NVIDIA, ★1025); ZSMerge 20:1 compression"
+    - claim: "Soft-to-hard training (differentiable scoring during training, hard selection at inference) is an established pattern for learned sparse methods"
+      status: "BUILD_ON"
+      evidence: "Locret uses soft scoring during training; PruLong [Princeton, 2024] learns 0/1 attention masks via this pattern"
+    - claim: "arXiv 2604.21335 demonstrates architectural feasibility of joint routed LoRA + KV value-group routing"
+      status: "BUILD_ON"
+      evidence: "arXiv 2604.21335 (2025): sub-token routing combining LoRA paths and KV value groups"
+    - claim: "Task-specific gradient signals from classification loss differ from language modeling loss in what they reward"
+      status: "PROVE_NEW"
+      evidence: "Assumed based on functional difference (discriminative vs. next-token prediction); P3 attribution analysis will verify"
+    - claim: "Joint end-to-end training of LoRA and KV eviction outperforms sequential (decoupled) training on NLP benchmarks"
+      status: "PROVE_NEW"
+      evidence: "Core hypothesis — no prior work directly tests this; arXiv 2604.21335 uses LM loss, not task loss; no GLUE/LongBench evaluation exists"
+    - claim: "Joint training induces 'representation compression' — LoRA adapters learn to concentrate discriminative info in eviction-surviving KV entries"
+      status: "PROVE_NEW"
+      evidence: "Theorized from knowledge distillation analogy; P4 probing experiment will test this"
+  scope_reduction_percentage: 43
+  phase2b_4_instructions: |
+    Three claims (BUILD_ON) are established and need no re-verification in Phase 2B.
+    Three claims (PROVE_NEW) are the core experimental targets.
+    Focus Phase 2B sub-hypotheses on the PROVE_NEW claims:
+    H-M1: task gradient produces different eviction priorities than LM gradient (P3)
+    H-M2: joint training outperforms sequential on LongBench-QA and GLUE (P1, P2)
+    H-M3: representation compression effect is measurable via probing (P4)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-JointLoRAKV-v1"
+  confidence_level: 0.75
+  core_hypothesis_statement: |
+    Under standard PEFT fine-tuning conditions on transformer-based LLMs with KV cache
+    (specifically LLaMA-3.1-8B), with a fixed 50% KV retention budget,
+    if LoRA adapter weights and KV eviction head weights (Locret retaining heads) are
+    jointly trained end-to-end via a task classification loss using soft scoring during
+    training and hard eviction at inference (JointLoRA-KV),
+    then JointLoRA-KV will achieve ≥3% higher accuracy than the sequential baseline
+    (B3: LoRA → Locret sequential fine-tune) on LongBench-QA tasks and ≥1% higher on
+    GLUE (MNLI, SST-2, QNLI) at the same 50% KV budget,
+    because task-specific gradient signals direct eviction toward discriminatively relevant
+    tokens rather than merely high-attention-score tokens, and joint training allows the
+    LoRA adapter itself to learn representations that concentrate task-discriminative
+    information into eviction-surviving KV entries ("representation compression").
+  alternative_hypothesis_h0: |
+    There is no statistically significant difference in GLUE or LongBench-QA accuracy
+    between JointLoRA-KV and the sequential fine-tuning baseline (B3: LoRA → Locret
+    sequential fine-tune) at matched 50% KV budget, when tested across 3 seeds
+    on LLaMA-3.1-8B.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Training strategy"
+      type: "categorical"
+      operationalization: "Whether LoRA adapter and KV eviction heads are trained jointly (JointLoRA-KV) or sequentially (B1, B2, B3)"
+      levels:
+        - "JointLoRA-KV: joint end-to-end training via task loss"
+        - "B1: LoRA training → frozen Locret (no eviction training)"
+        - "B2: LoRA training → kvpress (no training, heuristic eviction)"
+        - "B3: LoRA training → sequential Locret fine-tune (frozen LoRA)"
+    - name: "KV retention budget"
+      type: "categorical"
+      operationalization: "Fraction of KV cache entries retained during inference (budget_ratio parameter in Locret)"
+      levels:
+        - "50% KV budget (primary experimental condition)"
+        - "100% KV budget (no eviction — boundary condition check)"
+    - name: "Evaluation context length regime"
+      type: "categorical"
+      operationalization: "Short-context (GLUE, ≤512 tokens) vs. long-context (LongBench, 2k-32k tokens)"
+      levels:
+        - "Short-context: GLUE (MNLI, SST-2, QNLI)"
+        - "Long-context: LongBench-QA (NarrativeQA, Qasper, MultiFieldQA)"
+  dependent:
+    - name: "Task accuracy on GLUE"
+      type: "continuous"
+      operationalization: "Accuracy on MNLI matched, SST-2, QNLI from HuggingFace GLUE benchmark; mean across 3 seeds"
+      primary: false
+    - name: "Task accuracy on LongBench-QA"
+      type: "continuous"
+      operationalization: "F1 or accuracy on NarrativeQA, Qasper, MultiFieldQA from LongBench benchmark; mean across 3 seeds"
+      primary: true
+    - name: "Linear probing accuracy on retained KV entries"
+      type: "continuous"
+      operationalization: "Accuracy of a linear classifier trained on TOP-50% retained KV representations for MNLI label prediction"
+      primary: false
+    - name: "Spearman correlation (attribution mismatch)"
+      type: "continuous"
+      operationalization: "Spearman ρ between LoRA-modified attention weights and Locret retaining head scores on 100 MNLI examples"
+      primary: false
+  controlled:
+    - name: "Base model"
+      operationalization: "LLaMA-3.1-8B (fixed across all conditions; same HuggingFace checkpoint)"
+    - name: "LoRA hyperparameters"
+      operationalization: "Same rank (r=16), alpha, target modules (Q,K,V) across all LoRA-containing conditions"
+    - name: "KV budget"
+      operationalization: "Fixed at 50% retention (budget_ratio=0.5) for primary comparison; 100% for boundary check"
+    - name: "Random seeds"
+      operationalization: "3 fixed seeds (42, 123, 456) for all training runs; report mean ± std"
+    - name: "Training data"
+      operationalization: "Same GLUE task training splits for all conditions"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 4
+  steps:
+    - step: 1
+      description: "LoRA-modified Q/K projections alter which KV tokens receive high attention scores, creating misalignment with heuristic eviction policies (H2O, SnapKV) and even Locret heads trained on LM loss"
+      evidence: "arXiv 2604.21335 shows routing signal trained on LM loss differs from raw attention; P3 attribution analysis (ρ < 0.7) will verify this mismatch for task-fine-tuned LoRA"
+      falsifier: "Spearman ρ ≥ 0.7 between LoRA attention weights and Locret retaining scores (P3 falsification)"
+    - step: 2
+      description: "Task-specific classification loss (cross-entropy on MNLI/SST-2/QNLI labels) creates gradient signals that reward retaining discriminatively relevant tokens — the hypothesis token in MNLI, the sentiment anchor in SST-2 — which differ from next-token-predictive tokens rewarded by LM loss"
+      evidence: "Functional difference between classification and LM objectives; task-relevant tokens (e.g., contrast words, entity mentions) are not necessarily high-frequency prediction targets"
+      falsifier: "If attribution analysis shows ρ ≥ 0.7, task loss and LM loss produce equivalent eviction signals"
+    - step: 3
+      description: "Joint gradient flow through both LoRA adapter parameters (via PEFT hooks) and Locret retaining head parameters (via KV representation hooks) in a single backward pass optimizes both components toward the same task objective simultaneously — not possible in sequential fine-tuning where LoRA is frozen during Locret training"
+      evidence: "Gradient paths are independent at parameter level (LoRA A/B matrices vs. retaining head weights); both participate in same backward pass without architectural conflict; Prof. Pax verified no fundamental barrier"
+      falsifier: "Gradient interference (empirically observable as training instability or worse-than-B3 performance during training)"
+    - step: 4
+      description: "Because LoRA adapters are updated with awareness of KV eviction, they learn 'representation compression' — concentrating task-discriminative information into a smaller subset of KV entries that will survive the eviction filter — an effect not achievable by sequential training where LoRA learns representations without eviction awareness"
+      evidence: "Knowledge distillation analogy: training-time budget awareness changes learned representations; P4 probing experiment will measure information concentration in retained KV entries"
+      falsifier: "Linear probing accuracy on retained KV entries is < 5% higher for joint vs. B3 (P4 falsification)"
+  key_tension: "The sequential baseline B3 (LoRA → Locret sequential fine-tune) is a strong competitor because Locret heads can adapt rapidly to LoRA-modified representations in <1 GPU hour. The 3% LongBench improvement threshold may be optimistic if B3's rapid adaptation captures most of the task-eviction alignment benefit."
+  evidence_summary: |
+    The causal chain is supported by: (1) architectural feasibility demonstrated by arXiv 2604.21335;
+    (2) established soft-to-hard training pattern in Locret and PruLong; (3) functional distinction
+    between classification and LM gradient objectives; (4) knowledge distillation analogy for
+    budget-aware representation learning. Steps 1 and 4 are the empirically weakest links
+    and are directly addressed by P3 and P4 diagnostic experiments.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Task-discriminative tokens (hypothesis markers in MNLI, sentiment anchors in SST-2) are not consistently among the highest-attention-score tokens in LoRA-fine-tuned LLMs"
+    supporting_evidence: "arXiv 2604.21335 shows routing signal differs from raw attention; standard KV eviction often prioritizes local/syntactic tokens; task-relevant tokens tend to be semantically dense but not always high-frequency"
+    consequence_if_violated: "If task-relevant tokens always have high attention scores, existing eviction heuristics already handle task alignment — joint training provides no additional signal. P3 directly tests this assumption."
+  - id: "A2"
+    assumption: "Locret's soft scoring mechanism can be substituted for task classification loss without architectural changes — i.e., the retaining heads are general-purpose scoring networks not coupled to the distillation objective"
+    supporting_evidence: "Locret retaining heads are simple linear networks over KV representations; the distillation loss in Locret is a training choice, not an architectural requirement; public code is available for modification"
+    consequence_if_violated: "Locret heads may require architectural redesign to accept task gradients; the implementation path would be more complex than assumed"
+  - id: "A3"
+    assumption: "Gradient paths for LoRA parameters and Locret retaining head parameters are sufficiently independent that joint optimization does not cause harmful gradient interference"
+    supporting_evidence: "Prof. Pax verified: LoRA parameters (A/B matrices in Q/K/V projections) and Locret head parameters (linear layer over KV representations) are disjoint parameter sets; both update via the frozen base model but through separate hooks"
+    consequence_if_violated: "Gradient interference would manifest as training instability or worse-than-independent-training performance; detectable during training and addressable via gradient scaling or separate learning rates"
+  - id: "A4"
+    assumption: "The 'representation compression' effect — joint training causing LoRA to concentrate discriminative info in eviction-surviving entries — is sufficiently strong to produce ≥3% LongBench-QA improvement over B3"
+    supporting_evidence: "Knowledge distillation literature shows budget-aware training produces qualitatively different representations; the QLoRA analogy (joint compression+LoRA beats sequential) provides a precedent"
+    consequence_if_violated: "If effect size is < 3% on LongBench-QA, the hypothesis is still partially supported but P1 is falsified; the 3% threshold may need revision to a smaller effect size for a still-publishable result"
+  - id: "A5"
+    assumption: "LLaMA-3.1-8B on GLUE/LongBench is a representative evaluation setting — results will generalize to other transformer LLMs with KV cache (Mistral, Qwen) on similar NLP tasks"
+    supporting_evidence: "LLaMA-3.1-8B is the most widely benchmarked open-weight model in the PEFT literature; Locret and kvpress have been tested on it; GLUE and LongBench are standard community benchmarks"
+    consequence_if_violated: "Results may be model-specific; would require multi-model validation to establish generalizability — addressable in follow-up work"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Transformer-based LLMs with KV cache (LLaMA family, Mistral, Qwen, GPT-style architectures)
+    - Standard PEFT fine-tuning scenarios using LoRA or LoRA variants (DoRA, etc.)
+    - KV eviction-based compression methods (Locret, H2O, SnapKV, kvpress) — not KV quantization
+    - NLP classification and QA tasks evaluable on GLUE, SuperGLUE, LongBench
+    - Single-GPU fine-tuning scenarios where KV budget is a binding constraint
+  does_not_apply_to: |
+    - SSM-based models (Mamba, RWKV, Mamba-3) — these have no KV cache to compress
+    - Linear attention models (DSLA-Serve, linear transformers) — no discrete KV eviction
+    - KV quantization methods (KVQuant, TailorKV) — different compression mechanism
+    - Generation tasks (text generation, summarization) where the DV is perplexity/ROUGE
+      — the hypothesis is specifically about classification accuracy as the training objective
+    - RAG-based systems — the hypothesis concerns in-weights fine-tuning, not retrieval augmentation
+  known_limitations: |
+    - GLUE tasks are short-context (≤512 tokens); KV eviction at 50% budget may have minimal effect
+      at this context length, limiting observable gains in P2
+    - The 3% threshold for P1 (LongBench-QA) is based on prior work performance gaps, not
+      pre-computed power analysis — may need adjustment
+    - Results are for LLaMA-3.1-8B; generalization to larger models (70B+) not tested
+    - Joint training may increase fine-tuning complexity and sensitivity to hyperparameters
+      (joint learning rate for LoRA vs. retaining heads)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "JointLoRA-KV achieves ≥3% higher accuracy than B3 (sequential LoRA→Locret fine-tune) on LongBench-QA (NarrativeQA, Qasper, MultiFieldQA) at 50% KV budget"
+    test_method: "Fine-tune LLaMA-3.1-8B with JointLoRA-KV and B3 on GLUE training data; evaluate on LongBench-QA test splits at budget_ratio=0.5; report mean accuracy across 3 seeds (42, 123, 456); compute 95% CI"
+    success_criterion: "JointLoRA-KV mean accuracy - B3 mean accuracy ≥ 3.0 percentage points, with non-overlapping 95% CIs"
+    falsification: "B3 mean accuracy ≥ JointLoRA-KV mean accuracy, or difference < 3% within overlapping CIs"
+  - id: "P2"
+    primary: false
+    statement: "JointLoRA-KV achieves ≥1% higher accuracy than B3 on GLUE (MNLI, SST-2, QNLI) at 50% KV budget, AND matches standard LoRA (no eviction) within ±0.3% at 100% KV budget"
+    test_method: "Evaluate same models on GLUE benchmark at budget_ratio=0.5 and budget_ratio=1.0; compare JointLoRA-KV vs. B3 and vs. vanilla LoRA (no eviction module)"
+    success_criterion: "GLUE accuracy: JointLoRA-KV - B3 ≥ 1.0 pp AND |JointLoRA-KV - vanilla LoRA| ≤ 0.3 pp at 100% budget"
+    falsification: "JointLoRA-KV degrades vs. vanilla LoRA at 100% budget (eviction head hurts when not needed), OR no improvement over B3 at 50% budget on GLUE"
+  - id: "P3"
+    primary: false
+    statement: "LoRA-modified attention weights and Locret retaining head scores are misaligned for task-relevant tokens (Spearman ρ < 0.7) on MNLI examples from an existing fine-tuned model"
+    test_method: "Load existing LoRA-fine-tuned LLaMA-3.1-8B on MNLI (HuggingFace Model Hub); load Locret retaining heads trained on same model; extract attention weights and retaining head scores on 100 MNLI validation examples; compute Spearman ρ between scores per token"
+    success_criterion: "Mean Spearman ρ < 0.7 across 100 examples (indicating systematic misalignment between task-adapted attention and heuristic eviction)"
+    falsification: "Mean Spearman ρ ≥ 0.7 (high correlation — no meaningful task-attention mismatch; existing eviction already aligns with task-relevant tokens)"
+  - id: "P4"
+    primary: false
+    statement: "Linear probing accuracy on TOP-50% retained KV entries is ≥5% higher for JointLoRA-KV vs. B3, indicating 'representation compression' effect"
+    test_method: "Freeze joint-trained and B3 models; extract KV representations at the median transformer layer; split into top-50% (retained) and bottom-50% (evicted) by Locret scores; train a linear classifier on each retained set for MNLI label prediction; compare probing accuracy between conditions"
+    success_criterion: "JointLoRA-KV retained-KV probing accuracy - B3 retained-KV probing accuracy ≥ 5 percentage points"
+    falsification: "Probing accuracy difference < 5 pp (no differential concentration of discriminative info in retained entries — representation compression effect absent)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "GLUE Benchmark + LongBench"
+    type: "standard"
+    source: "HuggingFace datasets (GLUE); LongBench public GitHub repository"
+    path: "glue (huggingface), https://github.com/THUDM/LongBench"
+    hypothesis_fit: |
+      GLUE (MNLI, SST-2, QNLI) provides standard short-context NLP classification tasks where
+      task-discriminative tokens are well-defined (hypothesis markers, sentiment anchors).
+      LongBench-QA (NarrativeQA, Qasper, MultiFieldQA) provides long-context QA where KV
+      compression is meaningfully activated, making P1 the primary test of the hypothesis.
+      Both are existing, real, community-standard benchmarks — no new data required.
+  model:
+    name: "LLaMA-3.1-8B"
+    type: "Decoder-only transformer LLM with KV cache"
+    source: "meta-llama/Meta-Llama-3.1-8B on HuggingFace Model Hub"
+    hypothesis_fit: |
+      Most widely benchmarked open-weight model for PEFT research; Locret and kvpress have
+      been tested on LLaMA family; LoRA injection via HuggingFace PEFT is fully supported;
+      8B parameter scale is tractable for single-GPU fine-tuning experiments.
+  baselines:
+    - name: "B1: LoRA + frozen Locret"
+      method: "Fine-tune LLaMA-3.1-8B with LoRA (r=16) on GLUE task; apply Locret retaining heads without training (score-based eviction at budget_ratio=0.5)"
+    - name: "B2: LoRA + kvpress (heuristic)"
+      method: "Fine-tune LLaMA-3.1-8B with LoRA (r=16) on GLUE task; apply kvpress forward-hook KV compression at budget_ratio=0.5 (no learned eviction)"
+    - name: "B3: LoRA → sequential Locret fine-tune (hardest baseline)"
+      method: "Fine-tune LLaMA-3.1-8B with LoRA (r=16) on GLUE task; freeze LoRA; fine-tune Locret retaining heads on same task with frozen LoRA at budget_ratio=0.5"
+    - name: "Vanilla LoRA (100% KV budget)"
+      method: "Standard LoRA fine-tuning with no KV eviction module — boundary condition for P2"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: |
+    First systematic evaluation of joint LoRA + KV eviction co-training on standard NLP benchmarks
+    (GLUE + LongBench). First identification and empirical test of the "representation compression"
+    effect: joint training causing LoRA to concentrate discriminative information in
+    eviction-surviving KV entries.
+  key_innovation: |
+    The core paradigm shift: efficiency-awareness during PEFT adaptation (joint training with KV
+    budget constraint) changes WHAT the model learns — not just HOW it compresses. This moves
+    the field from "efficiency as post-processing" to "efficiency as a training objective."
+    The representation compression mechanism is the novel theoretical contribution; the
+    GLUE/LongBench evaluation is the empirical contribution that fills the benchmark gap
+    left open by arXiv 2604.21335.
+  differentiation:
+    - prior_work: "arXiv 2604.21335 (Sub-Token Routing in LoRA + KV Compression, 2025)"
+      difference: "They use LM loss for routing; we use task classification loss. They evaluate on perplexity/RULER; we evaluate on GLUE/LongBench-QA. Their routing is value-group level; ours is token-level via Locret retaining heads. Four-dimensional differentiation."
+    - prior_work: "Locret [Huang et al., 2024]"
+      difference: "Locret trains retaining heads independently after model fine-tuning (decoupled). We co-train retaining heads with LoRA end-to-end (joint). Locret uses distillation loss; we use task classification loss."
+    - prior_work: "LESS [Dong et al., 2024]"
+      difference: "LESS combines low-rank recurrence with KV eviction but is not a LoRA adapter approach and does not evaluate on GLUE/LongBench."
+    - prior_work: "Amazon ICR (EACL 2026)"
+      difference: "ICR shows fine-tuning improves KV compression robustness but does NOT jointly optimize eviction parameters during fine-tuning — the eviction policy remains fixed/independent."
+    - prior_work: "QLoRA [Dettmers et al., 2023]"
+      difference: "QLoRA is the analogical inspiration: joint quantization+LoRA > sequential. We test the analogous claim for KV eviction. QLoRA does not address KV cache compression."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "arXiv 2604.21335 (Sub-Token Routing)"
+      performance: "Reported 50% value retention with quality preservation on language modeling; no GLUE/LongBench numbers"
+      dataset: "Perplexity benchmarks + RULER"
+      why_insufficient: "No task-specific NLP benchmark evaluation; uses LM loss not task loss; different eviction granularity"
+    - method: "Locret [Huang et al., 2024]"
+      performance: "20x KV compression with <1 GPU hour training; maintains 90%+ of full-cache performance on long-context tasks"
+      dataset: "LongBench, RULER, language modeling benchmarks"
+      why_insufficient: "Applied post-hoc to already fine-tuned models; not co-trained with LoRA adapters; uses distillation not task loss"
+    - method: "Amazon ICR [Molfese et al., EACL 2026]"
+      performance: "SFT/RL fine-tuning improves KV compression robustness moderately; task-dependent results"
+      dataset: "ICR-specific benchmarks; multiple-choice QA; finance"
+      why_insufficient: "Does not optimize KV eviction policy jointly during fine-tuning; sequential paradigm"
+    - method: "kvpress (NVIDIA, ★1025)"
+      performance: "Plug-in forward-hook compression; compatible with any PEFT model; no specific GLUE numbers"
+      dataset: "Various long-context benchmarks"
+      why_insufficient: "Heuristic (not learned) eviction; not trained jointly with LoRA adapters"
+  best_baseline_performance: "B3 (sequential LoRA→Locret fine-tune): expected ~1-2% below vanilla LoRA on GLUE, ~3-5% below on LongBench at 50% KV budget (estimated from Locret's reported performance gaps)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: |
+    SH1 (Existence): The mechanism precondition — that LoRA-modified attention weights
+    are systematically misaligned with Locret retaining head scores for task-relevant tokens
+    — must hold for joint training to provide any advantage. P3 (attribution analysis) tests
+    this directly using existing fine-tuned models and MNLI data. If SH1 fails (ρ ≥ 0.7),
+    the main hypothesis should be reconsidered.
+  sh2_mechanism: |
+    SH2 (Mechanism): The "representation compression" effect — that joint training causes
+    LoRA to concentrate discriminative information in eviction-surviving KV entries, which
+    sequential training (B3) cannot achieve because LoRA is frozen during Locret training.
+    P4 (probing experiment) tests this directly.
+  sh3_comparison: |
+    SH3 (Comparison): The benchmark comparison against baselines B1, B2, B3 and vanilla LoRA.
+    P1 (LongBench-QA, primary) and P2 (GLUE + boundary condition) test this.
+    Phase 5 (Baseline Repository Comparison) is flagged skip_baseline_comparison=true
+    in module.yaml — deferred.
+  open_questions:
+    - "Is the 3% threshold for P1 (LongBench-QA) achievable given B3's rapid adaptation ability? Pre-run P3 diagnostic first."
+    - "Do short-context GLUE sequences (≤512 tokens) produce sufficient KV eviction events at 50% budget to show meaningful P2 effects?"
+    - "What learning rate ratio between LoRA and retaining head parameters produces stable joint training?"
+    - "Does the representation compression effect (P4) generalize across GLUE task types or is it task-specific?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All 6 convergence criteria met at Exchange 15 (SPECIFIC, MECHANISM, PREDICTIONS, NOVELTY, FEASIBILITY, OBJECTIONS)"
+  clarity_verified: true
+  remaining_objections:
+    - "B3 may be stronger than expected (Locret rapid adaptation) — run P3 diagnostic first to validate mechanism assumption before full training"
+    - "GLUE P2 effect may be small at short context lengths — supplement with LongBench if needed"
+
+discussion_context:
+  total_exchanges: 15
+  agent_participation:
+    dr_nova: 4   # Exchanges 1, 7, 13 + final assessment
+    prof_vera: 3  # Exchanges 2, 8, 14 + final assessment
+    dr_sage: 3   # Exchanges 3, 10 + final assessment
+    prof_pax: 3  # Exchanges 4, 9, 15 + final assessment
+    dr_ally: 3   # Exchanges 5, 11 + final assessment + consensus
+    prof_rex: 3  # Exchanges 6, 12 + final assessment
+  paper_citations: 8  # arXiv 2604.21335, Locret, LESS, Amazon ICR, Locret, PruLong, QLoRA, LRAgent
+  convergence_type: "qualitative"

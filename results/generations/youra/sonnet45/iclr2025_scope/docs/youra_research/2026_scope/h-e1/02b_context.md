@@ -1,0 +1,140 @@
+# Hypothesis Context: h-e1
+
+**Generated from:** Phase 2B Verification Plan
+**Date:** 2026-03-18
+**Main Hypothesis:** Post-Hoc Hybrid SSM-Attention Conversion
+**Phase 2B Source:** 02b_verification_plan.md
+
+---
+
+## Hypothesis Information
+
+### Statement
+Deep Transformer layers (L≥20) in pre-trained LLaMA-7B/13B models exhibit operator-level low-rank structure with effective attention rank r_eff < 256 and monotonically decreasing operator entropy (β<0, p<0.01) across layer depth, validating the bounded-state compression assumption required for SSM conversion.
+
+### Type
+EXISTENCE
+
+### Rationale
+This existence hypothesis validates the foundational assumption that deep layers have learned compressed semantic representations suitable for SSM conversion. Without confirmed low-rank structure, the entire conversion approach would require unbounded state dimensions.
+
+---
+
+## Verification Protocol
+
+### Conceptual Test
+1. Compute SVD of attention matrices (Q, K, V) for each layer L=1-32
+2. Calculate effective rank r_eff at 99% variance threshold for layers L≥20
+3. Compute operator entropy (log-det covariance) and fit linear regression entropy vs depth
+4. Test statistical significance of negative slope (H1: β<0, p<0.01) across 3 random seeds
+
+### Success Criteria
+- Primary: r_eff < 256 for all layers L≥20
+- Secondary: β < 0 with p < 0.01 (monotonic entropy decrease)
+
+### Variables (if applicable)
+- **Independent Variable:** Layer depth L (focus on L≥20 in 32-layer models)
+- **Dependent Variable:** Effective rank r_eff, Operator entropy
+- **Controlled Variables:** Model architecture (LLaMA-7B/13B), evaluation dataset (The Pile)
+
+---
+
+## Experimental Setup (from Phase 2A via Phase 2B)
+
+> **Note:** Dataset and model were selected in Phase 2A Dialogue based on hypothesis Variables.
+> Phase 2C experiment design MUST use this selection.
+
+### Selected Dataset
+- **Name:** The Pile (calibration), LongBench (evaluation)
+- **Type:** standard
+- **Source:** EleutherAI (The Pile), THUDM (LongBench)
+- **Path:** HuggingFace datasets: pile, THUDM/LongBench
+- **Hypothesis Fit:** The Pile used for LLaMA pretraining (calibration continuity), LongBench tests long-context capabilities (8K-128K)
+
+### Selected Model
+- **Name:** LLaMA-7B / LLaMA-13B
+- **Type:** decoder-only Transformer
+- **Source:** Meta AI (official checkpoints)
+- **Hypothesis Fit:** 32-layer architecture enables deep-layer subset conversion (L≥20), widely used baseline for efficiency research
+
+---
+
+## Baseline & Comparison Targets
+
+> **Note:** This section is PRIMARY for Comparison hypotheses (H-CP*).
+> For other hypothesis types, baseline context helps understand expected improvements.
+
+### Baseline Methods
+- Vanilla LLaMA-7B: Standard quadratic attention
+- Samba-3.8B (reference): 3.73× throughput at 128K, 71.9 MMLU, 87.6 GSM8K
+- LTI SSM control: Non-selective SSM with fixed A,B,C
+
+### Baseline Performance
+Standard Transformer complexity O(L²) for attention operations
+
+### Gap Analysis
+Target: Demonstrate low-rank structure (r_eff < 256) exists as prerequisite for SSM conversion approach
+
+---
+
+## Dependencies and Gate Conditions
+
+### Prerequisites
+None (foundation hypothesis)
+
+### Gate Information
+
+**Gate Type:** MUST_WORK
+- MUST_WORK: Failure stops entire workflow
+- SHOULD_WORK: Failure documented as limitation, workflow continues
+- DETERMINES_SUCCESS: Final validation gate
+
+**Consequence if Fails:** ABORT conversion approach, SSM state would need to scale unboundedly
+
+**Phase Assignment:** Phase 4 (PoC validation)
+
+**Estimated Duration:** 5-8 minutes
+
+---
+
+## Dependency Context
+
+### Relationship to Other Hypotheses
+Foundation hypothesis - all subsequent hypotheses (H-M1, H-M2, H-M3, H-M4) depend on validation of low-rank structure existence
+
+---
+
+## Verification State Reference
+
+**State File:** verification_state.yaml
+**Current Status:** Will be updated by Phase 2C
+**Workflow Status:** ACTIVE
+
+---
+
+## Phase 2C Usage Notes
+
+**This context file provides:**
+1. Complete hypothesis specification for experiment design
+2. Gate conditions for prerequisite validation
+3. Dependency information for controlled experiments
+4. Success criteria for evaluation design
+5. **Baseline comparison targets (CRITICAL for H-CP* hypotheses)**
+
+**Phase 2C will:**
+1. Load this file instead of full Phase 2B roadmap (91% smaller)
+2. Search for implementation patterns (Archon, Exa MCP)
+3. Use baseline metrics to set comparison targets
+4. Design concrete experiment specification (Level 1.5)
+5. Output: {hypothesis_folder}/02c_experiment_brief.md
+
+**Baseline Usage by Hypothesis Type:**
+- **H-E* (Existence)**: Baseline context for expected effect sizes
+- **H-M* (Mechanism)**: Baseline to understand improvement potential
+- **H-C* (Condition)**: Baseline to identify scope boundaries
+- **H-CP* (Comparison)**: **MANDATORY** - Direct comparison with baseline methods
+
+---
+
+*Generated by Phase 2C Workflow (JIT)*
+*Optimized for single-hypothesis experiment design*

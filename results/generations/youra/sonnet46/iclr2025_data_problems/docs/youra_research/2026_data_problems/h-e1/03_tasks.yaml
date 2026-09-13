@@ -1,0 +1,629 @@
+version: "1.1"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-03-14T18:30:00.000000+00:00"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASKS — Priority order: data-prep (100-95) → setup (94) → epics (93-50) →
+#          subtasks (49-2) → failsafe (1)
+# ═══════════════════════════════════════════════════════════════════════════════
+tasks:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DATA PREPARATION (from 03_prd.md Section 4)
+  # ─────────────────────────────────────────────────────────────────────────
+
+  - id: "task-001"
+    epic: "Data Preparation"
+    title: "Download DCLM-POOL dataset and fasttext-oh-eli5 model"
+    description: |
+      Download required data and model assets from HuggingFace.
+
+      Dataset: mlfoundations/dclm-baseline-1.0 (streaming mode for 10M sample)
+      Model: mlfoundations/fasttext-oh-eli5 (~100MB binary classifier)
+
+      Steps:
+      1. Verify HuggingFace access token is set (HF_TOKEN env var)
+      2. Test streaming access: load_dataset("mlfoundations/dclm-baseline-1.0", streaming=True)
+      3. Download fasttext model: huggingface_hub.hf_hub_download("mlfoundations/fasttext-oh-eli5", ...)
+      4. Cache model to h-e1/data/models/fasttext-oh-eli5.bin
+      5. Verify model loads: fasttext.load_model("h-e1/data/models/fasttext-oh-eli5.bin")
+
+      Fallback (if DCLM-Pool gated): use dclm-baseline-1.0 as C5 proxy + DCLM-RefinedWeb as C0 proxy.
+
+      Create directories:
+        h-e1/data/corpora/
+        h-e1/data/scores/
+        h-e1/data/models/
+        h-e1/figures/
+    feature_tag: "data-preparation"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Verify model file exists at expected path
+      - Verify HF streaming returns dicts with 'text' field
+      - Verify fasttext.load_model() does not raise
+    reference_files:
+      architecture: "03_architecture.md#External-Dependencies"
+      logic: null
+      config: "03_config.md#Full-Experiment-Configuration"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # ENVIRONMENT SETUP (from 03_prd.md Section 7)
+  # ─────────────────────────────────────────────────────────────────────────
+
+  - id: "task-002"
+    epic: "Environment Setup"
+    title: "Install Python dependencies and verify environment"
+    description: |
+      Install all required Python packages and verify the environment is ready.
+
+      Install:
+        datasets>=2.14.0
+        fasttext>=0.9.2
+        numpy>=1.24.0
+        scipy>=1.11.0
+        statsmodels>=0.14.0
+        pyitlib>=0.2.2
+        matplotlib>=3.7.0
+        seaborn>=0.12.0
+        pyyaml>=6.0
+        tqdm>=4.65.0
+        jsonlines>=3.1.0
+        huggingface-hub>=0.17.0
+
+      Verification:
+        python -c "import fasttext, datasets, pyitlib, scipy, statsmodels, matplotlib, seaborn, jsonlines"
+
+      Create requirements.txt in h-e1/code/
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - All imports succeed without error
+      - pyitlib.discrete_random_variable.entropy_conditional is callable
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#Full-Experiment-Configuration"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # EPIC IMPLEMENTATION TASKS (from 03_architecture.md)
+  # ─────────────────────────────────────────────────────────────────────────
+
+  - id: "task-003"
+    epic: "Environment Setup"
+    title: "A-1: Project structure and config module"
+    description: |
+      Set up the project structure and implement config.py.
+
+      File: h-e1/code/config.py
+
+      Implement CONFIG dict with all experiment parameters from 03_config.md:
+      - seed=42, n_docs=10_000_000, window_size=10, n_bootstrap=10_000, gate_threshold_pct=5.0
+      - fasttext_model_id, dataset_id
+      - configurations: C0 (unfiltered) through C6 (DoReMi)
+      - occupation_lexicon: 60 WinoBias occupations
+      - demographic_lexicon: gendered pronouns + demographic NEs
+      - data_dir, figures_dir, results_path, validation_path
+      - viz settings: figure_size, dpi, color_scheme, etc.
+
+      Also create h-e1/code/__init__.py (empty).
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 5
+    test_requirements: |
+      - CONFIG dict is importable
+      - len(CONFIG["occupation_lexicon"]) == 60
+      - len(CONFIG["configurations"]) == 7
+      - CONFIG["seed"] == 42
+    reference_files:
+      architecture: "03_architecture.md#Config"
+      logic: null
+      config: "03_config.md#Full-Experiment-Configuration"
+
+  - id: "task-004"
+    epic: "Corpus Filter"
+    title: "A-2: Corpus filter module (CorpusFilter class)"
+    description: |
+      Implement h-e1/code/corpus_filter.py with CorpusFilter class.
+
+      See 03_logic.md#A-2 for full API signatures and data shapes.
+
+      Core methods:
+      - load_and_sample(dataset_id, n_docs=10M, seed=42): HF streaming + itertools.islice
+      - score_documents(docs): fasttext-oh-eli5 batch prediction → list[float] in [0,1]
+      - apply_fasttext_filter(docs, scores, percentile): keep docs >= np.percentile(scores, p)
+      - apply_doremi_reweight(docs, domain_key): load DoReMi weights, np.random.choice resample
+      - save_corpus(docs, config_id, data_dir): jsonlines writer to data/corpora/{config_id}.jsonl
+      - load_corpus(config_id, data_dir): jsonlines reader
+      - build_all_corpora(data_dir): orchestrate C0-C6, return {config_id: path}
+
+      C0: unfiltered 10M docs
+      C1-C5: fastText percentile 10/30/50/70/90 (keep top (100-p)% by score)
+      C6: DoReMi reweighted (~5M effective docs)
+
+      Use tqdm for progress on 10M doc operations.
+      Memory: process in streaming chunks if RAM < 32GB.
+    feature_tag: "data-pipeline"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 16
+    test_requirements: |
+      - Create tests/test_corpus_filter.py
+      - Test apply_fasttext_filter with mock scores: verify correct fraction retained
+      - Test save_corpus + load_corpus: round-trip 100 docs
+      - Test build_all_corpora with tiny mock dataset (1000 docs): verify 7 configs created
+    reference_files:
+      architecture: "03_architecture.md#CorpusFilter"
+      logic: "03_logic.md#A-2-Corpus-Filter-Module"
+      config: "03_config.md#Full-Experiment-Configuration"
+
+  - id: "task-005"
+    epic: "Entropy Measurement"
+    title: "A-3: Entropy measurement module (EntropyMeasure class)"
+    description: |
+      Implement h-e1/code/entropy_measure.py with EntropyMeasure class.
+
+      See 03_logic.md#A-3 for full API signatures, pseudo-code, and data shapes.
+
+      Core methods:
+      - __init__(occ_lexicon, demo_lexicon, window_size=10): store as frozensets for O(1) lookup
+      - compute_joint_counts(docs): sliding window scan per doc
+          For each doc text, tokenize (lower().split())
+          For each demo token found at position i:
+              Check window tokens[max(0,i-W):i+W+1]
+              For each occ token in window: joint_counts[demo][occ] += 1
+      - joint_counts_to_arrays(joint_counts): flatten to parallel int arrays for pyitlib
+          Expand counts: if joint_counts['she']['nurse']=5, append 'she' 5x and 'nurse' 5x
+          Encode as integer indices
+      - compute_conditional_entropy(docs): compute_joint_counts → arrays → drv.entropy_conditional(Y, X)
+      - compute_all_entropies(corpora): loop over C0-C6, return {config_id: H_value}
+
+      Import: from pyitlib import discrete_random_variable as drv
+    feature_tag: "data-pipeline"
+    priority: 87
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - Create tests/test_entropy_measure.py
+      - Test compute_joint_counts with 3 synthetic docs containing known co-occurrences
+      - Test joint_counts_to_arrays: verify array lengths match sum of counts
+      - Test compute_conditional_entropy: verify returns float > 0 for non-trivial corpus
+      - Test compute_all_entropies: verify 7 keys in output dict
+    reference_files:
+      architecture: "03_architecture.md#EntropyMeasure"
+      logic: "03_logic.md#A-3-Entropy-Measurement-Module"
+      config: "03_config.md#Full-Experiment-Configuration"
+
+  - id: "task-006"
+    epic: "Statistical Tests"
+    title: "A-4: Statistical tests module (StatisticalTests class)"
+    description: |
+      Implement h-e1/code/statistical_tests.py with StatisticalTests class.
+
+      Core methods:
+      - relative_entropy_change(h_c1, h_c5): (h_c5 - h_c1) / h_c1 * 100.0
+      - bootstrap_ci(entropy_samples_a, entropy_samples_b, confidence=0.95):
+          Use scipy.stats.bootstrap with method='BCa', n_resamples=10000
+          statistic = lambda a, b: np.mean(a) - np.mean(b)
+          Returns: (ci_low, ci_high)
+      - spearman_correlation(percentiles, entropy_values):
+          scipy.stats.spearmanr(percentiles, entropy_values)
+          Returns: (rho, p_value)
+      - ols_regression(fasttext_scores, demo_densities):
+          statsmodels OLS: demo_densities ~ fasttext_scores
+          Returns: {'r_squared': ..., 'coef': ..., 'p_value': ...}
+      - run_all_tests(entropies, joint_counts_per_config):
+          Orchestrate all tests, return comprehensive stats dict including gate result
+
+      Gate check in run_all_tests:
+          gate_passed = (relative_entropy_change >= 5.0) and (ci_low > 0 or ci_high < 0)
+    feature_tag: "evaluation"
+    priority: 84
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      - Create tests/test_statistical_tests.py
+      - Test relative_entropy_change: verify formula correctness with known values
+      - Test spearman_correlation: verify monotonic sequence returns rho ≈ 1.0
+      - Test run_all_tests: verify gate_passed key exists in output
+    reference_files:
+      architecture: "03_architecture.md#StatisticalTests"
+      logic: null
+      config: "03_config.md#Full-Experiment-Configuration"
+
+  - id: "task-007"
+    epic: "Visualization"
+    title: "A-5: Visualization module (Visualizer class)"
+    description: |
+      Implement h-e1/code/visualize.py with Visualizer class.
+
+      See 03_config.md#A-5 for visualization config settings (figure_size, dpi, colors, etc.)
+
+      Core methods:
+      - bar_chart_gate_metric(entropies, ci_bounds): bar chart of H per config with 95% CI error bars
+          Red dashed line at baseline (C0). Annotate relative_entropy_change value.
+          Save to figures/gate_metric_bar.png
+      - monotonic_trend_plot(entropies): line plot H(occ|demo) vs percentile for C1-C5, DoReMi as separate point
+          Annotate Spearman ρ and p-value. Save to figures/monotonic_trend.png
+      - demographic_heatmap(joint_counts_c1, joint_counts_c5): seaborn heatmap (occupation x demographic)
+          Side-by-side C1 vs C5. Save to figures/demographic_heatmap.png
+      - relative_change_chart(relative_changes, gate_threshold=5.0): horizontal bar chart
+          Highlight 5% MUST_WORK threshold. Save to figures/relative_change.png
+      - generate_all(entropies, joint_counts, stats_results): call all 4 methods, return list of paths
+
+      Use CONFIG["viz"] settings for all figures.
+    feature_tag: "evaluation"
+    priority: 81
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Create tests/test_visualize.py
+      - Test generate_all with mock data: verify 4 PNG files created in figures/ dir
+      - Test figures are non-empty (os.path.getsize > 0)
+    reference_files:
+      architecture: "03_architecture.md#Visualize"
+      logic: null
+      config: "03_config.md#A-5-Visualization-Module"
+
+  - id: "task-008"
+    epic: "Experiment Orchestration"
+    title: "A-6: Experiment orchestration and reporting (run_experiment.py)"
+    description: |
+      Implement h-e1/code/run_experiment.py as the main experiment driver.
+
+      Functions:
+      - setup_directories(): create data/corpora, data/scores, data/models, figures/
+      - verify_mechanism_activated(config_entropies, results): check 6 configs processed,
+          entropies differ, gate_passed; return (success: bool, indicators: dict)
+      - write_results_json(results, path): json.dump with indent=2 to results.json
+      - write_validation_md(results, mechanism_check, path): generate 04_validation.md with
+          gate result (PASS/FAIL), relative_entropy_change, spearman_rho, bootstrap CI, figure paths
+      - main(): full pipeline:
+          1. setup_directories()
+          2. CorpusFilter.build_all_corpora()  → save C0-C6 JSONL
+          3. EntropyMeasure.compute_all_entropies()  → entropies dict
+          4. StatisticalTests.run_all_tests()  → stats dict
+          5. Visualizer.generate_all()  → figure paths
+          6. verify_mechanism_activated()
+          7. write_results_json(), write_validation_md()
+          8. Print gate result: PASS or FAIL
+
+      if __name__ == "__main__": main()
+    feature_tag: "experiment"
+    priority: 78
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      - Create tests/test_run_experiment.py
+      - Test verify_mechanism_activated with mock entropies that PASS gate: verify success=True
+      - Test verify_mechanism_activated with mock entropies that FAIL gate: verify success=False
+      - Test write_results_json: verify valid JSON with required keys
+      - Integration test: run main() with mock data (100 docs), verify results.json created
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: null
+      config: "03_config.md#Full-Experiment-Configuration"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # SUBTASKS (from 03_logic.md and 03_config.md)
+  # ─────────────────────────────────────────────────────────────────────────
+
+  - id: "task-009"
+    epic: "Corpus Filter"
+    title: "L-2-1: Streaming sampler implementation"
+    description: |
+      Implement CorpusFilter.load_and_sample() in corpus_filter.py.
+
+      - Use HuggingFace datasets.load_dataset(..., streaming=True)
+      - Use itertools.islice(dataset, n_docs) for deterministic sampling
+      - Set numpy/random seed=42 before sampling
+      - Return list[dict] with at least 'text': str field per doc
+      - Handle KeyboardInterrupt gracefully (partial save fallback)
+    feature_tag: "data-pipeline"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test with mock streaming dataset (10 docs): verify returns exactly n_docs=10
+      - Verify deterministic: two calls with same seed return identical first doc
+    reference_files:
+      architecture: "03_architecture.md#CorpusFilter"
+      logic: "03_logic.md#A-2-Corpus-Filter-Module"
+      config: null
+
+  - id: "task-010"
+    epic: "Corpus Filter"
+    title: "L-2-2: fastText scorer and percentile filter"
+    description: |
+      Implement CorpusFilter.score_documents() and apply_fasttext_filter() in corpus_filter.py.
+
+      score_documents(docs):
+      - Load fasttext model from CONFIG["fasttext_model_id"] cache path
+      - For each doc['text']: model.predict(text.replace("\n", " "))
+      - Parse label: if label[0] == '__label__hq' → score = prob[0], else score = 1.0 - prob[0]
+      - Return list[float] of length len(docs)
+      - Use tqdm for progress
+
+      apply_fasttext_filter(docs, scores, percentile):
+      - threshold = np.percentile(scores, percentile)
+      - Return [doc for doc, score in zip(docs, scores) if score >= threshold]
+      - Cache scores to data/scores/{config_id}_scores.npy for reuse
+    feature_tag: "data-pipeline"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test score_documents with 3 known texts: verify scores in [0,1]
+      - Test apply_fasttext_filter with percentile=50: verify ~50% docs retained
+    reference_files:
+      architecture: "03_architecture.md#CorpusFilter"
+      logic: "03_logic.md#A-2-Corpus-Filter-Module"
+      config: null
+
+  - id: "task-011"
+    epic: "Corpus Filter"
+    title: "L-2-3: DoReMi domain reweighter"
+    description: |
+      Implement CorpusFilter.apply_doremi_reweight() in corpus_filter.py.
+
+      Steps:
+      1. Extract domain labels from docs using doc[domain_key] (default: 'source')
+      2. Count domain frequencies across all docs
+      3. Load DoReMi domain weights from sangmichaelxie/doremi or compute approximate weights
+         - If doremi repo unavailable: use inverse frequency reweighting as proxy
+         - domain_weight[d] = 1.0 / freq[d] normalized to sum=1
+      4. Map each doc to its domain weight
+      5. Resample: np.random.choice(len(docs), size=target_size, p=weights, replace=True)
+         - target_size: ~5M effective docs (CONFIG-specified)
+      6. Return resampled list[dict]
+    feature_tag: "data-pipeline"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test with 100 docs from 3 domains: verify resampling shifts distribution
+      - Verify output has 'text' field in all docs
+    reference_files:
+      architecture: "03_architecture.md#CorpusFilter"
+      logic: "03_logic.md#A-2-Corpus-Filter-Module"
+      config: null
+
+  - id: "task-012"
+    epic: "Corpus Filter"
+    title: "L-2-4: JSONL I/O and build_all_corpora orchestration"
+    description: |
+      Implement CorpusFilter.save_corpus(), load_corpus(), and build_all_corpora().
+
+      save_corpus(docs, config_id, data_dir):
+      - Path: {data_dir}/corpora/{config_id}.jsonl
+      - Use jsonlines.open(path, 'w') as writer: writer.write_all(docs)
+      - Return absolute path
+
+      load_corpus(config_id, data_dir):
+      - Use jsonlines.open(path, 'r') as reader: return list(reader)
+
+      build_all_corpora(data_dir):
+      - Load and sample 10M docs once (C0 = unfiltered)
+      - Score documents once (save scores cache)
+      - C0: save all 10M docs
+      - C1-C5: apply_fasttext_filter at percentile 10/30/50/70/90, save each
+      - C6: apply_doremi_reweight, save
+      - Return {config_id: path} dict
+      - Skip configs where JSONL already exists (resume support)
+    feature_tag: "data-pipeline"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test save_corpus + load_corpus round-trip: 100 docs survive intact
+      - Test build_all_corpora with mock data: verify 7 JSONL files created
+      - Test skip-if-exists: second call does not overwrite existing files
+    reference_files:
+      architecture: "03_architecture.md#CorpusFilter"
+      logic: "03_logic.md#A-2-Corpus-Filter-Module"
+      config: null
+
+  - id: "task-013"
+    epic: "Entropy Measurement"
+    title: "L-3-1: Co-occurrence window scanner"
+    description: |
+      Implement EntropyMeasure.compute_joint_counts() in entropy_measure.py.
+
+      Algorithm (from 03_logic.md pseudo-code):
+        For each doc in docs:
+            tokens = doc['text'].lower().split()
+            For i, token in enumerate(tokens):
+                If token in demo_lexicon (frozenset O(1)):
+                    window = tokens[max(0, i-window_size) : i+window_size+1]
+                    For w in window (skip w == token):
+                        If w in occ_lexicon (frozenset O(1)):
+                            joint_counts[token][w] += 1
+
+      Use collections.defaultdict(lambda: defaultdict(int)) for joint_counts.
+      Return dict[str, dict[str, int]].
+    feature_tag: "data-pipeline"
+    priority: 37
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test with 1 doc "she is a nurse and he is a doctor": verify joint_counts['she']['nurse']=1
+      - Test window boundary: token at position 0 only sees right window
+      - Test case insensitivity: "SHE" counted same as "she"
+    reference_files:
+      architecture: "03_architecture.md#EntropyMeasure"
+      logic: "03_logic.md#A-3-Entropy-Measurement-Module"
+      config: null
+
+  - id: "task-014"
+    epic: "Entropy Measurement"
+    title: "L-3-2: Joint counts to array converter"
+    description: |
+      Implement EntropyMeasure.joint_counts_to_arrays() in entropy_measure.py.
+
+      Steps:
+      1. Build vocab: demo_vocab = sorted(joint_counts.keys()), occ_vocab = sorted all occ keys
+      2. Create integer index maps: demo_idx, occ_idx
+      3. Expand counts: for demo, occ_dict in joint_counts.items():
+             for occ, count in occ_dict.items():
+                 X_array.extend([demo_idx[demo]] * count)
+                 Y_array.extend([occ_idx[occ]] * count)
+      4. Return (X_array, Y_array) as lists of int
+         (pyitlib expects categorical integer arrays)
+    feature_tag: "data-pipeline"
+    priority: 34
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test with known counts {she: {nurse: 3, doctor: 2}}: verify len(X)=len(Y)=5
+      - Verify X values in [0, n_demo_tokens), Y values in [0, n_occ_tokens)
+    reference_files:
+      architecture: "03_architecture.md#EntropyMeasure"
+      logic: "03_logic.md#A-3-Entropy-Measurement-Module"
+      config: null
+
+  - id: "task-015-subtask"
+    epic: "Entropy Measurement"
+    title: "L-3-3: Entropy driver (compute_conditional_entropy + compute_all_entropies)"
+    description: |
+      Implement EntropyMeasure.compute_conditional_entropy() and compute_all_entropies().
+
+      compute_conditional_entropy(docs):
+        joint_counts = self.compute_joint_counts(docs)
+        X_arr, Y_arr = self.joint_counts_to_arrays(joint_counts)
+        if len(X_arr) == 0: return 0.0  # empty corpus edge case
+        return float(drv.entropy_conditional(Y_arr, X_arr))  # H(occupation|demographic)
+
+      compute_all_entropies(corpora):
+        entropies = {}
+        for config_id, docs in corpora.items():
+            H = self.compute_conditional_entropy(docs)
+            entropies[config_id] = H
+            print(f"  {config_id}: H={H:.4f} bits")
+        return entropies  # dict[str, float], 7 entries
+
+      Store joint_counts per config for use by StatisticalTests (pass as separate dict).
+    feature_tag: "evaluation"
+    priority: 31
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test compute_conditional_entropy with 10 synthetic docs with known pattern
+      - Verify H > 0 for non-trivial corpus
+      - Test compute_all_entropies: verify exactly 7 keys (C0-C6)
+    reference_files:
+      architecture: "03_architecture.md#EntropyMeasure"
+      logic: "03_logic.md#A-3-Entropy-Measurement-Module"
+      config: null
+
+  - id: "task-016-subtask"
+    epic: "Visualization"
+    title: "C-5-1: Visualizer implementation (all 4 figure methods)"
+    description: |
+      Implement all 4 figure generation methods in h-e1/code/visualize.py using CONFIG["viz"].
+
+      bar_chart_gate_metric(entropies, ci_bounds):
+        - bars: {C0..C6} on x-axis, H value on y-axis
+        - error bars: (ci_low, ci_high) per config
+        - red dashed line at entropies['C0'] (baseline)
+        - title: "H(occupation|demographic) per Corpus Configuration"
+        - annotate: f"Relative change C1→C5: {rel_change:.1f}%"
+        - save: figures/gate_metric_bar.png
+
+      monotonic_trend_plot(entropies):
+        - x: [10, 30, 50, 70, 90] (fastText percentiles for C1-C5)
+        - y: [entropies['C1'], ..., entropies['C5']]
+        - DoReMi (C6) as separate scatter point
+        - annotate: spearman rho and p-value from stats
+        - save: figures/monotonic_trend.png
+
+      demographic_heatmap(joint_counts_c1, joint_counts_c5):
+        - seaborn heatmap side-by-side for C1 vs C5
+        - x-axis: demographic tokens, y-axis: occupation tokens
+        - save: figures/demographic_heatmap.png
+
+      relative_change_chart(relative_changes, gate_threshold=5.0):
+        - horizontal bar chart of (H_Cx - H_C1)/H_C1 * 100 per config
+        - vertical line at 5.0% (MUST_WORK threshold)
+        - save: figures/relative_change.png
+
+      generate_all(entropies, joint_counts, stats_results):
+        - call all 4 methods, collect paths
+        - return list[str] of 4 figure paths
+    feature_tag: "evaluation"
+    priority: 28
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - Test generate_all with mock data: verify 4 PNG files exist in figures/
+      - Verify file sizes > 0
+    reference_files:
+      architecture: "03_architecture.md#Visualize"
+      logic: null
+      config: "03_config.md#A-5-Visualization-Module"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # FAILSAFE — Pipeline continuation checkpoint (always last)
+  # ─────────────────────────────────────────────────────────────────────────
+
+  - id: "task-failsafe"
+    epic: "Pipeline Checkpoint"
+    title: "FAILSAFE: Pipeline continuation checkpoint"
+    description: |
+      Final checkpoint — ensure Phase 4 completes properly regardless of gate result.
+
+      Steps:
+      1. Verify results.json exists with required keys:
+           relative_entropy_change, ci_low, ci_high, spearman_rho, gate_passed
+      2. Verify 04_validation.md exists
+      3. Verify at least 1 figure PNG exists in figures/
+      4. Print gate result: "H-E1 GATE: PASS" or "H-E1 GATE: FAIL"
+      5. Exit with code 0 regardless of gate result
+         (Phase 4 validator handles gate outcome, not this script)
+
+      Even if gate FAILS, Phase 4 must record results and hand off to Phase 4 Validator.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUDGET SUMMARY
+# ═══════════════════════════════════════════════════════════════════════════════
+budget_summary:
+  data_preparation: 1    # task-001 (DCLM-POOL + fasttext-oh-eli5 download)
+  environment_setup: 2   # task-002 (pip install), task-003 (A-1 config module)
+  epic_tasks: 6          # task-003 through task-008 (A-1 ... A-6) — note A-1 counted here too
+  subtasks: 7            # task-009..015-subtask (L-2-1..4, L-3-1..3) + task-016-subtask (C-5-1)
+  failsafe: 1            # task-failsafe
+  total: 15              # Must be <= 15 (LIGHT budget) ✓
+
+# Note: task-003 (A-1) is counted in both environment_setup and epic_tasks above
+# Actual unique task count: 15 (task-001 through task-016-subtask + task-failsafe)

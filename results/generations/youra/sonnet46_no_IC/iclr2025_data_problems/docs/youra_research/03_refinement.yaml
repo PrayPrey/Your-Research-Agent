@@ -1,0 +1,339 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-04T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+  gap_title: "Causal Attribution of Curation Choices to Benchmark Outcomes Is Unestablished"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 15
+  convergence_reason: "All 6 convergence criteria met at min_exchanges=15; all 6 personas participated; self-judged CONVERGED"
+  hypothesis_id: "H-CurationScale-v1"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Individual curation methods produce measurable benchmark improvements (ProX +2%, REWIRE +1.0-2.5pp, SoftDedup +1.77%)"
+      status: "BUILD_ON"
+      evidence: "ProX [Zhou et al., 2024] arXiv 2409.17115; REWIRE [Nguyen et al., 2025] arXiv 2506.04689; SoftDedup [He et al., 2024] arXiv 2407.06654"
+    - claim: "Perplexity (PPL) is misaligned with downstream ICL performance — peak ICL at moderate, not minimum PPL threshold"
+      status: "BUILD_ON"
+      evidence: "DataMan [Peng et al., 2025] arXiv 2502.19363; PPL threshold sweep showing non-monotonic ICL curve"
+    - claim: "Domain mixing is orthogonal to quality filtering; combining both is super-additive (+2.5pp vs expected +1.8pp)"
+      status: "BUILD_ON"
+      evidence: "WebOrganizer [Wettig et al., 2025] arXiv 2502.10341"
+    - claim: "Modular training + parameter merging approximates full ablation at 10x lower compute (Spearman r=0.81 with benchmark)"
+      status: "BUILD_ON"
+      evidence: "Scalable Ablation Approx [Na et al., 2024] arXiv 2410.15661"
+    - claim: "Scale-dependent optimal curation configuration (optimal PPL threshold differs between 70M and 160M models)"
+      status: "PROVE_NEW"
+      evidence: "Not yet measured; motivation from DataMan PPL/ICL finding + Curriculum Learning theory"
+    - claim: "Deduplication aggressiveness has opposite scale interaction compared to perplexity filtering"
+      status: "PROVE_NEW"
+      evidence: "Not yet measured; mechanistic motivation from Bayesian ICL theory + SoftDedup reweighting results"
+    - claim: "Aggressive filtering improves data efficiency (tokens-to-peak) at small scales but not large scales"
+      status: "PROVE_NEW"
+      evidence: "Not yet measured; connects to Chinchilla optimal compute scaling"
+  scope_reduction_percentage: 50
+  phase2b_4_instructions: |
+    Phase 2B should treat PROVE_NEW claims (P1, P3, P4 predictions) as the primary verification
+    targets. BUILD_ON claims are taken as established and should be used to motivate and
+    contextualize the experimental design without requiring re-verification. The contamination
+    covariate (measured via lm-sys/llm-decontaminator) should be verified as technically feasible
+    in Phase 2B sub-hypothesis design.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-CurationScale-v1"
+  confidence_level: 0.72
+  core_hypothesis_statement: |
+    Under fixed model architecture family (Pythia-style, trained from scratch) and fixed
+    tokens-seen budget on open corpora (Dolma, FineWeb replication), if we independently
+    vary perplexity filtering threshold τ ∈ {20, 35, 50} and deduplication aggressiveness
+    d ∈ {strict: MinHash Jaccard=0.7, loose: MinHash Jaccard=0.9}, then downstream benchmark
+    scores (MMLU 4-shot + HellaSwag 0-shot) will show significant Scale × Curation interaction
+    effects — specifically: smaller models (70M) achieve peak performance at lower PPL thresholds
+    and benefit from aggressive deduplication, while larger models (160M+) achieve peak performance
+    at higher PPL thresholds and are harmed by aggressive deduplication — because smaller models
+    lack sufficient capacity to extract signal from high-diversity noisier distributions (requiring
+    stronger quality filtering), while larger models rely on near-duplicate pattern frequency for
+    in-context learning ability (which aggressive deduplication removes).
+  alternative_hypothesis_h0: |
+    There is no significant interaction between model scale and curation configuration on
+    downstream benchmark scores — the optimal curation recipe (PPL threshold and dedup
+    aggressiveness) is scale-invariant.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Perplexity filtering threshold (τ)"
+      type: "categorical"
+      operationalization: "GPT-2 reference model PPL score; documents with PPL > τ removed from corpus"
+      levels: [20, 35, 50]
+    - name: "Deduplication aggressiveness (d)"
+      type: "categorical"
+      operationalization: "MinHash near-deduplication Jaccard similarity threshold; documents with Jaccard > d to any other document removed"
+      levels: ["strict (J=0.7)", "loose (J=0.9)"]
+    - name: "Model scale (N)"
+      type: "categorical"
+      operationalization: "Number of trainable parameters in Pythia-architecture model"
+      levels: ["70M", "160M"]
+    - name: "Training corpus"
+      type: "categorical"
+      operationalization: "Open pre-training corpus used; same filtering applied to each"
+      levels: ["Dolma", "FineWeb"]
+  dependent:
+    - name: "MMLU 4-shot accuracy"
+      type: "continuous"
+      operationalization: "Average accuracy across 57 MMLU tasks (4-shot prompting), range 0-1"
+      primary: true
+    - name: "HellaSwag 0-shot accuracy"
+      type: "continuous"
+      operationalization: "Accuracy on HellaSwag completion task (0-shot), range 0-1"
+      primary: false
+    - name: "Data efficiency (λ)"
+      type: "continuous"
+      operationalization: "Convergence rate from log-linear learning curve fit B(T) = A - C·exp(-λT); larger λ = faster convergence"
+      primary: false
+  controlled:
+    - name: "Model architecture"
+      operationalization: "Pythia transformer architecture; same hyperparameters across all runs"
+    - name: "Training tokens-seen budget"
+      operationalization: "Fixed at minimum filtered corpus size across all conditions; tokens-seen recorded as ANCOVA covariate where it varies"
+    - name: "Optimizer and training hyperparameters"
+      operationalization: "AdamW, lr=1e-3, cosine decay, batch size=2M tokens; identical across all runs"
+    - name: "Benchmark contamination rate"
+      operationalization: "Measured per condition using lm-sys/llm-decontaminator against MMLU and HellaSwag test sets; included as ANCOVA covariate"
+    - name: "Random seed"
+      operationalization: "3 independent training seeds per condition; results averaged"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: "Curation filtering changes the token distribution of the training corpus — PPL filtering removes high-perplexity (high-diversity, noisier) documents; deduplication removes near-duplicate (high-frequency pattern) documents"
+      evidence: "DataMan [Peng et al., 2025] documents PPL-filtered vs. unfiltered distribution differences; google-research/deduplicate-text-datasets quantifies near-duplicate fraction removed"
+      falsifier: "If PPL filtering and deduplication do not measurably change the distribution of the training corpus token statistics (KL divergence from reference), the mechanism is broken"
+    - step: 2
+      description: "Smaller models have lower representation capacity — they cannot efficiently extract signal from high-diversity, high-variance token distributions; their learning dynamics are dominated by the quality of individual examples rather than distributional coverage. Larger models have sufficient capacity to leverage distributional diversity, extracting cross-document patterns including near-duplicate frequency signals used for ICL."
+      evidence: "Curriculum Learning theory (Bengio et al., 2009) supports capacity-dependent optimal difficulty. Bayesian ICL theory (Xie et al., 2022) supports near-duplicate pattern frequency as ICL mechanism. SoftDedup [He et al., 2024] shows near-duplicate down-weighting (not removal) outperforms hard dedup for few-shot (+1.77%), suggesting these patterns carry ICL signal."
+      falsifier: "If attention entropy analysis of trained models does not show higher cross-document attention in large models vs. small models (or if removing near-duplicates does not selectively reduce ICL scores vs. standard accuracy), the capacity-diversity mechanism is not supported"
+    - step: 3
+      description: "The result is a scale × curation interaction effect in benchmark scores: (a) optimal PPL threshold is lower for small models (cleaner data preferred) and higher for large models (diversity valued); (b) aggressive deduplication improves small model scores (removes noise) but hurts large model scores (removes ICL-relevant patterns); (c) these effects manifest as measurably different learning curve shapes — aggressive filtering steepens the learning curve (higher λ) at small scale but flattens it at large scale."
+      evidence: "WebOrganizer [Wettig et al., 2025] shows domain mixing (a proxy for distributional diversity) is more beneficial than quality filtering — consistent with large models preferring diversity. Scalable Ablation Approx [Na et al., 2024] shows merged-model PPL (which reflects training distribution, not reference PPL) correlates r=0.81 with benchmarks."
+      falsifier: "If 2-way ANOVA (Scale × PPL-threshold) shows no significant interaction term (p > 0.05, partial η² < 0.15), the scale-curation interaction does not exist at measurable effect size"
+  key_tension: "Token budget equalization vs. avoiding memorization artifacts at small scale — resolved by tokens-to-peak framing, but multi-epoch training at 70M remains a potential confound if tokens-seen covariate is not adequate"
+  evidence_summary: |
+    The causal chain is supported by: (1) DataMan's empirical PPL/ICL misalignment showing the
+    PPL-distribution-ICL relationship is not simple; (2) SoftDedup's finding that near-duplicate
+    down-weighting (preserving pattern frequency) beats hard removal for few-shot performance;
+    (3) WebOrganizer's finding that domain diversity is orthogonal to and complementary with
+    quality filtering; (4) Bayesian ICL theory providing mechanistic grounding for why near-duplicate
+    frequency patterns matter for large model ICL. No single prior work has measured the scale ×
+    curation interaction directly.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Pythia-architecture models trained from scratch on Dolma subsets are comparable across curation conditions (same architecture, same optimizer, same training infrastructure)"
+    supporting_evidence: "Pythia architecture is well-documented and publicly available; NeMo-Curator provides reproducible corpus preparation; EleutherAI Pythia training code is open-source"
+    consequence_if_violated: "Cross-condition comparisons are invalid; entire experimental design collapses"
+  - id: "A2"
+    assumption: "GPT-2 PPL is a reasonable operationalization of 'data quality' that meaningfully partitions the Dolma distribution"
+    supporting_evidence: "DataMan [Peng et al., 2025] uses GPT-2 PPL as the primary quality proxy and shows it produces measurable distribution shifts; standard in the literature (CCNET, Gopher)"
+    consequence_if_violated: "PPL threshold manipulation may not produce the hypothesized quality variation; need alternative quality metric (e.g., educational value classifier)"
+  - id: "A3"
+    assumption: "Near-duplicate document removal (MinHash at J=0.7 vs. J=0.9) produces meaningfully different ICL pattern frequency distributions"
+    supporting_evidence: "SoftDedup [He et al., 2024] shows that hard vs. soft dedup produce different few-shot (ICL) performance; google-research/deduplicate-text-datasets documents that MinHash J=0.7 removes ~15-20% of web data"
+    consequence_if_violated: "The PPL and dedup thresholds tested may not span a sufficient range to detect the scale interaction for dedup (P3)"
+  - id: "A4"
+    assumption: "MMLU and HellaSwag are not so heavily contaminated in Dolma/FineWeb that contamination removal eliminates the benchmark signal"
+    supporting_evidence: "Yang et al. (2023) reports 8-18% HumanEval contamination in RedPajama but MMLU contamination is typically lower; contamination measured per condition and included as ANCOVA covariate"
+    consequence_if_violated: "Benchmark scores reflect contamination variation rather than true capability; measured by ANCOVA — if contamination covariate absorbs all variance, benchmarks are invalid for this study"
+  - id: "A5"
+    assumption: "The scale × curation interaction observed at 70M and 160M is representative of the general trend across scales (i.e., the interaction direction does not reverse between 160M and 1B)"
+    supporting_evidence: "Theoretical scaling laws (Chinchilla, power laws) suggest smooth interpolation across scales; Na et al. (2024) approximation method allows extrapolation to 1B as validation"
+    consequence_if_violated: "Results at 70M/160M may not generalize to practically relevant scales (1B+); report as limitation and use Na et al. approximation for extrapolation"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    Autoregressive transformer language models in the 70M–160M parameter range trained on
+    open English-language web corpora (Dolma, FineWeb). Pre-training from scratch (not
+    fine-tuning). Standard pre-training objectives (next-token prediction). Quality filtering
+    via perplexity (GPT-2 reference) and near-deduplication (MinHash). Evaluated on existing
+    English-language NLP benchmarks (MMLU, HellaSwag).
+  does_not_apply_to: |
+    - Fine-tuned models or instruction-tuned models (different data distribution assumptions)
+    - Non-English corpora (PPL reference model and contamination patterns differ)
+    - Proprietary or non-open corpora (replication requires open data with documented filtering)
+    - Models above 1B parameters (compute constraints; extrapolated via Na et al. approximation only)
+    - Curation axes beyond PPL filtering and deduplication (e.g., domain mixing, format filtering)
+      — these are excluded from primary hypothesis to maintain experimental tractability
+    - Synthetic or generated data (pipeline-enforced feasibility constraint)
+  known_limitations: |
+    - Single architecture family (Pythia-style); results may not generalize to different architectures
+    - Compute constraints limit primary study to 70M and 160M; 1B+ extrapolated, not directly measured
+    - English-language only; multilingual curation dynamics may differ substantially
+    - PPL reference model (GPT-2) trained on WebText — may not be optimal reference for Dolma/FineWeb
+    - Two corpora (Dolma, FineWeb) — if results diverge, corpus-specific conclusion only
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "The optimal PPL threshold (τ that maximizes MMLU + HellaSwag average) is lower for 70M models (predicted: τ* ∈ [20, 35]) than for 160M models (predicted: τ* ∈ [35, 50])"
+    test_method: "2-way mixed ANOVA on benchmark scores with factors Scale (between-subjects) × PPL-threshold (within-subjects, 3 levels); test interaction term F_{Scale×PPL}; identify τ* per scale via simple effects analysis"
+    success_criterion: "Significant interaction (p < 0.05, partial η² ≥ 0.15) with direction: τ*(70M) < τ*(160M); pre-registered directional prediction"
+    falsification: "No significant interaction (p > 0.05) OR interaction in opposite direction (τ*(70M) ≥ τ*(160M))"
+  - id: "P2"
+    primary: false
+    statement: "Variance in benchmark scores across PPL threshold conditions is higher at 70M than at 160M — smaller models are more sensitive to curation quality variation"
+    test_method: "Levene's test for equality of variance between within-scale benchmark score distributions; one-tailed test (H1: Var(70M) > Var(160M))"
+    success_criterion: "Levene's test p < 0.05 with Var(70M) > Var(160M) direction confirmed"
+    falsification: "Levene's test p > 0.05 OR Var(160M) ≥ Var(70M)"
+  - id: "P3"
+    primary: false
+    statement: "Sign of (B(strict dedup) - B(loose dedup)) is positive at 70M (strict dedup helps) and non-positive at 160M (strict dedup does not help or hurts)"
+    test_method: "2-way ANOVA on benchmark scores with factors Scale × Dedup-aggressiveness (2 levels); test interaction term; compute simple effects at each scale. Pre-condition: at least one scale shows significant main effect of dedup (p < 0.05)."
+    success_criterion: "Significant Scale × Dedup interaction (p < 0.05) with sign change confirmed; pre-condition met"
+    falsification: "No significant interaction (p > 0.05) OR sign change not observed (same direction at both scales) OR pre-condition not met (no scale shows significant dedup main effect)"
+  - id: "P4"
+    primary: false
+    statement: "Aggressive perplexity filtering (τ=20) produces a higher convergence rate λ (faster tokens-to-peak) at 70M scale than at 160M scale — aggressive filtering improves data efficiency only at small scale"
+    test_method: "Fit log-linear learning curve B(T) = A - C·exp(-λT) to checkpoint evaluations (every 5B tokens out of 50B total; 10 evaluation points per run). Extract λ per condition. 2-way ANOVA on λ with Scale × PPL-threshold; test interaction; verify direction: λ(70M, τ=20) > λ(160M, τ=20) > λ(70M, τ=50)."
+    success_criterion: "Significant interaction in ANOVA on λ (p < 0.05) with predicted direction: aggressive filtering accelerates convergence at 70M more than at 160M"
+    falsification: "No significant interaction on λ (p > 0.05) OR λ is higher for large models under aggressive filtering (opposite direction)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "Dolma (primary) + FineWeb (replication)"
+    type: "standard"
+    source: "AI2 Dolma v1.7 (open, documented filtering); HuggingFace FineWeb (open, documented quality scores)"
+    path: "HuggingFace Hub: allenai/dolma, HuggingFaceFW/fineweb"
+    hypothesis_fit: "Both are fully open English web corpora with documented filtering pipelines; Dolma has known data composition; FineWeb has existing quality scores that enable efficient replication by re-filtering at different PPL thresholds. NeMo-Curator supports both."
+  model:
+    name: "Pythia-architecture (70M, 160M)"
+    type: "Autoregressive transformer, decoder-only"
+    source: "EleutherAI Pythia architecture; training code from GPT-NeoX; trained from scratch on filtered corpora"
+    hypothesis_fit: "Fixed architecture across all conditions; well-documented; established in pre-training ablation literature. Pythia checkpoints at multiple scales from same architecture family enable scale comparison."
+  baselines:
+    - name: "No filtering (raw Dolma)"
+      method: "Train on unfiltered Dolma subset at same token budget"
+    - name: "Standard quality filtering only (τ=35, loose dedup J=0.9)"
+      method: "Moderate PPL threshold with loose dedup — representative of current practice"
+    - name: "Aggressive filtering (τ=20, strict dedup J=0.7)"
+      method: "Most aggressive condition — corresponds to conservative production pipelines"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First controlled measurement of scale × curation interaction effects in pre-training data quality filtering; first data-quality scaling law candidate (λ as function of scale and filtering)"
+  key_innovation: "Scale-aware curation — demonstrating that optimal pre-training data filtering is not universal but depends on model size, with opposite directional effects for perplexity filtering vs. deduplication across scales"
+  differentiation:
+    - prior_work: "ProX [Zhou et al., 2024]"
+      difference: "ProX varies refinement method at single scale (1B) without controlling for scale; we vary filtering axes at multiple scales with controlled factorial design"
+    - prior_work: "DataMan [Peng et al., 2025]"
+      difference: "DataMan measures PPL/ICL misalignment at single scale; we extend to cross-scale comparison and add deduplication as second axis"
+    - prior_work: "DataComp (vision)"
+      difference: "DataComp uses fixed model scale for ablations; we measure the scale × curation interaction which DataComp cannot by design"
+    - prior_work: "Scalable Ablation Approx [Na et al., 2024]"
+      difference: "Na et al. propose an approximation method; we use their method as a component to extend results to 1B, not as the primary contribution"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "ProX [Zhou et al., 2024]"
+      performance: "+2% average benchmark (MMLU, HellaSwag, ARC-C, WinoGrande, PIQA) vs. baseline"
+      dataset: "C4, DCLM, FineWeb at 1B scale, 100B tokens"
+      why_insufficient: "Single scale only; no controlled variation of filtering aggressiveness; no scale interaction"
+    - method: "SoftDedup [He et al., 2024]"
+      performance: "+1.77% few-shot accuracy vs. hard dedup baseline"
+      dataset: "Web corpus at unstated scale"
+      why_insufficient: "Compares soft vs. hard dedup only; does not vary PPL threshold; no scale variation"
+    - method: "REWIRE [Nguyen et al., 2025]"
+      performance: "+1.0–2.5pp across 22 tasks at 1–7B scale"
+      dataset: "Web data at 1B and 7B, 200B tokens"
+      why_insufficient: "Compares recycling vs. discarding only; does not isolate PPL or dedup axes; no factorial design"
+    - method: "WebOrganizer [Wettig et al., 2025]"
+      performance: "+2.5pp (quality filter + domain mixing) vs. quality filter only"
+      dataset: "C4, FineWeb at 1B, 100B tokens"
+      why_insufficient: "Single scale; adds domain mixing, not varying existing filtering aggressiveness; no scale interaction"
+  best_baseline_performance: "+2.5pp over no-curation baseline (WebOrganizer combined method at 1B); effect size range 1.0–2.5pp across recent curation papers at single scale"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Scale × curation interaction effect must be present in benchmark scores (P1: 2-way ANOVA interaction p < 0.05) — this is the existence claim that Phase 2B should verify first"
+  sh2_mechanism: "Capacity-diversity trade-off mechanism: smaller models benefit from aggressive quality filtering; larger models benefit from near-duplicate pattern retention for ICL. Test: compare attention entropy and ICL vs. standard accuracy by dedup condition across scales"
+  sh3_comparison: "Compare H-CurationScale-v1 results against existing best-practice baselines (moderate quality filtering + loose dedup) at each scale (deferred to Phase 5)"
+  open_questions:
+    - "Does the scale × PPL interaction replicate on FineWeb (replication corpus)? If not, is the effect Dolma-specific?"
+    - "Does the sign change in P3 (dedup interaction) hold at 1B scale (extrapolated via Na et al. approximation)?"
+    - "What is the functional form of τ*(N)? Is it a power law, logarithmic, or step function?"
+    - "Does P3 mechanism (near-duplicate patterns → ICL) hold for non-ICL benchmarks like HellaSwag vs. MMLU? Do they show different scale interactions?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All 6 convergence criteria met at exchange 15 (min_exchanges=15); all 6 personas participated with genuine disagreement and challenge; self-judged CONVERGED"
+  clarity_verified: true
+  remaining_objections:
+    - "MMLU 4-shot noise at 70M scale — mitigated by 3 seeds + separate MMLU/HellaSwag analysis"
+    - "Single architecture family — acknowledged as limitation; OLMo replication if compute allows"
+    - "FineWeb replication may diverge — pre-specified as acceptable corpus-specific finding"
+
+discussion_context:
+  total_exchanges: 15
+  agent_participation:
+    dr_nova: 3  # Exchanges 1, 7, 13
+    prof_vera: 3  # Exchanges 2, 8, 14
+    dr_sage: 3  # Exchanges 3, 9, 15
+    prof_pax: 2  # Exchanges 4, 10
+    dr_ally: 2  # Exchanges 5, 11
+    prof_rex: 2  # Exchanges 6, 12
+  paper_citations: 12  # ProX, DataMan, Scalable Ablation, REWIRE, WebOrganizer, SoftDedup, Yang2023, Spiesberger2026, Bayesian ICL (Xie2022), Chinchilla, CCNET, Gopher
+  convergence_type: "qualitative"

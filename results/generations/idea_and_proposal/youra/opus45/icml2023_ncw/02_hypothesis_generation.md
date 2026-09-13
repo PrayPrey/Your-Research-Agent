@@ -1,0 +1,186 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-MSPIB-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under standard neural image compression conditions with moderate-to-low bitrates (0.1-0.5 BPP), if the information bottleneck objective is computed in multi-scale perceptual feature space (VGG conv1-5) rather than pixel space, then the encoder will learn to preserve perceptually-relevant information (edges, textures, semantics) while discarding perceptually-irrelevant details (high-frequency noise), because perceptual feature extraction captures human visual similarity better than pixel-wise metrics, enabling unified rate-distortion-perception (R-D-P) optimization through a single β parameter.
+
+**Alternative Hypothesis (H0):**
+There is no meaningful difference between perceptual-space and pixel-space information bottleneck objectives for neural compression; the R-D-P tradeoff cannot be effectively navigated with a single β parameter, and multi-scale VGG features provide no advantage over single-scale or pixel-based metrics.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| β (rate-perception tradeoff) | Independent | Lagrange multiplier in L_PIB = R(z) + β·D_perceptual | 0.001 - 0.1 (log scale) |
+| Perceptual feature space | Independent | Multi-scale VGG-19 (conv1_2, conv2_2, conv3_4, conv4_4, conv5_4) | 5 layers with learnable weights w_l |
+| Rate (BPP) | Dependent | Bits per pixel from entropy model | 0.1 - 0.5 BPP |
+| Distortion (PSNR) | Dependent | Peak Signal-to-Noise Ratio | 26 - 34 dB |
+| Perception (LPIPS) | Dependent | LPIPS using AlexNet backbone | 0.02 - 0.10 (lower is better) |
+| Perception (FID) | Dependent | Fréchet Inception Distance on 10K samples | 5 - 50 |
+| Perceptual extractor | Controlled | Frozen VGG-19 pretrained on ImageNet | Fixed weights |
+| Training dataset | Controlled | ImageNet subset, 256×256 random crops | 1M images |
+| Batch size | Controlled | Fixed for stable MI estimation | 256 |
+| Architecture | Controlled | CompressAI hyperprior encoder-decoder | Standard configuration |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+Step 1: Multi-scale VGG features (conv1-5)
+    ↓ [Hierarchical feature extraction]
+Step 2: Smooth loss landscape
+    ↓ [Gradient stability]
+Step 3: Stable VIB optimization
+    ↓ [Lagrangian convergence]
+Outcome: Unified R-D-P navigation via single β
+```
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Zhang (2018) LPIPS | Multi-layer VGG features align with human perception (97% agreement) | Strong |
+| Step 1 → Step 2 | De Llanza (2024) | Rate-distortion in action-centric VAEs validates perceptual compression | Medium |
+| Step 2 → Step 3 | Alemi (2017) VIB | Variational bounds tractable with reparameterization trick | Strong |
+| Step 2 → Step 3 | Kawaguchi (2023) | IB degree controls generalization, not parameter count | Strong |
+| Step 3 → Outcome | Ballé (2018) | Hyperprior Lagrangian effectively navigates R-D surface | Strong |
+
+**Key Tension:**
+- **Tension:** Saxe (2018) argued IB compression doesn't causally relate to generalization for ReLU networks, but Kawaguchi (2023) proved rigorous IB-generalization bounds.
+- **Resolution:** This verification plan tests whether perceptual-space IB exhibits the compression-generalization link, and whether β sweep covers practically useful R-D-P tradeoffs.
+
+### 1.4 Key Assumptions
+
+1. **VGG-19 features capture human perceptual similarity**
+   - Evidence: Zhang (2018) LPIPS achieved 97% agreement with human judgments
+   - If violated: Need alternative perceptual networks (DINO, CLIP)
+
+2. **Variational bounds for MI remain tractable in high-dimensional perceptual space**
+   - Evidence: Alemi (2017) VIB demonstrates practical MI minimization
+   - If violated: Training diverges; may need tighter bounds
+
+3. **Single β parameter can navigate meaningful R-D-P surface regions**
+   - Evidence: Lagrangian optimization theory; Ballé (2018) for R-D
+   - If violated: Need multi-parameter approach
+
+4. **Multi-scale features smooth loss landscape sufficiently**
+   - Evidence: Empirical assumption
+   - If violated: May need gradient clipping or different layer selection
+
+### 1.5 Scope & Boundaries
+
+**Applies to:**
+- Natural image compression at 0.1-0.5 BPP
+- Scenarios where perceptual quality matters
+- Standard benchmarks: Kodak, CLIC, Tecnick
+
+**Does NOT apply to:**
+- Lossless compression
+- Text/document images
+- Medical imaging
+- Video compression
+
+### 1.6 Testable Predictions
+
+**Primary Prediction (P1):**
+MS-PIB will achieve LPIPS ≤ 0.04 at 0.15 BPP, matching or exceeding HiFiC.
+
+*Success Criteria:* LPIPS ≤ 0.04 (p < 0.05, paired t-test, n ≥ 25)
+*Falsification:* LPIPS > 0.08 triggers rejection
+
+**Secondary Predictions:**
+- **P2:** β sweep (0.001-0.1) produces monotonic LPIPS-BPP curve (Spearman ρ > 0.9)
+- **P3:** Multi-scale training has 50% lower loss variance vs single-scale
+
+**Falsification Criteria:**
+1. LPIPS > 0.08 at 0.15 BPP
+2. Non-monotonic β sweep behavior
+3. Training loss fails to decrease after 100K steps
+4. No advantage vs CompressAI hyperprior baseline
+
+### 1.7 SOTA Baseline
+
+| Method | LPIPS | BPP | Year |
+|--------|-------|-----|------|
+| HiFiC | 0.03-0.05 | 0.1-0.3 | 2020 |
+| CompressAI Hyperprior | 0.08-0.15 | 0.1-0.5 | 2018 |
+| TCM | ~0.06 | 0.2-0.4 | 2023 |
+
+### 1.8 Statistical Verification Design
+
+- Effect size: Cohen's d ≥ 0.5
+- Required runs: n ≥ 25
+- Test: Paired t-test (same random seeds)
+- Report: Mean ± Std, 95% CI, p-value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does perceptual-space IB training achieve LPIPS ≤ 0.04 at 0.15 BPP on Kodak?"
+- Priority: 1 (must pass first)
+
+**SH2 (Mechanism) - 3 sub-hypotheses:**
+- H-M1: Multi-scale VGG → Smooth loss landscape
+- H-M2: Smooth landscape → Stable VIB optimization
+- H-M3: Stable VIB → Single β navigates R-D-P
+- Priority: 2
+
+**SH3 (Comparison):**
+"Does MS-PIB match/exceed HiFiC on perceptual metrics?"
+- Priority: 3
+
+**Total: 5 sub-hypotheses (1 + 3 + 1)**
+
+### Readiness Checklist
+
+- [x] Hypothesis in scientific format
+- [x] Hypothesis ID: H-MSPIB-v1
+- [x] Confidence: 0.82
+- [x] H0 defined
+- [x] Variables operationalized
+- [x] Causal mechanism (N=3)
+- [x] Key tension identified
+- [x] Assumptions with consequences
+- [x] 3 testable predictions
+- [x] Falsification criteria
+- [x] Baselines identified
+- [x] SH1/SH2/SH3 defined
+
+### Open Questions
+
+1. **Resource:** Single A100 GPU, ~24h training
+2. **Integration:** ~200 LOC to modify CompressAI
+3. **Evaluation:** Use official LPIPS (AlexNet backbone)
+4. **β schedule:** Start fixed, add annealing if unstable
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

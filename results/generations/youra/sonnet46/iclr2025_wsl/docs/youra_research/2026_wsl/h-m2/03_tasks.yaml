@@ -1,0 +1,394 @@
+version: "1.0"
+schema_version: "1.1"
+generated_at: "2026-03-16T15:30:00+00:00"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  gate: SHOULD_WORK
+  tier: FULL
+  total_budget: 30
+  base_hypothesis: h-m1
+  source_documents:
+    - h-m2/03_prd.md
+    - h-m2/03_architecture.md
+    - h-m2/03_logic.md
+    - h-m2/03_config.md
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 9
+  subtasks: 18
+  failsafe: 1
+  total: 30
+
+tasks:
+  # ─────────────────────────────────────────────────────────────
+  # PRIORITY 100: Data Preparation
+  # Source: 03_prd.md Section 4.1 - Dataset is CACHED (no download needed)
+  # ─────────────────────────────────────────────────────────────
+  - id: T-DATA-1
+    title: "Verify cached dataset and H-M1 checkpoints"
+    type: data-preparation
+    priority: 100
+    description: >
+      Verify zoo_enriched.pkl exists at .data_cache/datasets/unterthiner_mnist_zoo/zoo_enriched.pkl.
+      Verify all 12 H-M1 checkpoint files exist (4 encoders × 3 seeds).
+      Dataset is CACHED - do NOT re-download. Checkpoints are from H-M1 - do NOT retrain.
+    acceptance_criteria:
+      - "zoo_enriched.pkl loadable via pickle.load(), contains ~1000 model records"
+      - "All 12 .pt files present: flat-MLP/plusaug/pluscanon/NFT-base × seed{42,123,456}"
+      - "torch.load() succeeds for all 12 checkpoint files"
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "Section 4.1 Primary Dataset"
+      - file: "h-m2/03_config.md"
+        section: "A-2: CheckpointConfig"
+
+  # ─────────────────────────────────────────────────────────────
+  # PRIORITY 94: Environment Setup
+  # Source: 03_prd.md Section 5 FR-2, 03_architecture.md A-1
+  # ─────────────────────────────────────────────────────────────
+  - id: T-ENV-1
+    title: "Environment setup: sys.path, GPU, dependencies, output directories"
+    type: setup
+    priority: 94
+    description: >
+      Configure sys.path to import h-m1 source code (HM1_CODE = h-m1/code/).
+      Set CUDA_VISIBLE_DEVICES to lowest-utilization GPU (check nvidia-smi).
+      Set random seeds: torch.manual_seed(42), np.random.seed(42).
+      Create output directories: h-m2/code/src/, h-m2/figures/, h-m2/results/.
+      Verify imports: torch, numpy, scipy, pandas, matplotlib, seaborn.
+    acceptance_criteria:
+      - "from src.models import build_encoder succeeds (via sys.path)"
+      - "from src.evaluate import evaluate_all_encoders succeeds"
+      - "CUDA_VISIBLE_DEVICES set, torch.cuda.is_available() = True"
+      - "h-m2/figures/ and h-m2/results/ directories exist"
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "Section 5 FR-2 Environment Setup"
+      - file: "h-m2/03_architecture.md"
+        section: "External Dependencies (Base Hypothesis)"
+
+  # ─────────────────────────────────────────────────────────────
+  # PRIORITY 93-50: Epic Implementation Tasks
+  # Source: 03_architecture.md Epic Tasks A-1 to A-9
+  # ─────────────────────────────────────────────────────────────
+  - id: A-2
+    title: "Checkpoint Verification: verify all 12 .pt files load correctly"
+    type: implementation
+    priority: 93
+    complexity: 8
+    description: >
+      Implement verify_checkpoints() in run_experiment_hm2.py.
+      Check all 12 checkpoint files exist at HM1_CKPT_ROOT.
+      Filename convention: {encoder.replace('+','plus')}_seed{seed}.pt.
+      Load each with torch.load() and model.load_state_dict(checkpoint['model_state_dict']).
+      Report any missing or failed loads. Return {all_ok, missing, failed}.
+    acceptance_criteria:
+      - "verify_checkpoints() returns {all_ok: True, missing: [], failed: []}"
+      - "All 12 .pt files loadable"
+      - "Checkpoint naming (plusaug not +aug) handled correctly"
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "Checkpoint file naming (verified from h-m1/code/checkpoints/)"
+      - file: "h-m2/03_config.md"
+        section: "A-2: CheckpointConfig"
+    subtasks:
+      - id: C-2-1
+        title: "CheckpointConfig dataclass (base_path, encoder_names with plus naming, seeds)"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-2: Checkpoint Verification"
+
+  - id: A-3
+    title: "Data & Split Setup: load zoo_enriched.pkl, apply seed=42 split, build loaders"
+    type: implementation
+    priority: 92
+    complexity: 9
+    description: >
+      Load zoo_enriched.pkl from cache path using load_zoo() from h-m1 data_loader.
+      Apply IDENTICAL train/test split as H-M1 (seed=42, test_ratio=0.2).
+      Build flat_test_loader and nft_test_loader for evaluation.
+      Extract flat_input_dim and layer_fan_ins from zoo data.
+    acceptance_criteria:
+      - "zoo_data loaded, test set >= 150 models"
+      - "Split seed=42 matches H-M1 split exactly"
+      - "flat_test_loader and nft_test_loader functional"
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "Section 4.1 Important: Use IDENTICAL train/test split as H-M1"
+      - file: "h-m2/03_architecture.md"
+        section: "External Dependencies - load_zoo"
+    subtasks:
+      - id: C-3-1
+        title: "HM2DataConfig dataclass (cache_path, split_seed=42, test_ratio=0.2)"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-3: Data & Split Setup"
+      - id: C-3-2
+        title: "severity_levels config [0.0, 0.25, 0.5, 1.0] in HM2DataConfig"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-3: Data & Split Setup"
+
+  - id: A-4
+    title: "Multi-Severity Evaluation: evaluate 4 encoders × 4 severities × 3 seeds"
+    type: implementation
+    priority: 91
+    complexity: 11
+    description: >
+      Implement run_hm2_evaluation() and build_training_results_from_checkpoints().
+      Use evaluate_all_encoders() from h-m1 evaluate.py.
+      Filter cfg.encoder_names to ENCODERS_HM2 = [flat-MLP, flat-MLP+aug, flat-MLP+canon, NFT-base].
+      Result: 48-row DataFrame [encoder, seed, severity, rho, delta_rho, ci_lower, ci_upper, p_value].
+      Assert len(eval_df) == 48.
+    acceptance_criteria:
+      - "eval_df has exactly 48 rows (4 encoders × 3 seeds × 4 severities)"
+      - "All columns present: encoder, seed, severity, rho, delta_rho, ci_lower, ci_upper, p_value"
+      - "NFT-base delta_rho at s=1.0 within ±0.01 of H-M1 value (4.71e-07)"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-4: Multi-Severity Evaluation"
+      - file: "h-m2/03_architecture.md"
+        section: "evaluate_all_encoders() call signature (H-M1 actual)"
+    subtasks:
+      - id: L-4-1
+        title: "run_hm2_evaluation() delegating to h-m1 evaluate_all_encoders()"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-4: Multi-Severity Evaluation - API Signatures"
+      - id: L-4-2
+        title: "load_encoder_from_checkpoint() with correct path mapping"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-4: Multi-Severity Evaluation - Tensor Shapes"
+      - id: L-4-3
+        title: "build_training_results_from_checkpoints() path construction (+ → plus)"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-4: Multi-Severity Evaluation - Pseudo-code"
+
+  - id: A-5
+    title: "Bootstrap Statistical Tests: paired bootstrap n=10,000 with Holm correction"
+    type: implementation
+    priority: 90
+    complexity: 14
+    description: >
+      Implement run_paired_bootstrap(), apply_holm_correction(), compute_cohens_d(),
+      and format_p_value_report() in gate_evaluator.py.
+      Run bootstrap for: (flat-MLP+aug vs NFT-base) and (flat-MLP+canon vs NFT-base).
+      Apply Holm-Bonferroni correction to all p-values.
+      Report Cohen's d effect sizes.
+    acceptance_criteria:
+      - "run_paired_bootstrap() returns {p_value, ci_lower, ci_upper, delta_rho_obs, delta_rho_mean}"
+      - "Holm-corrected p-values <= raw p-values"
+      - "Cohen's d computed for both pairwise comparisons"
+      - "Expected: aug vs NFT p < 0.05 (H-M1 showed p≈0)"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-5: Bootstrap Statistical Tests"
+      - file: "h-m2/03_prd.md"
+        section: "Section 5 FR-4 Bootstrap Statistical Tests"
+    subtasks:
+      - id: L-5-1
+        title: "run_paired_bootstrap() implementation with rng.integers bootstrap loop"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-5: Bootstrap - Pseudo-code (bootstrap loop)"
+      - id: L-5-2
+        title: "apply_holm_correction() wrapper (delegates to h-m1 or re-implements)"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-5: Bootstrap - API Signatures apply_holm_correction"
+      - id: L-5-3
+        title: "compute_cohens_d() from bootstrap sample arrays"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-5: Bootstrap - API Signatures compute_cohens_d"
+      - id: L-5-4
+        title: "format_p_value_report() for stdout gate summary"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-5: Bootstrap - API Signatures format_p_value_report"
+
+  - id: A-6
+    title: "H-M2 Gate Evaluator: evaluate_gate_hm2() SHOULD_WORK three-way ranking"
+    type: implementation
+    priority: 89
+    complexity: 12
+    description: >
+      Implement evaluate_gate_hm2() and check_checkpoint_consistency() in gate_evaluator.py.
+      SHOULD_WORK conditions: aug_dr > 0.05, canon_dr > 0.03, nft_dr < 0.02, strict ranking.
+      Consistency check: NFT-base delta_rho <= 0.03, aug delta_rho >= 0.21 (±0.01 from H-M1).
+      Return gate_result dict with passed boolean and gate_summary string.
+    acceptance_criteria:
+      - "evaluate_gate_hm2() returns dict with {aug_partial, canon_partial, nft_superior, ranking, passed, mean_dr_by_encoder, gate_type}"
+      - "check_checkpoint_consistency() validates against H-M1 known values ±0.01"
+      - "_validate_ranking() checks strict NFT < canon < aug < flat-MLP"
+    reference_files:
+      - file: "h-m2/03_logic.md"
+        section: "A-6: H-M2 Gate Evaluator"
+      - file: "h-m2/03_prd.md"
+        section: "Section 3 Gate Condition (SHOULD_WORK)"
+    subtasks:
+      - id: L-6-1
+        title: "evaluate_gate_hm2() main SHOULD_WORK gate logic"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-6: Gate Evaluator - Pseudo-code (gate logic)"
+      - id: L-6-2
+        title: "check_checkpoint_consistency() vs H-M1 known values (±0.01)"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-6: Gate Evaluator - check_checkpoint_consistency"
+      - id: L-6-3
+        title: "_build_gate_summary() formatted multi-line stdout string"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-6: Gate Evaluator - _build_gate_summary"
+      - id: L-6-4
+        title: "_validate_ranking() strict four-way rank check (NFT < canon < aug < flat-MLP)"
+        reference_files:
+          - file: "h-m2/03_logic.md"
+            section: "A-6: Gate Evaluator - _validate_ranking"
+
+  - id: A-7
+    title: "Visualization Suite: 5 required figures with threshold annotations"
+    type: implementation
+    priority: 88
+    complexity: 13
+    description: >
+      Implement all 5 visualization functions in visualize_hm2.py:
+      1. plot_gate_metrics_comparison() — bar chart Δρ at s=1.0, 95% CI, thresholds [0.02,0.03,0.05]
+      2. plot_delta_rho_heatmap() — 4×4 encoder×severity heatmap (RdBu_r colormap)
+      3. plot_rho_degradation_curves() — ρ vs severity line plot, seed error bands
+      4. plot_threeway_ranking_scatter() — per-seed Δρ scatter with threshold zones
+      5. plot_bootstrap_distributions() — overlapping bootstrap distributions
+      All saved to h-m2/figures/ as .png (dpi=150).
+    acceptance_criteria:
+      - "All 5 .png files created in h-m2/figures/"
+      - "gate_metrics_comparison.png shows threshold lines at 0.02, 0.03, 0.05"
+      - "Encoder colors: flat-MLP=red, +aug=orange, +canon=green, NFT-base=blue"
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "Section 5 FR-6 Visualization"
+      - file: "h-m2/03_architecture.md"
+        section: "VisualizerHM2 module"
+    subtasks:
+      - id: C-7-1
+        title: "FigureConfig dataclass (figsize, dpi, output_dir, per-figure filenames)"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-7: FigureConfig"
+      - id: C-7-2
+        title: "YAML schema (figures_config.yaml) for all 5 figure configs"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-7: YAML Schema for Visualization Config"
+      - id: C-7-3
+        title: "ENCODER_COLORS dict (flat-MLP=red, +aug=orange, +canon=green, NFT=blue)"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-7: ENCODER_COLORS"
+      - id: C-7-4
+        title: "THRESHOLD_LINES=[0.02, 0.03, 0.05] for gate_metrics_comparison figure"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-7: THRESHOLD_LINES"
+
+  - id: A-8
+    title: "Results Reporting: save hm2_results.json and hm2_eval_df.csv"
+    type: implementation
+    priority: 87
+    complexity: 7
+    description: >
+      Implement save_results() in run_experiment_hm2.py.
+      Save gate_result dict to h-m2/results/hm2_results.json (valid JSON).
+      Save eval_df DataFrame to h-m2/results/hm2_eval_df.csv (with all 8 columns).
+      Print SHOULD_WORK gate report to stdout with per-encoder Δρ values and PASS/FAIL.
+    acceptance_criteria:
+      - "hm2_results.json exists, json.load() succeeds, contains gate_passed boolean"
+      - "hm2_eval_df.csv exists with 48 rows, columns [encoder,seed,severity,rho,delta_rho,ci_lower,ci_upper,p_value]"
+      - "Stdout report shows SHOULD_WORK: PASS or SHOULD_WORK: FAIL with per-encoder Δρ"
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "Section 5 FR-7 Results Reporting"
+      - file: "h-m2/03_config.md"
+        section: "A-8: ResultsConfig"
+    subtasks:
+      - id: C-8-1
+        title: "ResultsConfig dataclass (output_dir, json_file, csv_file with path helpers)"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-8: Results Reporting"
+
+  - id: A-9
+    title: "Integration Test: end-to-end smoke test"
+    type: implementation
+    priority: 86
+    complexity: 9
+    description: >
+      Implement end-to-end smoke test: load checkpoints → evaluate (fast_mode) → gate returns valid dict.
+      Use TestConfig with fast_mode=True (n_bootstrap_fast=100 for CI speed).
+      Verify checkpoint consistency: NFT-base Δρ <= 0.03, aug Δρ >= 0.21.
+      Test passes if gate evaluator returns valid dict structure without errors.
+    acceptance_criteria:
+      - "Smoke test completes without RuntimeError or AssertionError"
+      - "evaluate_gate_hm2() returns dict with 'passed' key"
+      - "Checkpoint consistency check passes (within ±0.01 of H-M1)"
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "Section 10 Acceptance Criteria"
+      - file: "h-m2/03_config.md"
+        section: "A-9: TestConfig"
+    subtasks:
+      - id: C-9-1
+        title: "TestConfig dataclass (tolerance=0.01, fast_mode=True, n_bootstrap_fast=100)"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-9: Integration Test - TestConfig"
+      - id: C-9-2
+        title: "HM1_EXPECTED dict (nft=4.71e-07, aug=0.2239) for consistency validation"
+        reference_files:
+          - file: "h-m2/03_config.md"
+            section: "A-9: Integration Test - HM1_EXPECTED"
+
+  - id: A-1
+    title: "Environment Setup: sys.path, directories, GPU/seed config"
+    type: setup
+    priority: 85
+    complexity: 5
+    description: >
+      Configure sys.path.insert(0, HM1_CODE) for h-m1 source imports.
+      Create h-m2/code/src/, h-m2/figures/, h-m2/results/ directories.
+      Set CUDA_VISIBLE_DEVICES to lowest-utilization GPU.
+      Set random seeds globally.
+    acceptance_criteria:
+      - "All import statements succeed after sys.path setup"
+      - "Output directories exist"
+      - "GPU configured"
+    reference_files:
+      - file: "h-m2/03_architecture.md"
+        section: "A-1: Environment Setup"
+
+  # ─────────────────────────────────────────────────────────────
+  # PRIORITY 1: Failsafe - Pipeline continuation checkpoint
+  # ─────────────────────────────────────────────────────────────
+  - id: T-FAILSAFE
+    title: "Failsafe: generate minimal gate_result if full evaluation fails"
+    type: failsafe
+    priority: 1
+    description: >
+      If evaluate_gate_hm2() or run_hm2_evaluation() fails with an unrecoverable error,
+      generate a minimal gate_result dict indicating SHOULD_WORK: FAIL with error details.
+      Save partial results to hm2_results.json for Phase 4 validation report.
+      This ensures the pipeline can continue to H-M3 even if H-M2 errors out.
+    acceptance_criteria:
+      - "Fallback gate_result saved to hm2_results.json on failure"
+      - "Error traceback captured and included in result"
+      - "Pipeline continues to H-M3 (SHOULD_WORK gate non-blocking)"
+    reference_files:
+      - file: "h-m2/03_prd.md"
+        section: "Section 3 FAIL/Narrowing Condition"

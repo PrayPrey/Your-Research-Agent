@@ -1,0 +1,646 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m1"
+  hypothesis_id_upper: "H-M1"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-08-05T12:30:00Z"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: true
+    excluded_count: 4
+    excluded_ids: ["L-6-1", "L-6-2", "C-7-3", "C-8-1"]
+    reason: "Budget rebalancing: removed 4 subtasks from lowest-complexity parents (A-6 complexity=10, A-8 complexity=9) to stay within 30-task FULL budget"
+
+tasks:
+
+  # ── DATA PREPARATION (priority 100-95) ──────────────────────────────────────
+
+  - id: "task-001"
+    epic: "Data Preparation"
+    title: "Download ViT Model Zoo (250 real ViT checkpoints)"
+    description: |
+      Clone ModelZooDownloader and download the ViT Model Zoo.
+      Commands:
+        git clone https://github.com/ModelZoos/ModelZooDownloader
+        cd ModelZooDownloader
+        python download.py --zoo vit --output_dir ../../data/vitzoo/
+      Expected: 250 ViT checkpoint files with accuracy labels in data/vitzoo/
+      Verify: label CSV exists with 250 rows (model_name, accuracy)
+    feature_tag: "data-preparation"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Assert 250 checkpoint files in data/vitzoo/
+      - Assert label CSV has 250 rows with non-null accuracy values
+    reference_files:
+      architecture: "03_architecture.md#RealViTZooDataset"
+      logic: "03_logic.md#A-2-RealViTZooDataset"
+      config: "03_config.md#PathConfig"
+
+  - id: "task-002"
+    epic: "Data Preparation"
+    title: "Verify H-E1 MultiZoo data cache and checkpoints"
+    description: |
+      Verify reusable H-E1 artifacts exist before starting training:
+      1. MultiZoo data pipeline: docs/youra_research/h-e1/code/
+      2. SANE checkpoints: docs/youra_research/h-e1/checkpoints/sane_seed{0..4}.pt (5 files)
+      3. EquiSSL checkpoints: docs/youra_research/h-e1/checkpoints/equi_seed{0..4}.pt (5 files)
+      If any missing: re-run H-E1 Phase 4 or download from project storage.
+      Note: MultiZoo itself (~30k models) may need re-download if not cached.
+    feature_tag: "data-preparation"
+    priority: 99
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Assert all 10 checkpoint files exist (5 SANE + 5 EquiSSL)
+      - Assert H-E1 code directory has expected Python modules
+    reference_files:
+      architecture: "03_architecture.md#External-Dependencies"
+      logic: "03_logic.md#A-5-EmbeddingExtraction"
+      config: "03_config.md#PathConfig"
+
+  # ── ENVIRONMENT SETUP (priority 94) ─────────────────────────────────────────
+
+  - id: "task-003"
+    epic: "Environment Setup"
+    title: "Install H-M1 Python dependencies"
+    description: |
+      Install required packages (beyond H-E1 baseline):
+        pip install torch>=2.0.1 torch-geometric>=2.3.0 pytorch-scatter
+        pip install numpy scikit-learn scipy einops hydra-core pyyaml
+        pip install matplotlib seaborn tqdm wandb
+      Clone ScaleGMN (for EquiSSL-perm backbone):
+        git clone https://github.com/jkalogero/scalegmn external_repos/scalegmn
+      Verify: import torch_geometric; import scipy.stats; python -c "from sklearn.linear_model import RidgeCV"
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - python -c "import torch, torch_geometric, scipy, sklearn" exits 0
+    reference_files:
+      architecture: "03_architecture.md#External-Dependencies"
+      config: "03_config.md#EquiSSLPermConfig"
+
+  # ── EPIC IMPLEMENTATION TASKS (priority 93-50) ──────────────────────────────
+
+  - id: "task-004"
+    epic: "A-1"
+    title: "Setup & Config: project structure and dataclasses"
+    description: |
+      Create H-M1 code directory structure and config dataclasses:
+      - code/config.py: EquiSSLPermConfig, LinearProbeConfig, PathConfig, ExperimentConfig dataclasses
+      - code/run_experiment.py: argparse entry point (skeleton)
+      - Create directories: code/data/, code/models/, code/training/, code/evaluation/
+      - Create figures/ directory
+      - Validate H-E1 imports resolve correctly (add sys.path as needed)
+      Config defaults verified from H-E1 actual code:
+        node_in_dim=4, edge_in_dim=4 (layer-level nodes, [mean,std,l2_norm,max_abs])
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: |
+      - python -c "from code.config import ExperimentConfig; cfg = ExperimentConfig()" exits 0
+      - Assert default symmetry='permutation' in EquiSSLPermConfig
+    reference_files:
+      architecture: "03_architecture.md#Module-Definitions"
+      logic: "03_logic.md#A-3-EquiSSLPermEncoder"
+      config: "03_config.md#EquiSSLPermConfig"
+
+  - id: "task-005"
+    epic: "A-2"
+    title: "Real ViT Zoo Dataset: RealViTZooDataset + vit_checkpoint_to_graph"
+    description: |
+      Implement code/data/real_vit_zoo_dataset.py:
+      - RealViTZooDataset(root, label_csv, graph_transform=None) — PyG Dataset for 250 ViT models
+      - vit_checkpoint_to_graph(state_dict, model_name) -> Data(x=[N,4], edge_index, edge_attr=[E,4], y=accuracy)
+        Graph schema MUST match H-E1 node_in_dim=4 (layer-level statistics: mean/std/l2_norm/max_abs)
+        NOT neuron-level — use H-E1's checkpoint_to_graph approach extended for ViT layers:
+          - Multi-head attention (qkv, proj): one node per attention sublayer, head_id in node feature
+          - Feedforward (mlp.fc1, mlp.fc2): one node per FF layer
+          - LayerNorm: node feature (not separate node)
+        Fallback: if ViT-specific parsing fails, use H-E1's checkpoint_to_graph directly
+      - get_accuracy_labels() -> Tensor shape (250,)
+      - Error handling for missing/corrupt checkpoints (skip with warning)
+    feature_tag: "data-pipeline"
+    priority: 92
+    source_document: "03_architecture.md"
+    complexity: 16
+    test_requirements: |
+      - Test vit_checkpoint_to_graph on synthetic ViT state_dict → Data with x.shape[-1]==4, edge_attr.shape[-1]==4
+      - Test RealViTZooDataset __len__ returns 250 (or < 250 with warning if some corrupt)
+      - Test get_accuracy_labels returns float tensor shape (N,)
+    reference_files:
+      architecture: "03_architecture.md#RealViTZooDataset"
+      logic: "03_logic.md#A-2-RealViTZooDataset"
+      config: "03_config.md#PathConfig"
+
+  - id: "task-006"
+    epic: "A-3"
+    title: "EquiSSL-perm Encoder: ScaleGMN wrapper with symmetry=permutation"
+    description: |
+      Implement code/models/equi_perm_encoder.py:
+      - EquiSSLPermEncoder(cfg: EquiSSLPermConfig) wrapping H-E1's EquiSSLEncoder(symmetry='permutation')
+        symmetry='permutation' is already a valid flag in H-E1's EquiSSLEncoder.__init__
+        No new architecture code needed — just configure existing encoder
+      - forward(data: Data) -> Tensor shape (B, latent_dim=128) — L2-normalized
+      - encode(data: Data) -> same as forward (alias for eval mode)
+      Verify: EquiSSLPermEncoder accepts same graph schema as EquiSSL (node_in_dim=4, edge_in_dim=4)
+      Verify: forward pass runs without error on synthetic batch of 4 ViT graphs
+    feature_tag: "model"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - Instantiate EquiSSLPermEncoder with default config
+      - Run forward on batch of 2 synthetic graphs (x=[N,4], edge_attr=[E,4])
+      - Assert output shape (2, 128), L2-normalized (norm ≈ 1.0)
+    reference_files:
+      architecture: "03_architecture.md#EquiSSLPermEncoder"
+      logic: "03_logic.md#A-3-EquiSSLPermEncoder"
+      config: "03_config.md#EquiSSLPermConfig"
+
+  - id: "task-007"
+    epic: "A-4"
+    title: "EquiSSL-perm Training: 5-seed SSL training with permutation-only augmentation"
+    description: |
+      Implement code/training/train_equi_perm.py:
+      - train_equi_perm(cfg, seed, path_cfg) -> checkpoint_path
+        Uses H-E1's EquiSSLObjective (NT-Xent + lambda_rec*MSE, lambda_rec=0.1, temp=0.07)
+        Uses H-E1's perm_augment ONLY (no scale augmentation — this is the ablation variable)
+        Optimizer: Adam(lr=1e-3, weight_decay=1e-4)
+        Scheduler: CosineAnnealingLR(T_max=100, eta_min=1e-5)
+        Training data: MultiZooGraphDataset from H-E1 (reuse cached data)
+        Save checkpoint every 10 epochs + best model
+        Log: epoch, loss, lr to CSV (code/results/training_log_seed{i}.csv)
+      - train_all_seeds(cfg) -> list of checkpoint paths (5)
+      Same training hyperparameters as H-E1 EquiSSL (controlled ablation — only symmetry changes)
+    feature_tag: "training"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 15
+    test_requirements: |
+      - Smoke test: 2-epoch training on 8 synthetic graphs, assert loss decreases
+      - Assert checkpoint saved with keys: model_state_dict, optimizer_state_dict, epoch, loss
+    reference_files:
+      architecture: "03_architecture.md#EquiSSLPermTrainer"
+      logic: "03_logic.md#A-4-Training"
+      config: "03_config.md#EquiSSLPermConfig"
+
+  - id: "task-008"
+    epic: "A-5"
+    title: "Embedding Extraction: all 3 encoders × 5 seeds × 250 ViT models"
+    description: |
+      Implement code/evaluation/extract_embeddings.py:
+      - extract_graph_embeddings(encoder, vit_dataset, device) -> ndarray shape (250, latent_dim)
+        Frozen encoder (eval mode, no_grad), batch_size=32
+      - extract_sane_embeddings(checkpoint_path, vit_zoo_root, chunk_size=512, device) -> ndarray (250, latent_dim)
+        Load frozen SANE from H-E1 checkpoint, flat chunk tokenization of ViT weights
+      - extract_all_embeddings(cfg) -> dict keyed by '{model}_seed{i}', shape (250, latent_dim)
+        Models: sane (H-E1 ckpt), equi (H-E1 ckpt, symmetry=monomial), equi_perm (H-M1 ckpt)
+        5 seeds each → 15 embedding arrays total
+        Cache to disk: results/embeddings_{model}_seed{i}.npy
+      - load_h1_encoder(model_name, checkpoint_path, device) -> nn.Module (frozen)
+    feature_tag: "evaluation"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      - Test extract_graph_embeddings on 10 synthetic ViT graphs → shape (10, 128)
+      - Assert embeddings are finite (no NaN/Inf)
+    reference_files:
+      architecture: "03_architecture.md#EmbeddingExtractor"
+      logic: "03_logic.md#A-5-EmbeddingExtraction"
+      config: "03_config.md#PathConfig"
+
+  - id: "task-009"
+    epic: "A-6"
+    title: "Linear Probe Evaluation: RidgeCV R² + paired t-test + gate check"
+    description: |
+      Implement code/evaluation/linear_probe.py:
+      - evaluate_linear_probe(embeddings, labels, cfg) -> ProbeResult(r2_per_seed, r2_mean, r2_std)
+        RidgeCV(alphas=[0.1,1.0,10.0,100.0]), 80/20 split (200 train / 50 test), 5 random seeds
+        labels: 250 ViT model accuracy values
+      - evaluate_all_models(embeddings_dict, labels, cfg) -> dict[str, ProbeResult]
+        Aggregates per-seed R² across seeds for SANE, EquiSSL-perm, EquiSSL
+      - paired_ttest(r2_graph, r2_sane) -> StatTestResult(t_stat, p_value, significant)
+        scipy.stats.ttest_rel over 5 seed values
+      - run_significance_tests(results) -> dict[str, StatTestResult]
+        Tests: equi_perm vs sane, equi vs sane
+      - evaluate_gate(stat_tests) -> str ("PASS" / "PARTIAL" / "FAIL")
+        PASS: both p<0.05; PARTIAL: one p<0.05; FAIL: neither p<0.05
+    feature_tag: "evaluation"
+    priority: 80
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Test evaluate_linear_probe on random embeddings (250,64) → ProbeResult with r2_mean in [-1,1]
+      - Test evaluate_gate: mock results where both significant → "PASS"
+    reference_files:
+      architecture: "03_architecture.md#LinearProbeEvaluator"
+      logic: "03_logic.md#A-6-LinearProbe"
+      config: "03_config.md#LinearProbeConfig"
+
+  - id: "task-010"
+    epic: "A-7"
+    title: "Figure Generation: all 5 required figures"
+    description: |
+      Implement code/evaluation/figures.py:
+      Figure 1: plot_r2_bar_chart(results, stat_tests, save_path)
+        Bar chart: R²(SANE) vs R²(EquiSSL-perm) vs R²(EquiSSL)
+        Error bars: ±std over 5 seeds; threshold line at SANE R²; p-value annotations
+      Figure 2: plot_ablation_ladder(results, save_path)
+        Grouped bar chart — 3 methods × ViT accuracy prediction R²
+      Figure 3: plot_tsne_comparison(embeddings_dict, arch_labels, save_path)
+        4-panel t-SNE: SANE / EquiSSL-perm / EquiSSL latent spaces + combined
+        Colored by architecture family (MLP, CNN, ViT); max_iter=1000 (H-E1 bug fix)
+      Figure 4: plot_paired_seed_scatter(results, save_path)
+        Per-seed R² scatter graph vs SANE; dots above diagonal = improvement
+      Figure 5: plot_vit_accuracy_distribution(labels, save_path)
+        Histogram of 250 ViT model accuracy values
+      All figures: PNG DPI=150, saved to docs/youra_research/h-m1/figures/
+    feature_tag: "evaluation"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - Test each figure function with mock data → file written to tmp dir, assert exists
+    reference_files:
+      architecture: "03_architecture.md#FigureGenerator"
+      logic: "03_logic.md#A-7-Figures"
+      config: "03_config.md#FigureConfig"
+
+  - id: "task-011"
+    epic: "A-8"
+    title: "Report & Orchestration: 04_validation.md + run_experiment.py pipeline"
+    description: |
+      Implement code/evaluation/report.py + finalize code/run_experiment.py:
+      - write_validation_report(results, stat_tests, gate_outcome, output_path)
+        Writes docs/youra_research/h-m1/04_validation.md with:
+          R² table (SANE / EquiSSL-perm / EquiSSL mean ± std)
+          t-stat and p-value for each comparison
+          Gate evaluation outcome (PASS/PARTIAL/FAIL) with interpretation
+          Figure references (relative paths)
+          Conclusion on graph representation hypothesis
+      - run_experiment.py: full pipeline in order:
+          1. train_all_seeds (EquiSSL-perm, 5 seeds)
+          2. extract_all_embeddings (15 embedding arrays)
+          3. evaluate_all_models (linear probe R²)
+          4. run_significance_tests (paired t-test)
+          5. evaluate_gate
+          6. generate_all_figures (5 figures)
+          7. write_validation_report
+        argparse: --config config.yaml --skip-training (reuse existing checkpoints)
+        CSV logging: results/experiment_log.csv
+    feature_tag: "experiment"
+    priority: 70
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - Test write_validation_report with mock results → file written with required sections
+      - Smoke test run_experiment.py --help exits 0
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md#A-8-Report"
+      config: "03_config.md#LoggingConfig"
+
+  # ── SUBTASKS: Logic (from 03_logic.md) ──────────────────────────────────────
+
+  - id: "task-012"
+    epic: "A-2"
+    title: "L-2-1: vit_checkpoint_to_graph — layer node extraction"
+    description: |
+      Implement layer-level node extraction for ViT checkpoints.
+      Each layer (attention sublayer, FF layer) → one node with 4-dim feature vector [mean, std, l2_norm, max_abs].
+      Key: node_in_dim MUST be 4 to match H-E1 EquiSSLEncoder.
+      Identify all ViT layer types: qkv, proj, fc1, fc2, norm1/norm2 (node feature only).
+    feature_tag: "data-pipeline"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-2-1"
+      architecture: "03_architecture.md#RealViTZooDataset"
+
+  - id: "task-013"
+    epic: "A-2"
+    title: "L-2-2: vit_checkpoint_to_graph — edge construction for attention layers"
+    description: |
+      Implement edge construction for multi-head attention layers (GMN paper formulation).
+      Q/K/V weight matrices → edges between input nodes and output nodes.
+      Edge features: [mean, std, l2_norm, max_abs] of weight block. edge_in_dim=4.
+      head_id encoded in node feature (int, one-hot or ordinal).
+      Connect: input_layer_node → attention_layer_node (directed, weight as edge feature).
+    feature_tag: "data-pipeline"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-2-2"
+      architecture: "03_architecture.md#RealViTZooDataset"
+
+  - id: "task-014"
+    epic: "A-2"
+    title: "L-2-3: vit_checkpoint_to_graph — feedforward and skip-connection edges"
+    description: |
+      Implement edge construction for feedforward layers (MLP subgraph).
+      fc1 and fc2 weight matrices → edges between layer nodes.
+      Skip connections: if residual, add skip edge between sublayer nodes.
+      Verify: combined graph produces Data(x=[N,4], edge_index=[2,E], edge_attr=[E,4]).
+    feature_tag: "data-pipeline"
+    priority: 47
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-2-3"
+      architecture: "03_architecture.md#RealViTZooDataset"
+
+  - id: "task-015"
+    epic: "A-2"
+    title: "L-2-4: RealViTZooDataset — label loading and fallback logic"
+    description: |
+      Implement accuracy label loading from CSV (model_name, accuracy columns).
+      Fallback: if label CSV missing, try to parse accuracy from checkpoint filename.
+      Cache processed graphs to disk (Data objects as .pt files) for fast reload.
+      Handle partial dataset (fewer than 250 if downloads incomplete).
+    feature_tag: "data-pipeline"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-2-4"
+      architecture: "03_architecture.md#RealViTZooDataset"
+
+  - id: "task-016"
+    epic: "A-2"
+    title: "L-2-5: RealViTZooDataset — graph schema compatibility test with EquiSSLEncoder"
+    description: |
+      Verify end-to-end: load one ViT checkpoint → vit_checkpoint_to_graph → feed into EquiSSLEncoder.
+      Assert: forward pass completes without shape mismatch.
+      Assert: output embedding shape (1, 128), finite values.
+      This is the integration test for the ViT graph construction pipeline.
+    feature_tag: "data-pipeline"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-2-5"
+      architecture: "03_architecture.md#RealViTZooDataset"
+
+  - id: "task-017"
+    epic: "A-3"
+    title: "L-3-1: EquiSSLPermEncoder — symmetry flag verification"
+    description: |
+      Verify EquiSSLEncoder(symmetry='permutation') vs EquiSSLEncoder(symmetry='monomial').
+      Confirm symmetry flag changes internal ScaleGMN equivariance group.
+      Run identical forward pass with both configs, assert outputs differ (different learned symmetry).
+      Document exact ScaleGMN flag semantics in code comment.
+    feature_tag: "model"
+    priority: 44
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-3-1"
+      architecture: "03_architecture.md#EquiSSLPermEncoder"
+
+  - id: "task-018"
+    epic: "A-3"
+    title: "L-3-2: EquiSSLPermEncoder — checkpoint compatibility with load_encoder_from_checkpoint"
+    description: |
+      Verify EquiSSL-perm checkpoints saved in same format as H-E1 EquiSSL checkpoints.
+      Keys: model_state_dict, optimizer_state_dict, epoch, loss, config.
+      load_encoder_from_checkpoint from H-E1 must load EquiSSL-perm without modification.
+      Test: save → load → forward pass produces identical output.
+    feature_tag: "model"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-3-2"
+      architecture: "03_architecture.md#EquiSSLPermEncoder"
+
+  - id: "task-019"
+    epic: "A-3"
+    title: "L-3-3: EquiSSLPermEncoder — batch graph forward pass validation"
+    description: |
+      Validate EquiSSLPermEncoder handles PyG Batch objects (multiple graphs concatenated).
+      Test: batch of 4 graphs with varying node counts → output shape (4, 128).
+      Test: single graph → output shape (1, 128).
+      Assert: L2 normalization applied (output norm ≈ 1.0 per row).
+    feature_tag: "model"
+    priority: 42
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-3-3"
+      architecture: "03_architecture.md#EquiSSLPermEncoder"
+
+  - id: "task-020"
+    epic: "A-3"
+    title: "L-3-4: EquiSSLPermEncoder — ablation control: disable scale augmentation"
+    description: |
+      Verify training loop for EquiSSL-perm uses perm_augment ONLY (no scale_augment).
+      H-E1 make_positive_pair uses both perm_augment and scale_augment.
+      H-M1 collate function must call only perm_augment → this is the ablation variable.
+      Test: confirm scale_augment is NOT imported or called in train_equi_perm.py.
+    feature_tag: "model"
+    priority: 41
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-3-4"
+      architecture: "03_architecture.md#EquiSSLPermTrainer"
+
+  - id: "task-021"
+    epic: "A-4"
+    title: "L-4-1: train_equi_perm — NT-Xent + MSE loss with lambda_rec=0.1"
+    description: |
+      Implement contrastive autoencoder loss using H-E1's EquiSSLObjective.
+      NT-Xent temperature τ=0.07 (same as H-E1).
+      lambda_rec=0.1 (fixed — best from H-E1 validation, controlled comparison).
+      Verify: loss.item() is finite after first batch; total_loss = nt_xent + 0.1 * mse_recon.
+    feature_tag: "training"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-4-1"
+      architecture: "03_architecture.md#EquiSSLPermTrainer"
+
+  - id: "task-022"
+    epic: "A-4"
+    title: "L-4-2: train_equi_perm — CosineAnnealingLR schedule and checkpoint saving"
+    description: |
+      Implement learning rate schedule: CosineAnnealingLR(T_max=100, eta_min=1e-5).
+      Checkpoint saving every 10 epochs to docs/youra_research/h-m1/checkpoints/equi_perm_seed{i}_ep{e}.pt.
+      Best model (lowest loss) saved as equi_perm_seed{i}.pt.
+      Log lr per epoch to CSV.
+    feature_tag: "training"
+    priority: 39
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-4-2"
+      architecture: "03_architecture.md#EquiSSLPermTrainer"
+
+  - id: "task-023"
+    epic: "A-4"
+    title: "L-4-3: train_equi_perm — 5-seed training loop and seed isolation"
+    description: |
+      Implement train_all_seeds(cfg) iterating over seeds=[0,1,2,3,4].
+      Each seed: torch.manual_seed(seed), numpy.random.seed(seed), random.seed(seed).
+      DataLoader: shuffle=True, num_workers=4.
+      Seeds must be fully isolated (no state leakage between runs).
+      Return: list of 5 best checkpoint paths.
+    feature_tag: "training"
+    priority: 38
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-4-3"
+      architecture: "03_architecture.md#EquiSSLPermTrainer"
+
+  - id: "task-024"
+    epic: "A-4"
+    title: "L-4-4: train_equi_perm — validation loss monitoring and early stopping guard"
+    description: |
+      Add per-epoch validation loss on 10% held-out MultiZoo split.
+      No early stopping (run full 100 epochs per protocol) but log val_loss to CSV.
+      If val_loss is NaN: apply H-E1 bug fix (clamp σ > 1e-8 in bandwidth computation).
+      Alert: if training loss does not decrease after epoch 10, warn to stdout.
+    feature_tag: "training"
+    priority: 37
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-4-4"
+      architecture: "03_architecture.md#EquiSSLPermTrainer"
+
+  - id: "task-025"
+    epic: "A-5"
+    title: "L-5-1: extract_graph_embeddings — batched ViT graph encoding"
+    description: |
+      Implement extract_graph_embeddings(encoder, vit_dataset, device, batch_size=32).
+      encoder.eval(), torch.no_grad().
+      DataLoader over RealViTZooDataset with batch_size=32.
+      Collect all embeddings → concatenate → ndarray shape (250, latent_dim).
+      Cache result to disk as results/embeddings_{model_name}_seed{i}.npy.
+    feature_tag: "evaluation"
+    priority: 36
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-5-1"
+      architecture: "03_architecture.md#EmbeddingExtractor"
+
+  - id: "task-026"
+    epic: "A-5"
+    title: "L-5-2: extract_sane_embeddings — flat chunk tokenization for ViT models"
+    description: |
+      Implement SANE embedding extraction for ViT checkpoints.
+      SANE uses flat weight chunks (chunk_size=512) — different from graph encoders.
+      Load frozen SANE from H-E1 checkpoint (sane_seed{i}.pt).
+      Flatten ViT state_dict weights → chunks → SANE encoder → embedding.
+      Handle ViT architectures with different total parameter counts.
+      Output: ndarray shape (250, latent_dim_sane).
+    feature_tag: "evaluation"
+    priority: 35
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-5-2"
+      architecture: "03_architecture.md#EmbeddingExtractor"
+
+  - id: "task-027"
+    epic: "A-5"
+    title: "L-5-3: extract_all_embeddings — orchestrate 15 embedding arrays"
+    description: |
+      Implement extract_all_embeddings(cfg) producing dict with 15 entries:
+        sane_seed{0..4}: from H-E1 sane checkpoints via extract_sane_embeddings
+        equi_seed{0..4}: from H-E1 equi checkpoints via extract_graph_embeddings
+        equi_perm_seed{0..4}: from H-M1 equi_perm checkpoints via extract_graph_embeddings
+      Load from cache if .npy files already exist (skip re-extraction).
+      Validate all 15 arrays: shape (250, latent_dim), no NaN/Inf.
+    feature_tag: "evaluation"
+    priority: 34
+    source_document: "03_logic.md"
+    complexity: null
+    reference_files:
+      logic: "03_logic.md#L-5-3"
+      architecture: "03_architecture.md#EmbeddingExtractor"
+
+  - id: "task-028"
+    epic: "A-7"
+    title: "C-7-1: Figure config — bar chart and ablation ladder"
+    description: |
+      Implement plot_r2_bar_chart and plot_ablation_ladder with consistent styling.
+      Colors: SANE=gray, EquiSSL-perm=blue, EquiSSL=orange (defined once, reused across figures).
+      Bar chart: error bars ±std, horizontal threshold line at SANE R², p-value annotations above bars.
+      Ablation ladder: same 3 models, grouped bars, legend.
+      Seaborn style, figure size (8,5), DPI=150, saved as PNG.
+    feature_tag: "evaluation"
+    priority: 33
+    source_document: "03_config.md"
+    complexity: null
+    reference_files:
+      config: "03_config.md#FigureConfig"
+      architecture: "03_architecture.md#FigureGenerator"
+
+  - id: "task-029"
+    epic: "A-7"
+    title: "C-7-2: Figure config — t-SNE 4-panel with architecture family coloring"
+    description: |
+      Implement plot_tsne_comparison for SANE / EquiSSL-perm / EquiSSL latent spaces.
+      t-SNE config: perplexity=30, max_iter=1000 (use max_iter not n_iter — H-E1 bug fix).
+      4-panel layout (2×2): SANE, EquiSSL-perm, EquiSSL, combined overlay.
+      Color by architecture family (MLP=red, CNN=green, ViT=blue).
+      Architecture labels inferred from dataset source (MultiZoo=MLP/CNN, ViTZoo=ViT).
+    feature_tag: "evaluation"
+    priority: 32
+    source_document: "03_config.md"
+    complexity: null
+    reference_files:
+      config: "03_config.md#TSNEConfig"
+      architecture: "03_architecture.md#FigureGenerator"
+
+  # ── FAILSAFE TASK (priority 1) ───────────────────────────────────────────────
+
+  - id: "task-030"
+    epic: "Pipeline"
+    title: "Phase 3 → Phase 4 continuation checkpoint"
+    description: |
+      Final task confirming Phase 3 planning complete and Phase 4 ready to start.
+      Action: Verify all Phase 3 outputs exist:
+        docs/youra_research/h-m1/03_prd.md
+        docs/youra_research/h-m1/03_architecture.md
+        docs/youra_research/h-m1/03_logic.md
+        docs/youra_research/h-m1/03_config.md
+        docs/youra_research/h-m1/03_tasks.yaml
+      Confirm: verification_state.yaml h-m1.implementation_planning.status == COMPLETED
+      Next: run /phase4-coding for H-M1 implementation
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_tasks.yaml"
+    complexity: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 2
+  environment_setup: 1
+  epic_tasks: 8
+  subtasks: 18
+  failsafe: 1
+  total: 30

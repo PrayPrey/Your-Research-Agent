@@ -1,0 +1,52 @@
+{
+    "has_hallucination": true,
+    "hallucinations": [
+        {
+            "type": "Nonexistent Citations",
+            "description": "Several references appear to be incorrect, duplicated, or very likely nonexistent. The paper cites Noël (2025) twice with arXiv:2510.19117, but arXiv identifier 2510.* would correspond to October 2025 and is inconsistent with a paper being available for an ICLR 2025 workshop submission context. More importantly, the paper treats this as established related work without any evidence in the provided code or standard known literature. Reference [10] is also malformed: 'Graph of Thoughts Framework. (2023). arXiv:2308.09687.' The known paper is 'Graph of Thoughts: Solving Elaborate Problems with Large Language Models' and should have named authors; as written, this is not a proper citation and suggests fabrication/sloppy invention. The paper also cites Grewal et al. (2024) 'Improving Uncertainty Quantification in Large Language Models via Semantic Embeddings' arXiv:2410.22685 and Chen et al. / Liu et al. 2025 survey papers; these may be difficult to verify and are not supported by any code or standard references, making them suspicious. At minimum, the duplicate Noël citation and malformed Graph of Thoughts citation are clear citation hallucination issues.",
+            "evidence": "\"[5] Noël, V. (2025). A Graph Signal Processing Framework for Hallucination Detection in Large Language Models. arXiv:2510.19117.\" and again \"[11] Noël, V. (2025). A Graph Signal Processing Framework for Hallucination Detection in Large Language Models. arXiv:2510.19117.\" Also: \"[10] Graph of Thoughts Framework. (2023). arXiv:2308.09687.\""
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims that semantic entropy ground truth is obtained by clustering sampled responses into semantic equivalence classes using an 'NLI-based entailment classifier.' However, the implementation does not use NLI or entailment at all. It uses a simple word-overlap Jaccard similarity and greedy clustering. This is a material methodological discrepancy because the paper presents a much more principled semantic clustering procedure than what is actually implemented.",
+            "evidence": "Paper: \"Responses are clustered into semantic equivalence classes ... using an NLI-based entailment classifier.\" Code in uncertainty.py: \"def semantic_similarity(text1: str, text2: str) -> float: ... words1 = set(text1.lower().split()) ... return len(intersection) / len(union)\" and \"def cluster_responses(...): ... sim = semantic_similarity(responses[i], responses[j]) ... # Simple greedy clustering\""
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper states that semantic entropy serves as supervision for training the probes ('ground truth uncertainty estimates using multi-sample semantic entropy'). In the actual training code, semantic entropy is computed for only 10% of batches, and for 90% of batches the target is replaced by hard-coded heuristic constants based solely on the assigned uncertainty type (1.5 for epistemic, 1.0 for aleatoric, 0.2 for low). This is a substantial misrepresentation of the training method.",
+            "evidence": "Paper: \"We first establish ground truth uncertainty estimates using multi-sample semantic entropy, which serves as supervision for training our efficient probes.\" Code in run_experiment.py: \"if random.random() < 0.1:  # Only compute for 10% of batches to save time ... else: # Use approximation based on uncertainty type se_target = torch.tensor([1.5 if ut == 'epistemic' else (1.0 if ut == 'aleatoric' else 0.2) for ut in uncertainty_types ...])\""
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper claims a dataset construction based on 'rare entities or recent events' sourced from TruthfulQA and 'verified through knowledge cutoff analysis.' The code does not perform any knowledge cutoff analysis, rare-entity filtering, or answer verification. It simply samples TruthfulQA questions and labels all of them as epistemic uncertainty and hallucination-prone. This overstates the rigor of dataset construction.",
+            "evidence": "Paper: \"High Epistemic (DE): Factual questions about rare entities or recent events where the model lacks knowledge, sourced from TruthfulQA and verified through knowledge cutoff analysis.\" Code in data.py: \"data_points.append(UncertaintyDataPoint(... uncertainty_type='epistemic', is_hallucination=True, # Most TruthfulQA answers from models are hallucinated ...))\""
+        },
+        {
+            "type": "Hallucinated Methodology",
+            "description": "The paper describes low-uncertainty data as including Natural Questions and reports dataset statistics implying a more realistic benchmark setup. In practice, the training pipeline does not use Natural Questions at all; it uses only TruthfulQA samples, synthetic ambiguous questions, and a tiny handcrafted list of simple factual questions. This makes the experimental setup much more toy-like than the paper suggests.",
+            "evidence": "Paper Section 4.3: \"We construct training data from three sources...\" and implies realistic sources; also data.py defines \"load_natural_questions_subset\". But run_experiment.py -> prepare_datasets uses only: \"epistemic_data = load_truthfulqa_subset(...)\", \"aleatoric_data = create_ambiguous_questions(...)\", \"low_uncertainty_data = create_factual_questions(...)\". Natural Questions loader is never called."
+        },
+        {
+            "type": "Mathematical Errors",
+            "description": "The paper defines semantic entropy as H_sem(x) = -Σ P(C_m|x) log P(C_m|x), where P(C_m|x) is the probability mass of a semantic cluster. But the implementation does not actually compute P(y_i|x) or cluster probabilities from the model distribution. Instead it approximates each sampled response probability by exp(mean token log prob) and then renormalizes across sampled outputs. This is not the same quantity described in the paper and is mathematically inconsistent with the stated formulation.",
+            "evidence": "Paper: \"where P(C_m | x) = sum_{y_i in C_m} P(y_i | x) represents the probability mass assigned to semantic cluster C_m.\" Code in uncertainty.py: \"avg_log_prob = token_log_probs.mean().item(); response_probs.append(np.exp(avg_log_prob))\" followed by normalization over sampled responses only."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper reports confusion matrix numbers for SED (Epistemic) that contradict themselves and the plotted confusion matrix. In the text, it says 'correctly identifies 48/50 hallucinations with only 2 false positives' and then lists '50 true negatives, 0 false positives, 2 false negatives, 48 true positives.' These statements are inconsistent with each other. The provided confusion matrix figure also shows 50 TN, 0 FP, 2 FN, 48 TP, which does not match the '2 false positives' claim. This indicates fabricated or careless reporting of experimental outcomes.",
+            "evidence": "Paper Section 5.6: \"SED (Epistemic) correctly identifies 48/50 hallucinations with only 2 false positives\" followed immediately by \"SED (Epistemic): 50 true negatives, 0 false positives, 2 false negatives, 48 true positives\"."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The paper implies that semantic entropy baseline is evaluated on the same 100-sample test set as other methods, but the code only computes semantic entropy for the first 30 test samples because it is expensive. Therefore the reported metrics for Semantic Entropy are not directly comparable to methods evaluated on 100 samples. Presenting them in the same results table without disclosing the reduced evaluation set is misleading and amounts to fabricated/comparability-invalid experimental reporting.",
+            "evidence": "Paper Table 5 presents all methods together on the 'Final evaluation' test set of 100. Code in run_experiment.py: \"# Semantic entropy (expensive, so only do for subset) if i < min(30, len(test_data)): ... results['Semantic Entropy']...\" while SED and other baselines are run across all test_data."
+        },
+        {
+            "type": "Faked Experimental Results",
+            "description": "The near-perfect validation AUROC/AUPRC and very high test AUROC are largely driven by label leakage in the dataset design: all TruthfulQA-derived epistemic examples are labeled as hallucinations, while ambiguous and factual examples are labeled non-hallucinations. The probes are explicitly trained with uncertainty-type supervision, and evaluation uses the same synthetic label structure. Thus the paper's claim of hallucination detection performance is overstated; the experiment is effectively distinguishing preassigned category labels rather than actual model hallucinations on generated answers. This is a severe experimental validity issue.",
+            "evidence": "Code in data.py: TruthfulQA samples are assigned \"uncertainty_type='epistemic'\" and \"is_hallucination=True\"; ambiguous/factual are assigned \"is_hallucination=False\". Loss in model.py uses \"uncertainty_types\" directly for contrastive supervision. Final evaluation in get_test_dataset_for_evaluation again builds test data from these same category templates."
+        }
+    ],
+    "overall_assessment": "Hallucinations were found. The most serious issues are methodological misreporting and invalid/fabricated experimental claims: the paper overstates the semantic-entropy supervision, falsely claims NLI-based clustering and knowledge-cutoff verification, and presents benchmark-style results that are largely artifacts of synthetic label construction and unequal baseline evaluation. There are also citation problems, including duplicated/suspicious references. Overall, the paper contains substantial hallucinations and should not be considered reliable as written.",
+    "confidence": 5
+}

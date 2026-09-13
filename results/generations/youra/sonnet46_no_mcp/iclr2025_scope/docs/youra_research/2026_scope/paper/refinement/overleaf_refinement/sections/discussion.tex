@@ -1,0 +1,37 @@
+
+\subsubsection{6.1 Interpretation of Mechanistic Findings}
+
+\textbf{Weight divergence magnitude.} The mean cosine similarity of 0.053 (range: −0.578 to +0.469) after only 30 training steps is lower than typical LoRA specialization for different tasks (>0.8) or same-task different seeds (>0.95). Two interpretations are consistent with the data:
+
+\textit{Interpretation A:} H2O eviction masks reshape the gradient landscape substantially — surviving heavy-hitter tokens carry gradient signal previously spread across the full token sequence, driving adapter parameters toward a qualitatively different attractor. The magnitude of divergence is a structural consequence of the eviction-aware optimization problem.
+
+\textit{Interpretation B:} The short training duration (30 steps) and small proxy model (117M parameters) may amplify divergence that would be smaller at full scale. GPT-2's fused \texttt{c_attn} architecture (Q+K+V in one Conv1D) may also amplify divergence compared to the separate \texttt{q_proj}/\texttt{k_proj}/\texttt{v_proj} projections in LLaMA/Mistral. H-M3 at full scale would help distinguish these interpretations.
+
+\textbf{Middle-layer specificity.} The concentration of significant entropy divergence in layers 4–11 (out of 0–11) is consistent with the established finding that middle transformer layers encode long-range dependency information \citep{Clarketal2019}. Lower layers (0–3) handle positional and syntactic patterns less sensitive to which tokens are retained. Whether this layer pattern generalizes to decoder-only 7B models on real long-context inputs is an open question. Clark et al. [2019] analyzed BERT (encoder-only); direct transfer to GPT-2 decoder architectures is an assumption that merits separate verification.
+
+\textbf{HH concentration finding.} The heavy-hitter concentration metric showed no significant divergence in any of the 12 layers (0/12), despite the gate passing via attention entropy significance alone. The paper's original claim that both metrics showed 8/12 layers significant is not supported by the experiment_results.json data, which records \texttt{layers_hh_significant_005: 0}. This distinction matters for mechanistic interpretation: the observed restructuring is in attention entropy distribution rather than in heavy-hitter concentration per se.
+
+\subsubsection{6.2 Limitations}
+
+\textbf{L1 (Critical): Primary accuracy evaluation absent.} H-M3 was not executed. The prediction of ≥2\% per-category LongBench accuracy gain at r=50\% on both LLaMA-2-7B and Mistral-7B-v0.1 is entirely untested. This paper is a mechanistic study; the accuracy claim is future work.
+
+\textbf{L2 (Critical): Dose-response not evaluable at proxy scope.} H-M2 requires LongBench evaluation at multiple budget ratios, incompatible with GPT-2's context window. The BudgetSweepEvaluator and SpearmanAnalyzer infrastructure are validated for sequential adapters but have not been demonstrated with eviction-aware adapters at LongBench scale.
+
+\textbf{L3 (Significant): Proxy-target validity gap.} GPT-2 (117M parameters, 1024-token context, fused c_attn) differs substantially from LLaMA-2-7B/Mistral-7B-v0.1 (7B parameters, 4096-token context, separate Q/K/V projections). H-E1 training used 30 steps on 200 samples rather than the planned 1 epoch on the full LongAlpaca-12k dataset. H-M1 used 5 synthetic samples rather than the planned ≥500 LongBench samples per category.
+
+\textbf{L4 (Significant): H2O+SDPA incompatibility.} H2O's cumulative-score indexing is incompatible with PyTorch SDPA kernels in \texttt{transformers} ≥4.36. Fix: \texttt{attn_implementation='eager'} (validated for both GPT-2 and LLaMA/Mistral architectures). This introduces approximately 15–30\% inference overhead compared to SDPA. All LLaMA/Mistral evaluation runs must use this setting.
+
+\textbf{L5 (Moderate): Single eviction policy.} All experiments use H2O. Whether eviction-aware training provides benefits under SnapKV, StreamingLLM, or other eviction policies requires separate experiments.
+
+\textbf{L6 (Moderate): Training data confound.} Whether LongAlpaca-12k's long-context examples create a data-distribution advantage for eviction-aware training relative to LongBench tasks was not tested. An Alpaca-52k sanity check (training adapters on shorter-context data and evaluating on LongBench) was not performed.
+
+\textbf{L7 (Moderate): Absent random-mask ablation.} The observed weight divergence cannot be attributed specifically to H2O's policy-driven heavy-hitter selection without a random-token-removal ablation at the same budget ratio. Whether the divergence is specific to H2O masks or is a general consequence of any token removal during training is unresolved.
+
+\subsubsection{6.3 Technical Finding: H2O+SDPA Incompatibility}
+
+H2O's scatter/gather operations on attention score tensors conflict with SDPA's fused kernel in \texttt{transformers} ≥4.36. Setting \texttt{attn_implementation='eager'} forces unfused attention and is required for H2O mask injection to intercept attention computations correctly. This setting is validated for GPT-2 (H-E1, H-M1) and is expected to be required for LLaMA-2-7B and Mistral-7B-v0.1. The overhead (~15–30\% at inference) is a known cost of this approach.
+
+\subsubsection{6.4 Broader Impact}
+
+Eviction-Aware LoRA targets the training-inference distribution mismatch under KV cache eviction, a problem that scales in relevance as context windows grow. If the mechanistic findings translate to accuracy improvements at full scale, the approach could recover accuracy at no additional inference-time hardware cost beyond the \texttt{eager} attention overhead. No specific misuse risks have been identified for this fine-tuning methodology.
+

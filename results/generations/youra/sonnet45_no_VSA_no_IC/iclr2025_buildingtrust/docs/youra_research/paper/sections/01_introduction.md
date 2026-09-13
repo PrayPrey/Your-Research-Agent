@@ -1,0 +1,25 @@
+# Introduction
+
+LLM evaluation frameworks measure trustworthiness dimensions independently—truthfulness, robustness, fairness, safety, privacy—yet deployment failures often span multiple dimensions simultaneously. A model failing a factual question may also fail robustness tests on the same instance, but current benchmarks provide no visibility into these cross-dimensional coupling patterns. This gap has concrete consequences: a medical diagnosis LLM might achieve 92% on truthfulness benchmarks and 89% on fairness benchmarks when evaluated separately, yet fail on both dimensions for the same minority-group patients—a coupling pattern invisible to independent evaluation.
+
+The stakes are high. Independent dimension evaluation creates blind spots for compound failures—instances where models fail on multiple trustworthiness criteria at once. Understanding coupling patterns is critical for model selection in safety-critical deployments. Without coupling awareness, deployment teams select models based on aggregate scores that mask correlated vulnerabilities, leading to systematic failures in production.
+
+Multi-dimensional trustworthiness evaluation exists. Frameworks like TrustLLM and MMTrustEval cover 5-8 dimensions, providing per-dimension scores for model comparison. Yet this independent evaluation assumes dimensions are uncorrelated—an assumption not yet validated empirically. Shared vulnerability mechanisms (e.g., calibration failures affecting both truthfulness and robustness) may create systematic coupling patterns that current benchmarks cannot detect. No benchmark reports co-occurrence statistics showing which instances fail on multiple dimensions simultaneously.
+
+The deeper problem: independent evaluation may miss model-specific vulnerability architectures. Coupling patterns themselves may be a trustworthiness property—model-specific fingerprints revealing underlying vulnerability structure. If different models exhibit distinct coupling profiles (GPT-4 couples truthfulness-robustness, Claude couples fairness-safety), these patterns could guide deployment decisions for specific use cases. But without instance-level binary labels across all dimension pairs, we cannot answer: (1) Are dimensions fundamentally independent or coupled? (2) Do different models have distinct vulnerability profiles? (3) Can coupling guide model selection?
+
+We address this gap with the first empirical characterization of coupling breadth and model-specificity in LLM trustworthiness dimensions. Our key finding: coupling is **sparse**—limited to 2 dominant dimension pairs (truthfulness-robustness φ 0.36-0.40, fairness-safety φ 0.33-0.40), not pervasive across all 10 possible pairs. This sparsity persists when controlling for instance difficulty (partial φ 0.36-0.56, retention 86-161%), indicating genuine shared vulnerabilities rather than spurious artifacts of hard instances failing everywhere. Models exhibit qualitatively distinct coupling profiles (GPT-4: truthfulness→robustness chain, Claude-3: fairness→safety→privacy cluster, Llama-3: minimal coupling), though statistical confirmation requires larger samples than our Phase 4 proof-of-concept (n=100/dimension).
+
+Our contributions build on this sparse coupling insight:
+
+1. **Coupling breadth characterization** via phi coefficient analysis across 5 dimensions × 3 models (h-e1: 6 significant pairs, φ 0.33-0.40, p < 1e-13), establishing coupling as a real phenomenon measurable from behavioral outputs.
+
+2. **Difficulty-independence validation** via partial correlation controlling for instance difficulty (h-m1: partial φ 0.36-0.56, retention 86-161%), proving coupling reflects shared vulnerability mechanisms rather than confounding by hard instances.
+
+3. **Sparsity confirmation** via multi-pair analysis with Bonferroni correction (h-m2: 0 models meet ≥3 pairs threshold), refuting broad coupling and establishing sparse patterns as the fundamental property requiring targeted mitigation.
+
+4. **Model-specific profile observation** via Mantel test comparing coupling matrices (h-c1: r < 0.7 for all pairs but p > 0.0167), providing qualitative evidence for architectural fingerprints while acknowledging statistical power limitations.
+
+These findings reframe multi-dimensional trustworthiness evaluation. Rather than assuming universal independence (coupling = 0) or universal coupling (all pairs correlated), trustworthiness dimensions exhibit **sparse coupling**—architecturally independent by default, with coupling emerging only where specific mechanisms overlap (calibration for truthfulness-robustness, value alignment for fairness-safety). This has immediate implications: benchmarks should report coupling statistics alongside per-dimension scores, and model selection for deployments requiring multiple trustworthiness guarantees can exploit known coupling patterns.
+
+Our work builds on multi-dimensional evaluation frameworks and behavioral detection methods, but adds a coupling layer absent from prior work. The next section positions our approach relative to existing trustworthiness evaluation and vulnerability analysis literature.

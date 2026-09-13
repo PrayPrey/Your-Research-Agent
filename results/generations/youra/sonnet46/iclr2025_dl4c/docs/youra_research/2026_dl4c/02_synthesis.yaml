@@ -1,0 +1,116 @@
+# 02_synthesis.yaml - Phase 2A Synthesis (v10.0.0 Free-Parse)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# Generated from: discussion_log.md (15 exchanges, CONVERGED)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-03-15T16:00:00"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Prescreening-Gated R_ratio vs R_binary: Within-Group Variance Amplification in GRPO for APPS Introductory Problems"
+  hypothesis_id: "H-RatioReward-v1"
+  core_claim: |
+    Under GRPO-based RLEF training on APPS introductory problems prescreened to S_term ∈ [0.3, 0.55]
+    with Qwen2.5-Coder-7B-Instruct, ratio reward (R_ratio = per-rollout test-case pass fraction)
+    outperforms binary reward (R_binary = 1 iff all tests pass) on ZRF trajectory and gradient SNR
+    in the first 25% of training steps, because R_ratio preserves within-group reward heterogeneity
+    that GRPO's group-relative advantage normalization can exploit for graded policy learning.
+  mechanism: |
+    The causal mechanism has 4 steps: (1) Prescreening confirms S_term ∈ [0.3, 0.55] subset has
+    non-degenerate within-group variance under R_ratio (analytically guaranteed by Binomial(T, q)
+    model for T > 1 test cases); (2) R_ratio produces graded normalized advantages A_i within each
+    GRPO group of G=8 rollouts; (3) Graded advantages provide higher gradient covariance with policy
+    log-probability gradients; (4) Earlier policy differentiation toward partial solutions increases
+    ZRF escape hazard rate and measurable gradient SNR advantage.
+  predictions:
+    - P1: "Prescreening confirms E[Var(r_ratio)] / E[Var(r_binary)] ≥ 1.5× on prescreened APPS introductory subset"
+    - P2: "GRPO training with R_ratio shows earlier ZRF escape (log-rank test p < 0.05) vs R_binary"
+    - P3: "Mean gradient SNR over first 25% of training ≥ 1.5× under R_ratio vs R_binary"
+
+variables_summary:
+  independent: "Reward function: R_ratio (per-rollout test-case pass fraction [0,1]) vs R_binary (binary {0,1} all-pass indicator)"
+  dependent_primary: "ZRF (zero-reward fraction per training step) and gradient SNR (|E[A_i]|/std(A_i) per step)"
+  controlled: "Model (Qwen2.5-Coder-7B + SFT checkpoint), KL penalty, learning rate, batch size G=8, token budget max_new_tokens=1024, problem set (identical prescreened APPS introductory subset)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in ZRF trajectory (log-rank test p ≥ 0.05) or mean
+    gradient SNR (ratio < 1.5×) between R_ratio and R_binary under GRPO on the prescreened
+    APPS introductory subset (S_term ∈ [0.3, 0.55]) with identical hyperparameters. Any
+    observed differences reduce to step-size scaling effects rather than informational content
+    differences between the two reward functions.
+  statistical_test: "Log-rank test for survival curves; two-sided t-test for gradient SNR ratio"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First empirical comparison of R_ratio vs R_binary under GRPO with prescreening gate on APPS, framed via within-group reward variance amplification mechanism"
+  differentiation_summary: |
+    Distinguished from GHPO (oracle hints required), DRIVE (curriculum scheduling during training),
+    PRLCoder (per-statement reward model needed), and PPOCoder (PPO not GRPO; structural signals).
+    R_ratio is the minimal-overhead intervention: no guidance model, no reward model, no curriculum —
+    only reward function redefinition using existing test case infrastructure.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "Qwen2.5-Coder-7B-Instruct + SFT checkpoint (h-e1/code/sft_checkpoint/)"
+  datasets:
+    - "APPS introductory (difficulty=0), prescreened to S_term ∈ [0.3, 0.55]"
+  baselines:
+    - "R_binary GRPO (primary experimental baseline)"
+    - "PPOCoder [Shojaee et al., 2023] as external field reference (17.77% pass rate on APPS)"
+
+measurement_plan:
+  data_collection:
+    - source: "Pass@8 prescreening inference: (tests_passed_i, total_tests_i) per rollout per problem — generates R_ratio and R_binary values simultaneously"
+    - source: "GRPO training logs: per-step ZRF, advantage distribution stats, KL divergence, gradient norm — all from standard TRL GRPOTrainer callbacks"
+  procedure:
+    - step: "Phase 1 (Prescreening): Run pass@8 inference (k=8, temp=0.8, max_new_tokens=1024) on APPS introductory problems; compute S_term = fraction(k_pass ≥ 1 per problem); filter to S_term ∈ [0.3, 0.55]; validate gate: fraction(k_pass ≥ 1) ≥ 10% of filtered set"
+    - step: "Phase 2 (Variance Check): Compute E[Var(r_ratio within group)] and E[Var(r_binary within group)] from prescreening rollouts; confirm E[Var(r_ratio)] / E[Var(r_binary)] ≥ 1.5×"
+    - step: "Phase 3 (GRPO Training): 3 seeds × 2 conditions = 6 training runs; log per-step ZRF, gradient SNR, KL divergence; run for ≥25% of planned total steps"
+    - step: "Phase 4 (Analysis): Log-rank test on ZRF escape survival curves; compute mean gradient SNR ratio; stratify survival curves by initial tractability bin"
+  success_criteria:
+    - "Prescreening gate: fraction(k_pass ≥ 1) ≥ 10% of prescreened problem set"
+    - "Variance gate: E[Var(r_ratio)] / E[Var(r_binary)] ≥ 1.5×"
+    - "ZRF escape: Log-rank test p < 0.05; ZRF_ratio(t*) < 0.8 × ZRF_binary(t*) for some t* in first 25% of steps"
+    - "Gradient SNR: Mean SNR(R_ratio) / Mean SNR(R_binary) ≥ 1.5× over first 25% of training"
+
+validation:
+  internal_validity:
+    - "Identical model initialization (same SFT checkpoint) for both conditions"
+    - "3 seeds per condition to confirm consistency (2 of 3 seeds must show consistent direction)"
+    - "KL penalty logged and matched to detect step-size confounds"
+    - "Pre-registered exclusion: problems with within-group std(r_ratio) < 0.05 excluded from causal analysis"
+  external_validity:
+    - "APPS introductory subset is a standard public benchmark — results generalizable to other practitioners using APPS"
+    - "TRL GRPOTrainer is the standard implementation — results reproducible by other researchers"
+    - "SFT checkpoint from h-e1 is model-specific; generalizability to other 7B models not claimed"
+
+discussion_synthesis:
+  key_insights:
+    - "R_ratio's advantage is information-theoretic: within-group reward heterogeneity under GRPO, not merely 'non-zero gradients'"
+    - "Binomial(T, q) model proves E[Var(r_ratio)] > E[Var(r_binary)] analytically for all T>1 and 0<q<1 — sign is always positive"
+    - "ZRF reduction is a dynamical effect (policy learns to produce more partial solutions), not an instantaneous reward property"
+    - "The prescreening gate serves dual purposes: tractability confirmation AND variance condition validation"
+    - "Gradient SNR can be approximated by reward variance ratio for practical purposes; full covariance requires backward passes"
+  breakthrough_moments:
+    - "Exchange 3 (Prof. Rex): Identified that k_pass in GRPO = rollouts passing ALL tests (not test-case fraction) — forcing clarification of R_ratio definition to per-rollout test-case fraction"
+    - "Exchange 7 (Dr. Ally): Synthesized the R_ratio redefinition at rollout level as test-case fraction — the key structural clarification"
+    - "Exchange 10 (Prof. Pax): Derived the gradient SNR as Var(r_ratio)/Var(r_binary) ratio — operationalizing the metric"
+    - "Exchange 15 (Prof. Pax): Derived Binomial(T, q) closed-form model confirming E[Var(r_ratio)] > E[Var(r_binary)] analytically"
+  resolved_tensions:
+    - "ZRF reduction mechanism: resolved as dynamical (training dynamics), not instantaneous (reward property)"
+    - "Gradient SNR definition: resolved as per-step |E[A_i]|/std(A_i) with Var-ratio as prescreening proxy"
+    - "R_ratio definition: resolved as per-rollout test-case fraction (not rollout-level full-pass count)"
+    - "Prescreening role: resolved as validating BOTH tractability gate AND variance condition"

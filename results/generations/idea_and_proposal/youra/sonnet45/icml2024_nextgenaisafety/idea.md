@@ -1,0 +1,10 @@
+# Research Idea: Safety Control Plane for Multi-Dimensional AI Systems
+
+## Title
+Safety Control Plane: Substrate-Level Coordination for Cross-Dimensional AI Safety
+
+## Motivation
+Next-generation AI systems increasingly combine multiple capabilities—multimodal perception, autonomous agency, and edge deployment—creating safety gaps at dimension boundaries that isolated per-dimension safety mechanisms cannot address. Current approaches (multimodal validators, agentic oversight, edge defenses) operate independently, missing attacks where individual dimensions appear safe but their combination is unsafe. This research addresses the critical need for coordinated safety enforcement across AI system dimensions in high-stakes applications like healthcare and autonomous systems.
+
+## Main Idea
+We propose a Safety Control Plane substrate that coordinates safety mechanisms across AI system dimensions through three core components: (1) Safety Constraint Graph representing cross-dimension dependencies, (2) Safety Orchestrator validating and propagating constraints with fail-safe defaults, and (3) Safety Propagation Protocol enabling <100ms constraint flow. The causal mechanism operates through four steps: graph construction establishes formal dependency structure, centralized validation prevents error propagation from failed mechanisms, reliable propagation enables timely cross-dimension updates, and defense-in-depth enforcement maintains local safety bounds alongside propagated constraints. We predict >20% improvement in cross-dimension attack detection versus isolated baselines, validated through adversarial testing with 50+ multi-dimension attack scenarios. The approach enables compositional safety guarantees through formal verification while containing failures through constraint validation and defense-in-depth architecture.

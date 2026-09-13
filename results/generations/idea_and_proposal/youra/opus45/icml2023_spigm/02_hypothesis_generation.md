@@ -1,0 +1,215 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** ./02a_round_1_discussion.md (Round 1 - MS-HSD with Spectral Coarsening)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-MSHSD-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under conditions of large-scale graph generation (|V| > 100K nodes), if hierarchical multi-scale decomposition with spectral-preserving coarsening is applied to graph diffusion models, then the model will achieve O(|E|/K) per-step complexity while maintaining generation quality within 5% of single-scale baselines, because sparse diffusion operates efficiently at each coarsened level with preserved spectral properties enabling accurate cross-scale refinement.
+
+**Alternative Hypothesis (H0):**
+Hierarchical decomposition provides no scalability advantage over single-scale sparse diffusion, OR quality degradation exceeds 10% making the approach impractical for generation tasks.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Number of hierarchical levels (K) | Independent | K ∈ {2, 3, 4, 5} representing coarsening depth | K=3 optimal (hypothesis) |
+| Coarsening ratio (r) | Independent | r ∈ [0.3, 0.7] representing node reduction per level | r=0.5 recommended |
+| Generation quality (MMD) | Dependent | Maximum Mean Discrepancy for degree, clustering, orbit distributions | MMD < 0.1 (threshold) |
+| Per-step complexity | Dependent | Wall-clock time and memory usage per denoising step | O(|E|/K) scaling |
+| Maximum scalable graph size | Dependent | Largest |V| completing generation in < 1 hour on 8 GPUs | Target: 1M+ nodes |
+| Diffusion schedule | Controlled | Fixed T=1000 steps, cosine schedule | Constant across experiments |
+| GNN architecture per level | Controlled | Fixed 3-layer GCN with 256 hidden dimensions | Constant across experiments |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=4 steps):**
+
+```
+Step 1: Spectral Coarsening
+   ↓ [preserves spectral properties while reducing |V| and |E|]
+Step 2: Per-Level Sparse Diffusion
+   ↓ [achieves O(|E_k|) complexity via edge subset selection]
+Step 3: GNN Cross-Scale Refinement
+   ↓ [conditions fine-level generation on coarse structure]
+Step 4: Cross-Scale Consistency Loss
+   ↓ [enforces coherent multi-scale generation]
+Outcome: Scalable high-quality graph generation (1M+ nodes)
+```
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Loukas (2019) spectral coarsening theory | Coarsening preserves spectral properties with provable bounds | Strong |
+| Step 2 → Step 3 | SparseDiff (Qin et al. 2023) | Sparse edge selection achieves linear complexity O(|E|) | Strong |
+| Step 3 → Step 4 | Neural Graph Generator (Evdaimon 2024) | Latent conditioning enables feature-guided generation | Medium |
+| Step 4 → Outcome | Brain network literature (Dong et al. 2020) | Multi-scale hierarchical processing enables efficient large-scale computation | Medium |
+
+**Key Tension:**
+- **Tension:** SparseDiff achieves linear complexity but operates at single scale; brain networks demonstrate multi-scale efficiency but are not generative models. The transfer of hierarchical principles to diffusion-based generation is unvalidated.
+- **Resolution:** This verification plan will test whether combining SparseDiff's sparse architecture with hierarchical decomposition preserves the linear complexity at each level while adding quality through cross-scale refinement.
+
+### 1.4 Key Assumptions
+
+1. **Multi-scale structure assumption:** Target graphs exhibit natural community/hierarchical structure that spectral coarsening can meaningfully capture.
+   - Evidence: Social networks, molecular graphs, knowledge graphs all exhibit community structure
+   - **Consequence if violated:** Coarsening degrades quality instead of preserving it; method fails on random/unstructured graphs
+
+2. **Spectral preservation assumption:** Spectral-preserving coarsening maintains properties relevant for generation (not just analysis).
+   - Evidence: Loukas (2019) proves spectral approximation bounds
+   - **Consequence if violated:** Coarsened representations lose generation-critical information; quality degrades > 10%
+
+3. **Cross-scale learnability assumption:** GNN can learn accurate coarse-to-fine edge prediction mappings.
+   - Evidence: U-Net success in image segmentation demonstrates cross-scale learning feasibility
+   - **Consequence if violated:** Fine-level generation ignores coarse guidance; loses multi-scale benefit
+
+4. **Complexity composition assumption:** O(|E_k|) per level compounds to O(|E|/K) total, not O(|E|).
+   - Evidence: Mathematical analysis (sum of |E|/K terms = |E|·K/K = |E| total, but per-step is |E|/K)
+   - **Consequence if violated:** Scalability claims are invalid; no advantage over single-scale
+
+### 1.5 Scope & Boundaries
+
+**Applies to:**
+- Graphs with natural hierarchical/community structure (social networks, knowledge graphs, molecular graphs)
+- Large-scale graphs (|V| > 10K nodes) where scalability is a bottleneck
+- Undirected graphs with homogeneous node/edge types (extension to heterogeneous is future work)
+
+**Does NOT apply to:**
+- Random graphs without multi-scale structure (Erdős-Rényi)
+- Very small graphs (|V| < 100) where overhead exceeds benefit
+- Directed graphs (requires asymmetric coarsening - not addressed)
+- Temporal/dynamic graphs (static snapshot only)
+
+**Known Limitations:**
+- Preprocessing cost: O(|E|) for spectral coarsening (one-time)
+- Hyperparameter sensitivity: K and r require tuning per graph domain
+- Memory for hierarchy: Storing K levels requires K× graph storage
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1 (Scalability with Quality):** When K=3 hierarchical levels are applied with spectral coarsening to graphs with |V|=1M nodes, generation time will be < 10× the time for |V|=100K graphs, while MMD quality degradation < 5% compared to single-scale SparseDiff on |V|=10K graphs.
+
+*Measurement:*
+- Generation time ratio (1M/100K) < 10
+- MMD(degree) change < 0.005; MMD(clustering) change < 0.005; MMD(orbit) change < 0.005
+- Statistical test: Paired t-test across 20 runs, p < 0.05
+
+*Success Criteria:* Time ratio < 10 AND all MMD changes < 0.005
+*Falsification:* Time ratio > 15 OR any MMD change > 0.01
+
+**Secondary Predictions:**
+
+**P2 (Spectral Preservation):** Spectral distance between original and K-level coarsened representation < 0.1 (as defined by Loukas spectral approximation metric).
+
+*Measurement:* Compute spectral distance using top-20 eigenvalues before/after coarsening
+*Success:* Distance < 0.1 for 90% of test graphs
+*Falsification:* Distance > 0.15 for > 30% of test graphs
+
+**P3 (Cross-Scale Consistency):** When cross-scale consistency loss is applied, fine-level generation error (measured as edge prediction accuracy) improves by > 20% compared to no consistency loss.
+
+*Measurement:* Edge prediction accuracy on held-out fine-level edges
+*Success:* Accuracy improvement > 20%
+*Falsification:* Accuracy improvement < 10% OR negative improvement
+
+**Falsification Criteria:**
+The hypothesis will be **REJECTED** if any of the following occur:
+1. **Primary Failure:** Time ratio > 15 (no scalability benefit)
+2. **Quality Failure:** Any MMD metric degrades > 10% compared to baseline
+3. **Mechanism Failure:** Spectral coarsening destroys community structure (spectral distance > 0.2)
+4. **Comparative Failure:** Performance worse than single-scale SparseDiff on same hardware
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size (Cohen's d): ~0.8 (large effect for scalability)
+- Required runs: n ≥ 20 per configuration
+- Statistical power: 0.8
+
+**Test Specification:**
+- Primary test: Paired t-test (same random seeds across configurations)
+- Significance level: α = 0.05 (one-tailed for improvement claims)
+- Report format: Mean ± Std Dev, 95% CI, Cohen's d, p-value
+
+**Multiple Comparison Correction:**
+- Bonferroni correction for 3 MMD metrics: α_adj = 0.05/3 = 0.017
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does hierarchical sparse diffusion successfully generate graphs at 1M+ node scale with acceptable quality?"
+- Maps to: Primary prediction P1
+- Verification type: Empirical scaling experiment
+- Critical: MUST PASS for hypothesis to proceed
+
+**SH2 (Mechanism):**
+"Is the proposed 4-step causal mechanism (coarsening → sparse diffusion → refinement → consistency) the actual cause of scalability gains?"
+- Maps to: Causal chain (4 sub-hypotheses in Phase 2B: H-M1 through H-M4)
+  - H-M1: Spectral coarsening reduces complexity while preserving structure
+  - H-M2: Sparse diffusion achieves per-level linear complexity
+  - H-M3: GNN cross-scale refinement improves quality vs. independent levels
+  - H-M4: Consistency loss enforces coherent generation
+- Verification type: Ablation studies isolating each mechanism
+- Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does MS-HSD outperform single-scale SparseDiff and other baselines on large-scale generation?"
+- Maps to: Secondary predictions P2, P3
+- Verification type: Comparative empirical benchmark
+- Critical: Determines practical value
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned (H-MSHSD-v1)
+- [x] Confidence level specified (0.82)
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (N=4 steps, evidence_for_links table)
+- [x] Causal chain length (N=4) determined and stored
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (with primary marked)
+- [x] Falsification criteria are defined
+- [x] Baselines are identified for comparison
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:** What are the exact GPU memory requirements for 1M node graphs? Need to validate 8-GPU A100 setup is sufficient.
+
+2. **Dataset Availability:** Are there publicly available graphs with 1M+ nodes AND ground truth for evaluation? May need synthetic scaling experiments.
+
+3. **Hyperparameter Sensitivity:** How sensitive is quality to K and r? Need systematic sweep to establish practical guidelines.
+
+4. **Priority Verification Order:** Recommend SH1 (existence) first, then SH2-H-M1 (coarsening validation), then full mechanism ablation.
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-12*

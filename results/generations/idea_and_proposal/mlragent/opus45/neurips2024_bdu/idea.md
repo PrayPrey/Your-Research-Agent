@@ -1,0 +1,9 @@
+﻿# Title: LLM-Guided Adaptive Prior Construction for High-Dimensional Bayesian Optimization
+
+## Motivation
+Bayesian optimization (BO) has been remarkably successful for hyperparameter tuning and scientific discovery, but struggles to scale to high-dimensional problems due to the curse of dimensionality. Traditional approaches rely on hand-crafted priors or simple dimensionality reduction, which often fail to capture the true structure of complex search spaces. Meanwhile, large language models (LLMs) encode vast knowledge about function landscapes from scientific literature and code repositories—knowledge that remains untapped in BO pipelines. Bridging this gap could dramatically improve sample efficiency in high-dimensional settings.
+
+## Main Idea
+We propose **LLM-Prior BO**, a framework that leverages LLMs to dynamically construct informative priors for Gaussian processes in high-dimensional Bayesian optimization. Given a problem description (e.g., neural architecture search, molecular optimization), the LLM generates: (1) likely important subspaces and variable interactions, (2) suggested kernel structures capturing domain-specific correlations, and (3) plausible initial length-scale estimates. These are translated into a structured GP prior with learned additive/multiplicative kernel decompositions.
+
+Crucially, the prior adapts online—after observing data, we prompt the LLM with evaluation results to refine its structural hypotheses. We validate on hyperparameter tuning benchmarks (100+ dimensions) and molecular design tasks. Expected outcomes include 3-5× improvement in sample efficiency over standard BO and principled uncertainty quantification that accounts for LLM-derived structural knowledge. This opens new avenues for human-AI collaborative experimental design.

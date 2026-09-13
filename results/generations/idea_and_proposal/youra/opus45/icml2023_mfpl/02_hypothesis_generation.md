@@ -1,0 +1,206 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-SW-DPO-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under the condition of training with demographic-labeled preference datasets, if Shapley value-based weights are applied to DPO loss function by demographic group, then demographic disparity (measured by Gini coefficient) will decrease by ≥20% while maintaining comparable overall alignment quality, because Shapley values uniquely satisfy fairness axioms (efficiency, symmetry, null-player, additivity) that ensure proportional contribution-based representation across groups.
+
+**Alternative Hypothesis (H0):**
+Shapley value-based weighting has no statistically significant effect on demographic disparity compared to standard DPO, or any observed reduction is due to random variation rather than the proposed mechanism.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Shapley weights (φ_g) | Independent | Gradient-based Shapley approximation; computed for each demographic group's marginal contribution to reward model accuracy; normalized to Σφ_g = 1 | [0.05, 0.40] per group |
+| Demographic disparity | Dependent | Gini coefficient of per-group reward accuracy distribution | Baseline: 0.58-0.73; Target: ≤0.46 (≥20% reduction) |
+| Overall alignment quality | Dependent | Reward model accuracy (win-rate) on held-out preference pairs | ≥95% of DPO baseline accuracy |
+| Group membership | Controlled | Hierarchical demographic categories (e.g., age×gender×ethnicity); using hierarchical grouping for intersectionality | ≤64 intersectional groups |
+
+### 1.3 Causal Mechanism
+
+```
+Step 1: Compute Shapley contributions per demographic group
+    ↓ (Marginal contribution measurement reveals underrepresentation)
+Step 2: Identify underrepresented groups with lower Shapley values
+    ↓ (Groups with lower values receive higher weights in loss function)
+Step 3: Re-weight DPO loss: L_SW-DPO = Σ_g φ_g · L_DPO(preferences_g)
+    ↓ (Shapley axioms guarantee proportional representation)
+Outcome: Reduced demographic disparity (lower Gini coefficient)
+```
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | "Efficient Shapley FL" (2024) | Shapley marginal contributions accurately identify participant contribution imbalances in federated settings | Strong |
+| Step2 → Step3 | "Fairness in Preference Queries" (2024) | Weighted preference aggregation using social choice principles improves demographic representation | Strong |
+| Step3 → Outcome | HELM Framework (2026) | Gini coefficient validated as reliable metric for LLM fairness measurement; GPT-4 Gini=0.73 vs CF=0.58 | Medium |
+
+**Key Tension:**
+- **Tension:** "Efficient Shapley FL" demonstrates computational overhead of 10-20% is acceptable for fairness benefits, but "HELM Framework" shows that more capable LLMs (GPT-4) have higher Gini (0.73 vs 0.58 for simpler models), suggesting a potential fairness-capability tradeoff.
+- **Resolution:** This verification plan explicitly tests whether SW-DPO can break this tradeoff by maintaining ≥95% alignment quality while achieving ≥20% Gini reduction, measured on the same model architecture to isolate the effect of the Shapley weighting mechanism.
+
+### 1.4 Key Assumptions
+
+| # | Assumption | Supporting Evidence | Consequence if Violated |
+|---|------------|---------------------|------------------------|
+| A1 | Demographic groups are identifiable in training preference data | Anthropic HH-RLHF and OpenAI preference datasets include demographic metadata | Cannot compute group-specific Shapley values; fall back to unsupervised clustering or synthetic demographic augmentation |
+| A2 | Group-specific preferences are sufficiently distinct to yield non-trivial Shapley contributions | "Fairness in Preference Queries" (2024) shows preference divergence across demographic groups | Uniform Shapley weights across all groups; no reweighting benefit; mechanism provides no improvement over baseline |
+| A3 | Gradient-based Shapley approximation maintains theoretical fairness guarantees | "Efficient Shapley FL" (2024) demonstrates preserved axiom properties under Monte Carlo approximation | Theoretical claims about axiomatic fairness invalidated; need exact computation or stronger approximation bounds |
+| A4 | Fairness improvements in reward model transfer to aligned policy behavior | Safe RLHF (2023) shows reward-level constraints propagate to policy outputs | Fair reward model but unfair policy outputs; need additional policy-level fairness constraints |
+
+### 1.5 Scope & Boundaries
+
+**Applies to:**
+- LLM alignment tasks with demographic-labeled preference data (e.g., RLHF, DPO training)
+- Recommender systems with user group metadata
+- Any preference learning task where group fairness is desired
+- Datasets with ≥1000 preference pairs per demographic group
+
+**Does NOT apply to:**
+- Settings without any group/demographic information
+- Real-time inference requiring demographic labels (SW-DPO is training-time only)
+- Very small datasets (<1000 preference pairs) where Shapley estimation is unreliable
+- Single-user personalization (no group structure)
+
+**Known Limitations:**
+- Requires periodic Shapley recomputation during training (amortized cost)
+- Hierarchical grouping design is manual and domain-dependent
+- Does not address fairness in generated content, only in preference learning
+- Intersectional group explosion limited to ≤64 groups via hierarchical strategy
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1 (Demographic Disparity Reduction):**
+SW-DPO will reduce Gini coefficient by ≥20% relative to standard DPO baseline.
+
+*Measurement:*
+- Metric: Gini(SW-DPO) / Gini(DPO) ≤ 0.80
+- Statistical test: Paired t-test with p < 0.05, Cohen's d > 0.5
+- Sample size: n ≥ 20 runs (5 random seeds × 4 demographic configurations)
+
+*Success Criteria:* Gini reduction ≥20% with statistical significance
+*Falsification Criteria:* Gini reduction <10% (no meaningful improvement)
+
+**Secondary Predictions:**
+
+**P2 (Alignment Quality Maintenance):**
+SW-DPO will maintain overall alignment quality within 5% of standard DPO.
+- *Measurement:* Accuracy(SW-DPO) / Accuracy(DPO) ≥ 0.95
+- *Falsification:* Accuracy drop >10% vs DPO baseline
+
+**P3 (Computational Efficiency):**
+Gradient-based Shapley approximation overhead will be ≤20% of training time.
+- *Measurement:* (Time_SW-DPO - Time_DPO) / Time_DPO ≤ 0.20
+- *Falsification:* Overhead >50% makes method impractical
+
+**Falsification Criteria:**
+The hypothesis will be **REJECTED** if any of the following occur:
+
+1. **Primary Failure:** Gini coefficient reduction <10% (no meaningful fairness improvement)
+2. **Accuracy Failure:** Alignment accuracy drop >10% compared to standard DPO baseline
+3. **Mechanism Failure:** Shapley weights are uniform across all groups (no group differentiation detected), indicating mechanism is not operating as proposed
+
+### 1.7 SOTA Baseline (Optional - If SOTA Comparison Mode)
+
+*Not applicable - This hypothesis targets fairness improvement, not SOTA performance ranking.*
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size target: Cohen's d ≥ 0.5 (medium effect)
+- Required runs: n ≥ 20 (5 random seeds × 4 demographic configurations)
+- Statistical power: 0.8
+
+**Test Specification:**
+- Method: Paired t-test (same random seeds for SW-DPO vs DPO)
+- Significance level: α = 0.05 (two-tailed for primary, one-tailed for secondary)
+- Multiple comparison correction: Bonferroni for 3 predictions (α_adj = 0.017)
+
+**Report Format:**
+- Mean difference with 95% confidence interval
+- Cohen's d effect size
+- p-value with correction
+- Gini coefficient distributions (box plots)
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does Shapley-weighted DPO training reduce demographic disparity (Gini coefficient) by ≥20% compared to standard DPO under the condition of demographic-labeled preference datasets?"
+- Maps to: Primary prediction (P1)
+- Verification type: Empirical measurement
+- Critical: MUST PASS for hypothesis validation; failure terminates verification
+
+**SH2 (Mechanism):**
+"Is the Shapley value-based contribution measurement and loss reweighting the actual cause of demographic disparity reduction?"
+- Maps to: Causal mechanism (3 steps)
+- Phase 2B will decompose into 3 sub-hypotheses:
+  - H-M1: Shapley computation correctly identifies underrepresented groups
+  - H-M2: Loss reweighting proportionally increases underrepresented group influence
+  - H-M3: Reweighted training produces lower Gini coefficient in reward model
+- Verification type: Ablation studies and causal analysis
+- Critical: Determines explanatory power of proposed mechanism
+
+**SH3 (Comparison):**
+"Does SW-DPO outperform FARO (constraint-based) and GRPO (robust optimization) in the fairness-accuracy tradeoff while maintaining comparable overall alignment quality?"
+- Maps to: Secondary predictions (P2, P3)
+- Verification type: Comparative empirical evaluation
+- Critical: Determines practical value vs. existing approaches
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-SW-DPO-v1
+- [x] Confidence level specified: 0.82
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (3 steps, evidence table included)
+- [x] Causal chain length (N=3) determined and stored
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated (4 assumptions)
+- [x] At least 2 testable predictions exist with primary marked (3 predictions)
+- [x] Falsification criteria are defined (3 criteria)
+- [x] Baselines are identified for comparison (FARO, GRPO, standard DPO)
+- [x] SH1, SH2, SH3 are clear starting points for Phase 2B
+
+**Checklist Status: 13/13 PASS ✓**
+
+### Open Questions
+
+1. **Data Availability:** Which preference datasets have sufficient demographic metadata for controlled experiments? Anthropic HH-RLHF includes some demographics; OpenAI datasets need verification. May require synthetic demographic augmentation for fully controlled experiments across all intersectional groups.
+
+2. **Computational Resources:** What is the actual computational overhead of gradient-based Shapley approximation when integrated with TRL DPOTrainer on 7B+ parameter models? Needs empirical measurement to validate the ≤20% overhead assumption before full experiment execution.
+
+3. **Priority Verification Order:** Recommended sequence: SH1 (Existence) first as go/no-go gate → SH2 (Mechanism) with systematic ablations → SH3 (Comparison) with FARO/GRPO baselines. SH1 failure would terminate the verification early, saving resources.
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

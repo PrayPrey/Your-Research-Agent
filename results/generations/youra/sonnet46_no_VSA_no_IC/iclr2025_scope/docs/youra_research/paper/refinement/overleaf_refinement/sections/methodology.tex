@@ -1,0 +1,73 @@
+
+\subsubsection{3.1 Overview}
+
+The pipeline has three stages:
+
+\begin{enumerate}
+\item \textbf{Entropy Scoring:} Compute per-layer attention entropy for all 32 layers over 100 calibration sequences.
+\item \textbf{Layer Selection:} Rank layers by entropy; select the top-k (k = 4) highest-entropy layers as SWA candidates.
+\item \textbf{SWA Conversion:} Monkey-patch selected layers with a sliding window attention mask; evaluate without fine-tuning.
+\end{enumerate}
+
+\subsubsection{3.2 Per-Layer Attention Entropy Scoring}
+
+\textbf{Entropy formula.} For each input sequence and each transformer layer, the full attention weight tensor A $\in \mathbb{R}^{h \times T \times T}$ (h heads, sequence length T) is extracted via \texttt{output\textbackslash \_attentions=True} (requires \texttt{attn\textbackslash \_implementation=''eager''} for Llama-2-7B). Per-head entropy at each query position is:
+
+\begin{verbatim}
+H_head(head, query_pos) = -∑_{key_pos} A[head, query_pos, key_pos] · log(A[head, query_pos, key_pos] + 1e-9)
+\end{verbatim}
+
+Per-layer entropy is:
+
+\begin{verbatim}
+H_layer = mean over heads (mean over query positions (H_head))
+\end{verbatim}
+
+\textbf{Why head-mean pooling?} Head-mean pooling captures the layer-level average behavior across all heads. Head-max pooling reports the single highest-entropy head in the layer, dominated by individual outlier heads. The h-e1 experiment confirmed that head-mean yields Gini = 0.681 while head-max yields Gini = 0.466 --- a 32\% relative reduction --- demonstrating that head-mean captures a more stable, layer-representative signal.
+
+\textbf{Calibration set.} We use the WikiText-103 validation split (wikitext-103-raw-v1). Sequences are tokenized with the Llama-2-7B BPE tokenizer and chunked into contiguous non-overlapping segments of 512 tokens. The calibration set uses n = 100 sequences (indices 0--99); the calibration completed after processing 63 sequences before the termination condition was met.
+
+\textbf{Stability validation.} Ranking stability is assessed via Spearman rank correlation $\rho$ between per-layer entropy vectors from different calibration subsets. Gate criterion: minimum $\rho \geq$ 0.8 across all subset pairs.
+
+\subsubsection{3.3 Layer Selection}
+
+Given per-layer entropy scores H $\in \mathbb{R}^{32}$, the k layers with highest entropy are selected:
+
+\begin{verbatim}
+selected_layers = argsort(H, descending=True)[:k]
+\end{verbatim}
+
+High entropy indicates diffuse attention --- the layer distributes weight broadly across many tokens without sharp long-range retrieval. These layers are hypothesized to be amenable to SWA replacement because constraining them to a local window removes behavior they were not strongly exploiting.
+
+In h-e2, k = 4 was used. The selected layers were indices [0, 1, 31, 10], with entropy scores of 3.201, 2.972, 1.770, and 1.687 respectively. Layers 0 and 1 (early depth) had substantially higher entropy than all remaining layers. Layer 31 (final depth) and layer 10 (mid depth) were also included. The depth distribution of the selected layers was: 2 early (indices 0--7), 1 mid (indices 8--23), 1 late (indices 24--31).
+
+\subsubsection{3.4 SWA Conversion Implementation}
+
+For each selected layer, the forward method of the self-attention module is replaced (monkey-patched) with a version that injects an additive sliding window causal mask before the softmax:
+
+\begin{verbatim}
+def make_sliding_window_causal_mask(seq_len, window_size, dtype, device):
+    idx = torch.arange(seq_len, device=device)
+    row = idx.unsqueeze(1)  # (seq_len, 1)
+    col = idx.unsqueeze(0)  # (1, seq_len)
+    attend = (col <= row) & (col >= row - window_size + 1)
+    mask = torch.where(attend,
+                       torch.zeros(1, dtype=dtype, device=device),
+                       torch.full((1,), float("-inf"), dtype=dtype, device=device))
+    return mask  # (seq_len, seq_len)
+\end{verbatim}
+
+The mask is constructed fresh each forward call and injected as \texttt{attention\textbackslash \_mask}. The additive float (0.0 / $-\infty )$ format is compatible with HuggingFace Llama-2-7B's eager attention implementation.
+
+\textbf{Window size.} w = 512 tokens. This was chosen to match the evaluation stride (stride = 512), ensuring the SWA window covers the full evaluation context for each token position in the stride-based perplexity computation.
+
+\textbf{Guard against double-patching.} A \texttt{\_swa\textbackslash \_patched} attribute is set on the attention module after patching; subsequent calls skip re-patching.
+
+\subsubsection{3.5 Implementation Details}
+
+\begin{itemize}
+\item \textbf{Model:} \texttt{meta-llama/Llama-2-7b-hf}, 7B parameters, 32 transformer layers, 32 attention heads per layer, head dimension 128, RoPE position encoding, standard multi-head full attention (no GQA). Loaded with \texttt{attn\textbackslash \_implementation=''eager''}, \texttt{torch\textbackslash \_dtype=bfloat16}, \texttt{device\textbackslash \_map=''auto''}.
+\item \textbf{Hardware:} Single NVIDIA GPU. Calibration and evaluation run in sequence on one device.
+\item \textbf{Perplexity evaluation:} WikiText-103 test split (1,285,113 characters), tokenized, evaluated with stride = 512 and max\_length = 4,096. Perplexity computed as exp(mean NLL) over 657 evaluated chunks, covering 339,871 total tokens.
+\end{itemize}
+

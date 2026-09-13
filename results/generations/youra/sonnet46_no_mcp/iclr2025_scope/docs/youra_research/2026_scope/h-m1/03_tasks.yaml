@@ -1,0 +1,573 @@
+version: "1.1"
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_id_upper: H-M1
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-05-04T09:35:00Z"
+  source_documents:
+    - 03_prd.md
+    - 03_architecture.md
+    - 03_logic.md
+    - 03_config.md
+  budget_rebalancing:
+    applied: true
+    excluded_count: 1
+    excluded_ids:
+      - C-8-1
+    reason: "Budget rebalancing — lowest parent complexity (A-8: 12)"
+
+tasks:
+  # ── Environment Setup ────────────────────────────────────────────────────────
+  - id: task-001
+    epic: Environment Setup
+    title: Setup development environment
+    description: |
+      Install required packages:
+        torch>=2.0, transformers>=4.35, peft>=0.6, datasets>=2.14,
+        scipy>=1.10, numpy>=1.24, matplotlib>=3.7, pandas>=2.0,
+        tqdm>=4.65
+
+      External repositories for reference:
+        - THUDM/LongBench: https://github.com/THUDM/LongBench
+        - FMInference/H2O: https://github.com/FMInference/H2O
+
+      Also verify h-e1/code/ is accessible at:
+        docs/youra_research/20260504_scope/h-e1/code/
+      (Required for sys.path injection in h-m1/code/model.py)
+    feature_tag: setup
+    priority: 99
+    source_document: 03_prd.md
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      prd: "03_prd.md#7-dependencies"
+
+  # ── Epic Tasks ───────────────────────────────────────────────────────────────
+  - id: task-002
+    epic: A-1
+    title: Config Setup
+    description: >
+      Implement h-m1/code/config.py with InferenceConfig, ExperimentConfig,
+      get_experiment_config(), validate_config(). Define LONGBENCH_TASKS list
+      (21 tasks) and LONGBENCH_CATEGORIES mapping (6 categories).
+      Reuse LoRAConfig/TrainingConfig from h-e1/code/config.py for adapter loading.
+    feature_tag: implementation
+    priority: 93
+    source_document: 03_architecture.md
+    complexity: 7
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_config.py
+      - Test get_experiment_config() returns 4 InferenceConfig instances
+      - Test validate_config() rejects invalid condition strings
+      - Test LONGBENCH_CATEGORIES covers all 21 tasks
+    reference_files:
+      architecture: "03_architecture.md#A-1"
+      config: "03_config.md#H-M1-New-Configurations"
+
+  - id: task-003
+    epic: A-2
+    title: LongBench Data Loader
+    description: >
+      Implement h-m1/code/data.py with LongBenchDataLoader.
+      Load all 21 LongBench tasks via load_dataset("THUDM/LongBench", task_name, split="test").
+      Aggregate samples per category (6 categories) until min_samples_per_category=500.
+      Apply middle truncation: keep first 1000 + last 3000 tokens up to max_seq_length=4096.
+      Batch size=1 (required for long sequences with output_attentions=True).
+    feature_tag: data-pipeline
+    priority: 92
+    source_document: 03_architecture.md
+    complexity: 13
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_data.py
+      - Test tokenization with mock tokenizer returns correct shape [1, <=4096]
+      - Test middle truncation logic on synthetic long sequence
+      - Test category aggregation stops at min_samples
+    reference_files:
+      architecture: "03_architecture.md#A-2"
+      config: "03_config.md#A-2-LongBench-Data-Loader"
+
+  - id: task-004
+    epic: A-3
+    title: Adapter Model Loading
+    description: >
+      Implement load_adapter_model() and set_h2o_training_mode() in h-m1/code/model.py.
+      Use sys.path injection to import from h-e1/code/model.py:
+        load_base_model, inject_h2o_wrappers, H2OEvictionAwareAttention.
+      CRITICAL: H2OEvictionAwareAttention.forward() skips eviction when not self.training.
+      set_h2o_training_mode() toggles only H2OEvictionAwareAttention submodules to
+      train/eval mode to activate/deactivate inference-time eviction masking.
+    feature_tag: model
+    priority: 91
+    source_document: 03_architecture.md
+    complexity: 16
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_model.py
+      - Test set_h2o_training_mode toggles only H2OEvictionAwareAttention modules
+      - Test load_adapter_model raises FileNotFoundError on missing checkpoint
+      - Test eviction-aware condition calls inject_h2o_wrappers
+    reference_files:
+      architecture: "03_architecture.md#A-3"
+      logic: "03_logic.md#A-3-Adapter-Model-Loading"
+
+  - id: task-005
+    epic: A-4
+    title: Attention Extraction
+    description: >
+      Implement AttentionAnalysisExtractor class in h-m1/code/model.py with:
+        - extract_metrics(input_ids, attention_mask): toggles H2O to train mode,
+          runs model with output_attentions=True under torch.no_grad(), restores eval.
+        - compute_entropy(attn_weights): H = -sum(p * log(p+eps)) over key dim,
+          averaged over heads and query positions. Returns scalar (nats).
+        - compute_hh_concentration(attn_weights, top_ratio=0.2): top-k attention mass ratio.
+        - verify_attention_extraction(): smoke test shape/softmax checks.
+    feature_tag: model
+    priority: 90
+    source_document: 03_architecture.md
+    complexity: 15
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_extraction.py
+      - Test compute_entropy on uniform attention returns log(S) nats
+      - Test compute_hh_concentration on concentrated attention returns ~1.0
+      - Test verify_attention_extraction smoke test passes on tiny model
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4-Attention-Extraction"
+
+  - id: task-006
+    epic: A-5
+    title: Metrics Aggregation
+    description: >
+      Implement h-m1/code/analyze.py with MetricsAggregator:
+        - add_sample(condition, entropy_per_layer, hh_per_layer, task, category)
+        - get_layer_metrics(): returns List[LayerMetrics] with paired arrays per layer
+        - save(path) / load(path): JSON serialization of accumulated metrics
+      Also implement LayerMetrics and StatisticalResult dataclasses.
+    feature_tag: evaluation
+    priority: 89
+    source_document: 03_architecture.md
+    complexity: 12
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_analyze.py
+      - Test add_sample accumulates correctly for both conditions
+      - Test get_layer_metrics returns paired arrays of equal length
+      - Test save/load round-trips without data loss
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      config: "03_config.md#A-5-Metrics-Aggregation"
+
+  - id: task-007
+    epic: A-6
+    title: Statistical Analysis
+    description: >
+      Implement StatisticalAnalyzer in h-m1/code/analyze.py:
+        - run_analysis(layer_metrics): per-layer paired t-test (scipy.stats.ttest_rel)
+          on entropy and HH concentration. Returns List[StatisticalResult].
+        - compute_gate_result(results, gate_layer_fraction=0.5): fraction of layers
+          with entropy p < 0.05; gate passes if >= gate_layer_fraction.
+        - summarize(results): print/log per-layer p-values and gate outcome.
+    feature_tag: evaluation
+    priority: 88
+    source_document: 03_architecture.md
+    complexity: 14
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_statistics.py
+      - Test ttest_rel on identical arrays returns p=1.0
+      - Test gate passes when >50% layers have p<0.05
+      - Test gate fails when <50% layers significant
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: "03_logic.md#A-6-Statistical-Analysis"
+
+  - id: task-008
+    epic: A-7
+    title: Evaluation Runner
+    description: >
+      Implement h-m1/code/evaluate.py with:
+        - run_inference_condition(extractor, dataloader, aggregator, condition, device):
+          iterate LongBench samples, extract per-layer metrics, feed aggregator.
+          Stop per category at min_samples_per_category=500.
+        - collect_layer_metrics(baseline_cfg, proposed_cfg, exp_cfg): sequential model
+          loading (delete + cuda.empty_cache() between models to avoid OOM on single GPU).
+        - run_evaluation(exp_cfg): orchestrate full pipeline, return StatisticalResult list.
+    feature_tag: evaluation
+    priority: 87
+    source_document: 03_architecture.md
+    complexity: 15
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_evaluate.py
+      - Test run_inference_condition stops at min_samples per category
+      - Test collect_layer_metrics calls model deletion between conditions
+      - Test run_evaluation returns non-empty results list
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#A-7-Evaluation-Runner"
+
+  - id: task-009
+    epic: A-8
+    title: Visualization
+    description: >
+      Implement h-m1/code/visualize.py with 5 figures saved to h-m1/figures/:
+        1. plot_gate_summary(): bar chart — % layers with p<0.05 per model (MANDATORY gate figure)
+        2. plot_entropy_per_layer(): line plot with SE — entropy per layer (0-31) for both conditions
+        3. plot_hh_concentration(): line plot — HH concentration ratio per layer, asterisks at p<0.05
+        4. plot_pvalue_heatmap(): layer × metric heatmap of -log10(p-value)
+        5. plot_entropy_by_category(): box plot — entropy distribution across 6 LongBench categories
+    feature_tag: evaluation
+    priority: 86
+    source_document: 03_architecture.md
+    complexity: 12
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_visualize.py
+      - Test each plot function runs without error on synthetic data
+      - Test output files are created in figures_dir
+    reference_files:
+      architecture: "03_architecture.md#A-8"
+
+  - id: task-010
+    epic: A-9
+    title: Run Experiment Entry Point
+    description: >
+      Implement h-m1/code/run_experiment.py with main():
+        - Argument parsing: --smoke-test, --model (llama2|mistral|both), --output-dir
+        - CUDA_VISIBLE_DEVICES setup (single GPU, lowest memory usage)
+        - Load ExperimentConfig, validate, run smoke test if --smoke-test flag
+        - Call run_evaluation(), run_analysis(), generate all figures
+        - Save results to JSON summary at results_dir/experiment_results.json
+    feature_tag: experiment
+    priority: 85
+    source_document: 03_architecture.md
+    complexity: 9
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_run.py
+      - Test --smoke-test flag runs without error on mock model
+      - Test results JSON is written with required fields
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+
+  - id: task-011
+    epic: A-10
+    title: Unit Tests
+    description: >
+      Implement comprehensive unit test suite in h-m1/code/tests/:
+        - test_config.py: config validation, get_experiment_config()
+        - test_data.py: LongBenchDataLoader tokenization and truncation
+        - test_extraction.py: entropy/HH computation correctness
+        - test_statistics.py: paired t-test and gate logic
+        - test_evaluate.py: evaluation pipeline integration
+        - test_visualize.py: figure generation
+      All tests runnable with pytest. Minimum 3 real assertions per test method.
+    feature_tag: testing
+    priority: 84
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: "This task IS the test implementation."
+    reference_files:
+      architecture: "03_architecture.md#A-10"
+
+  # ── Logic Subtasks ───────────────────────────────────────────────────────────
+  - id: task-012
+    epic: A-3
+    title: "L-3-1: sys.path injection"
+    description: >
+      Insert h-e1/code to sys.path at top of h-m1/code/model.py.
+      Import H2OEvictionAwareAttention, load_base_model, inject_h2o_wrappers from h-e1/code/model.py.
+    feature_tag: model
+    priority: 48
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_model.py (task-004 tests)."
+    reference_files:
+      logic: "03_logic.md#L-3-1"
+
+  - id: task-013
+    epic: A-3
+    title: "L-3-2: load_adapter_model implementation"
+    description: >
+      Implement load_adapter_model(model_name, adapter_checkpoint, condition, kv_budget_ratio, fp16):
+        load_base_model + inject_h2o_wrappers (if eviction-aware) + PeftModel.from_pretrained + model.eval()
+    feature_tag: model
+    priority: 47
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_model.py."
+    reference_files:
+      logic: "03_logic.md#L-3-2"
+
+  - id: task-014
+    epic: A-3
+    title: "L-3-3: set_h2o_training_mode"
+    description: >
+      Implement set_h2o_training_mode(model, train_mode): iterate model.modules(),
+      find H2OEvictionAwareAttention instances, call .train() or .eval() selectively.
+      Activates inference-time eviction masking without affecting BatchNorm/Dropout.
+    feature_tag: model
+    priority: 46
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_model.py."
+    reference_files:
+      logic: "03_logic.md#L-3-3"
+
+  - id: task-015
+    epic: A-3
+    title: "L-3-4: checkpoint fallback"
+    description: >
+      If adapter_checkpoint path does not exist, raise FileNotFoundError with descriptive message
+      including expected path and suggestion to run H-E1 first.
+    feature_tag: model
+    priority: 45
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_model.py."
+    reference_files:
+      logic: "03_logic.md#L-3-4"
+
+  - id: task-016
+    epic: A-4
+    title: "L-4-1: extract_metrics"
+    description: >
+      Implement AttentionAnalysisExtractor.extract_metrics(input_ids, attention_mask):
+        toggle H2O to train mode → model(output_attentions=True) under no_grad →
+        restore eval → compute entropy+HH per layer from outputs.attentions tuple.
+    feature_tag: model
+    priority: 44
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_extraction.py."
+    reference_files:
+      logic: "03_logic.md#L-4-1"
+
+  - id: task-017
+    epic: A-4
+    title: "L-4-2: compute_entropy"
+    description: >
+      Implement compute_entropy(attn_weights, eps=1e-9):
+        H = -(attn_weights * (attn_weights + eps).log()).sum(dim=-1).mean().item()
+        attn_weights: [B, H, S, S] → scalar (nats)
+    feature_tag: model
+    priority: 43
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_extraction.py."
+    reference_files:
+      logic: "03_logic.md#L-4-2"
+
+  - id: task-018
+    epic: A-4
+    title: "L-4-3: compute_hh_concentration"
+    description: >
+      Implement compute_hh_concentration(attn_weights, top_ratio=0.2):
+        k = max(1, int(S * top_ratio))
+        topk on key dim → sum / total → mean over B, H, S_q → scalar
+    feature_tag: model
+    priority: 42
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_extraction.py."
+    reference_files:
+      logic: "03_logic.md#L-4-3"
+
+  - id: task-019
+    epic: A-4
+    title: "L-4-4: verify_attention_extraction smoke test"
+    description: >
+      Implement verify_attention_extraction(tokenizer, device, max_length=512):
+        short input, assert outputs.attentions is not None,
+        assert len(attentions) == num_hidden_layers,
+        assert shape == (1, num_heads, S, S),
+        assert row_sums ≈ 1 (atol=1e-3).
+    feature_tag: model
+    priority: 41
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_extraction.py."
+    reference_files:
+      logic: "03_logic.md#L-4-4"
+
+  - id: task-020
+    epic: A-7
+    title: "L-7-1: run_inference_condition"
+    description: >
+      Implement run_inference_condition(extractor, dataloader, aggregator, condition, device, min_samples_per_category=500):
+        iterate LongBench samples with per-category counter; stop category at min_samples;
+        call extractor.extract_metrics() per sample; feed aggregator.add_sample().
+    feature_tag: evaluation
+    priority: 40
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_evaluate.py."
+    reference_files:
+      logic: "03_logic.md#L-7-1"
+
+  - id: task-021
+    epic: A-7
+    title: "L-7-2: collect_layer_metrics sequential loading"
+    description: >
+      Implement collect_layer_metrics(baseline_cfg, proposed_cfg, exp_cfg):
+        load baseline model → run_inference_condition → del model + cuda.empty_cache()
+        → load proposed model → run_inference_condition → del model + cuda.empty_cache()
+        Returns MetricsAggregator with both conditions accumulated.
+    feature_tag: evaluation
+    priority: 39
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_evaluate.py."
+    reference_files:
+      logic: "03_logic.md#L-7-2"
+
+  - id: task-022
+    epic: A-7
+    title: "L-7-3: run_evaluation pipeline"
+    description: >
+      Implement run_evaluation(exp_cfg): iterate over model pairs (llama2+mistral);
+        for each pair call collect_layer_metrics; save aggregated metrics to results_dir.
+        Return dict mapping model_name → List[StatisticalResult].
+    feature_tag: evaluation
+    priority: 38
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_evaluate.py."
+    reference_files:
+      logic: "03_logic.md#L-7-3"
+
+  - id: task-023
+    epic: A-7
+    title: "L-7-4: OOM guard and progress logging"
+    description: >
+      Add tqdm progress bar over LongBench samples per condition.
+      Add per-category sample count logging.
+      Add try/except RuntimeError (CUDA OOM) with message to reduce batch size or sequence length.
+    feature_tag: evaluation
+    priority: 37
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_evaluate.py."
+    reference_files:
+      logic: "03_logic.md#L-7-4"
+
+  - id: task-024
+    epic: A-6
+    title: "L-6-1: run_analysis (paired t-test per layer)"
+    description: >
+      Implement StatisticalAnalyzer.run_analysis(layer_metrics):
+        for each LayerMetrics: ttest_rel(proposed_entropy, baseline_entropy) and
+        ttest_rel(proposed_hh, baseline_hh). Return List[StatisticalResult].
+    feature_tag: evaluation
+    priority: 36
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_statistics.py."
+    reference_files:
+      logic: "03_logic.md#L-6-1"
+
+  - id: task-025
+    epic: A-6
+    title: "L-6-2: compute_gate_result"
+    description: >
+      Implement compute_gate_result(results, gate_layer_fraction=0.5, significance_threshold=0.05):
+        fraction = sum(r.entropy_pvalue < significance_threshold for r in results) / len(results)
+        gate_passed = fraction >= gate_layer_fraction
+        Return (gate_passed, fraction, significant_layers_count)
+    feature_tag: evaluation
+    priority: 35
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_statistics.py."
+    reference_files:
+      logic: "03_logic.md#L-6-2"
+
+  - id: task-026
+    epic: A-6
+    title: "L-6-3: MetricsAggregator.get_layer_metrics bridge"
+    description: >
+      Implement MetricsAggregator.get_layer_metrics():
+        reformat per-sample accumulators (dict keyed by condition and layer_idx)
+        into List[LayerMetrics] with paired baseline/proposed arrays per layer.
+        Validates that both conditions have equal sample counts per layer.
+    feature_tag: evaluation
+    priority: 34
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: "Covered by test_analyze.py."
+    reference_files:
+      logic: "03_logic.md#L-6-3"
+
+  # ── Config Subtasks ──────────────────────────────────────────────────────────
+  - id: task-027
+    epic: A-2
+    title: "C-2-1: Task Loading"
+    description: >
+      Implement LongBenchDataLoader.load_task(task_name): load via
+      load_dataset("THUDM/LongBench", task_name, split="test").
+      Category mapping via LONGBENCH_CATEGORIES dict.
+      Aggregate across tasks within category until min_samples_per_category reached.
+    feature_tag: data-pipeline
+    priority: 33
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: "Covered by test_data.py."
+    reference_files:
+      config: "03_config.md#C-2-1"
+
+  - id: task-028
+    epic: A-2
+    title: "C-2-2: Tokenization + Middle Truncation"
+    description: >
+      Implement tokenize_sample(text, tokenizer, max_seq_length=4096):
+        if len(tokens) > max_seq_length: keep first 1000 + last 3000 tokens.
+        Return dict with input_ids [1, S] and attention_mask [1, S] (batch_size=1).
+    feature_tag: data-pipeline
+    priority: 32
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: "Covered by test_data.py."
+    reference_files:
+      config: "03_config.md#C-2-2"
+
+  - id: task-029
+    epic: A-5
+    title: "C-5-1: MetricsAggregator + Serialization"
+    description: >
+      Implement MetricsAggregator with:
+        add_sample(condition, entropy_per_layer, hh_per_layer, task, category)
+        save(path): JSON serialization of accumulated lists
+        load(path): restore from JSON
+      Internal storage: defaultdict(list) keyed by (condition, layer_idx).
+    feature_tag: evaluation
+    priority: 31
+    source_document: 03_config.md
+    complexity: null
+    test_requirements: "Covered by test_analyze.py."
+    reference_files:
+      config: "03_config.md#C-5-1"
+
+  # ── Failsafe ─────────────────────────────────────────────────────────────────
+  - id: task-030
+    epic: Pipeline Management
+    title: Pipeline Continuation Checkpoint
+    description: "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK"
+    feature_tag: pipeline-continue
+    priority: 1
+    source_document: system
+    complexity: null
+    test_requirements: "Failsafe task does not require tests."
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 18
+  failsafe: 1
+  total: 30
+  excluded_subtasks: 1
+  note: "C-8-1 (visualization figure subtask) excluded for budget rebalancing"

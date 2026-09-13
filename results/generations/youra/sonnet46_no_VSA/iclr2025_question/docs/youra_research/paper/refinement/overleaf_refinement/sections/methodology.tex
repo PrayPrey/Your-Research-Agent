@@ -1,0 +1,35 @@
+
+\subsubsection{3.1 Signal Definitions}
+
+\textbf{Semantic Entropy (SE\_N5).} Following Kuhn et al. (2023), Semantic Entropy is defined as:
+
+$$\text{SE} = H(p(C|x)) = -\sum_{C \in \mathcal{C}} p(C|x) \log p(C|x)$$
+
+where $p(C|x) = \sum_{s \in C} p(s|x)$ aggregates the token-probability mass of all N=5 stochastic samples within each NLI-defined semantic cluster $C$. Clusters are formed by bidirectional NLI entailment using \texttt{cross-encoder/nli-deberta-v3-small}. SE operates over N=5 stochastic samples (temperature=0.7, top-p=0.95), aggregating uncertainty at the semantic, sentence level. It does not depend on token-level probabilities from the greedy decode path.
+
+\textbf{Minimum Log-Probability (min\_logprob).}
+
+$$\text{min\_logprob} = \min_{t \in [1,T]} \log p(w_t | w_{<t}, x)$$
+
+where the minimum is taken over all tokens in the greedy decode output of length $T$. min\_logprob captures the ''weakest link'' in the model's token-level confidence chain and is computed from a single greedy decoding pass separate from the N=5 stochastic sampling passes used for SE.
+
+\textbf{Algebraic Distinctness.} The near-orthogonality claim follows from: (a) SE aggregates over the semantic clustering distribution of N stochastic outputs; min\_logprob aggregates as the minimum over a greedy-path token sequence; (b) SE is computed on stochastic samples (temperature > 0); min\_logprob on the greedy decode (temperature = 0). The operations are not mathematically reducible to each other.
+
+\subsubsection{3.2 Independence Test Protocol}
+
+\textbf{Gate 1 --- Pearson Correlation Test.} Pre-registered threshold: PASS if |r| < 0.70; ABANDON if |r| > 0.85 (SE is a reparameterization of min\_logprob); EXPLORE if 0.70 $\leq$ |r| $\leq$ 0.85.
+
+\textbf{Gate 2 --- Conditional Logistic Regression (Partial $R^{2})$.} The following model is fit:
+
+$$\text{logit}(h=1) \sim \beta_0 + \beta_1 \cdot \text{min\_logprob} + \beta_2 \cdot \text{SE} + \beta_3 \cdot L + \beta_4 \cdot (\text{SE} \times \text{min\_logprob})$$
+
+Partial $R^{2}(SE)$ = McFadden $R^{2}(full) -$ McFadden $R^{2}(reduced$ without SE), tested via LRT (2 df). PASS if partial $R^2 \geq$ 0.02 AND LRT p < 0.05.
+
+\subsubsection{3.3 Circularity Control Design}
+
+A cross-model LM-judge (Qwen-2.5-7B-Instruct evaluating Llama-3.1-8B-Instruct outputs) prevents shared model-specific NLI biases from creating circular agreement between SE and judge labels. Circularity diagnostic: Spearman $\rho$(SE, judge\_correctness); threshold: |$\rho$| < 0.40.
+
+\subsubsection{3.4 Implementation}
+
+Six modules compose the pipeline: \texttt{config.py} (hyperparameters), \texttt{generate.py} (checkpoint-aware stochastic and greedy generation), \texttt{compute\textbackslash \_signals.py} (SE\_N5 and min\_logprob), \texttt{judge.py} (Qwen-2.5-7B LM-judge), \texttt{stats\textbackslash \_analysis.py} (Pearson r, conditional LR, partial $R^2$, gate evaluation), \texttt{visualize.py} (four figures). The checkpoint-aware pipeline saves signals to \texttt{results/signals.pkl}. GPU memory is managed explicitly between generator and judge loads.
+

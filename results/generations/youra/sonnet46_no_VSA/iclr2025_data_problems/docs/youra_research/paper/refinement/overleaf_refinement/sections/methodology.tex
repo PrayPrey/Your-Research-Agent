@@ -1,0 +1,37 @@
+
+\subsubsection{3.1 Overview}
+
+CCNet's per-language KenLM models produce structurally incomparable perplexity scales across language families. We design a measurement methodology to quantify the language-group retention disparity produced by the practitioner-common operation of applying a single global k-th percentile threshold to pre-computed ccnet\_perplexity scores across all languages simultaneously.
+
+The approach simulates the filtering operation directly on the pre-computed quality signal metadata from RedPajama-V2, without requiring access to the original document text, LM retraining, or GPU infrastructure. This design captures exactly what practitioners experience when applying this filter.
+
+\subsubsection{3.2 Dataset and Quality Signal}
+
+We analyze the \texttt{ccnet\textbackslash \_perplexity} field from the RedPajama-V2 quality signal metadata for a stratified subsample of 208,262 documents spanning five languages: English (en), German (de), French (fr), Spanish (es), and Italian (it). The \texttt{ccnet\textbackslash \_perplexity} field contains perplexity scores computed using CCNet's pipeline: per-language KenLM n-gram models trained on language-specific Wikipedia, applied to CommonCrawl web documents after language identification. Documents were loaded from the HuggingFace Arrow IPC cache (datasets v2.20.0) and stratified by language (random state = 42). The NaN rate across all language groups is below 0.01\%.
+
+The perplexity distributions across languages show structurally divergent shapes (Figure 3). Germanic languages cluster at lower absolute perplexity values than Romance languages, consistent with the mechanism that larger, more formal Germanic-language Wikipedias produce KenLM models that assign lower perplexity to Germanic web text.
+
+\subsubsection{3.3 Global k-th Percentile Thresholding}
+
+For each threshold level k $\in$ {10, 20, 30, 40, 50}, the following filtering rule is applied:
+
+> Retain document d if ccnet\_perplexity(d) < $P_k$(all documents)
+
+where $P_k$ denotes the k-th percentile of the ccnet\_perplexity distribution computed across all documents in the sample, regardless of language. This global percentile rule is the natural simplification of CCNet's per-language design when practitioners treat the exported perplexity scores as a single distribution.
+
+\subsubsection{3.4 Measuring Language-Group Retention Disparity}
+
+For each threshold level k, a $5\times 2$ contingency table (5 languages $\times$ 2 outcomes: retained/removed) is constructed and disparity is measured using Cramér's V:
+
+> V = sqrt($\chi^2$ / (n $\times$ (min(r, c) $-$ 1)))
+
+where $\chi^2$ is the Pearson chi-square statistic, n is the total document count, r = 5 (languages, row dimension), c = 2 (retained/removed, column dimension). V ranges from 0 (no association) to 1 (perfect association), with V > 0.5 classified as ''large'' by Cohen's criteria.
+
+\subsubsection{3.5 Multiple Testing Correction}
+
+Holm-Bonferroni correction is applied across the five threshold levels (k $\in$ {10, 20, 30, 40, 50}), controlling the familywise error rate at $\alpha$ = 0.05.
+
+\subsubsection{3.6 Implementation}
+
+The pipeline is implemented in Python using pandas, scipy.stats, and statsmodels. Total runtime: approximately 35 seconds on standard CPU hardware. No GPU, model inference, or network access is required beyond initial dataset caching. Results were confirmed identical across three independent runs (V ranges from 0.4021 at k=10 to 0.5696 at k=40, declining to 0.5293 at k=50 due to Spanish saturation effects).
+

@@ -1,0 +1,360 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-05-04T09:30:00+00:00"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ── Environment Setup ──────────────────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Install Python dependencies"
+    description: |
+      Create requirements.txt with all pinned packages and install:
+        torch>=2.0.0, transformers>=4.36.0, peft>=0.7.0, datasets>=2.16.0,
+        accelerate>=0.25.0, bitsandbytes>=0.41.0, scipy>=1.11.0,
+        matplotlib>=3.7.0, seaborn>=0.12.0, tqdm>=4.65.0, pyyaml>=6.0
+      Verify imports succeed. Set CUDA_VISIBLE_DEVICES to empty GPU.
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Verify all packages importable
+      - Verify torch.cuda.is_available() returns True
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#environment-variable-handling"
+
+  # ── Epic A-1: Setup & Config ────────────────────────────────────────────────
+  - id: "task-002"
+    epic: "A-1 Setup & Config"
+    title: "Implement config.py — TrainingConfig and LoRAConfig dataclasses"
+    description: |
+      Create code/h-e1/config.py with:
+      - LoRAConfig dataclass (rank=16, alpha=32, dropout=0.05, target_modules=[q_proj,v_proj])
+      - TrainingConfig dataclass (all fields per 03_config.md)
+      - get_all_configs() returning 4 TrainingConfig instances (FR-1..FR-4)
+      - validate_config(cfg) with assertions per 03_config.md
+      Complexity: 5
+    feature_tag: "model"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 5
+    test_requirements: |
+      - Test LoRAConfig defaults
+      - Test get_all_configs() returns 4 items with correct conditions
+      - Test validate_config raises on bad inputs
+    reference_files:
+      architecture: "03_architecture.md#module-definitions"
+      logic: null
+      config: "03_config.md#full-dataclass-definitions"
+
+  # ── Epic A-2: Data Loading ──────────────────────────────────────────────────
+  - id: "task-003"
+    epic: "A-2 Data Loading"
+    title: "Implement data.py — LongAlpacaDataset and DataLoader"
+    description: |
+      Create code/h-e1/data.py with:
+      - LongAlpacaDataset: loads Yukang/LongAlpaca-12k via HuggingFace datasets,
+        tokenizes with AutoTokenizer, truncate/pad to max_seq_length=32768,
+        causal LM format (instruction + response)
+      - build_dataloader(): returns DataLoader with causal LM collator
+      Complexity: 7
+    feature_tag: "data-pipeline"
+    priority: 92
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - Test LongAlpacaDataset __len__ > 0
+      - Test __getitem__ returns dict with input_ids of correct length
+      - Test build_dataloader returns batches of shape [B, T]
+    reference_files:
+      architecture: "03_architecture.md#datamodule"
+      logic: null
+      config: "03_config.md#full-dataclass-definitions"
+
+  # ── Epic A-3: H2O Attention Wrapper ────────────────────────────────────────
+  - id: "task-004"
+    epic: "A-3 H2O Attention Wrapper"
+    title: "Implement H2OEvictionAwareAttention class skeleton and training guard"
+    description: |
+      Create code/h-e1/model.py H2OEvictionAwareAttention(nn.Module):
+      - __init__(base_attention, kv_budget_ratio=0.5): store both
+      - forward(): if not self.training, pass-through to base_attention;
+        if training, orchestrate h2o_mask + additive -inf injection
+      Training-only guard is critical: zero overhead at inference.
+      Complexity: 12 (partial — skeleton + guard)
+    feature_tag: "model"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - Test inference pass-through (model.eval()) calls base unchanged
+      - Test training mode calls h2o_mask
+    reference_files:
+      architecture: "03_architecture.md#modelmodule"
+      logic: "03_logic.md#a-3-h2oevictionawareattention"
+      config: null
+
+  # ── Subtask L-3-1 ──────────────────────────────────────────────────────────
+  - id: "task-005"
+    epic: "A-3 H2O Attention Wrapper"
+    title: "Subtask L-3-1: Implement h2o_mask() — cumulative score thresholding"
+    description: |
+      Implement H2OEvictionAwareAttention.h2o_mask(attn_scores: [B,H,T_q,T_k]):
+      1. softmax(attn_scores) with no_grad → scores [B,H,T_q,T_k]
+      2. importance = scores.sum(dim=2) → [B,H,T_k]
+      3. sort descending, cumsum, divide by total
+      4. keep where cumsum/total <= kv_budget_ratio
+      5. scatter back to original order, expand to [B,H,T_q,T_k]
+      Returns bool keep-mask.
+    feature_tag: "model"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test mask shape equals attn_scores shape
+      - Test fraction of True entries ≈ kv_budget_ratio
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#subtask-l-3-1-h2o_mask----cumulative-score-thresholding"
+      config: null
+
+  # ── Subtask L-3-2 ──────────────────────────────────────────────────────────
+  - id: "task-006"
+    epic: "A-3 H2O Attention Wrapper"
+    title: "Subtask L-3-2: Implement forward() — logit-level mask injection"
+    description: |
+      Implement H2OEvictionAwareAttention.forward() training path:
+      1. Compute q/k projections from base_attention
+      2. Build attn_scores = matmul(q, k.T) * scale
+      3. evict_mask = ~h2o_mask(attn_scores)
+      4. additive = attention_mask.clone() masked_fill(evict_mask, -inf)
+      5. Delegate full forward to base_attention with modified mask
+      See 03_logic.md pseudo-code for exact implementation.
+    feature_tag: "model"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test evicted positions receive -inf in mask
+      - Test output shape matches base_attention output shape
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#subtask-l-3-2-forward----logit-level-mask-injection"
+      config: null
+
+  # ── Epic A-4: Model Builder ─────────────────────────────────────────────────
+  - id: "task-007"
+    epic: "A-4 Model Builder"
+    title: "Implement model builder functions in model.py"
+    description: |
+      Add to code/h-e1/model.py:
+      - load_base_model(model_name): AutoModelForCausalLM in float16, use_cache=False
+      - apply_lora(model, lora_cfg): LoraConfig + get_peft_model()
+      - build_model(cfg): orchestrate load -> inject (if eviction-aware) -> apply_lora
+      Complexity: 10 (partial — excludes inject_h2o_wrappers subtask)
+    feature_tag: "model"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Test build_model with condition='baseline' returns PeftModel without wrappers
+      - Test build_model with condition='eviction-aware' injects wrappers
+    reference_files:
+      architecture: "03_architecture.md#modelmodule"
+      logic: "03_logic.md#a-4-modelbuilder"
+      config: "03_config.md#full-dataclass-definitions"
+
+  # ── Subtask L-4-1 ──────────────────────────────────────────────────────────
+  - id: "task-008"
+    epic: "A-4 Model Builder"
+    title: "Subtask L-4-1: Implement inject_h2o_wrappers() — per-layer wrapper injection"
+    description: |
+      Implement inject_h2o_wrappers(model, kv_budget_ratio):
+      1. Identify LlamaAttention/MistralAttention layers via named_modules()
+      2. For each, create H2OEvictionAwareAttention(base_attention=module, kv_budget_ratio)
+      3. Navigate parent via _get_parent() helper
+      4. setattr(parent, child_name, wrapper)
+      CRITICAL: inject BEFORE apply_lora so LoRA wraps already-wrapped attention.
+    feature_tag: "model"
+    priority: 47
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - Test all attention modules replaced with H2OEvictionAwareAttention
+      - Test LoRA is applied after injection
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#subtask-l-4-1-inject_h2o_wrappers----per-layer-wrapper-injection"
+      config: null
+
+  # ── Epic A-5: Training Loop ─────────────────────────────────────────────────
+  - id: "task-009"
+    epic: "A-5 Training Loop"
+    title: "Implement train.py — get_training_args() and run_training()"
+    description: |
+      Create code/h-e1/train.py:
+      - get_training_args(cfg): map TrainingConfig → TrainingArguments
+        (gradient_checkpointing=True, adamw_torch, save_strategy='no',
+         gradient_accumulation=16, remove_unused_columns=False)
+      - run_training(cfg): build model, dataset, Trainer; train; save adapter;
+        return output_dir path
+      Complexity: 9
+    feature_tag: "training"
+    priority: 89
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - Test get_training_args maps all fields correctly
+      - Test run_training creates adapter files in output_dir
+    reference_files:
+      architecture: "03_architecture.md#trainmodule"
+      logic: null
+      config: "03_config.md#huggingface-trainingarguments-mapping"
+
+  # ── Subtask C-5-1 ──────────────────────────────────────────────────────────
+  - id: "task-010"
+    epic: "A-5 Training Loop"
+    title: "Subtask C-5-1: Validate get_training_args gradient_checkpointing and optimizer"
+    description: |
+      Ensure get_training_args() correctly sets:
+      - gradient_checkpointing=True (required for 32k seq len on single GPU)
+      - optim='adamw_torch'
+      - ddp_find_unused_parameters=False
+      - All TrainingConfig fields mapped (no missing fields)
+      Cross-check against 03_config.md YAML schema for correctness.
+    feature_tag: "training"
+    priority: 46
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - Test gradient_checkpointing=True in output args
+      - Test optim='adamw_torch'
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#huggingface-trainingarguments-mapping"
+
+  # ── Epic A-6: Evaluation & Gate ─────────────────────────────────────────────
+  - id: "task-011"
+    epic: "A-6 Evaluation & Gate"
+    title: "Implement evaluate.py — cosine similarity, gate evaluation, JSON output"
+    description: |
+      Create code/h-e1/evaluate.py:
+      - load_adapter_state_dict(adapter_dir): load safetensors/bin adapter weights
+      - compute_layer_cosine_similarity(baseline_sd, proposed_sd):
+          for each lora_A/lora_B key: F.cosine_similarity(b.flatten(), p.flatten())
+      - evaluate_gate(results, threshold=0.95):
+          gate PASS if min(cosine_similarity) < 0.95 for at least one key
+          return dict with gate_pass, min_sim, mean_sim, layers_below_threshold
+      - save_results(results, path): write JSON
+      Complexity: 8
+    feature_tag: "evaluation"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Test cosine_similarity=1.0 for identical weights
+      - Test gate PASS when any layer < 0.95
+      - Test gate FAIL when all layers >= 0.95
+    reference_files:
+      architecture: "03_architecture.md#evaluatemodule"
+      logic: null
+      config: null
+
+  # ── Epic A-7: Visualization & Runner ───────────────────────────────────────
+  - id: "task-012"
+    epic: "A-7 Visualization & Runner"
+    title: "Implement visualize.py — bar charts with 0.95 threshold line"
+    description: |
+      Create code/h-e1/visualize.py:
+      - plot_cosine_similarity_bar(results, model_name, output_path, threshold=0.95):
+          bar chart of per-layer cosine similarity, red dashed line at threshold=0.95
+          save to output_path as PNG
+      - generate_all_figures(llama2_results, mistral_results, figures_dir):
+          call plot_cosine_similarity_bar for both models
+      Output paths: docs/youra_research/20260504_scope/h-e1/figures/
+      Complexity: 7 (partial)
+    feature_tag: "evaluation"
+    priority: 87
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - Test PNG files created in figures_dir
+      - Test figure contains threshold line annotation
+    reference_files:
+      architecture: "03_architecture.md#visualizemodule"
+      logic: null
+      config: null
+
+  # ── Epic A-7 (continued): Experiment Runner ────────────────────────────────
+  - id: "task-013"
+    epic: "A-7 Visualization & Runner"
+    title: "Implement run_experiment.py — orchestrate 4 training runs + analysis"
+    description: |
+      Create code/h-e1/run_experiment.py:
+      - run_model_pair(model_name, baseline_cfg, eviction_cfg):
+          run_training(baseline_cfg), run_training(eviction_cfg),
+          compute_layer_cosine_similarity, evaluate_gate, save JSON
+      - main():
+          1. get_all_configs() → 4 TrainingConfig
+          2. run_model_pair for LLaMA-2-7B pair
+          3. run_model_pair for Mistral-7B pair
+          4. generate_all_figures()
+          5. log overall gate result
+      Set CUDA_VISIBLE_DEVICES before any GPU ops.
+      Complexity: 7 (partial)
+    feature_tag: "experiment"
+    priority: 86
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - Test main() creates gate_result.json
+      - Test main() creates all 4 adapter output directories
+    reference_files:
+      architecture: "03_architecture.md#experimentrunner"
+      logic: null
+      config: "03_config.md#environment-variable-handling"
+
+  # ── Failsafe ────────────────────────────────────────────────────────────────
+  - id: "task-014"
+    epic: "Pipeline Continuation"
+    title: "Pipeline continuation checkpoint"
+    description: |
+      Failsafe task to ensure Phase 4 can continue even if non-critical tasks
+      are incomplete. Verify outputs/h-e1/ structure exists and gate_result.json
+      is present. Update 04_checkpoint.yaml with final status.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 7
+  subtasks: 5
+  failsafe: 1
+  total: 14

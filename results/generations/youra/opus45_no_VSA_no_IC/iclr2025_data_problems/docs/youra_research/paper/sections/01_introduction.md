@@ -1,0 +1,21 @@
+# Introduction
+
+When three leading data attribution methods—TRAK, TracIn, and Kronfluence—are applied to identify which training examples influenced a model's prediction, they can disagree as dramatically as their difference from random chance. Yet researchers routinely treat these methods as interchangeable, selecting whichever is most computationally convenient. This raises a fundamental question: are these methods measuring the same phenomenon, or fundamentally different aspects of training data influence?
+
+The stakes of this question extend well beyond academic curiosity. Data attribution underpins critical applications: identifying training examples that cause model failures, auditing models for fairness violations, and valuing data contributions in machine learning marketplaces. If different methods systematically emphasize different aspects of influence—memorization versus feature transfer versus spurious correlation—then method choice fundamentally shapes the conclusions practitioners draw. A memorization-sensitive method may identify completely different influential examples than a curvature-sensitive one, leading to divergent debugging or data curation decisions.
+
+The recent DATE-LM benchmark [Jiao et al., 2025] confirmed what practitioners have long suspected: no single attribution method dominates across all tasks. TRAK excels on some evaluations while influence functions perform better on others. But this finding only deepens the puzzle—it tells us methods differ without explaining *why* they differ or *what* each method actually measures.
+
+We argue that this unexplained disagreement reflects a deeper structure: different attribution algorithms compute influence via mathematically distinct operations that create characteristic "fingerprints." TRAK uses random projection of gradients, emphasizing direction alignment in parameter space. TracIn sums checkpoint-weighted gradient dot products, capturing temporal patterns across training. Kronfluence inverts Fisher information via K-FAC approximation, emphasizing curvature in the loss landscape. These are not minor implementation variations—they encode fundamentally different inductive biases about what makes training data influential.
+
+Building on this insight, we develop a framework for characterizing attribution methods by their *mode profiles*: systematic patterns of sensitivity to memorization, feature transfer, and spurious association. If methods truly embed different biases, these mode profiles should dissociate cleanly—methods should cluster by identity rather than by random variation. Moreover, if fingerprints are intrinsic to the algorithms rather than artifacts of specific datasets, they should exhibit stability within methods and transfer across model architectures.
+
+Our contributions are threefold:
+
+First, we introduce contrastive mode probing, a methodology for measuring attribution method sensitivity to specific influence modes using carefully constructed test cases that isolate memorization, feature transfer, and spurious association signals.
+
+Second, we provide the first quantitative characterization of method dissociation. Using ANOVA analysis across 10 independent runs per method, we find that methods are not merely "different" but *radically* different: inter-method variance exceeds intra-method variance with F=1423.55 (threshold: 4.0), and effect sizes are extremely large (Cohen's d=20.64).
+
+Third, we analyze the transferability of mode profiles across architectures, revealing that fingerprints transfer within architectural families (ResNet-ViT r=0.80) but invert across fundamentally different architectures (ConvNeXt shows r=-0.71 to -0.99 versus CNN/Transformer). This unexpected finding bounds the generalization of fingerprinting and motivates architecture-aware calibration.
+
+These results transform the framing of attribution method comparison from "which method wins" to "what does each method measure"—enabling practitioners to match methods to use cases rather than seeking a nonexistent universal solution.

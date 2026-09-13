@@ -1,0 +1,30 @@
+{
+    "Clarity": {
+        "score": 6,
+        "justification": "The paper is generally readable and follows a standard structure with clear sections for method, setup, results, discussion, and conclusion. The core intuition—sampling memory after optimizer.step() to capture optimizer-state allocations—is easy to understand, and the paper gives a concrete example (ResNet-18 with Adam: 130MB -> 175MB -> 280MB). However, there are multiple clarity issues. First, the paper repeatedly calls the approach a '3-iteration protocol' while the described method uses two measurement points and effectively one forward-only pass plus one full training step; this terminology is inconsistent. Second, the text alternates between measuring allocator-reserved memory via torch.cuda.memory_stats().reserved_bytes.all.current and measuring allocated peak memory via torch.cuda.max_memory_allocated(), which are different quantities. Third, several claims are framed too strongly relative to the small-scale evidence, which makes it harder to separate demonstrated results from speculation. Finally, the provided codebase is cluttered by an unrelated SAT profiling project and multiple overlapping experiment scripts, which substantially harms practical clarity of what was actually run."
+    },
+    "Novelty": {
+        "score": 5,
+        "justification": "The main idea—changing the timing of memory measurement to occur after optimizer.step()—is a reasonable and potentially useful observation, especially for optimizers such as Adam that materialize optimizer state lazily. This timing-focused reframing is somewhat novel in emphasis. That said, the contribution is narrow and incremental: it is essentially a modification of where to probe memory within an existing lightweight profiling workflow, not a fundamentally new estimator, model, or systems method. Moreover, the paper's conceptual claim that optimizer state can appear only after optimizer.step() is not entirely surprising to practitioners familiar with lazy optimizer-state initialization in PyTorch. The novelty is therefore moderate at best: it is a useful ablation/implementation insight rather than a major research advance."
+    },
+    "Soundness": {
+        "score": 2,
+        "justification": "The paper's empirical and reproducibility basis is weak, and the provided code raises major concerns about whether the reported results are supported by actual experiments. Most importantly, the code bundle contains substantial unrelated SAT profiling code, and the main src/ experiment runner targets GPU-normalized SAT and data-loading degradation rather than memory profiling. The memory-profiling-related code appears in separate code_root scripts (run_evaluation.py, run_evaluation_fast.py) and is not integrated with the paper's main source tree. More critically, the fast evaluation script fabricates the 2-iteration baseline by setting predicted_mb = ground_truth_mb * 0.85 and relative_error = 0.15 for every row, rather than measuring a real baseline. This means the claimed comparison against a baseline is not experimentally grounded in the provided code. In addition, SegmentMemoryProfiler.profile_ground_truth() is flawed: it resets peak memory stats inside each iteration, then after the loop returns only the final iteration's peak, not the maximum over 10 iterations as described in the paper. The lightweight predictor also measures 'allocated_bytes.all.peak' from memory_stats(), whereas the paper inconsistently claims reserved_bytes and max_memory_allocated(); these mismatches matter. The reported Wilcoxon p-value is 0.0625 and the experiment log marks the final verdict as FAIL, which directly undercuts the strength of the claims. There are also reproducibility issues: one provided log shows 0/12 configurations completed due to driver and dataloader failures; another code path uses synthetic data and only four CNN configurations. Overall, the evidence in the paper is not reliably supported by the code, and part of the baseline appears synthetic rather than measured."
+    },
+    "Significance": {
+        "score": 4,
+        "justification": "GPU memory prediction for avoiding OOM during training is an important practical problem. If robust, a lightweight profiling improvement that reduces prediction error could be useful to practitioners. However, the demonstrated scope is extremely limited: only four CNN configurations, one fixed image size, one batch size regime, synthetic data, and only Adam/SGD. The paper explicitly lacks transformer validation, real-data validation, and broader architectural coverage. Because the supporting code does not convincingly validate the claimed gains—and the key baseline comparison appears at least partially synthetic—the practical significance is low in its current form. The idea could matter in a production profiler, but the present paper does not provide enough trustworthy evidence to establish broad impact."
+    },
+    "Overall": {
+        "score": 3,
+        "strengths": [
+            "The paper identifies a plausible mechanism: optimizer-state allocation timing can matter for lightweight memory profiling, especially for Adam-like optimizers with lazy state initialization.",
+            "The manuscript is structured coherently and communicates the central intuition with concrete examples and explicit scope limitations."
+        ],
+        "weaknesses": [
+            "The provided code does not cleanly correspond to the paper and includes unrelated SAT profiling infrastructure, while the apparent memory-profiling evaluation is split into separate scripts.",
+            "The baseline comparison is not trustworthy in the provided code: the 2-iteration baseline is synthetically assigned a fixed 15% error rather than measured, and the ground-truth profiling implementation does not match the paper's stated procedure."
+        ]
+    },
+    "Confidence": 5
+}

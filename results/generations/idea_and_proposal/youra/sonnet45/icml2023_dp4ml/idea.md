@@ -1,0 +1,9 @@
+# Adaptive Dual-Coordinate Optimization via Kronecker-Factored Information Geometry
+
+## Motivation
+
+Natural gradient methods using Fisher information have shown promise in deep learning, but they treat the Fisher metric merely as a preconditioner rather than exploiting the full geometric structure of parameter spaces. Information geometry reveals that neural networks define dually-flat manifolds with complementary primal (θ) and dual (η) coordinate systems connected by Legendre transformations. However, computing exact dual coordinates is intractable for deep networks. This research addresses whether tractable Kronecker-factored approximations can enable practical dual-coordinate optimization that adapts to local landscape geometry, potentially accelerating convergence beyond current second-order methods.
+
+## Main Idea
+
+We propose **Kronecker-Factored Dual Coordinate Natural Gradient (KF-DCNG)**, which explicitly computes approximate dual coordinates η via K-FAC's Fisher approximation (F ≈ A ⊗ G) and adaptively switches between primal and dual gradient descent based on local curvature. The core mechanism: in high-curvature regions (large eigenvalues of F), dual coordinates capture complementary geometric information that primal coordinates miss, providing better descent directions. We test this by comparing adaptive switching against K-FAC (always-dual) and SGD (always-primal) on CIFAR-10/ImageNet. Success requires: (1) 5-15% iteration reduction beyond K-FAC, (2) positive correlation between curvature and dual-coordinate advantage, and (3) acceptable computational overhead (<7× vs SGD). This formalizes the first explicit dual-coordinate framework for neural optimization.

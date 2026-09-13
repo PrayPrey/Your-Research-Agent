@@ -1,0 +1,264 @@
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 6
+  failsafe: 1
+  subtasks: 2
+  total: 10
+metadata:
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+  generated_at: '2026-08-20T11:15:00+00:00'
+  hypothesis_id: h-e1
+  hypothesis_id_upper: H-E1
+  source_documents:
+  - 03_prd.md
+  - 03_architecture.md
+  - 03_logic.md
+  - 03_config.md
+  tier: LIGHT
+  total_budget: 15
+tasks:
+- complexity: null
+  description: "Install required packages:\n  pip install requests networkx scipy\
+    \ matplotlib\n\nNo external repositories to clone for dependencies.\nCorpus repo\
+    \ (huashen218/bidirectional-alignment-tax) is cloned by the\npipeline itself at\
+    \ runtime — no manual setup needed.\n"
+  epic: Environment Setup
+  feature_tag: setup
+  id: task-001
+  priority: 94
+  reference_files:
+    architecture: null
+    config: 03_config.md#Python-dataclass
+    logic: null
+  source_document: 03_prd.md
+  test_requirements: Environment setup does not require tests.
+  title: Setup Python environment for h-e1
+- complexity: 4
+  description: "Create directory structure:\n  h-e1/data/, h-e1/cache/s2ag/, h-e1/figures/,\
+    \ h-e1/results/\n\nImplement config.py with:\n  - S2AG_BASE, CORPUS_REPO, BATCH_FIELDS,\
+    \ REF_FIELDS constants\n  - COVERAGE_GATE=0.70, CROSS_GROUP_GATE=30, SLEEP_SECS=1.5\n\
+    \  - ML_NLP_VENUES_S1, ML_NLP_VENUES_S2, HCI_VENUES as frozensets\n  - SCHEMES\
+    \ dict with scheme1, scheme2, scheme3 entries\n  - API_KEY = os.getenv(\"S2AG_API_KEY\"\
+    )\n"
+  epic: Project Setup
+  feature_tag: setup
+  id: task-002
+  priority: 93
+  reference_files:
+    architecture: 03_architecture.md#Config
+    config: 03_config.md
+    logic: null
+  source_document: 03_architecture.md
+  test_requirements: No test required — constants only.
+  title: 'A-1: Project setup — directory structure and config.py'
+- complexity: 7
+  description: "Implement in run_h_e1.py:\n  clone_corpus(dest=\"corpus\") -> Path\n\
+    \    Uses subprocess.run([\"git\", \"clone\", CORPUS_REPO, dest])\n    Returns\
+    \ Path(dest)\n\n  extract_paper_ids(corpus_dir: Path) -> list[str]\n    Recursively\
+    \ finds all .md files\n    Extracts arXiv IDs: regex arxiv.org/abs/([\\d.]+) ->\
+    \ \"arXiv:{id}\"\n    Extracts DOIs: regex doi.org/(10\\.\\S+) -> doi string\n\
+    \    Returns deduplicated list\n    Saves to data/corpus_ids.json\n"
+  epic: Data Pipeline
+  feature_tag: data-pipeline
+  id: task-003
+  priority: 90
+  reference_files:
+    architecture: 03_architecture.md#Pipeline
+    config: 03_config.md#PathConfig
+    logic: 03_logic.md#Corpus-Ingestion
+  source_document: 03_architecture.md
+  test_requirements: 'assert len(corpus_ids) >= 300  # expect ~400 papers
+
+    assert all(id.startswith("arXiv:") or id.startswith("10.") for id in corpus_ids)
+
+    '
+  title: 'A-2: Corpus ingestion — clone repo and extract paper IDs'
+- complexity: 9
+  description: "Implement in run_h_e1.py:\n  _api_get(url, params, cache_path) ->\
+    \ dict | list\n    Cache hit -> return json.loads(cache_path.read_text())\n  \
+    \  Cache miss -> requests.get with 3-retry exponential backoff\n    429 -> exponential\
+    \ backoff; 404 -> return {}\n    Writes cache on success; sleeps SLEEP_SECS (or\
+    \ 0.01 if API_KEY)\n\n  resolve_papers(ids: list[str], cache_dir: Path) -> dict[str,\
+    \ dict | None]\n    Chunks ids into <=500; POSTs each chunk to /paper/batch\n\
+    \    Cache key: hash(sorted chunk ids)\n    Returns {input_id: paper_data | None}\n\
+    \    Saves to data/resolved_papers.json\n"
+  epic: S2AG Resolution
+  feature_tag: data-pipeline
+  id: task-004
+  priority: 87
+  reference_files:
+    architecture: 03_architecture.md#Pipeline
+    config: 03_config.md#S2AGConfig
+    logic: 03_logic.md#Pseudo-code-_api_get
+  source_document: 03_architecture.md
+  test_requirements: '# Integration test (requires network or mocked cache):
+
+    assert resolved["arXiv:2406.09264"] is not None  # known paper
+
+    '
+  title: 'A-3: S2AG paper ID resolution with cache and retry'
+- complexity: 11
+  description: "Implement in run_h_e1.py:\n  classify_paper(paper, scheme) -> str\
+    \ | None\n    Three paths: scheme3 (use_fos=True), scheme1/2 (venue string)\n\
+    \    Returns \"ML_NLP\" | \"HCI\" | None\n\n  classify_all(resolved, scheme) ->\
+    \ dict[str, str | None]\n    Returns {paperId: group} for all resolved papers\n\
+    \n  fetch_references(paper_id, cache_dir) -> list[dict]\n    GET /paper/{id}/references\
+    \ with cache\n    Returns list of citedPaper dicts; [] on 404 or error\n\nRun\
+    \ all three schemes; save paper_groups_{scheme}.json for each.\n"
+  epic: Classification + Reference Fetch
+  feature_tag: data-pipeline
+  id: task-005
+  priority: 84
+  reference_files:
+    architecture: 03_architecture.md#Classification
+    config: 03_config.md#VenueClassification
+    logic: 03_logic.md#Subtask-S-4a
+  source_document: 03_architecture.md
+  test_requirements: 'p_chi = {"venue": "CHI 2022", "fieldsOfStudy": ["Human-Computer
+    Interaction"]}
+
+    p_nlp = {"venue": "Proceedings of EMNLP 2021", "fieldsOfStudy": ["Computer Science"]}
+
+    assert classify_paper(p_chi, SCHEMES["scheme1"]) == "HCI"
+
+    assert classify_paper(p_nlp, SCHEMES["scheme1"]) == "ML_NLP"
+
+    assert classify_paper(p_chi, SCHEMES["scheme3"]) == "HCI"
+
+    '
+  title: 'A-4: Venue classification (3 schemes) and reference retrieval'
+- complexity: null
+  description: "Subtask of A-4 (complexity 11, high priority for detail).\nFocus:\
+    \ exact implementation of the three classification paths.\n\nscheme3 path (use_fos=True):\n\
+    \  1. fos = set(paper.get(\"fieldsOfStudy\") or [])\n  2. if \"Human-Computer\
+    \ Interaction\" in fos -> \"HCI\"\n  3. elif fos & {\"Computer Science\",\"Linguistics\"\
+    }:\n       venue_lower = paper.get(\"venue\",\"\").lower()\n       if any HCI\
+    \ venue in venue_lower -> \"HCI\"\n       else -> \"ML_NLP\"\n  4. else -> fall\
+    \ through to venue-string check\n\nscheme1/2 path:\n  venue = paper.get(\"venue\"\
+    ,\"\").lower()\n  check HCI first (to avoid false positives), then ML_NLP, else\
+    \ None\n\nEdge cases: venue=None -> \"\"; fieldsOfStudy=None -> empty set\n"
+  epic: Classification + Reference Fetch
+  feature_tag: data-pipeline
+  id: task-006
+  priority: 45
+  reference_files:
+    architecture: null
+    config: null
+    logic: 03_logic.md#Subtask-S-4a
+  source_document: 03_logic.md
+  test_requirements: 'assert classify_paper({"venue": None, "fieldsOfStudy": None},
+    SCHEMES["scheme1"]) is None
+
+    assert classify_paper({"venue": "CHI", "fieldsOfStudy": []}, SCHEMES["scheme3"])
+    == "HCI"
+
+    '
+  title: 'S-4a: Implement classify_paper — all 3 scheme logic paths'
+- complexity: 8
+  description: "Implement in run_h_e1.py:\n  build_graph(resolved, groups, cache_dir)\
+    \ -> (nx.DiGraph, edge_counts)\n    corpus_ids = {p[\"paperId\"] for p in resolved.values()\
+    \ if p}\n    G = nx.DiGraph(); add all corpus_ids as nodes\n    For each corpus\
+    \ paper: fetch_references -> find within-corpus edges\n    Count edge_counts[(src_group,\
+    \ tgt_group)] via defaultdict(int)\n\n  evaluate_gate(coverage, resolved_count,\
+    \ total_count, scheme_results) -> dict\n    gate_pass = coverage>=0.70 AND any\
+    \ scheme cross_group_total>=30\n    Returns full gate_result dict\n    Saves to\
+    \ results/h_e1_gate_result.json\n\nRun build_graph for each of 3 schemes; call\
+    \ evaluate_gate.\n"
+  epic: Graph + Gate Evaluation
+  feature_tag: experiment
+  id: task-007
+  priority: 81
+  reference_files:
+    architecture: 03_architecture.md#Graph-Construction
+    config: 03_config.md#GateThresholds
+    logic: 03_logic.md#Subtask-S-4b
+  source_document: 03_architecture.md
+  test_requirements: '# Smoke test with minimal graph:
+
+    resolved = {"arXiv:X": {"paperId": "A", "venue": "CHI", "fieldsOfStudy": ["HCI"]}}
+
+    # gate should fail (too few papers) but pipeline should not crash
+
+    '
+  title: 'A-5: Build citation graph and evaluate H-E1 gate'
+- complexity: null
+  description: "Subtask of A-5.\nFocus: correct edge counting and gate evaluation.\n\
+    \nbuild_graph detail:\n  - Only add edge if BOTH src and tgt have non-None groups\
+    \ (classified)\n  - edge_counts is defaultdict(int); keys are (str,str) tuples\n\
+    \  - Convert to JSON-serializable dict before saving:\n    {\"ML_NLP->HCI\": count,\
+    \ \"HCI->ML_NLP\": count, ...}\n  - Unclassified nodes still added to graph; just\
+    \ skip for edge counting\n\nevaluate_gate detail:\n  - cross_group_total = edge_counts[(\"\
+    ML_NLP\",\"HCI\")] + edge_counts[(\"HCI\",\"ML_NLP\")]\n  - per-scheme pass =\
+    \ coverage>=0.70 AND cross_group_total>=30\n  - gate_pass = coverage>=0.70 AND\
+    \ any(scheme_pass for scheme in schemes)\n"
+  epic: Graph + Gate Evaluation
+  feature_tag: experiment
+  id: task-008
+  priority: 42
+  reference_files:
+    architecture: null
+    config: null
+    logic: 03_logic.md#Subtask-S-4b
+  source_document: 03_logic.md
+  test_requirements: 'counts = {("ML_NLP","HCI"): 20, ("HCI","ML_NLP"): 15, ("ML_NLP","ML_NLP"):
+    5}
+
+    result = evaluate_gate(0.75, 300, 400, {"scheme1": {"edge_counts": counts}})
+
+    assert result["gate_pass"] == True
+
+    '
+  title: 'S-4b: Implement build_graph and evaluate_gate logic'
+- complexity: 7
+  description: "Implement 4 matplotlib figure functions in run_h_e1.py:\n\nplot_gate_metrics(coverage,\
+    \ scheme_results, out):\n  Two-panel bar chart:\n  Panel a: coverage rate bar\
+    \ vs 70% threshold horizontal line\n  Panel b: cross_group_total per scheme vs\
+    \ 30-edge threshold\n\nplot_dropout_by_venue(unresolved, corpus_ids, out):\n \
+    \ Bar chart of unresolved papers grouped by inferred venue string\n  (extract\
+    \ venue hint from input ID if available, else \"unknown\")\n\nplot_edge_heatmaps(scheme_results,\
+    \ out):\n  3 subplots (one per scheme), each a 2x2 heatmap:\n  [[ML_NLP->ML_NLP,\
+    \ ML_NLP->HCI], [HCI->ML_NLP, HCI->HCI]]\n\nplot_venue_pie(groups, out):\n  Pie\
+    \ chart: ML_NLP / HCI / unclassified counts under scheme1\n\nAll figures saved\
+    \ to h-e1/figures/*.png\n"
+  epic: Visualization
+  feature_tag: evaluation
+  id: task-009
+  priority: 78
+  reference_files:
+    architecture: 03_architecture.md#Visualization
+    config: null
+    logic: null
+  source_document: 03_architecture.md
+  test_requirements: 'assert Path("h-e1/figures/figure1_gate_metrics.png").exists()
+
+    assert Path("h-e1/figures/figure2_dropout_by_venue.png").exists()
+
+    assert Path("h-e1/figures/figure3_edge_heatmaps.png").exists()
+
+    assert Path("h-e1/figures/figure4_venue_pie.png").exists()
+
+    '
+  title: 'A-6: Generate 4 diagnostic figures'
+- complexity: null
+  description: "Final task — confirms full pipeline ran successfully.\nRun main()\
+    \ end-to-end; verify all outputs exist:\n  - data/corpus_ids.json\n  - data/resolved_papers.json\n\
+    \  - data/paper_groups_scheme{1,2,3}.json\n  - data/edge_counts_scheme{1,2,3}.json\n\
+    \  - results/h_e1_gate_result.json\n  - figures/figure{1,2,3,4}_*.png\nPrint gate\
+    \ result summary to stdout.\nExit code 0 on gate_pass=True; exit code 1 on gate_pass=False.\n"
+  epic: Pipeline Continuation
+  feature_tag: pipeline-continue
+  id: task-010
+  priority: 1
+  reference_files:
+    architecture: null
+    config: null
+    logic: null
+  source_document: 03_architecture.md
+  test_requirements: Pipeline continuation checkpoint — run main() and check exit
+    code.
+  title: 'FAILSAFE: Phase 4 pipeline continuation checkpoint'
+version: '1.1'

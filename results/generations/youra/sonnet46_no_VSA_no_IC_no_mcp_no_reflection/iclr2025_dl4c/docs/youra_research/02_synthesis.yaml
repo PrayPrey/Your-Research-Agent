@@ -1,0 +1,128 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-31T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Reward Granularity vs. Generalization in RLEF for Code LLMs: The Training-Evaluation Alignment Hypothesis"
+  hypothesis_id: "H-RewardGranularity-v1"
+  core_claim: |
+    Increasing reward signal granularity from binary to ratio to similarity in RLEF post-training
+    improves in-distribution benchmark performance (HumanEval, MBPP) but degrades or does not
+    improve out-of-distribution generalization (LiveCodeBench) and cross-task transfer
+    (SWE-bench-lite), because training-evaluation reward alignment — not reward density alone —
+    determines how well RLEF-trained models generalize to binary-evaluated downstream benchmarks.
+  mechanism: |
+    Three-step causal chain:
+    1. Reward signal density → gradient flow quality in GRPO (ratio provides signal even for
+       partially-correct solutions where binary gives 0; enables differentiation within all-failing groups)
+    2. Reward format → optimal policy target shift (binary: maximize P(all-pass); ratio: maximize
+       E[coverage]; these diverge when partial solutions are common, leading to different policy
+       strategies at convergence)
+    3. Policy strategy → cross-benchmark alignment (ratio-trained models learn partial-solution
+       strategies that underperform on binary-evaluated benchmarks at test time; training-evaluation
+       mismatch creates generalization penalty)
+  predictions:
+    - P1: "Ratio reward achieves ≥3pp higher HumanEval pass@1 than binary reward (in-distribution benefit)"
+    - P2: "HumanEval gain - LiveCodeBench gain is larger for ratio-trained models than binary-trained (overfitting pattern)"
+    - P3: "Binary reward achieves equal or better SWE-bench-lite resolve rate than ratio/similarity (alignment benefit)"
+
+variables_summary:
+  independent: "Reward signal granularity: binary (0/1), ratio (k/n, capped at 10), similarity (token F1)"
+  dependent_primary: "HumanEval pass@1 (primary); MBPP pass@1, LiveCodeBench relative gain, SWE-bench-lite resolve rate (secondary)"
+  controlled: "Model (DeepSeek-Coder-6.7B), algorithm (GRPO via trl), training data (APPS), steps (1000)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in HumanEval pass@1, LiveCodeBench relative gain,
+    or SWE-bench-lite resolve rate between models post-trained with binary, ratio, or
+    output-similarity execution reward signals, after controlling for training steps,
+    model scale, and training data (DeepSeek-Coder-6.7B, APPS, 1000 GRPO steps).
+  statistical_test: "Bootstrap confidence intervals on pass@1 differences; paired comparison across reward conditions"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Training-evaluation reward alignment principle: reward format should match downstream evaluation metric, not just maximize information density. First controlled ablation of reward granularity in RLEF for code LLMs."
+  differentiation_summary: |
+    All prior RLEF papers (CodeRL, PPOCoder, RLEF/Gehring, DAPO) use binary reward exclusively.
+    The field assumes RLEF is the key variable (vs. SFT) but never asks whether reward formulation
+    within RLEF matters. This work answers that question and proposes a mechanistic explanation
+    (training-evaluation alignment) that generalizes beyond the specific reward comparison.
+    The counter-intuitive prediction (ratio reward may hurt LiveCodeBench generalization) is
+    the key novel contribution if confirmed.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "DeepSeek-Coder-6.7B-instruct (primary)"
+    - "StarCoder2-7B (secondary validation, if compute allows)"
+  datasets:
+    - "APPS (training, ~10k problems)"
+    - "HumanEval (evaluation, 164 problems)"
+    - "MBPP (evaluation, 374 problems)"
+    - "LiveCodeBench (OOD evaluation, post-2023 competitive programming)"
+    - "SWE-bench-lite (transfer evaluation, 300 GitHub issues)"
+  baselines:
+    - "SFT baseline (no RLEF)"
+    - "Binary RLEF (CodeRL-style, our condition 1)"
+    - "Ratio RLEF (our condition 2)"
+    - "Similarity RLEF (our condition 3)"
+
+measurement_plan:
+  data_collection:
+    - source: "GRPO training logs (gradient norms, reward per step, per-condition)"
+    - source: "HumanEval evaluation at checkpoints (every 200 steps)"
+    - source: "MBPP evaluation at final checkpoint"
+    - source: "LiveCodeBench evaluation at final checkpoint (post-2023 problems only)"
+    - source: "SWE-bench-lite evaluation at final checkpoint (pass@3, docker-isolated)"
+  procedure:
+    - step: "1. SFT warmup: fine-tune DeepSeek-Coder-6.7B on APPS solutions (1 epoch)"
+    - step: "2. Pre-screen APPS: filter to problems with ≥5 non-redundant test cases (for ratio validity)"
+    - step: "3. GRPO post-training: 3 conditions (binary/ratio/similarity), 1000 steps, same hyperparameters"
+    - step: "4. Gradient norm monitoring: log per-step gradient norms for all conditions (mechanism verification)"
+    - step: "5. Checkpoint evaluation: HumanEval pass@1 every 200 steps (learning curve)"
+    - step: "6. Final evaluation: HumanEval, MBPP, LiveCodeBench, SWE-bench-lite at 1000 steps"
+    - step: "7. Statistical analysis: bootstrap CIs on all pairwise comparisons"
+  success_criteria:
+    - "P1 confirmed: pass@1(ratio) - pass@1(binary) ≥ 0.03 on HumanEval"
+    - "P2 confirmed: (HumanEval_gain - LCB_gain)_ratio > (HumanEval_gain - LCB_gain)_binary"
+    - "P3 confirmed: resolve_rate(binary) ≥ resolve_rate(ratio) on SWE-bench-lite"
+
+validation:
+  internal_validity:
+    - "Same APPS training split for all three reward conditions (identical training problems)"
+    - "Same GRPO hyperparameters (learning rate, group size, clip ratio) across conditions"
+    - "Gradient norm monitoring to verify mechanism (Step 1 of causal chain)"
+    - "APPS test case pre-screening to ensure ratio reward is informative (A1 assumption)"
+  external_validity:
+    - "StarCoder2-7B secondary validation to check generalizability across model architectures"
+    - "LiveCodeBench contamination resistance: use only problems published after APPS dataset cutoff"
+    - "SWE-bench-lite: different domain (repository-level) provides genuine transfer test"
+
+discussion_synthesis:
+  key_insights:
+    - "Training-evaluation reward alignment is the mechanistic key — not just reward density"
+    - "GRPO's group normalization may partially solve binary reward sparsity, reducing ratio reward's advantage"
+    - "APPS's native multi-test-case structure makes ratio reward directly computable without dataset modification"
+    - "LiveCodeBench contamination resistance makes it the ideal OOD test for reward hacking detection"
+    - "Output-similarity reward occupies a different niche (near-miss correction) — may help SWE-bench specifically"
+  breakthrough_moments:
+    - "Prof. Vera's distinction between signal density mechanism and policy target shift mechanism — these are separable predictions"
+    - "Dr. Ally's synthesis of 'training-evaluation alignment' as the unifying principle — goes beyond density argument"
+    - "Prof. Rex's GRPO group normalization objection — forces more careful mechanism claim"
+  resolved_tensions:
+    - "Tension: 'denser reward = better' vs. 'reward hacking risk' — resolved by training-evaluation alignment framing: density helps in-distribution, alignment determines OOD"
+    - "Tension: include scale study or not — resolved by Prof. Pax's compute analysis: scale study is secondary, not primary"
+    - "Tension: similarity reward as separate condition vs. omit — resolved: include as boundary condition to show where dense reward definitively breaks"

@@ -1,0 +1,68 @@
+
+The pipeline operationalizes directed citation asymmetry analysis as a five-stage process: (1) corpus ingestion, (2) S2AG paper resolution, (3) venue-group classification, (4) within-corpus directed graph construction, and (5) gate evaluation.
+
+\subsubsection{3.1 Corpus Ingestion}
+
+The huashen218 GitHub repository is cloned and all markdown files are parsed for paper identifiers using regular expressions matching arXiv, ACL Anthology, and OpenReview URL patterns. This yields 49 identifiers: 33 arXiv IDs, 10 ACL Anthology IDs, and 6 OpenReview IDs. The 49-paper subset constitutes the measurable corpus boundary --- itself a methodological finding (Section 5.4).
+
+Implementation: \texttt{clone\textbackslash \_corpus()} uses \texttt{subprocess.run([''git'', ''clone'', ...])} with a local cache check; \texttt{extract\textbackslash \_paper\textbackslash \_ids()} applies three regular expression patterns and deduplicates by resolved S2AG paper ID. Output: \texttt{corpus\textbackslash \_ids.json}.
+
+\subsubsection{3.2 S2AG Paper Resolution}
+
+Each extracted identifier is resolved to a structured S2AG paper record using the batch endpoint (\texttt{POST /paper/batch}, up to 500 IDs per request), retrieving \texttt{paperId}, \texttt{externalIds}, \texttt{title}, \texttt{venue}, \texttt{fieldsOfStudy}, and \texttt{year}. A cache-aside strategy (\texttt{cache/s2ag/}) eliminates redundant API calls on re-runs. Three-retry exponential backoff handles transient API failures.
+
+\subsubsection{3.3 Venue-Group Classification: Three-Scheme Analysis}
+
+Three classification schemes are implemented as a pre-registered sensitivity analysis:
+
+\begin{itemize}
+\item \textbf{Scheme 1 (broad venue string):} Substring match against abbreviated ML/NLP venue names (NeurIPS, ICML, ICLR, ACL, EMNLP, NAACL, COLING) and HCI venue names (CHI, CSCW, IUI, UIST, ASSETS).
+\item \textbf{Scheme 2 (narrow venue string):} Restricts ML/NLP to top-tier venues only (NeurIPS, ICML, ICLR).
+\item \textbf{Scheme 3 / FoS-primary:} Reads \texttt{fieldsOfStudy[0]} from S2AG and maps {Computer Science, Mathematics} to ML\_NLP and {Human-Computer Interaction, Social Sciences} to HCI. Falls back to venue-string (Scheme 1) only for papers where \texttt{fieldsOfStudy} is empty.
+\end{itemize}
+
+The rationale for Scheme 3 is that S2AG returns full proceedings names in the \texttt{venue} field, causing substring matching to fail silently for most papers. The \texttt{fieldsOfStudy} field is populated by S2AG's knowledge graph independent of venue name formatting. A single API field change produces the 100\% versus 12\% coverage difference reported in Section 5.2. Scheme 3 is the primary classifier; Schemes 1 and 2 serve as sensitivity checks.
+
+Implementation: \texttt{classify\textbackslash \_paper(paper: dict, scheme: dict) \$\textbackslash rightarrow\$ str | None}.
+
+\subsubsection{3.4 Within-Corpus Directed Citation Graph}
+
+For each classified paper, the reference list is retrieved (\texttt{GET /paper/\{id\}/references}, cached per paper ID) and only references to other papers within the resolved corpus are retained. A directed graph G = (V, E) is constructed where V is the set of resolved papers and E contains edge (u, v) if paper u cites paper v and both are in the resolved set. An \texttt{nx.DiGraph} (NetworkX) supports future betweenness centrality computation.
+
+For each scheme, the $2\times 2$ directed edge count table is computed:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+ & $\rightarrow$ ML\_NLP & $\rightarrow$ HCI \\
+\midrule
+\textbf{ML\_NLP $\rightarrow$} & $ML\_NLP\rightarrow ML\_NLP$ & $ML\_NLP\rightarrow HCI$ \\
+\textbf{HCI $\rightarrow$} & $HCI\rightarrow ML\_NLP$ & $HCI\rightarrow HCI$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The citation asymmetry ratio is defined as:
+
+$$r = \frac{|\text{ML\_NLP} \to \text{HCI}| \;/\; |\text{ML\_NLP outgoing}|}{|\text{HCI} \to \text{ML\_NLP}| \;/\; |\text{HCI outgoing}|}$$
+
+Under the null hypothesis $H_0$ (symmetric citation), r = 1.0. Under the asymmetric citation hypothesis (H-CitAsym), r < 1.0.
+
+\subsubsection{3.5 Gate Evaluation}
+
+Two infrastructure gate thresholds are pre-registered before executing statistical tests:
+
+\begin{itemize}
+\item \textbf{Coverage gate:} S2AG resolution rate $\geq$ 70\% of extracted corpus IDs
+\item \textbf{Cross-group edge gate:} $\geq$ 30 cross-group directed edges under at least one scheme
+\end{itemize}
+
+If either threshold is not met, statistical tests are not executed and the study is classified as INCONCLUSIVE, not REFUTED. Gate evaluation results are saved to \texttt{h\textbackslash \_e1\textbackslash \_gate\textbackslash \_result.json}.
+
+\subsubsection{3.6 Validation and Reproducibility}
+
+The pipeline is validated by a 23-test pytest suite covering all components using mock API responses. All S2AG responses are cached to \texttt{cache/s2ag/} for zero-API re-execution. The complete pipeline and cache constitute the supplementary material.
+

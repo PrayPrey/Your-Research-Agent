@@ -1,0 +1,91 @@
+
+\subsubsection{3.1 Hypothesis and Causal Chain}
+
+The central hypothesis (H-D1) is that SFT training source identity is a dominant causal factor in post-SFT code benchmark performance, operating through a three-step mechanism:
+
+\textbf{Step 1:} Different code source datasets occupy distinct positions in code-embedding space, measurable by pairwise mean cosine similarity (tested in H-E1).
+
+\textbf{Step 2:} SFT gradient updates bias model weights toward the distributional properties of the training source, producing source-specific behavioral specialization (tested via the source $\times$ benchmark interaction in H-E2).
+
+\textbf{Step 3:} Performance on benchmark B is higher when the SFT training distribution is closer to the test distribution of B in embedding space (tested mechanistically in H-M2 via Spearman rank correlation).
+
+\subsubsection{3.2 Training Source Conditions}
+
+We compare four SFT training conditions on DeepSeek-Coder-Base:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Condition & Dataset & Problems & Description \\
+\midrule
+HumanEval-only & openai/humaneval (train split) & 164 & Algorithmic function completion with doctests \\
+MBPP-only & google-research-datasets/mbpp (sanitized) & 120 & Utility scripts with input/output examples \\
+LeetCode-only & newfacade/LeetCodeDataset & subsampled & Competitive programming problems \\
+Equal-mix & Equal proportions from all three sources & 448 (after dedup) & 164 each from HumanEval/MBPP/LeetCode \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Note: The MBPP sanitized training split loaded 120 problems rather than the expected ~374. This is a confirmed dataset size, not an error.
+
+\subsubsection{3.3 Token-Budget Equalization}
+
+All four conditions receive the same effective token budget through problem count $\times$ repetition rate balancing. Without equalization, pass@1 differences could reflect data quantity rather than source identity.
+
+\subsubsection{3.4 Deduplication Protocol}
+
+We apply a validated deduplication pipeline using the all-MiniLM-L6-v2 encoder with cosine similarity threshold > 0.95 against both HumanEval+ and MBPP+ test sets. Any training problem with cosine similarity > 0.95 to a test problem is removed prior to training. This addresses benchmark contamination concerns; LeetCode-only's near-zero HumanEval+ performance (3.1\%) indicates deduplication did not inadvertently remove HumanEval-relevant LeetCode problems while leaving test-contaminating problems.
+
+\subsubsection{3.5 Supervision Format Normalization}
+
+A standardized instruction template is applied uniformly across all source conditions:
+
+\begin{verbatim}
+[INSTRUCTION]
+Complete the following Python function.
+
+[CODE]
+{problem_prompt}
+\end{verbatim}
+
+This eliminates prompt format as a confounding variable. Native MBPP format (which includes explicit input/output examples) was not tested as an alternative --- this is noted as a limitation in Section 6.
+
+\subsubsection{3.6 Embedding-Space Distributional Analysis (H-E1)}
+
+We measure mean pairwise cosine similarity between each training source corpus and each test benchmark using two encoders:
+
+\begin{itemize}
+\item \textbf{CodeBERT} (\texttt{microsoft/codebert-base}, 768-dim, L2-normalized): code-pretrained, captures syntactic and semantic code structure.
+\item \textbf{all-MiniLM-L6-v2} (384-dim, L2-normalized): sentence-level encoder, captures problem description style.
+\end{itemize}
+
+For each (source, benchmark) pair, we compute the mean cosine similarity over all source-embedding $\times$ benchmark-embedding pairs. The resulting $4\times 2$ matrix per encoder serves as the basis for the Spearman rank correlation analysis.
+
+\subsubsection{3.7 Mechanistic Alignment Test (H-M2)}
+
+For each (encoder, benchmark, scale) cell, we compute the Spearman rank correlation $\rho$ between the four source conditions ranked by embedding cosine similarity and ranked by mean pass@1 across seeds. Statistical significance is assessed via permutation test (10,000 shuffles, \texttt{permutation\textbackslash \_type='pairings'}, one-sided \texttt{alternative='greater'}). With n=4 conditions, 4! = 24 possible rank orderings, and the minimum achievable p-value is 1/24 $\approx$ 0.042. Dual-encoder concordance --- both encoders showing $\rho$ > 0 on the same benchmark --- is required for mechanistic validation.
+
+\subsubsection{3.8 Training Configuration}
+
+\textbf{1.3B-scale experiments (H-E2):}
+\begin{itemize}
+\item Model: \texttt{deepseek-ai/deepseek-coder-1.3b-base}
+\item Optimizer: AdamW, lr=2.0e-5, cosine schedule, 5\% warmup
+\item Effective batch size: 16 (per-device batch 4, gradient accumulation 4)
+\item Precision: bfloat16; completion-only loss; max length 2048
+\item Seeds: 42, 123, 777
+\end{itemize}
+
+\textbf{7B-scale experiments (H-C1):}
+\begin{itemize}
+\item Model: \texttt{deepseek-ai/deepseek-coder-7b-base}
+\item Training: DeepSpeed ZeRO-3, 4 GPUs (H100 NVL)
+\item lr=2.0e-5, 3 epochs, effective batch size 32, warmup\_ratio=0.05
+\item Seeds: 42, 123, 777; all 12 checkpoints (4 conditions $\times$ 3 seeds) trained to completion
+\end{itemize}
+
+\textbf{Evaluation:} EvalPlus framework \citep{Liu2023EvalPlus}, greedy decoding (temperature=0), pass@1 on HumanEval+ (164 problems) and MBPP+ (374 problems).
+

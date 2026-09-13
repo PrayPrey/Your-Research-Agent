@@ -1,0 +1,15 @@
+# Abstract
+
+Predicting how much a trained neural network has overfit — its generalization gap — is more tractable
+from weight tensors than predicting its test accuracy outright. Motivated by this counterintuitive
+asymmetry, we conduct the first controlled comparison of equivariant and non-equivariant weight-space
+encoders on generalization gap as the primary prediction target, using a dual-target design on the
+Unterthiner CIFAR-10 CNN zoo. We find that gap is learnable at Spearman r > 0.5 with standard encoders,
+and that architecture specificity matters: only Neural Functional Transformers, with their cross-layer
+attention, improve over the flat baseline on gap (r = 0.575), while within-layer and graph-structured
+equivariant architectures underperform it. Most strikingly, a partial Spearman analysis reveals that
+NFT gap predictions carry substantial information about true gap that is independent of test accuracy —
+confirming that generalization gap and test accuracy encode distinct signals in weight space. We report
+both the positive findings and a null result on the target-specificity mechanism hypothesis, with
+identified confounders and proposed corrective experiments, providing a transparent empirical foundation
+for gap-targeted weight-space learning.

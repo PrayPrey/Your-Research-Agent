@@ -1,0 +1,179 @@
+# Baseline Experiments for H-E1
+
+hypothesis_id: h-e1
+experiment_type: correlation_validation
+baselines_count: 2
+
+# Baseline 1: Random Retrieval Scores (Null Model)
+baseline_1:
+  name: Random Retrieval Baseline
+  purpose: Establish floor correlation (null hypothesis)
+
+  method:
+    description: Shuffle retrieval scores randomly, compute Spearman ρ with attention
+    implementation: |
+      import numpy as np
+      from scipy.stats import spearmanr
+
+      # For each question:
+      random_scores = np.random.permutation(retrieval_scores)
+      rho_random, p_value = spearmanr(random_scores, passage_attentions)
+
+    randomization:
+      seed: 42
+      permutations: 1000
+      aggregation: mean
+
+  expected_result:
+    correlation: ~0.0
+    range: [-0.1, 0.1]
+    interpretation: No systematic relationship between random scores and attention
+
+  statistical_test:
+    method: one-sample t-test
+    null_hypothesis: "Observed ρ = Random ρ"
+    alternative: "Observed ρ > Random ρ"
+    alpha: 0.05
+
+  success_criterion: |
+    Observed ρ (BM25/Contriever) significantly higher than random baseline (p < 0.05)
+
+# Baseline 2: Uniform Attention (Sanity Check)
+baseline_2:
+  name: Uniform Attention Baseline
+  purpose: Verify attention extraction correctness
+
+  method:
+    description: Generate answers with uniform attention weights, compute correlation
+    implementation: |
+      # Create flat attention distribution
+      num_passages = len(retrieval_scores)
+      uniform_attention = np.ones(num_passages) / num_passages
+
+      rho_uniform, p_value = spearmanr(retrieval_scores, uniform_attention)
+
+  expected_result:
+    correlation: ~0.0
+    range: [-0.05, 0.05]
+    interpretation: No structure in uniform attention → no correlation
+
+  validation_check:
+    condition: "abs(rho_uniform) < 0.1"
+    pass_action: "Attention extraction verified correct"
+    fail_action: "BUG: Check attention aggregation implementation"
+
+# Baseline 3: Position-Based Attention (Diagnostic)
+baseline_3:
+  name: Position Bias Baseline
+  purpose: Detect Lost-in-the-Middle effects
+
+  method:
+    description: Correlate passage position (beginning/middle/end) with attention
+    implementation: |
+      # Position encoding: 0 (beginning), 0.5 (middle), 1.0 (end)
+      num_passages = len(passage_attentions)
+      position_scores = np.linspace(0, 1, num_passages)
+
+      # U-shaped: beginning + end > middle
+      u_shaped_scores = 1 - 4 * (position_scores - 0.5)**2
+
+      rho_position, _ = spearmanr(u_shaped_scores, passage_attentions)
+
+  expected_result:
+    correlation: 0.2-0.5
+    interpretation: |
+      Moderate position bias (Lost-in-the-Middle effect).
+      If ρ_position > ρ_retrieval, position dominates retrieval scores.
+
+  diagnostic_value: |
+    High position correlation suggests LLM ignores retrieval metadata.
+    Target: ρ_retrieval > ρ_position (retrieval scores more predictive than position)
+
+# Comparison Matrix
+baseline_comparison:
+  dimensions:
+    - Random Retrieval (null model)
+    - Uniform Attention (sanity check)
+    - Position Bias (diagnostic)
+    - BM25 Retrieval (observed)
+    - Contriever Retrieval (observed)
+
+  expected_ranking:
+    - rank: 1
+      method: Contriever Retrieval
+      expected_rho: ">0.3"
+
+    - rank: 2
+      method: BM25 Retrieval
+      expected_rho: ">0.3"
+
+    - rank: 3
+      method: Position Bias
+      expected_rho: "0.2-0.4"
+
+    - rank: 4
+      method: Random Retrieval
+      expected_rho: "~0.0"
+
+    - rank: 5
+      method: Uniform Attention
+      expected_rho: "~0.0"
+
+# Statistical Validation
+statistical_tests:
+  test_1:
+    name: Observed vs Random
+    method: Independent samples t-test
+    null: "ρ_observed = ρ_random"
+    alpha: 0.05
+
+  test_2:
+    name: BM25 vs Contriever
+    method: Paired samples t-test
+    null: "ρ_BM25 = ρ_Contriever"
+    alpha: 0.05
+
+  test_3:
+    name: Retrieval vs Position
+    method: Paired samples t-test
+    null: "ρ_retrieval = ρ_position"
+    interpretation: |
+      If p < 0.05 and ρ_retrieval > ρ_position:
+        Retrieval scores provide signal beyond position bias
+
+# Output Files
+baseline_outputs:
+  results_table: outputs/results/baseline_comparison.csv
+  statistical_tests: outputs/results/statistical_tests.json
+  plots:
+    - outputs/plots/baseline_scatter_random.png
+    - outputs/plots/baseline_scatter_uniform.png
+    - outputs/plots/baseline_scatter_position.png
+    - outputs/plots/baseline_comparison_boxplot.png
+
+# Implementation Notes
+implementation:
+  compute_cost: Minimal (~10 CPU-minutes)
+  dependencies:
+    - numpy
+    - scipy.stats
+    - matplotlib
+
+  integration: |
+    Run baselines in Epic 5 (after main experiment completion).
+    Baselines use same attention weights as main experiment (no re-generation needed).
+
+# Validation Criteria
+validation:
+  random_baseline:
+    pass: "abs(mean_rho_random) < 0.1"
+    fail: "Investigation required: attention extraction bug?"
+
+  uniform_baseline:
+    pass: "abs(rho_uniform) < 0.1 for all questions"
+    fail: "BUG: Attention weights not properly normalized"
+
+  overall_success:
+    condition: |
+      (ρ_BM25 > 0.3) AND (ρ_Contriever > 0.3) AND
+      (ρ_BM25 > ρ_random + 0.2) AND (ρ_Contriever > ρ_random + 0.2)

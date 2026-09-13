@@ -1,0 +1,94 @@
+\section{Methodology}
+
+\subsection{Controlled Experimental Design}
+
+Our design follows directly from the generalization void hypothesis: fix the base model, training dataset, evaluation harness, and random seeds --- vary only whether training uses SFT, RLEF-Fraction, or RLEF-Binary. This allows the difficulty-scaling question to be answered without confounds from model choice, data selection, or evaluation protocol.
+
+\textbf{Research questions:}
+\begin{itemize}
+  \item \textbf{RQ1 (Difficulty scaling):} Does RLEF produce a statistically significant positive-ordered advantage over SFT across five benchmark difficulty levels?
+  \item \textbf{RQ2 (Signal void):} Is SFT's failure at hard difficulty a dataset void or a generalization void?
+  \item \textbf{RQ3 (Reward formulation):} Does fraction-of-tests reward produce meaningfully better performance than binary reward?
+\end{itemize}
+
+\textbf{Controlled variables:}
+
+\begin{table}[h]
+\centering
+\caption{Controlled experimental variables.}
+\label{tab:controlled}
+\begin{tabular}{ll}
+\toprule
+\textbf{Variable} & \textbf{Fixed Value} \\
+\midrule
+Base model & DeepSeek-Coder-7B-base \cite{Guo2024DeepSeekCoder} \\
+Training data & APPS \cite{Hendrycks2021APPS} \\
+Evaluation harness & bigcode-evaluation-harness (correctness-only) \\
+Optimizer & GRPO \cite{Shao2024DeepSeekMath}, custom SimpleGRPOTrainer \\
+Random seed & 42 throughout \\
+Hardware & NVIDIA H100 NVL (5$\times$ 95830 MiB) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Base Model and Training Data}
+
+We use \textbf{DeepSeek-Coder-7B-base} for all experiments. APPS provides training problems across three difficulty levels: introductory ($\sim$3500), interview ($\sim$5000), and competition (361 with $\geq$1 test case). Only problems with executable test cases are included in RLEF training. A key property: APPS competition problems have \textbf{85.32\% reference solution coverage} (308/361) --- directly relevant to RQ2 (Section~\ref{sec:results}).
+
+\subsection{Training Methods}
+
+\textbf{SFT Baseline:} HuggingFace Trainer with causal language modeling loss on APPS reference solutions. Key hyperparameters: lr=$2\times10^{-5}$, 3 epochs (1 for smoke scale), effective batch size 16, max\_length=2048.
+
+\textbf{RLEF-Fraction:} GRPO starting from the SFT checkpoint, reward = fraction of test cases passing. Implemented via a custom SimpleGRPOTrainer compatible with PyTorch 2.5.1 / TRL 1.x. Subprocess-sandboxed execution (3.0s timeout). Key hyperparameters: lr=$1\times10^{-6}$, G=4 per prompt, max\_new\_tokens=512 (critical --- see Section~\ref{sec:results}), $\beta$=0.04 (KL penalty), temperature=0.8.
+
+\textbf{RLEF-Binary (Proxy):} Full independent RLEF-Binary training was not completed due to compute constraints. Binary performance is estimated from RLEF-Fraction output via per-problem conversion. This is an acknowledged limitation (Section~\ref{sec:discussion}).
+
+\textbf{SimpleGRPOTrainer} computes group-relative advantages $A_i = (r_i - \text{mean}(r)) / (\text{std}(r) + \varepsilon)$ and updates with REINFORCE-style loss plus KL penalty from the SFT reference. RewardMonitorCallback logs per-step rewards by difficulty.
+
+\subsection{Evaluation Benchmarks}
+
+\begin{table}[h]
+\centering
+\caption{Evaluation benchmarks and difficulty levels.}
+\label{tab:benchmarks}
+\begin{tabular}{lll}
+\toprule
+\textbf{Benchmark} & \textbf{Problems} & \textbf{Difficulty} \\
+\midrule
+HumanEval \cite{Chen2021HumanEval} & 164 & Easy \\
+MBPP \cite{Austin2021MBPP} & 374 & Medium-Easy \\
+LiveCodeBench-Easy \cite{Jain2024LiveCodeBench} & $\sim$200 & Medium \\
+LiveCodeBench-Medium & $\sim$200 & Medium-Hard \\
+LiveCodeBench-Hard & $\sim$100 & Hard (primary target) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All evaluation uses bigcode-evaluation-harness in correctness-only mode (pass@1, single generation, greedy decoding). Identical harness parameters across all checkpoints.
+
+\subsection{Statistical Analysis}
+
+\textbf{Jonckheere-Terpstra (JT) test:} Tests the ordered alternative hypothesis that $\Delta$ values are non-decreasing across five difficulty levels. Appropriate because it tests an \textit{a priori} ordered hypothesis without requiring strict monotonicity at every adjacent pair. Implemented via pairwise Mann-Whitney U statistic sums, bootstrapped (n=5000).
+
+\textbf{Bootstrap confidence intervals:} 95\% BCa intervals for $\Delta$ and $\Delta_{\text{ratio}}$ estimates (n=5000).
+
+\textbf{Caveat:} Statistical values are conditional on smoke-scale proxy estimates, not independent experimental replications. See Section~\ref{sec:discussion}, Limitation L4.
+
+\subsection{Sub-Hypothesis Structure}
+
+\begin{table}[h]
+\centering
+\caption{Sub-hypothesis structure and outcomes.}
+\label{tab:hypotheses}
+\begin{tabular}{llll}
+\toprule
+\textbf{Hypothesis} & \textbf{Focus} & \textbf{Gate} & \textbf{Result} \\
+\midrule
+h-e1 & RLEF mechanism validity & MUST\_WORK & PASS \\
+h-m1 & SFT failure characterization & MUST\_WORK & PASS \\
+h-m2 & Non-zero reward monitoring & SHOULD\_WORK & FAIL (artifact) \\
+h-m3 & Fraction vs binary ablation & SHOULD\_WORK & FAIL (null result) \\
+h-m4 & Difficulty-ordered trend & SHOULD\_WORK & PASS \\
+\bottomrule
+\end{tabular}
+\end{table}

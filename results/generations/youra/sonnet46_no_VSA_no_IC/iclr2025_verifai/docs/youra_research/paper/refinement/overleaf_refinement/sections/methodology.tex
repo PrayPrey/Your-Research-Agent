@@ -1,0 +1,88 @@
+
+\subsubsection{3.1 Overview}
+
+The observation that static analysis fires on at most 32.4\% of EvalPlus semantic failures motivates a repair oracle that addresses the dominant failure mode directly. The specification-aligned repair oracle provides the structured information necessary for targeted algorithmic repair through three orthogonal components: intent anchoring via the problem docstring, behavioral gap specification via a failing test input/output pair, and deviation detection via the model's actual incorrect output. The design is referred to as the \textit{specification triple}.
+
+The methodology proceeds in two stages: (1) an existence verification stage that establishes the data infrastructure for reproducible repair experiments, and (2) a pre-registered mechanism comparison stage that tests whether the triple outperforms blind reprompting. This paper reports the first stage; the second stage is pre-registered and awaiting execution.
+
+\subsubsection{3.2 The Specification Triple (Condition C)}
+
+\textbf{Component rationale.} The three components of the triple each address a distinct informational deficit that prevents targeted algorithmic repair:
+
+\begin{enumerate}
+\item \textit{Docstring re-anchoring.} Including the problem docstring's formal intent re-anchors the model on the intended algorithm, preventing regeneration of the same incorrect solution. Haeri and Ghelichi (2026) identify specification grounding as the primary driver of a 38-percentage-point improvement in correct code generation; Dai et al. (2025) report severe performance degradation when docstrings are removed from repair feedback.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textit{Input/output counterexample.} The failing test's input and expected output provide a concrete behavioral gap --- a counterexample specifying exactly where the model's behavior diverges from the specification. Kong et al. (2024) demonstrate that contrastive input/output pairs outperform single failure messages (143 vs. 124 bugs fixed on Defects4J).
+\end{enumerate}
+
+\begin{enumerate}
+\item \textit{Deviation detection.} The model's actual incorrect output enables comparison against the expected output, allowing the model to identify the specific algorithmic error. Iscan (2026) confirms that content including actual output drives repair improvement (code plus facts: +18 percentage points over bare code, p = 0.00042).
+\end{enumerate}
+
+\textbf{Prompt construction (Condition C):}
+
+\begin{verbatim}
+[Original problem prompt]
+
+--- Specification Context ---
+DOCSTRING (formal intent): [problem docstring]
+
+FAILING TEST:
+  Input: [plus_input[0] from EvalPlus API]
+  Expected output: [plus_output[0] from EvalPlus API]
+
+ACTUAL MODEL OUTPUT:
+  [stored incorrect solution from solutions_cache.jsonl]
+--- End Specification Context ---
+
+Please repair the solution so that it passes all test cases.
+\end{verbatim}
+
+\subsubsection{3.3 Experimental Conditions}
+
+Three conditions are defined for the mechanism experiments:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Condition & Description & New API Calls Required \\
+\midrule
+A --- Round-0 baseline & GPT-4o-mini round-0 output from h-e1 Run 2 archive & 0 \\
+B --- Blind reprompting & Original prompt plus ''The above solution is incorrect. Please try again.'' & 128 \\
+C --- Specification-aligned repair & Original prompt plus specification triple & 128 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Condition B is designed as a placebo control following Iscan (2026): it provides re-exposure to the task without any informative error context, isolating the effect of specification content from the effect of additional sampling.
+
+\subsubsection{3.4 Data Infrastructure}
+
+\textbf{Source.} The 134-problem failure set is drawn from the h-e1 Run 2 archive (stored at \texttt{\_archive/20260822T150921\textbackslash \_routing\textbackslash \_recovery/h-e1/results/}). Four conditions are verified before any mechanism API calls are made:
+
+\begin{itemize}
+\item \textbf{C1 --- Failure ID confirmation:} 134 failure task identifiers confirmed (34 HumanEval+ and 100 MBPP+) from archived evaluation result files.
+\item \textbf{C2 --- Stored solution coverage:} All 134 failure task identifiers have stored GPT-4o-mini incorrect solutions in \texttt{solutions\textbackslash \_cache.jsonl} (542 total entries; 134 unique task identifiers covered).
+\item \textbf{C3 --- EvalPlus API accessibility:} All 134 failure task identifiers are accessible via \texttt{get\textbackslash \_human\textbackslash \_eval\textbackslash \_plus()} and \texttt{get\textbackslash \_mbpp\textbackslash \_plus()} API calls (EvalPlus version 0.3.1).
+\item \textbf{C4 --- Deterministic test selection:} The \texttt{plus\textbackslash \_input} field is populated for tested task identifiers (sample task \texttt{HumanEval/10}: 780 augmented test cases), confirming that \texttt{plus\textbackslash \_input[0]} provides a deterministic, non-empty failing test for prompt construction.
+\end{itemize}
+
+Six tasks with empty \texttt{plus\textbackslash \_fail\textbackslash \_tests} fields in the h-e1 archive are excluded from the mechanism experiment working set: HumanEval/143, Mbpp/725, Mbpp/726, Mbpp/765, Mbpp/805, and Mbpp/809. These six records carry \texttt{plus\textbackslash \_status = ''fail''} but empty \texttt{plus\textbackslash \_fail\textbackslash \_tests} lists, most likely due to test runner timeout or sandbox exception during h-e1 Run 2 evaluation. The remaining 128-task working set represents 95.5\% recovery of the original failure set.
+
+\textbf{Verification script.} The existence verification is implemented as a Python script (\texttt{h-e1-v2/code/verify\textbackslash \_h\textbackslash \_e1\textbackslash \_v2.py}, approximately 80 lines) with five pytest integration tests. The script runs in approximately 2 seconds on CPU without GPU utilization, consistent with a pure data verification task.
+
+\subsubsection{3.5 Statistical Design}
+
+\textbf{Primary prediction (P1, hypothesis h-m1).} One-tailed McNemar's test on Condition B versus Condition C fix outcomes across 128 problems. Success criterion: p < 0.05 in the direction C > B. Yates' continuity correction is applied if any cell count falls below 5; Fisher's exact test is the fallback if total discordant pairs fall below 25.
+
+\textbf{Secondary prediction (P2, hypothesis h-m2).} One-tailed McNemar's test for Condition C versus Condition A; fix rate threshold of at least 15\%.
+
+\textbf{Exploratory prediction (P3, hypothesis h-c1).} Stratified fix rates by benchmark type (34 HumanEval+ versus 100 MBPP+) with Fisher's exact test; directional comparison only.
+
+\textbf{Model configuration (pre-registered).} GPT-4o-mini via OpenAI API, temperature = 0.2, seed = 42.
+

@@ -1,0 +1,377 @@
+# Phase 2A Extended: Hypothesis Clarification Summary
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (Round 1 - FEASIBLE)
+**Hypothesis ID:** H1-PhyMet-RNA-v2
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## Executive Summary
+
+**Hypothesis Title:** Physics-Guided Meta-Adaptive RNA Structure Prediction (PhyMet-RNA v2)
+
+**Core Innovation:** Dual-component architecture explicitly separating family-invariant RNA physics (thermodynamics) from family-specific learned patterns (meta-learned orthogonal components), enabling robust generalization to novel RNA families with minimal data.
+
+**Confidence Level:** 0.82/1.0 (HIGH)
+
+**Target Gap:** Limited Generalization of RNA Structure Prediction Models to Novel RNA Families (Gap 1)
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Main Hypothesis (If-Then-Because):**
+
+*If* a dual-component RNA tertiary structure prediction model explicitly separates physics-grounded invariant encoding (universal RNA thermodynamics via differentiable Turner + CParty + tertiary contact potentials) from meta-learned family-adaptive modules (orthogonal component decomposition trained via episodic meta-learning),
+
+*Then* the model will achieve robust generalization to structurally-dissimilar novel RNA families with minimal family-specific training data (1-10 examples),
+
+*Because* the physics component provides universal inductive bias applicable to all RNA families while the meta-learned components enable rapid few-shot adaptation to family-specific patterns without requiring extensive MSA-based retraining.
+
+**Alternative Hypothesis (H0):**
+
+Null hypothesis: End-to-end black-box deep learning models (without explicit physics decomposition) achieve equivalent or superior generalization to novel RNA families compared to PhyMet-RNA, suggesting that explicit physics-learning separation provides no additional benefit for out-of-distribution generalization.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Measurement |
+|----------|------|-------------------|-------------|
+| **Physics Component Specification** | Independent | Differentiable RNA thermodynamics: Turner + CParty + tertiary contacts | Energy function coverage (2D + 3D interactions) |
+| **Meta-Learning Architecture** | Independent | Orthogonal meta-component decomposition + episodic meta-training | Component orthogonality score, few-shot adaptation |
+| **Training Data Distribution** | Independent | Episodic sampling across diverse RNA families | Family selection, episode construction |
+| **Generalization Performance** | Dependent | TM-score and RMSD on RNA3DB structurally-dissimilar test set | Quantitative comparison vs baselines |
+| **Few-Shot Adaptation Efficiency** | Dependent | TM-score improvement with 1/5/10-shot examples | Data requirement reduction factor |
+| **RNA Family Identity** | Controlled | RNA3DB structurally-dissimilar splits | Meta-training families vs test families |
+| **Physics-Learning Balance** | Controlled | Learnable weight α ∈ [0,1] | Training optimization, gradient analysis |
+
+### 1.3 Causal Mechanism
+
+**Mechanism Chain:**
+
+1. **Physics Encoder (Universal Substrate):**
+   - Differentiable Turner + CParty thermodynamics encode universal RNA folding energetics
+   - Physics constraints apply to ALL RNA families (thermodynamic laws are family-invariant)
+   - Provides inductive bias preventing pure pattern-matching overfitting
+   - **Evidence:** CParty 2024 (pseudoknot thermodynamics), RNA3D-SSCL 2025 (physics constraints improve 3D prediction)
+
+2. **Meta-Learned Adaptive Modules (Family-Specific Patterns):**
+   - Orthogonal component decomposition captures family-specific structural patterns
+   - Episodic meta-training across diverse families enables transferable pattern learning
+   - Few-shot adaptation (1-10 examples) sufficient for new family specialization
+   - **Evidence:** Zeng 2025 (orthogonal meta-components), MAML literature (few-shot meta-learning)
+
+3. **Learnable Integration (Dynamic Balance):**
+   - α parameter balances physics constraints vs learned patterns
+   - Prevents physics bypass failure mode
+   - Adapts to varying physics model sufficiency across RNA families
+   - **Evidence:** Hong 2024 (differentiable physics+neural integration precedent)
+
+**Key Tension:**
+
+Physics model sufficiency vs learning flexibility: If physics model is insufficient, α weights toward learning (data-driven fallback). If physics model is comprehensive, α weights toward physics (universal generalization). Learnable balance provides robustness to physics model limitations while preserving universal inductive bias when available.
+
+### 1.4 Key Assumptions
+
+1. **Extended physics model sufficiency** (Turner + CParty + tertiary contacts capture 3D thermodynamics)
+   - *Evidence:* CParty 2024 (pseudoknot extensions), RNA3D-SSCL 2025 (physics helps 3D)
+   - *Risk:* MODERATE - Tertiary contacts less validated than 2D thermodynamics
+   - *Mitigation:* Learnable α parameter provides data-driven fallback
+
+2. **Tertiary structure meta-component decomposability** (3D patterns amenable to orthogonal decomposition)
+   - *Evidence:* MetaFold-RNA 2025 (2D demonstration), Zeng 2025 (orthogonal framework)
+   - *Risk:* MODERATE - 3D complexity may challenge decomposition
+   - *Mitigation:* Incremental validation strategy (tRNA → ribozymes → complex)
+
+3. **Few-shot adaptation sufficiency** (1-10 examples enable family specialization)
+   - *Evidence:* Meta-learning literature (CV, NLP domains), MAML framework
+   - *Risk:* LOW - Standard meta-learning assumption with broad precedent
+   - *Mitigation:* Empirical validation with varying shot counts (1/5/10)
+
+4. **RNA3DB generalization test rigor** (structurally-dissimilar splits test true OOD generalization)
+   - *Evidence:* Szikszai et al. 2024 (dataset design validation)
+   - *Risk:* LOW - Rigorous benchmark with structural dissimilarity criteria
+   - *Mitigation:* Cross-validation across multiple RNA3DB splits
+
+5. **Differentiable physics gradient stability** (physics+neural integration maintains trainability)
+   - *Evidence:* Hong 2024 (physics-informed GNN precedent)
+   - *Risk:* MODERATE - Implementation complexity requires careful engineering
+   - *Mitigation:* Validation protocol with gradient stability analysis
+
+6. **Episodic meta-training transferability** (family-aware episodes enable cross-family generalization)
+   - *Evidence:* Meta-learning literature (task distribution assumptions)
+   - *Risk:* LOW - Standard meta-learning training protocol
+   - *Mitigation:* Diverse family sampling during meta-training
+
+7. **Physics universality across RNA families** (thermodynamics apply equally to all RNA)
+   - *Evidence:* Fundamental thermodynamics (Watson-Crick pairing, stacking energies)
+   - *Risk:* LOW - Biophysical principle well-established
+   - *Mitigation:* Empirical validation across diverse families in RNA3DB
+
+### 1.5 Scope & Boundaries
+
+**Applies to:**
+- Tertiary RNA structure prediction (3D atomic coordinates)
+- Natural and synthetic RNA sequences across diverse families
+- Novel RNA families with limited or no training data
+- Sequence-only input (no MSA required)
+- RNA length: <1000 nucleotides (typical range)
+
+**Does NOT apply to:**
+- RNA-protein complexes (interaction modeling out of scope)
+- RNA dynamics and conformational ensembles (static structure focus)
+- Quaternary structure (multimer assemblies beyond monomers)
+- Ultra-long RNA sequences (>1000nt computational limits)
+- RNA modification prediction (chemical modifications not modeled)
+
+**Known Limitations:**
+1. Tertiary meta-learning unproven (MetaFold-RNA only 2D; empirical validation needed)
+2. Physics model may be insufficient despite extensions (learnable α provides fallback)
+3. Implementation complexity requires careful engineering (gradient stability, hyperparameters)
+4. Computational cost higher than end-to-end methods (O(n³) physics vs O(n²) attention)
+5. Cross-domain transfer validity needs confirmation (bio-inspired framework is conceptual)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction (Generalization):**
+
+PhyMet-RNA trained on RNA3DB training set via episodic meta-learning will achieve:
+- **TM-score ≥ 0.80** on RNA3DB structurally-dissimilar test set (novel families)
+- **Improvement ≥ 0.10 TM-score** over best baseline (DeepFoldRNA, NuFold, RhoFold+)
+- **Generalization gap < 0.05 TM-score** (train-test performance difference)
+
+**Secondary Predictions:**
+
+1. **Physics Component Necessity (Ablation):**
+   - Physics-only baseline achieves **TM-score ≥ 0.60** on novel families (non-zero performance)
+   - Meta-only baseline (no physics) achieves **TM-score < 0.65** (poor generalization)
+   - Combined PhyMet-RNA achieves **TM-score ≥ 0.80** (synergy confirmation)
+   - **Conclusion:** Both components necessary for optimal performance
+
+2. **Few-Shot Adaptation Efficiency:**
+   - 1-shot adaptation: **TM-score improvement ≥ 0.05** over zero-shot
+   - 5-shot adaptation: **TM-score improvement ≥ 0.10** over zero-shot
+   - 10-shot adaptation: **TM-score improvement ≥ 0.15** over zero-shot, matching baseline trained on 100+ examples
+   - **Conclusion:** 10-shot PhyMet-RNA matches 100+ shot baseline retraining
+
+3. **Learnable Weighting Necessity:**
+   - Fixed α=0.5 achieves **TM-score ≤ 0.75** (suboptimal balance)
+   - Learnable α achieves **TM-score ≥ 0.80** (dynamic optimization benefit)
+   - Learned α values vary across RNA families (**α std ≥ 0.15**), confirming family-dependent balance
+   - **Conclusion:** Learnable weighting necessary for robustness
+
+4. **Gradient Stability (Validation Protocol):**
+   - Physics-neural gradient norm ratio remains **stable (variance < 0.3)** during training
+   - Component orthogonality maintained (**orthogonality score ≥ 0.85**) throughout training
+   - No gradient explosion or vanishing (**gradient magnitude 10⁻⁴ to 10²** range)
+   - **Conclusion:** Differentiable physics integration is trainable
+
+**Falsification Criteria:**
+
+The hypothesis is FALSIFIED if:
+1. PhyMet-RNA generalization TM-score **≤ 0.70** on RNA3DB test set (below baseline thresholds)
+2. Ablation study shows physics component provides **≤ 0.03 TM-score improvement** (physics not necessary)
+3. Few-shot adaptation requires **> 50 examples** to match baseline (few-shot claim fails)
+4. Gradient instability prevents convergence (**gradient variance > 1.0** or divergence)
+5. Learned α consistently converges to **α ≈ 0 or α ≈ 1** (one component dominates, decomposition unnecessary)
+
+### 1.7 SOTA Baseline Comparison
+
+**Current SOTA Methods (RNA3DB Benchmark):**
+
+| Method | Type | TM-score (Avg) | RMSD (Å) | Data Requirements | MSA Required |
+|--------|------|----------------|----------|-------------------|--------------|
+| DeepFoldRNA | Physics+Neural | 0.743 | 2.69 | Thousands per family | Yes |
+| NuFold | End-to-end | ~0.75 | ~2.5 | Thousands per family | Yes |
+| RhoFold+ | Language Model | ~0.76 | ~2.4 | Pre-training + fine-tuning | Yes |
+| **PhyMet-RNA (Predicted)** | Physics+Meta | **≥0.80** | **<2.3** | **1-10 per family** | **No** |
+
+**Performance Targets:**
+
+- **Absolute Performance:** TM-score ≥ 0.80 (SOTA+0.04)
+- **Generalization Gap:** < 0.05 (vs SOTA ~0.10-0.15)
+- **Data Efficiency:** 10-shot vs 100+ shot (10× reduction)
+- **Speed:** 350-4000× faster than Monte Carlo (inherit from DeepFoldRNA)
+
+**Competitive Advantage:**
+
+1. **Few-shot adaptation** (1-10 examples vs thousands)
+2. **No MSA requirement** (enables novel synthetic RNA prediction)
+3. **Explicit generalization mechanism** (physics universality + meta-learning transferability)
+4. **Theoretically grounded** (decomposition principle vs black-box end-to-end)
+
+### 1.8 Statistical Verification Design
+
+**Experimental Design:**
+
+1. **Meta-Training Phase:**
+   - Dataset: RNA3DB training set (diverse families)
+   - Protocol: Episodic meta-learning with family-aware sampling
+   - Episodes: 10,000 episodes, each with 5-10 families
+   - Support set: 10 examples per family, Query set: 5 examples per family
+   - Validation: Hold-out family validation during meta-training
+
+2. **Evaluation Phase:**
+   - Test set: RNA3DB structurally-dissimilar test set (novel families)
+   - Baseline comparisons: DeepFoldRNA, NuFold, RhoFold+ (same test set)
+   - Metrics: TM-score (primary), RMSD, generalization gap, inference time
+   - Replication: 5-fold cross-validation across RNA3DB splits
+
+3. **Ablation Studies:**
+   - Physics-only: α=1 (pure physics, no meta-learning)
+   - Meta-only: α=0 (pure meta-learning, no physics)
+   - Combined: Learnable α (full PhyMet-RNA)
+   - Fixed-α variants: α=0.25, 0.5, 0.75 (validate learnable weighting)
+
+4. **Few-Shot Adaptation Experiments:**
+   - Zero-shot: No family-specific examples
+   - 1-shot, 5-shot, 10-shot: Varying family-specific examples
+   - Baseline comparison: Baseline retraining with 100+ examples
+   - Metric: TM-score improvement per shot count
+
+**Statistical Tests:**
+
+- **Paired t-test:** PhyMet-RNA vs each baseline (TM-score comparison)
+- **ANOVA:** Ablation study (physics-only, meta-only, combined)
+- **Correlation analysis:** α learned values vs RNA family characteristics
+- **Significance threshold:** p < 0.01 (Bonferroni correction for multiple comparisons)
+
+**Sample Size:**
+
+- Test families: ≥50 structurally-dissimilar families in RNA3DB
+- Replicates per family: ≥3 structure predictions (average TM-score)
+- Power analysis: 80% power to detect TM-score difference ≥ 0.05
+
+---
+
+## 2. Contribution Summary
+
+### Theoretical Contributions
+
+**Decomposition Principle for Structural Biology:**
+- First principles analysis of why explicit physics-learning separation improves generalization (pattern-matching vs principle-learning dichotomy)
+- Cross-domain theoretical framework connecting evolutionary adaptation (phase variation) to neural architecture design
+- Mathematical formulation: ŷ = Physics_Universal(x) + α · MetaLearn_FamilySpecific(x), where α is learnable
+
+### Methodological Contributions
+
+**Novel Architecture:**
+1. Physics-grounded invariant encoder (differentiable Turner + CParty + tertiary thermodynamics)
+2. Meta-learned orthogonal adaptive modules (Zeng 2025 decomposition extended to 3D)
+3. Learnable physics-learning weighting (α parameter preventing physics bypass)
+4. Episodic meta-training protocol for RNA structure (family-aware sampling)
+
+**First Integration:**
+- First physics+meta-learning hybrid for RNA tertiary structure prediction
+- First application of orthogonal meta-component decomposition to 3D biomolecular structure
+- First few-shot adaptation framework for RNA structure (vs traditional extensive retraining)
+
+### Practical Contributions
+
+**Impact:**
+1. **Novel RNA prediction:** Few-shot capability enables structure prediction for newly discovered RNAs without MSAs
+2. **Therapeutic RNA design:** Synthetic RNA structures (aptamers, ribozymes) predictable without natural homologs
+3. **Data efficiency:** 10× reduction in training data requirements (1-10 shot vs 100+)
+4. **Research acceleration:** Rapid family adaptation for sparse-data scenarios
+
+---
+
+## 3. Key Related Work
+
+### Foundation (Gap Identification)
+
+1. **Bahai et al. 2024** - "Systematic benchmarking..." (Semantic Scholar: 67a564075f60be9c8585afd1cb77c46c0d2b905d)
+   - Documented ML methods failure on novel RNA families
+   - Identified pattern-matching limitation as root cause
+   - **Relation:** Foundation for problem definition
+
+2. **Szikszai et al. 2024** - "RNA3DB..." (Semantic Scholar: 538afc68947bcfa958d2956ef9d4ba84aed235d9)
+   - Structurally-dissimilar dataset splits for rigorous OOD testing
+   - **Relation:** Foundation for evaluation framework
+
+### Inspiration (Cross-Domain)
+
+3. **Modlin et al. 2025** - "M. tuberculosis phase variation"
+   - Biological principle: Invariant core + adaptive regulatory elements
+   - **Relation:** Bio-inspired decomposition concept (inspiration, not mechanistic)
+
+### Methodology (Technical Components)
+
+4. **CParty (Trinity et al. 2024)** - Pseudoknot thermodynamics
+   - Extended Turner model to 3D features
+   - **Relation:** Validates extended physics model feasibility
+
+5. **RNA3D-SSCL (Lu et al. 2025)** - Physics constraints improve 3D prediction
+   - Direct evidence that physics helps tertiary structure
+   - **Relation:** Validates core hypothesis mechanism
+
+6. **Hong et al. 2024** - Differentiable physics+GNN for protein-ligand binding
+   - Precedent for physics-informed neural integration
+   - **Relation:** Feasibility validation for implementation
+
+7. **Zeng 2025** - Orthogonal meta-component decomposition
+   - Mathematical framework for disentangled meta-learning
+   - **Relation:** Technical foundation for adaptive modules
+
+### Comparison (Baselines)
+
+8. **DeepFoldRNA (Pearce et al. 2022)** - RMSD 2.69Å, TM-score 0.743
+9. **NuFold (Kagaya et al. 2025)** - End-to-end approach
+10. **RhoFold+ (Nature Methods)** - Language model-based
+
+### Extension/Contradiction
+
+11. **MetaFold-RNA 2025** - Meta-learning for RNA secondary structure (2D)
+   - **Relation:** PhyMet-RNA extends to tertiary structure (3D) with physics decomposition
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):** Physics encoder provides non-zero universal inductive bias
+- Verify: Physics-only ablation achieves TM-score ≥ 0.60 on novel families
+- Experiment: Gradient analysis confirms physics gradients flow during training
+
+**SH2 (Mechanism):** Meta-learned components enable few-shot family adaptation
+- Verify: 1/5/10-shot experiments show monotonic TM-score improvement
+- Experiment: Component orthogonality maintained (score ≥ 0.85) across families
+
+**SH3 (Comparison):** PhyMet-RNA outperforms end-to-end baselines on OOD generalization
+- Verify: TM-score ≥ 0.80 vs baseline <0.76 on RNA3DB test set
+- Experiment: Statistical significance (paired t-test, p<0.01)
+
+### Readiness Checklist
+
+- [x] Hypothesis statement in If-Then-Because format
+- [x] Variables operationalized with measurement protocols
+- [x] Causal mechanism specified with evidence links
+- [x] Assumptions identified with risk assessment
+- [x] Scope boundaries clearly defined
+- [x] Testable predictions with quantitative thresholds
+- [x] Falsification criteria specified
+- [x] SOTA baseline comparison with performance targets
+- [x] Statistical verification design complete
+- [x] Sub-hypothesis decomposition preview
+
+### Open Questions for Phase 2B
+
+1. **Physics model sufficiency:** What is minimum physics coverage required for generalization? (Test via ablations removing tertiary contacts, pseudoknot terms)
+
+2. **Meta-component dimensionality:** How many orthogonal components needed for tertiary structure? (Hyperparameter sweep: 5, 10, 20 components)
+
+3. **Episode construction:** Optimal support/query set sizes for episodic meta-training? (Experiment: 5/10/20 support examples, 3/5/10 query examples)
+
+4. **Family similarity threshold:** At what structural similarity does meta-learning benefit diminish? (Analysis: correlation between TM-align family similarity and adaptation efficiency)
+
+5. **Computational trade-off:** Can physics component be approximated for speed without sacrificing generalization? (Explore: physics feature caching, learned physics emulators)
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*Auto-Executed in YOLO Mode (Batch Processing)*
+*Ready for Phase 2B Verification Planning*

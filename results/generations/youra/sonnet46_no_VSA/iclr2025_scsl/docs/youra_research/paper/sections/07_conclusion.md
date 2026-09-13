@@ -1,0 +1,11 @@
+# 7. Conclusion
+
+We set out to test whether the curvature of the ERM loss surface — measured as per-sample Hessian trace of the last fully-connected layer — reveals minority group membership without group annotations. It does: 4/5 random seeds achieve AUROC≥0.85 at the epoch of maximum trace ratio, with the epoch-0 control confirming that the signal is created by ERM training on Waterbirds, not inherited from ImageNet pretraining.
+
+We then set out to understand why. We expected that ERM's spurious feature exploitation would keep minority training samples near the decision boundary (Phase I confidence-differential mechanism), with the p_i(1-p_i) confidence channel elevating their Hessian traces. This expected mechanism is absent: minority training confidence saturates to ≥0.97 at t*, identical to majority. The signal is robust; its original mechanistic explanation is not.
+
+This is not a failure. It is a precise scientific finding that eliminates one mechanism and identifies the right one to test next: the feature-norm channel (‖x_i‖²). LaBonte et al. [2024]'s spectral imbalance result — that minority group covariance matrices have larger spectral norm than majority groups — predicts that minority per-sample feature norms are systematically elevated, and with the confidence channel inactive, this is the remaining candidate. Testing it directly (measuring penultimate-layer norms at t* and correlating with trace ranks) is the primary next step.
+
+The practical path forward is equally clear: test whether the trace proxy, used to guide annotation-free last-layer retraining (DFR-style), improves worst-group accuracy on Waterbirds. The existence result (AUROC>0.85) establishes the signal quality that makes this worth testing; the mechanism result identifies what signal the proxy is actually capturing.
+
+A second-order perspective on spurious feature reliance — one that asks how ERM differentially shapes the loss landscape curvature around training samples, not just how it classifies them — opens a class of annotation-free minority detectors that first-order signals cannot replicate. This paper establishes the empirical foundation and the mechanistic question for that class.

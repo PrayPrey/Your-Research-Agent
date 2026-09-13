@@ -1,0 +1,9 @@
+﻿# Title: Uncertainty-Aware Guardrails: Dynamic Safety Boundaries Based on Model Confidence Calibration
+
+## Motivation:
+Current LLM guardrails operate as static binary filters, blocking or allowing outputs regardless of the model's internal confidence state. This leads to two critical problems: (1) over-blocking of safe content when the model is actually confident, degrading user experience, and (2) under-blocking of harmful content when the model is uncertain but still generates fluent-sounding outputs. As LLMs are deployed in high-stakes applications (healthcare, legal, finance), we need guardrails that adapt their strictness based on how certain the model is about its generation, creating a trust-calibrated safety layer.
+
+## Main Idea:
+We propose **Confidence-Calibrated Dynamic Guardrails (CCDG)**, a framework that modulates guardrail sensitivity based on real-time uncertainty estimation. The methodology involves: (1) training a lightweight uncertainty quantification module using ensemble disagreement and semantic entropy on the LLM's hidden states; (2) defining a multi-threshold guardrail system where high-uncertainty outputs trigger stricter content filtering, mandatory disclaimers, or human escalation; (3) implementing graceful degradation strategies (e.g., "I'm not confident enough to answer this safely"). 
+
+We will evaluate CCDG on safety benchmarks (ToxiGen, TruthfulQA) and real-world deployment scenarios, measuring both safety violations and user satisfaction. Expected outcomes include 30%+ reduction in harmful hallucinations while maintaining helpfulness. This approach bridges reliability research with practical guardrail deployment, enabling trustworthy LLM systems that "know when they don't know."

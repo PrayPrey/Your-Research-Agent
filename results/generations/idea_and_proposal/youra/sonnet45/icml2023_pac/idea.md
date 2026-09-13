@@ -1,0 +1,8 @@
+# Title
+PAC-Bayesian Sample Complexity Bounds for Active Learning via Martingale Analysis
+
+# Motivation
+Active learning reduces labeling costs by strategically selecting informative queries, yet lacks rigorous theoretical guarantees for sample efficiency. While information-theoretic strategies like BALD are empirically successful, no PAC-Bayesian framework exists to explain their advantage or predict label complexity. This gap prevents principled algorithm design for cost-sensitive applications requiring provable guarantees. Bridging PAC-Bayesian theory with active learning's adaptive query selection addresses this critical need.
+
+# Main Idea
+We extend martingale PAC-Bayes theory to active learning, deriving generalization bounds that explicitly account for adaptive query selection through a query-dependent mutual information term: **R(h) ≤ R̂(h) + √((KL(Q||P) + ∑ᵢ I(Qᵢ;Yᵢ))/2n)**. Our core innovation proves that information gain maximization (e.g., BALD) provably minimizes this query-dependent term, achieving **O(d log(1/δ)/ε²) label complexity** with tighter constants than random sampling. We validate through: (1) formal proofs establishing bound validity and information gain optimality, (2) empirical verification showing ≥30% reduction in the query-dependent term, and (3) experiments on MNIST/CIFAR-10 confirming predicted label complexity ordering. This provides the first rigorous PAC-Bayesian justification for information-theoretic active learning with practical label complexity estimation.

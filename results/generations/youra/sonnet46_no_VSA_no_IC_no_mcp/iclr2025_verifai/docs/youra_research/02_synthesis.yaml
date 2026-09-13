@@ -1,0 +1,120 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-26T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent-Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "Gap-1"
+
+hypothesis_draft:
+  title: "Static Analysis Feedback in LLM Repair Loops (StaticRepair)"
+  hypothesis_id: "H-StaticRepair-v1"
+  core_claim: |
+    Augmenting LLM code repair loops with mypy static type analysis feedback
+    produces a measurable improvement in pass@1 on HumanEval+ and MBPP+
+    beyond what execution-only feedback achieves, because mypy provides
+    error-type-specific correction signal that narrows the LLM's repair
+    distribution toward type-correct solutions.
+  mechanism: |
+    (1) Initial LLM generation produces code with type errors (~20-30% of failures).
+    (2) mypy feedback identifies type mismatch location and expected type — richer than
+        execution pass/fail binary signal.
+    (3) LLM conditioned on mypy error generates repair with lower probability mass on
+        type-incorrect tokens, increasing pass@1.
+    (4) Effect accumulates across repair rounds k=1..5.
+  predictions:
+    - P1: "execution+mypy pass@1 > execution-only pass@1 on MBPP+ (p < 0.05, >= 1% absolute)"
+    - P2: "execution+mypy+Z3 pass@1 > execution+mypy pass@1 on curated ~50-problem arithmetic subset"
+    - P3: "mypy error count decreases monotonically across repair rounds under execution+mypy condition"
+
+variables_summary:
+  independent: "Repair feedback condition: {execution-only | execution+mypy | execution+mypy+Z3[subset]}"
+  dependent_primary: "pass@1 after up to k=5 repair rounds (fraction of problems passing all EvalPlus tests)"
+  controlled: "GPT-4o-mini model, temperature=0.8 initial / 0.0 repair, 2048-token budget per repair prompt, 3 seeds"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in pass@1 (averaged over k=1..5 repair rounds)
+    between execution+mypy repair and execution-only repair on HumanEval+ and MBPP+.
+  statistical_test: "Welch's t-test on per-problem pass@1 improvement delta (mypy condition - baseline condition)"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First controlled comparison of mypy static analysis as an explicit, distinct feedback channel in LLM repair loops on standard benchmarks (HumanEval+/MBPP+)"
+  differentiation_summary: |
+    Self-Debug (Chen et al. 2023) uses execution-only feedback — this is the primary baseline.
+    Reflexion (Shinn et al. 2023) uses LLM-generated verbal reflection — not structured static analysis.
+    Grammar-constrained decoding (Outlines, Guidance) operates at decoding time — different architecture.
+    SWE-agent (Yang et al. 2024) uses bash execution without static analysis as a distinct channel.
+    None of these papers compare execution-only vs execution+static-analysis on HumanEval+/MBPP+.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "GPT-4o-mini (primary)"
+  datasets:
+    - "MBPP+ (378 problems) — PRIMARY"
+    - "HumanEval+ (164 problems) — SECONDARY"
+    - "HumanEval curated arithmetic subset (~50 problems) — Z3 ANALYSIS"
+  baselines:
+    - "No-repair direct generation"
+    - "Execution-only repair (Self-Debug, k=5)"
+    - "Execution+mypy repair (primary treatment)"
+    - "Execution+mypy+Z3 repair (secondary treatment, curated subset)"
+
+measurement_plan:
+  data_collection:
+    - source: "EvalPlus test runner (evalplus/evalplus GitHub) — pass/fail per problem per repair round"
+    - source: "mypy --ignore-missing-imports --no-strict-optional output per generated code attempt"
+    - source: "Z3 counterexample output for curated subset (LLM-generated specs, pre-validated)"
+  procedure:
+    - step: "Generate initial code for each problem (temperature=0.8, 3 seeds)"
+    - step: "For each seed, run repair loop: execute → collect feedback (execution-only or +mypy or +mypy+Z3) → repair (temperature=0.0)"
+    - step: "Repeat for k=1..5 rounds or until pass"
+    - step: "Compute pass@1 per condition per round; also track mypy error count per round (P3)"
+    - step: "For Z3 subset: generate Z3 spec, validate against EvalPlus tests, run Z3 to get counterexample, feed to LLM"
+    - step: "Statistical testing: Welch's t-test on per-problem delta (treatment - baseline)"
+  success_criteria:
+    - "P1 (primary): MBPP+ execution+mypy pass@1 > execution-only, Welch p < 0.05, delta >= 1% absolute"
+    - "P2 (secondary): Z3 subset execution+mypy+Z3 pass@1 >= execution+mypy (directional, not required to be significant)"
+    - "P3 (mechanism check): monotonically decreasing mean mypy error count across rounds 1..5"
+
+validation:
+  internal_validity:
+    - "Same LLM model (GPT-4o-mini) across all conditions — eliminates model confound"
+    - "Same initial generated code across conditions (same 3 seeds) — repair starting point identical"
+    - "Same token budget per repair prompt — eliminates compute confound"
+    - "Z3 subset pre-registration criteria defined before running experiments"
+    - "Z3 specs pre-validated against EvalPlus test cases before use in repair"
+  external_validity:
+    - "Two benchmarks (HumanEval+, MBPP+) for generalization within benchmark class"
+    - "Limitation: generalization to other models, languages, and benchmark types requires replication"
+    - "Limitation: SWE-bench excluded — findings may not extend to real-world SE tasks"
+
+discussion_synthesis:
+  key_insights:
+    - "Decoding-time constraints (grammar/type logit masking) and post-hoc repair loops are different architectures — conflating them confounds the experiment; focus on repair loops is the right call"
+    - "Z3 integration requires pre-registering subset selection criteria to avoid post-hoc cherry-picking"
+    - "Negative result (mypy adds no value) is equally publishable for VerifAI — workshop explicitly values null results"
+    - "MBPP+ (378 problems) is more statistically powerful than HumanEval+ (164) for detecting 1% absolute improvements"
+    - "mypy permissive flags (--ignore-missing-imports) reduce false positives on dynamically-typed benchmark code"
+  breakthrough_moments:
+    - "Exchange 2 (Prof. Vera): Separating decoding-time from repair-loop architectures resolved the design confusion and focused the experiment"
+    - "Exchange 4 (Prof. Pax): LLM-generated Z3 specs (rather than manual encoding) make the experiment tractable while adding novelty"
+    - "Exchange 6 (Prof. Rex): Pre-registration of Z3 subset criteria and spec pre-validation addressed the Z3 confound concern"
+    - "Exchange 7 (Dr. Nova): Curated Z3 subset design preserves formal-methods contribution for VerifAI while avoiding spec quality confound on primary comparison"
+  resolved_tensions:
+    - "Z3 confound vs. formal methods novelty → resolved by curated-subset design with pre-validation"
+    - "SWE-bench inclusion (expensive) vs. workshop affordability → resolved by restricting primary analysis to HumanEval+/MBPP+"
+    - "Monotone prediction vs. non-monotone possibility → resolved by dropping monotonicity claim; P1 is directional not monotone"
+    - "HumanEval+ power vs. MBPP+ power → resolved by designating MBPP+ as primary benchmark"

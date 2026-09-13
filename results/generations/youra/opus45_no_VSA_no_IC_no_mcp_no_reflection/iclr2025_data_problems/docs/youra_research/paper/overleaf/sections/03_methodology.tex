@@ -1,0 +1,58 @@
+\section{Methodology}
+\label{sec:method}
+
+Building on the observation that embedding similarity correlates with transfer performance in domain adaptation contexts, we design EDMP to predict domain utility for LLM pretraining using only frozen embedder inference.
+
+\subsection{Overview}
+
+EDMP scores each pretraining domain by computing the average cosine similarity between domain sample embeddings and downstream task exemplar embeddings. The intuition is straightforward: domains whose content is semantically closer to task exemplars in embedding space may contribute more to downstream performance. By using a frozen embedder rather than training proxy models, EDMP eliminates the computational overhead of existing optimization methods.
+
+\textbf{Scoring Function:}
+\begin{equation}
+\text{EDMP}(d) = \frac{1}{|S_d|} \sum_{s \in S_d} \frac{1}{|T|} \sum_{t \in T} \cos(E(s), E(t))
+\end{equation}
+where $S_d$ is the set of samples from domain $d$, $T$ is the set of task exemplars, and $E(\cdot)$ is the embedding function.
+
+\subsection{Embedding Model Selection}
+
+\textbf{Design Choice:} We select E5-large-v2 \cite{wang2022text} as the embedder.
+
+\textbf{Rationale:} E5-large is a well-validated sentence transformer that produces semantically meaningful embeddings across diverse text domains. Unlike task-specific embedders, E5 was trained on a broad mixture of retrieval tasks, making it suitable for cross-domain similarity computation. The 1024-dimensional embedding space provides sufficient capacity to capture semantic distinctions between domains.
+
+\subsection{Task Exemplar Selection}
+
+\textbf{Design Choice:} We use the MMLU validation set as task exemplars.
+
+\textbf{Rationale:} MMLU \cite{hendrycks2021measuring} spans 57 subjects across STEM, humanities, social sciences, and other domains, providing broad coverage of downstream task types. The validation set contains approximately 1,500 questions, sufficient to represent the task distribution while remaining computationally tractable for embedding.
+
+\subsection{Scoring Pipeline}
+
+The EDMP scoring pipeline executes as follows:
+
+\begin{enumerate}
+    \item \textbf{Domain Embedding:} Embed all domain samples using E5-large with ``passage: '' prefix. Normalize embeddings to unit length.
+
+    \item \textbf{Task Embedding:} Embed all task exemplars using E5-large with ``query: '' prefix. Normalize embeddings to unit length.
+
+    \item \textbf{Similarity Computation:} Compute the cosine similarity matrix between domain embeddings and task embeddings.
+
+    \item \textbf{Aggregation:} For each domain, compute the mean similarity across all its samples and all task exemplars.
+
+    \item \textbf{Ranking:} Rank domains by EDMP score in descending order.
+\end{enumerate}
+
+\textbf{Computational Complexity:} Embedding 8 domains $\times$ 1,000 samples requires approximately 8,000 forward passes through E5-large. On a single A100 GPU, this completes in under 30 minutes---substantially faster than training a proxy model.
+
+\subsection{Validation Criteria}
+
+To validate that EDMP produces meaningful signals, we define the following criteria:
+
+\begin{enumerate}
+    \item \textbf{Score Computability:} All domains must produce valid similarity scores without numerical issues.
+
+    \item \textbf{Non-Trivial Variance:} Cross-domain score variance must exceed a threshold (std $>$ 0.05) to enable discrimination between domains.
+
+    \item \textbf{Statistical Significance:} Domain scores must be statistically distinguishable (ANOVA p $<$ 0.05).
+
+    \item \textbf{Reproducibility:} Scores must be consistent across random seeds (variance $<$ 0.05).
+\end{enumerate}

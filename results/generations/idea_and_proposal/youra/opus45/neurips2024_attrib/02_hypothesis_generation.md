@@ -1,0 +1,247 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-13
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (Round 1 - AttributionBench)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-AttributionBench-v1
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Under the condition of controlled synthetic learning tasks with known ground truth, if we construct tasks where data attribution pathways (which training examples contribute), mechanistic attribution pathways (which circuits implement), and concept attribution pathways (which concepts mediate) are known by design, and apply tiered validation inspired by psychometric measurement theory (Tier 1: identification, Tier 2: specificity, Tier 3: counterfactual prediction), then we can enable standardized cross-paradigm evaluation of attribution method fidelity, because the known ground truth allows direct measurement of attribution accuracy at each tier against objectively verifiable targets.
+
+**Alternative Hypothesis (H0):**
+Synthetic tasks with known ground truth cannot adequately evaluate attribution methods across data, mechanistic, and concept paradigms simultaneously, OR tiered psychometric-inspired validation does not meaningfully differentiate attribution method quality beyond single-tier evaluation.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Synthetic task design | Independent | Construct vision (image classification) and language (text completion) tasks with known causal pathways at data, mechanistic, and concept levels | 4-8 task types across 2 modalities |
+| Attribution method type | Independent | Data methods (TRAK, LoRIF), mechanistic methods (activation patching, DAS), concept methods (CBMs, TCAV) | 6-10 methods across 3 paradigms |
+| Validation tier level | Independent | Tier 1 (basic identification), Tier 2 (specificity/discriminant validity), Tier 3 (counterfactual prediction) | 3 tiers |
+| Attribution fidelity score | Dependent | Precision/recall/F1 against known ground truth at each tier | 0-100% per metric |
+| Cross-method ranking | Dependent | Relative performance ordering within and across paradigms | Ordinal rankings |
+| Model architecture/size | Controlled | Transformer-based models ≤10B parameters (GPT-2, Pythia, Llama variants) | Fixed architectures |
+| Training procedure | Controlled | Identical training protocol, random seeds, compute budget across methods | Standardized |
+| Task difficulty | Controlled | Calibrated task complexity levels per domain | Low/Medium/High |
+
+### 1.3 Causal Mechanism
+
+**3-Step Causal Chain:**
+
+```
+[Step 1: Synthetic Task Construction]
+    → [Step 2: Ground Truth Availability]
+    → [Step 3: Objective Fidelity Measurement]
+    → [Outcome: Cross-Paradigm Method Comparison]
+```
+
+**Step 1 → Step 2:** Construct synthetic learning tasks (vision/language) where we explicitly control: (a) which training examples contribute to which capabilities (data level), (b) which circuits/attention heads implement those capabilities (mechanistic level), and (c) which human-interpretable concepts mediate them (concept level). By construction, all three attribution dimensions have known ground truth.
+
+**Step 2 → Step 3:** With ground truth available at all three levels, any attribution method's output can be directly compared against the true causal structure. This enables computing precision (how many identified attributions are correct) and recall (how many true attributions are identified) objectively.
+
+**Step 3 → Outcome:** Standardized fidelity metrics on shared ground truth enable fair comparison of heterogeneous methods (TRAK vs activation patching vs CBMs). Tiered validation (identification → specificity → counterfactual) matches evaluation rigor to claim strength, following psychometric principles.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | MIB (ICML 2025) | Demonstrates synthetic tasks with known ground truth for circuit and causal variable localization | Strong |
+| Step 1 → Step 2 | CausalGym (2024) | Benchmarks causal interpretability on linguistic tasks with known causal structure | Strong |
+| Step 2 → Step 3 | Fidelity Assessment Papers (DPC, ROAD) | Precision/recall metrics against ground truth effectively measure attribution faithfulness | Strong |
+| Step 3 → Outcome | Zhang et al. (2025) | Conceptual framework establishing that unified attribution across paradigms is theoretically meaningful | Medium |
+
+**Key Tension:**
+**Tension:** MIB (2025) demonstrates synthetic ground truth works excellently for mechanistic interpretability (single paradigm), but Zhang et al. (2025) only proposes unified attribution as a conceptual framework without concrete implementation. No prior work has demonstrated that synthetic tasks can simultaneously provide valid ground truth for data, mechanistic, AND concept attribution.
+
+**Resolution:** This hypothesis tests whether the MIB methodology can be extended to all three paradigms simultaneously. Phase 2B experiments will validate: (1) whether ground truth can be established at all three levels in a single task design, and (2) whether cross-paradigm comparison on shared ground truth produces meaningful rankings.
+
+### 1.4 Key Assumptions
+
+| # | Assumption | Supporting Evidence | Consequence if Violated |
+|---|------------|--------------------|-----------------------|
+| A1 | Synthetic tasks capture attribution patterns that transfer to real-world scenarios | MIB (ICML 2025) shows synthetic benchmarks predict method effectiveness on real tasks; CausalGym demonstrates linguistic transfer | Benchmark results would not generalize; methods that excel on synthetic tasks might fail on real models |
+| A2 | Ground truth causal pathways can be established by construction at all three levels simultaneously | MIB proves this for mechanistic level; data influence is controllable by design; concept-level requires explicit concept injection | If any level's ground truth is ambiguous, cross-paradigm comparison becomes invalid for that dimension |
+| A3 | Psychometric validation hierarchy (identification → specificity → counterfactual) appropriately maps to attribution claim strength | Lin (2025) validity framework for LLMs; general measurement theory principles | Tiered validation would be arbitrary rather than meaningful; simpler single-tier evaluation might suffice |
+| A4 | Different attribution paradigms can be meaningfully evaluated on shared ground truth | Zhang et al. (2025) unified attribution framework; all paradigms ultimately answer "what causes this behavior?" | Cross-paradigm rankings would be meaningless; each paradigm might require separate evaluation |
+| A5 | Small-scale models (≤10B) exhibit representative attribution dynamics for method comparison | Standard practice in MI research; universal neurons exist across model sizes (Gurnee et al., 2024) | Methods might rank differently at frontier scale; benchmark would need extension for larger models |
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- Models ≤10B parameters (GPT-2, Pythia, Llama 3.2 8B and smaller)
+- Synthetic tasks in vision (image classification) and language (text completion, linguistic tasks)
+- Controlled training environments with known data composition
+- Attribution methods with well-defined outputs (importance scores, circuit masks, concept activations)
+- Evaluation of method fidelity (accuracy against ground truth), not efficiency or computational cost
+
+**Where Hypothesis Does NOT Apply:**
+- Frontier models (>100B parameters) where MI tools have scaling limitations
+- Real-world complex datasets without controlled causal structure
+- Attribution efficiency or computational cost comparisons
+- Emergent capabilities that arise only at scale
+- Methods that produce non-comparable output formats
+
+**Known Limitations:**
+1. **Scale Transfer Gap:** Results at ≤10B may not predict performance at frontier scale
+2. **Synthetic-Real Gap:** Synthetic task patterns may not capture all real-world attribution complexity
+3. **Psychometric Exploratory:** Tiered validation hierarchy is novel to attribution; requires empirical validation
+4. **Cross-Paradigm Ranking:** Different paradigms may target incompatible causal questions at fine granularity
+5. **Task Coverage:** Initial benchmark covers 4-8 tasks; may not represent full attribution challenge space
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1 (Benchmark Validity - Ground Truth Establishment):**
+AttributionBench synthetic tasks will successfully establish verifiable ground truth at all three attribution levels (data, mechanistic, concept) such that human experts achieve >95% inter-rater agreement on ground truth labels.
+
+*Measurement:* Inter-rater reliability (Cohen's κ > 0.9) on ground truth labels across 3 expert annotators per task
+*Basis:* MIB achieves reliable ground truth for mechanistic level; extension to data/concept levels follows same construction-by-design principle
+*Success Threshold:* κ > 0.9 for all three attribution dimensions
+
+**Secondary Predictions:**
+**P2 (Tiered Validation Discriminability):**
+Attribution methods will show differential performance across validation tiers, with performance decreasing monotonically from Tier 1 (identification) to Tier 3 (counterfactual prediction), demonstrating that tiers capture meaningfully different evaluation requirements.
+
+*Measurement:* Paired comparison of method performance (F1 score) across tiers; expect Tier 1 > Tier 2 > Tier 3 with statistically significant differences (p < 0.05)
+
+**P3 (Cross-Paradigm Ranking Stability):**
+Method rankings within each paradigm will remain stable across tasks (Kendall's τ > 0.7), enabling meaningful comparison of methods addressing the same attribution dimension.
+
+*Measurement:* Rank correlation across tasks within paradigm; >0.7 indicates robust ranking
+
+**P4 (Mechanism Contribution):**
+Supervised methods (DAS) will outperform unsupervised methods (SAE features) on causal variable localization, consistent with MIB findings, validating benchmark alignment with prior work.
+
+*Measurement:* DAS precision/recall significantly higher than SAE (p < 0.05) on causal variable track
+
+**Falsification Criteria:**
+The hypothesis will be **REJECTED** if any of the following occur:
+
+1. **Ground Truth Failure:** Inter-rater reliability κ < 0.7 for any attribution dimension, indicating ground truth cannot be reliably established
+
+2. **Tier Collapse:** No significant performance difference between validation tiers (Tier 1 ≈ Tier 2 ≈ Tier 3), indicating psychometric hierarchy does not discriminate evaluation rigor
+
+3. **Ranking Instability:** Within-paradigm rank correlation τ < 0.5 across tasks, indicating benchmark does not produce consistent method rankings
+
+4. **Mechanism Contradiction:** MIB-validated patterns (DAS > SAE) do not replicate, indicating benchmark misalignment with established findings
+
+### 1.7 SOTA Baseline (Optional - If SOTA Comparison Mode)
+
+*Not applicable - This hypothesis creates a new benchmark framework rather than competing against existing SOTA methods. Validation focuses on benchmark properties (ground truth reliability, tier discriminability, ranking stability) rather than outperforming prior systems.*
+
+**Reference Benchmarks for Design:**
+- MIB (ICML 2025): Mechanistic interpretability benchmark - 2 tracks, 4 tasks, 5 models
+- CausalGym (2024): Causal interpretability on linguistic tasks - SyntaxGym adaptation
+- DATE-LM (2025): Data attribution benchmark for LLMs - data attribution only
+
+### 1.8 Statistical Verification Design
+
+**Sample Size Requirements:**
+- Ground truth validation: 3 expert annotators × 4-8 tasks × 3 attribution levels = 36-72 annotation sets
+- Method evaluation: n ≥ 20 runs per method with different random seeds
+- Tier comparison: Paired measurements across all tiers for each method-task combination
+
+**Statistical Tests:**
+| Prediction | Test | Significance Level | Effect Size |
+|------------|------|-------------------|-------------|
+| P1 (Ground Truth) | Fleiss' κ for inter-rater reliability | κ > 0.9 (near-perfect agreement) | N/A |
+| P2 (Tier Discriminability) | Repeated measures ANOVA + post-hoc Tukey | p < 0.05 | Cohen's d > 0.5 (medium) |
+| P3 (Ranking Stability) | Kendall's τ rank correlation | τ > 0.7 | N/A |
+| P4 (Mechanism) | Paired t-test (DAS vs SAE) | p < 0.05 | Cohen's d > 0.8 (large) |
+
+**Report Format:**
+- Mean ± Std Dev across runs
+- 95% Confidence Intervals
+- Effect sizes (Cohen's d) for comparisons
+- Exact p-values for all significance tests
+- Kendall's τ with confidence intervals for rank correlations
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Can synthetic learning tasks be constructed that establish verifiable ground truth at all three attribution levels (data, mechanistic, concept) simultaneously?"
+- **Maps to:** Primary prediction P1 (Ground Truth Establishment)
+- **Verification type:** Empirical (inter-rater reliability measurement)
+- **Critical:** MUST PASS for Phase 2B to proceed - without reliable ground truth, all subsequent evaluation is invalid
+
+**SH2 (Mechanism):**
+"Is the proposed 3-step causal chain (Synthetic Construction → Ground Truth → Fidelity Measurement → Cross-Paradigm Comparison) the actual mechanism enabling unified attribution evaluation?"
+- **Maps to:** Causal mechanism (N=3 steps)
+- **Phase 2B will decompose into 3 sub-hypotheses:**
+  - H-M1: Does synthetic task construction establish ground truth at all levels?
+  - H-M2: Does ground truth availability enable objective fidelity measurement?
+  - H-M3: Does standardized fidelity measurement enable meaningful cross-paradigm comparison?
+- **Verification type:** Causal analysis (test each link independently)
+- **Critical:** Determines explanatory power of the benchmark design
+
+**SH3 (Comparison):**
+"Does AttributionBench produce consistent, stable method rankings within each attribution paradigm across different tasks?"
+- **Maps to:** Secondary predictions P3 (Ranking Stability) and P4 (Mechanism Contribution)
+- **Verification type:** Comparative empirical (rank correlation analysis)
+- **Critical:** Determines practical value - benchmark must produce reliable rankings to be useful
+
+### Readiness Checklist
+
+| # | Requirement | Status | Evidence |
+|---|-------------|--------|----------|
+| 1 | Hypothesis in "Under [C], if [X], then [Y] because [Z]" format | ✅ PASS | Section 1.1: Complete conditional statement |
+| 2 | Hypothesis ID assigned | ✅ PASS | H-AttributionBench-v1 |
+| 3 | Confidence level specified (0.0-1.0) | ✅ PASS | 0.85 |
+| 4 | Alternative hypothesis (H0) defined | ✅ PASS | Section 1.1: Two alternative conditions |
+| 5 | All variables have operationalization | ✅ PASS | Section 1.2: 8 variables with measurement methods |
+| 6 | Causal mechanism has evidence at each step | ✅ PASS | Section 1.3: 4 links with evidence table |
+| 7 | Causal chain length (N) determined | ✅ PASS | N=3 (Step 1 → Step 2 → Step 3 → Outcome) |
+| 8 | Key tension identified with resolution | ✅ PASS | Section 1.3: MIB vs unified attribution gap |
+| 9 | Key assumptions list consequences | ✅ PASS | Section 1.4: 5 assumptions with violation consequences |
+| 10 | At least 2 testable predictions with primary marked | ✅ PASS | Section 1.6: P1 (primary) + P2, P3, P4 |
+| 11 | Falsification criteria defined | ✅ PASS | Section 1.6: 4 falsification conditions |
+| 12 | Baselines identified for comparison | ✅ PASS | Section 1.7: MIB, CausalGym, DATE-LM |
+| 13 | SH1, SH2, SH3 clear starting points | ✅ PASS | Section 4: All three defined |
+
+**Overall Status:** 13/13 requirements met - **READY FOR PHASE 2B**
+
+### Open Questions
+
+**Questions for Phase 2B Verification Planning:**
+
+1. **Resource Requirements:**
+   - How many synthetic tasks (4-8) are needed for statistical validity?
+   - What compute budget is required for training models and running 6-10 attribution methods?
+   - How many expert annotators are needed for ground truth validation (minimum 3)?
+
+2. **Technical Feasibility:**
+   - Can concept-level ground truth be established as reliably as mechanistic-level (proven by MIB)?
+   - What specific task designs will simultaneously control data, mechanistic, AND concept pathways?
+   - How to handle methods with incompatible output formats for cross-paradigm comparison?
+
+3. **Priority Verification Order:**
+   - **Recommended:** SH1 (Existence) first → If ground truth fails, entire benchmark is invalid
+   - Then SH2 (Mechanism) → Validate causal chain link by link
+   - Finally SH3 (Comparison) → Test ranking stability and practical utility
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-13*

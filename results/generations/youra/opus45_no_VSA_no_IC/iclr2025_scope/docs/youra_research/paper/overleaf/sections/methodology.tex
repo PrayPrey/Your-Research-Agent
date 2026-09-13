@@ -1,0 +1,64 @@
+\section{Methodology}
+
+\subsection{Experimental Design}
+
+We design experiments to test whether optimal LoRA rank $r_{\text{opt}}$ scales sub-linearly with model size $N$, following the relationship $r_{\text{opt}} \propto N^\alpha$ where $\alpha < 1$.
+
+\subsubsection{Model Selection}
+
+We use the Pythia model family~\cite{biderman2023pythia} spanning four scales: 1B, 2.8B, 6.9B, and 12B parameters. Pythia provides identical architecture (GPT-style autoregressive transformer) across scales, eliminating architecture confounds. All models use the same vocabulary, tokenizer, and pre-training corpus (The Pile).
+
+\subsubsection{LoRA Configuration}
+
+Following standard practice, we apply LoRA to query and value projection matrices (Q, V) with:
+\begin{itemize}
+    \item \textbf{Ranks}: $r \in \{4, 8, 16, 32, 64, 128\}$
+    \item \textbf{Scaling}: $\alpha = 2r$ (rsLoRA convention)
+    \item \textbf{Target modules}: \texttt{query\_key\_value} (Pythia's fused QKV)
+    \item \textbf{Dropout}: 0.05
+\end{itemize}
+
+\subsubsection{Task Selection}
+
+We evaluate on two QA task types to test cross-task consistency:
+\begin{itemize}
+    \item \textbf{SQuAD-v2}~\cite{rajpurkar2018squad}: Single-hop extractive QA, 11,873 validation examples
+    \item \textbf{HotpotQA}~\cite{yang2018hotpotqa}: Multi-hop reasoning, 7,405 validation examples
+\end{itemize}
+
+\subsubsection{Training Protocol}
+
+\begin{itemize}
+    \item \textbf{Optimizer}: AdamW with $\beta_1=0.9$, $\beta_2=0.999$
+    \item \textbf{Learning rate}: $10^{-4}$ with linear warmup (6\% of steps)
+    \item \textbf{Epochs}: 3
+    \item \textbf{Batch size}: 16 (gradient accumulation as needed)
+    \item \textbf{Seeds}: 3 per configuration (42, 1337, 2024)
+\end{itemize}
+
+\subsection{Sub-Hypotheses}
+
+We decompose the main hypothesis into four testable sub-hypotheses:
+
+\textbf{h-e1: Existence (MUST\_WORK)} --- Log-linear regression of $r_{\text{opt}}$ vs $N$ yields scaling exponent $\alpha < 1$ with 95\% CI excluding both 0 and 1.
+
+\textbf{h-m1: Mechanism (SHOULD\_WORK)} --- Attention entropy at optimal rank correlates positively with model size (Pearson $r > 0.6$, $p < 0.05$).
+
+\textbf{h-m2: Phase Transition (MUST\_WORK)} --- Rank sensitivity ($\partial \text{accuracy} / \partial \log r$) is $>$2$\times$ higher at 12B vs 1B.
+
+\textbf{h-c1: Consistency (SHOULD\_WORK)} --- Scaling exponent $\alpha$ is consistent across single-hop and multi-hop QA: $|\Delta\alpha| \leq 0.15$.
+
+\subsection{Optimal Rank Determination}
+
+We define optimal rank as the smallest rank achieving 99\% of rank-128 performance:
+\begin{equation}
+r_{\text{opt}} = \min\{r : \text{F1}(r) \geq 0.99 \cdot \text{F1}(128)\}
+\end{equation}
+
+\subsection{Scaling Law Estimation}
+
+We fit the log-linear relationship:
+\begin{equation}
+\log(r_{\text{opt}}) = \alpha \cdot \log(N) + \beta
+\end{equation}
+using ordinary least squares with bootstrap confidence intervals ($B=1000$ resamples).

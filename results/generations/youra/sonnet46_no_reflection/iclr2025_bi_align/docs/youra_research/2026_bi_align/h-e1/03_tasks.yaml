@@ -1,0 +1,380 @@
+version: "1.0"
+schema_version: "1.1"
+generated_at: "2026-05-12T09:05:00Z"
+generator: "Phase 3 Step 9"
+
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_type: "EXISTENCE"
+  tier: "LIGHT"
+  total_budget: 15
+  complexity_score: 17
+  complexity_level: "Complex"
+  note: "LIGHT tier assigned per EXISTENCE hypothesis type despite Complex score"
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks_logic: 5
+  subtasks_config: 4
+  failsafe: 1
+  total: 15  # Exactly at LIGHT budget
+
+tasks:
+  # ============================================================
+  # PRIORITY 100-95: DATA PREPARATION
+  # ============================================================
+  - id: "D-1"
+    title: "Verify HH-RLHF Dataset Access"
+    type: "data-preparation"
+    priority: 100
+    status: "todo"
+    description: >
+      Verify HuggingFace dataset access for Anthropic/hh-rlhf.
+      Load helpful-base and helpful-online splits to confirm availability.
+      Expected sizes: helpful-base ~43,835 train pairs; helpful-online ~36,169 train pairs.
+    acceptance_criteria:
+      - "load_dataset('Anthropic/hh-rlhf', data_dir='helpful-base', split='train') succeeds"
+      - "load_dataset('Anthropic/hh-rlhf', data_dir='helpful-online', split='train') succeeds"
+      - "Both datasets have 'chosen' and 'rejected' string columns"
+    reference_files:
+      - "h-e1/03_prd.md#FR-1"
+      - "h-e1/03_config.md#Dataset-Configuration"
+
+  # ============================================================
+  # PRIORITY 94: ENVIRONMENT SETUP
+  # ============================================================
+  - id: "E-1"
+    title: "Setup Python Environment"
+    type: "setup"
+    priority: 94
+    status: "todo"
+    description: >
+      Create Python environment and install all dependencies.
+      Create output directories: h-e1/results/ and h-e1/figures/.
+    commands:
+      - "pip install datasets==2.19.0 pandas==2.2.2 numpy==1.26.4 scikit-learn==1.4.2"
+      - "pip install statsmodels==0.14.2 sentence-transformers==2.7.0 torch==2.3.0"
+      - "pip install transformers==4.41.0 pyarrow==16.1.0 scipy==1.13.0 matplotlib==3.9.0 seaborn==0.13.2"
+      - "mkdir -p h-e1/results h-e1/figures h-e1/code"
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "h-e1/results/ and h-e1/figures/ directories exist"
+      - "python -c 'import statsmodels; import sentence_transformers' succeeds"
+    reference_files:
+      - "h-e1/03_prd.md#NFR-3"
+      - "h-e1/03_config.md#Environment-Configuration"
+
+  # ============================================================
+  # PRIORITY 93-50: EPIC IMPLEMENTATION TASKS
+  # ============================================================
+  - id: "A-1"
+    title: "Data Loading & Preprocessing"
+    type: "data-pipeline"
+    priority: 88
+    status: "todo"
+    complexity: 8
+    complexity_tier: "Low"
+    description: >
+      Implement data_prep.py: load HH-RLHF splits, extract dialogue (TRL common-prefix pattern),
+      filter pairs to >= 20 tokens each, assign split labels (0=base, 1=online),
+      combine into single DataFrame.
+    acceptance_criteria:
+      - "load_hh_rlhf() returns two DataFrames with chosen/rejected columns"
+      - "Combined DataFrame size ~80K rows with split column = {0, 1}"
+      - "filter_pairs() removes rows where either response < 20 tokens"
+      - "extract_dialogue() correctly strips common prefix via TRL pattern"
+    reference_files:
+      - "h-e1/03_prd.md#FR-1"
+      - "h-e1/03_architecture.md#DataPrep"
+      - "h-e1/03_logic.md#Module-data_preppy"
+      - "h-e1/03_config.md#Constants-data_preppy"
+
+  - id: "A-2"
+    title: "AIFS Feature Extraction & Clustering"
+    type: "data-pipeline"
+    priority: 82
+    status: "todo"
+    complexity: 12
+    complexity_tier: "Medium"
+    description: >
+      Implement AIFS regex extraction (4 patterns: structured_list, safety_preface,
+      cot_marker, hedging), normalized scoring (hits per 100 tokens),
+      build_pairs_df() with delta_aifs_x_split interaction column,
+      sentence-transformer clustering at cosine threshold 0.85,
+      and validate_clusters() abort guard.
+    acceptance_criteria:
+      - "compute_aifs_score() returns float >= 0 per text"
+      - "cluster_prompts() returns array with >= 100 unique cluster IDs"
+      - "validate_clusters() raises ValueError if < 100 clusters with >= 2 pairs"
+      - "build_pairs_df() has delta_aifs_x_split column = delta_aifs * split"
+      - "df_pairs columns: chosen, delta_aifs, delta_length, delta_aifs_x_split, split, cluster_id"
+    reference_files:
+      - "h-e1/03_prd.md#FR-2"
+      - "h-e1/03_prd.md#FR-3"
+      - "h-e1/03_architecture.md#DataPrep"
+      - "h-e1/03_logic.md#Module-data_preppy"
+      - "h-e1/03_config.md#Constants-data_preppy"
+
+  - id: "A-3"
+    title: "Statistical Model Fitting"
+    type: "model"
+    priority: 85
+    status: "todo"
+    complexity: 13
+    complexity_tier: "Medium"
+    description: >
+      Implement experiment.py: baseline model (no interaction), proposed model (with
+      delta_aifs_x_split interaction β₄), extended model (supply_prop covariate),
+      perplexity model (delta_perplexity covariate), all via statsmodels ConditionalLogit
+      with groups=cluster_id. Implement verify_mechanism_activated() with 5 indicators.
+    acceptance_criteria:
+      - "All 4 models converge without exception"
+      - "fit_proposed_model() result.params contains 'delta_aifs_x_split'"
+      - "verify_mechanism_activated() returns (True, all_true_dict) on valid data"
+      - "verify_mechanism_activated() raises RuntimeError if any indicator is False"
+      - "compute_supply_prop() adds supply_prop column per cluster_id"
+    reference_files:
+      - "h-e1/03_prd.md#FR-4"
+      - "h-e1/03_prd.md#FR-5"
+      - "h-e1/03_architecture.md#Experiment"
+      - "h-e1/03_logic.md#Module-experimentpy"
+      - "h-e1/03_config.md#Statistical-Model-Configuration"
+
+  - id: "A-4"
+    title: "Evaluation & Gate Check"
+    type: "evaluation"
+    priority: 78
+    status: "todo"
+    complexity: 9
+    complexity_tier: "Medium"
+    description: >
+      Implement evaluate.py: extract β₄, OR=exp(β₄), 95% CI, p-value, McFadden R²,
+      LRT statistic, gate logic (β₄>0 AND OR>=1.10 AND pval<0.01 AND CI_lo>1.0),
+      save results to h-e1/results/metrics.json, model_summary.txt, pairs_df.parquet.
+    acceptance_criteria:
+      - "metrics.json contains keys: beta4, OR, CI_lo, CI_hi, pval, mcfadden_r2_baseline, mcfadden_r2_proposed, gate_passed"
+      - "check_gate() returns True iff all 4 gate conditions satisfied"
+      - "h-e1/results/model_summary.txt written with statsmodels summary"
+      - "h-e1/results/pairs_df.parquet written successfully"
+    reference_files:
+      - "h-e1/03_prd.md#FR-6"
+      - "h-e1/03_architecture.md#Evaluate"
+      - "h-e1/03_logic.md#Module-evaluatepy"
+      - "h-e1/03_config.md#Constants-evaluatepy"
+
+  - id: "A-5"
+    title: "Visualization (5 Figures)"
+    type: "evaluation"
+    priority: 72
+    status: "todo"
+    complexity: 10
+    complexity_tier: "Medium"
+    description: >
+      Implement visualize.py: 5 required figures — OR comparison bar chart (Fig 1),
+      β₄ forest plot across model specs (Fig 2), AIFS violin plot by split (Fig 3),
+      cluster size histogram (Fig 4), OR sensitivity across cosine thresholds (Fig 5).
+      All saved to h-e1/figures/.
+    acceptance_criteria:
+      - "5 PNG files written to h-e1/figures/"
+      - "fig1_or_comparison.png includes 95% CI error bars"
+      - "fig2_forest_plot.png shows 4 model specs"
+      - "fig5_or_sensitivity.png shows OR estimates at [0.75, 0.80, 0.85, 0.90]"
+      - "No matplotlib errors"
+    reference_files:
+      - "h-e1/03_prd.md#FR-7"
+      - "h-e1/03_architecture.md#Visualize"
+      - "h-e1/03_logic.md#Module-visualizepy"
+      - "h-e1/03_config.md#Constants-visualizepy"
+
+  - id: "A-6"
+    title: "Orchestration & Smoke Test"
+    type: "training"
+    priority: 65
+    status: "todo"
+    complexity: 7
+    complexity_tier: "Low"
+    description: >
+      Implement run_experiment.py: end-to-end pipeline orchestration, argparse CLI
+      (--smoke-test, --cosine-threshold, --seed, --results-dir, --figures-dir, --max-iter),
+      timestamped logging to h-e1/results/experiment.log, smoke test on 500 pairs per split.
+    acceptance_criteria:
+      - "python run_experiment.py --smoke-test completes without error in < 2 minutes"
+      - "Full pipeline run completes in < 60 minutes on CPU"
+      - "experiment.log written with timestamps"
+      - "All argparse flags work correctly"
+    reference_files:
+      - "h-e1/03_prd.md#FR-9"
+      - "h-e1/03_architecture.md#RunExperiment"
+      - "h-e1/03_logic.md#Module-run_experimentpy"
+      - "h-e1/03_config.md#CLI-Configuration-argparse"
+
+  # ============================================================
+  # PRIORITY 49-2: SUBTASKS (Logic Agent — 5 subtasks)
+  # ============================================================
+  - id: "L-3-1"
+    title: "ConditionalLogit Model Fitting (4 variants)"
+    type: "subtask"
+    priority: 45
+    status: "todo"
+    parent_epic: "A-3"
+    parent_complexity: 13
+    description: >
+      Implement baseline, proposed, extended, perplexity ConditionalLogit models.
+      Use statsmodels ConditionalLogit with groups=cluster_id, method='bfgs', max_iter=200.
+      Baseline: chosen ~ delta_aifs + delta_length.
+      Proposed: + delta_aifs_x_split (β₄ interaction).
+      Extended: + supply_prop (supply control).
+      Perplexity: + delta_perplexity (token length proxy).
+    reference_files:
+      - "h-e1/03_logic.md#Module-experimentpy"
+      - "h-e1/03_config.md#Statistical-Model-Configuration"
+
+  - id: "L-3-2"
+    title: "Mechanism Verification (5 indicators)"
+    type: "subtask"
+    priority: 42
+    status: "todo"
+    parent_epic: "A-3"
+    parent_complexity: 13
+    description: >
+      Implement verify_mechanism_activated(): check beta4_fitted (not NaN),
+      data_variance (delta_aifs.std() > 0.01), split_balanced (both splits >= 1000),
+      clusters_valid (>= 100 clusters with >= 2 pairs), effect_nonzero (|β₄| > 1e-6).
+      Raise RuntimeError with informative message if any indicator is False.
+    reference_files:
+      - "h-e1/03_logic.md#Module-experimentpy"
+      - "h-e1/03_config.md#Validation-Thresholds"
+
+  - id: "L-2-1"
+    title: "AIFS Regex Scoring + Pair Construction"
+    type: "subtask"
+    priority: 38
+    status: "todo"
+    parent_epic: "A-2"
+    parent_complexity: 12
+    description: >
+      Implement compute_aifs_score() with 4 regex patterns (structured_list,
+      safety_preface, cot_marker, hedging), normalized as hits per 100 tokens.
+      Implement build_pairs_df() producing long-format DataFrame with
+      delta_aifs_x_split = delta_aifs * split interaction column.
+    reference_files:
+      - "h-e1/03_logic.md#Module-data_preppy"
+      - "h-e1/03_config.md#Constants-data_preppy"
+
+  - id: "L-2-2"
+    title: "Semantic Clustering + Validation"
+    type: "subtask"
+    priority: 35
+    status: "todo"
+    parent_epic: "A-2"
+    parent_complexity: 12
+    description: >
+      Implement cluster_prompts() using sentence-transformers all-MiniLM-L6-v2,
+      greedy cosine threshold clustering at 0.85, batch_size=512.
+      Implement validate_clusters() that raises ValueError if fewer than
+      100 clusters contain >= 2 preference pairs (required for ConditionalLogit feasibility).
+    reference_files:
+      - "h-e1/03_logic.md#Module-data_preppy"
+      - "h-e1/03_config.md#Constants-data_preppy"
+
+  - id: "L-4-1"
+    title: "Metrics Extraction + LRT + Gate Check"
+    type: "subtask"
+    priority: 30
+    status: "todo"
+    parent_epic: "A-4"
+    parent_complexity: 9
+    description: >
+      Implement compute_metrics(): extract β₄, OR=exp(β₄), 95% CI via conf_int(),
+      p-value, McFadden R² for both models, LRT statistic and p-value via chi2.sf().
+      Implement check_gate(): inline boolean: β₄>0 AND OR>=1.10 AND pval<0.01 AND CI_lo>1.0.
+    reference_files:
+      - "h-e1/03_logic.md#Module-evaluatepy"
+      - "h-e1/03_config.md#Constants-evaluatepy"
+
+  # ============================================================
+  # PRIORITY 49-2: SUBTASKS (Config Agent — 4 subtasks)
+  # ============================================================
+  - id: "C-E1-1"
+    title: "data_prep.py Constants"
+    type: "subtask"
+    priority: 25
+    status: "todo"
+    parent_epic: "A-2"
+    parent_complexity: 12
+    description: >
+      Define AIFS_PATTERNS dict with 4 compiled regex patterns, COSINE_THRESHOLD=0.85,
+      MODEL_NAME='sentence-transformers/all-MiniLM-L6-v2', MAX_SEQ_LENGTH=256,
+      BATCH_SIZE=512, RANDOM_SEED=1, MIN_TOKEN_COUNT=20 at module level in data_prep.py.
+    reference_files:
+      - "h-e1/03_config.md#Constants-data_preppy"
+
+  - id: "C-E1-2"
+    title: "evaluate.py / experiment.py Constants"
+    type: "subtask"
+    priority: 22
+    status: "todo"
+    parent_epic: "A-4"
+    parent_complexity: 9
+    description: >
+      Define gate thresholds (GATE_BETA4_MIN=0.0, GATE_OR_MIN=1.10, GATE_PVAL_MAX=0.01,
+      GATE_CI_LO_MIN=1.0), mechanism check thresholds (MIN_CLUSTER_COUNT=100,
+      MIN_PAIRS_PER_CLUSTER=2, MIN_SPLIT_SIZE=1000, MIN_DELTA_AIFS_STD=0.01,
+      MIN_EFFECT_SIZE=1e-6), MAX_ITER=200 in respective modules.
+    reference_files:
+      - "h-e1/03_config.md#Constants-evaluatepy"
+      - "h-e1/03_config.md#Statistical-Model-Configuration"
+      - "h-e1/03_config.md#Validation-Thresholds"
+
+  - id: "C-E1-3"
+    title: "Path and Dataset Constants"
+    type: "subtask"
+    priority: 18
+    status: "todo"
+    parent_epic: "A-1"
+    parent_complexity: 8
+    description: >
+      Define RESULTS_DIR, METRICS_FILE, MODEL_SUMMARY_FILE, PAIRS_DF_FILE, LOG_FILE,
+      FIGURES_DIR path constants. Define DATASET_NAME='Anthropic/hh-rlhf',
+      SPLIT_BASE_DIR='helpful-base', SPLIT_ONLINE_DIR='helpful-online',
+      LABEL_BASE=0, LABEL_ONLINE=1.
+    reference_files:
+      - "h-e1/03_config.md#Path-Configuration"
+      - "h-e1/03_config.md#Dataset-Configuration"
+
+  - id: "C-E1-4"
+    title: "CLI argparse Configuration"
+    type: "subtask"
+    priority: 15
+    status: "todo"
+    parent_epic: "A-6"
+    parent_complexity: 7
+    description: >
+      Implement get_args() in run_experiment.py with flags: --results-dir,
+      --figures-dir, --cosine-threshold (default 0.85), --max-iter (default 200),
+      --seed (default 1), --smoke-test (action='store_true', uses 500 rows per split).
+    reference_files:
+      - "h-e1/03_config.md#CLI-Configuration-argparse"
+
+  # ============================================================
+  # PRIORITY 1: FAILSAFE (Pipeline Continuation Checkpoint)
+  # ============================================================
+  - id: "F-1"
+    title: "Failsafe: Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    status: "todo"
+    description: >
+      Final checkpoint verifying all outputs exist before Phase 4 completion.
+      Check: h-e1/results/metrics.json, h-e1/results/model_summary.txt,
+      h-e1/results/pairs_df.parquet, h-e1/figures/fig1_or_comparison.png,
+      h-e1/results/experiment.log.
+      Log gate result (PASS/FAIL) for hypothesis-loop routing.
+    acceptance_criteria:
+      - "All result files exist and are non-empty"
+      - "metrics.json parseable with gate_passed key present"
+      - "experiment.log contains completion timestamp"
+    reference_files:
+      - "h-e1/03_prd.md#Success-Criteria"

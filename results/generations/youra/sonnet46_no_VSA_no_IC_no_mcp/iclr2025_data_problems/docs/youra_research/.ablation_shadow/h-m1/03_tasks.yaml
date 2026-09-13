@@ -1,0 +1,366 @@
+budget_summary:
+  budget_remaining: 4
+  epics: 9
+  setup: 1
+  subtasks: 16
+  total: 26
+metadata:
+  generated_at: '2026-08-25T15:45:00+00:00'
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+tasks:
+- acceptance: '`python -c "from datasets import load_dataset; from lm_eval.tasks import
+    get_task_dict"` runs without error. All dirs exist.
+
+    '
+  dependencies: []
+  description: 'Create code/ directory, install Python dependencies, verify HuggingFace
+    streaming access for EleutherAI/pile and EleutherAI/the_pile_deduplicated, verify
+    lm-eval benchmark loading, create figures/ and checkpoints/ dirs.
+
+    '
+  id: S-1
+  priority: 94
+  reference_files:
+  - docs/youra_research/h-m1/03_prd.md#8-dependencies
+  title: Environment Setup
+  type: setup
+- acceptance: '`from config import BENCHMARKS, CORRECTED_ALPHA` succeeds.'
+  complexity: 2
+  dependencies:
+  - S-1
+  description: 'Implement config.py with all constants (BENCHMARKS, NGRAM_SIZE=13,
+    SAMPLE_SIZE=10000, RANDOM_SEED=42, CORRECTED_ALPHA=0.0125, N_WORKERS=8, PILE_HF_ID,
+    PILE_DEDUP_HF_ID, BASE_DIR, FIGURES_DIR, CHECKPOINT_DIR). Create requirements.txt
+    and run_experiment.sh.
+
+    '
+  id: A-1
+  priority: 93
+  reference_files:
+  - docs/youra_research/h-m1/03_architecture.md#config
+  - docs/youra_research/h-m1/03_config.md
+  title: Config & Scaffold
+  type: setup
+- acceptance: 'Pickle exists; len(ngram_sets["mmlu"]) > 100000.
+
+    '
+  complexity: 6
+  dependencies:
+  - A-1
+  description: 'Implement benchmark_ngrams.py: extract_ngrams() loads full test sets
+    (MMLU 14042, HellaSwag 10042, ARC-Challenge 1172, WinoGrande 1267) via lm_eval
+    doc_to_text(), builds 13-gram character frozensets per benchmark, saves pickle
+    checkpoint.
+
+    '
+  id: A-4
+  priority: 92
+  reference_files:
+  - docs/youra_research/h-m1/03_architecture.md#benchmarkngrams
+  - docs/youra_research/h-m1/03_prd.md#4-functional-requirements
+  title: Benchmark N-gram Extraction
+  type: data-pipeline
+- acceptance: 'removed_hashes.json written with >0 entries after partial run on 1000-doc
+    sample.
+
+    '
+  complexity: 10
+  dependencies:
+  - A-1
+  description: 'Implement corpus_streamer.py: stream_hashes() iterates HuggingFace
+    streaming dataset yielding (sha256_hex, pile_subset). find_removed_hashes() builds
+    dedup hash set first, then streams Pile to identify removed documents. Checkpoint
+    JSON with atomic write.
+
+    '
+  id: A-2
+  priority: 91
+  reference_files:
+  - docs/youra_research/h-m1/03_architecture.md#corpusstreamer
+  - docs/youra_research/h-m1/03_logic.md#a-2-corpus-streamer
+  subtasks:
+  - L-2-1
+  - L-2-2
+  title: Corpus Streamer
+  type: data-pipeline
+- acceptance: 'sampled_docs.json has "removed" and "retained" keys, each with ~10000
+    dicts.
+
+    '
+  complexity: 13
+  dependencies:
+  - A-2
+  description: 'Implement sampler.py: compute_subset_proportions() from removed_hashes
+    dict. reservoir_sample_stratified() samples ~10000 removed and ~10000 retained
+    docs matching Pile subset distribution. Checkpoint sampled_docs.json.
+
+    '
+  id: A-3
+  priority: 90
+  reference_files:
+  - docs/youra_research/h-m1/03_architecture.md#sampler
+  - docs/youra_research/h-m1/03_logic.md#a-3-stratified-sampler
+  subtasks:
+  - L-3-1
+  - L-3-2
+  title: Stratified Sampler
+  type: data-pipeline
+- acceptance: 'overlap_scores.json written; removed MMLU mean > retained MMLU mean.
+
+    '
+  complexity: 11
+  dependencies:
+  - A-3
+  - A-4
+  description: 'Implement overlap_computer.py: compute_doc_overlap() single-doc 13-gram
+    overlap. compute_population_overlaps() parallelizes via multiprocessing.Pool (N_WORKERS).
+    compute_all_overlaps() orchestrates both populations, saves overlap_scores.json.
+
+    '
+  id: A-5
+  priority: 89
+  reference_files:
+  - docs/youra_research/h-m1/03_architecture.md#overlapcomputer
+  - docs/youra_research/h-m1/03_logic.md#a-5-overlap-computer
+  subtasks:
+  - L-5-1
+  - L-5-2
+  title: Overlap Computer
+  type: model
+- acceptance: 'statistical_results.json written without error.
+
+    '
+  complexity: 9
+  dependencies:
+  - A-5
+  description: 'Implement statistical_tester.py: mann_whitney_per_benchmark() one-tailed
+    Mann-Whitney U with Bonferroni correction (alpha=0.0125) and rank-biserial r.
+    spearman_rank_correlation(). mechanism_check() asserts MMLU ratio >= 1.2x. run_tests()
+    saves statistical_results.json.
+
+    '
+  id: A-6
+  priority: 88
+  reference_files:
+  - docs/youra_research/h-m1/03_architecture.md#statisticaltester
+  - docs/youra_research/h-m1/03_logic.md#a-6-statistical-tester
+  subtasks:
+  - L-6-1
+  - L-6-2
+  title: Statistical Tester
+  type: evaluation
+- acceptance: 'ablation_results.json has keys "ngram_sizes", "extra_benchmarks", "subset_stratified".
+
+    '
+  complexity: 15
+  dependencies:
+  - A-5
+  - A-6
+  description: 'Implement ablation_runner.py: run_ngram_size_ablation() for n=8,1.
+    run_arc_easy_ablation(). run_subset_stratified_ablation(). run_all_ablations()
+    saves ablation_results.json.
+
+    '
+  id: A-7
+  priority: 87
+  reference_files:
+  - docs/youra_research/h-m1/03_architecture.md#ablationrunner
+  - docs/youra_research/h-m1/03_logic.md#a-7-ablation-runner
+  subtasks:
+  - L-7-1
+  - L-7-2
+  - L-7-3
+  - L-7-4
+  title: Ablation Runner
+  type: evaluation
+- acceptance: 'figures/overlap_bar.png exists and is non-empty (>10KB). All 4 figure
+    files present.
+
+    '
+  complexity: 11
+  dependencies:
+  - A-6
+  - A-7
+  description: 'Implement visualizer.py: plot_overlap_bar() (mandatory gate figure),
+    plot_violin(), plot_rank_correlation(), plot_subset_breakdown(). matplotlib Agg
+    backend. sig_stars() reused from h-e1.
+
+    '
+  id: A-8
+  priority: 86
+  reference_files:
+  - docs/youra_research/h-m1/03_architecture.md#visualizer
+  - docs/youra_research/h-m1/03_config.md#visualizer-config
+  subtasks:
+  - C-8-1
+  - C-8-2
+  title: Visualizer
+  type: evaluation
+- acceptance: '`python pipeline.py --help` runs without error. End-to-end on 100-doc
+    sample completes.
+
+    '
+  complexity: 11
+  dependencies:
+  - A-2
+  - A-3
+  - A-4
+  - A-5
+  - A-6
+  - A-7
+  - A-8
+  description: 'Implement pipeline.py: run(resume=True) orchestrates 7 stages sequentially.
+    Each stage skips if checkpoint exists and resume=True. CLI via argparse.
+
+    '
+  id: A-9
+  priority: 85
+  reference_files:
+  - docs/youra_research/h-m1/03_architecture.md#pipeline
+  - docs/youra_research/h-m1/03_config.md#pipeline-orchestrator-config
+  subtasks:
+  - C-9-1
+  - C-9-2
+  title: Pipeline Orchestrator
+  type: training
+- description: Implement stream_hashes() and find_removed_hashes() per 03_logic.md
+    spec.
+  id: L-2-1
+  parent: A-2
+  priority: 49
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-2-1-stream_corpus_diff
+  title: stream_corpus_diff implementation
+  type: subtask
+- description: Implement save_hash_checkpoint() and load_hash_checkpoint() with atomic
+    write.
+  id: L-2-2
+  parent: A-2
+  priority: 48
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-2-2-hash_checkpoint_io
+  title: hash_checkpoint_io implementation
+  type: subtask
+- description: Implement compute_subset_proportions(removed_hashes) using Counter.
+  id: L-3-1
+  parent: A-3
+  priority: 47
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-3-1-compute_subset_proportions
+  title: compute_subset_proportions implementation
+  type: subtask
+- description: Implement reservoir_sample_stratified() with per-subset reservoir.
+  id: L-3-2
+  parent: A-3
+  priority: 46
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-3-2-reservoir_sample_stratified
+  title: reservoir_sample_stratified implementation
+  type: subtask
+- description: Implement _compute_single() worker and compute_overlap_batch() via
+    multiprocessing.Pool.
+  id: L-5-1
+  parent: A-5
+  priority: 45
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-5-1-compute_overlap_batch
+  title: compute_overlap_batch implementation
+  type: subtask
+- description: Implement save_overlap_checkpoint() and load_overlap_checkpoint().
+  id: L-5-2
+  parent: A-5
+  priority: 44
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-5-2-checkpoint_overlap_results
+  title: checkpoint_overlap_results implementation
+  type: subtask
+- description: scipy.stats.mannwhitneyu alternative='greater', Bonferroni p_corr=min(p*4,1.0),
+    rank-biserial r.
+  id: L-6-1
+  parent: A-6
+  priority: 43
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-6-1-run_mannwhitney_suite
+  title: run_mannwhitney_suite implementation
+  type: subtask
+- description: scipy.stats.spearmanr; expected ranking [mmlu, arc_challenge, hellaswag,
+    winogrande].
+  id: L-6-2
+  parent: A-6
+  priority: 42
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-6-2-compute_rank_correlation
+  title: compute_rank_correlation implementation
+  type: subtask
+- description: Re-extract n-gram sets at n=8 and n=1; rerun overlap + Mann-Whitney.
+  id: L-7-1
+  parent: A-7
+  priority: 41
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-7-1-run_ngram_ablation
+  title: run_ngram_ablation implementation
+  type: subtask
+- description: Add arc_easy benchmark; extract 13-gram set; rerun overlap + test.
+  id: L-7-2
+  parent: A-7
+  priority: 40
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-7-2-run_benchmark_ablation
+  title: run_benchmark_ablation implementation
+  type: subtask
+- description: Group docs by pile_subset; skip <50 docs per side; Mann-Whitney within
+    each subset.
+  id: L-7-3
+  parent: A-7
+  priority: 39
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-7-3-run_subset_stratified
+  title: run_subset_stratified implementation
+  type: subtask
+- description: Aggregate ngram_ablation, benchmark_ablation, subset_ablation into
+    JSON.
+  id: L-7-4
+  parent: A-7
+  priority: 38
+  reference_files:
+  - docs/youra_research/h-m1/03_logic.md#l-7-4-compile_ablation_report
+  title: compile_ablation_report implementation
+  type: subtask
+- description: DPI=150, color palette, sig markers, output format in FigureConfig.
+  id: C-8-1
+  parent: A-8
+  priority: 19
+  reference_files:
+  - docs/youra_research/h-m1/03_config.md#visualizer-config
+  title: Figure configuration
+  type: subtask
+- description: Seaborn whitegrid theme, font sizes, axis labels, mpl_backend="Agg".
+  id: C-8-2
+  parent: A-8
+  priority: 18
+  reference_files:
+  - docs/youra_research/h-m1/03_config.md#visualizer-config
+  title: Style configuration
+  type: subtask
+- description: Stage run/skip flags, checkpoint_dir, resume=True default, logging
+    level INFO.
+  id: C-9-1
+  parent: A-9
+  priority: 17
+  reference_files:
+  - docs/youra_research/h-m1/03_config.md#pipeline-orchestrator-config
+  title: Pipeline stage configuration
+  type: subtask
+- description: n_workers=8, batch_size=1000, memory_limit_gb=16, random_seed=42 in
+    ResourceConfig.
+  id: C-9-2
+  parent: A-9
+  priority: 16
+  reference_files:
+  - docs/youra_research/h-m1/03_config.md#pipeline-orchestrator-config
+  title: Resource configuration
+  type: subtask
+version: '1.0'

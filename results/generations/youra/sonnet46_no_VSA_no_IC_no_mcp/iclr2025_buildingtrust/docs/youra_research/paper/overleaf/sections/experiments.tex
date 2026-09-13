@@ -1,0 +1,73 @@
+\section{Experimental Setup}
+\label{sec:experiments}
+
+We design four experiments to answer distinct questions about adversarial calibration in LLMs. Each experiment targets a specific claim from the Introduction, moving from existence to mechanism to conditionality to moderation.
+
+\textbf{RQ1 (Existence):} Does adversarial perturbation increase ECE for open-weight LLMs on NLP benchmarks?
+
+\textbf{RQ2 (Mechanism):} Is $\Delta$ECE a valid calibration signal, or does it reflect label noise introduced by adversarial perturbation?
+
+\textbf{RQ3 (Conditionality):} Is calibration degradation universal across task types and adversarial construction methods, or is it conditional?
+
+\textbf{RQ4 (RLHF Moderation):} Does RLHF alignment moderate adversarial calibration degradation, and does the effect depend on benchmark construction method?
+
+\subsection{Datasets}
+
+We evaluate on five adversarial benchmark splits and their corresponding clean counterparts, selected to span two construction methods and two task types:
+
+\begin{table}[h]
+\centering
+\caption{Dataset Overview}
+\label{tab:datasets}
+\begin{tabular}{lllrrr}
+\toprule
+Split & Task & Construction Method & $n$ (adv) & $n$ (clean) & Answers \\
+\midrule
+AdvGLUE MNLI & NLI (entailment) & Human-adversarial & 121 & 200 & 3 \\
+ANLI R1 & NLI (entailment) & Model-in-loop (easy) & 200 & 200 & 3 \\
+ANLI R2 & NLI (entailment) & Model-in-loop (medium) & 200 & 200 & 3 \\
+ANLI R3 & NLI (entailment) & Model-in-loop (hard) & 200 & 200 & 3 \\
+AdvGLUE QQP & Paraphrase (binary) & Human-adversarial & 78 & 200 & 2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Rationale.} AdvGLUE \citep{wang2021adversarial} and ANLI \citep{nie2020adversarial} are the two principal adversarial NLP benchmarks that preserve ground-truth labels by construction --- a prerequisite for valid $\Delta$ECE measurement.
+
+\textbf{Clean baselines.} GLUE MNLI ($n=200$, random seed=1) serves as the clean baseline for all NLI adversarial splits. GLUE QQP ($n=200$) serves as the baseline for AdvGLUE QQP.
+
+\subsection{Baselines}
+
+\textbf{Baseline comparison in RQ4 (RLHF moderation):}
+\begin{itemize}
+  \item \textbf{Llama-2-7b-hf (base):} The pre-RLHF checkpoint; no instruction fine-tuning or RLHF. Serves as the reference for adversarial calibration without alignment.
+  \item \textbf{Llama-2-7b-chat:} RLHF-aligned checkpoint trained with RLHF from the same 7b-parameter base. Comparison against base isolates the RLHF fine-tuning effect at fixed model scale.
+\end{itemize}
+
+We compare base vs.\ chat on the same five adversarial cells. For each cell, we compute $\Delta\Delta$ECE $= \Delta$ECE(base) $- \Delta$ECE(chat) to measure RLHF moderation. Positive $\Delta\Delta$ECE means base has larger calibration degradation (RLHF helps); negative $\Delta\Delta$ECE means chat has larger calibration degradation (alignment tax).
+
+\subsection{Implementation Details}
+
+\textbf{Model.} All experiments use Llama-2-7b-hf (HuggingFace checkpoint \texttt{meta-llama/Llama-2-7b-hf}, SHA \texttt{01c7f73d}) in bfloat16 precision for RQ1--RQ3. RQ4 adds Llama-2-7b-chat (\texttt{meta-llama/Llama-2-7b-chat-hf}). Chat models use the Llama-2 chat template for prompt formatting; base models use raw multiple-choice format.
+
+\textbf{Confidence extraction.} For each example, we compute the softmax distribution over the three answer-token log-probabilities (NLI: ``A''/``B''/``C''; binary: ``Yes''/``No''). The predicted label is argmax; confidence is the max-softmax probability. This protocol is validated across all 9 cells in RQ1: mean confidence 0.61--0.65 (non-degenerate), probability sums $|\sum p - 1| < 0.001$ (all cells).
+
+\textbf{ECE computation.} 15-bin equal-width ECE per \citet{guo2017calibration}. Bin count validated: ECE is stable across 10/15/20 bins for AdvGLUE MNLI (RQ2 ablation; all produce ECE $= 0.3497$).
+
+\textbf{JSONL cache reuse.} RQ1 per-example JSONL caches (one record per example: \texttt{\{confidence, pred\_label, true\_label, correct, model\_id, task, split\}}) are reused by RQ2, RQ3, and RQ4 (base model cells). This avoids repeated inference and ensures identical numerical outputs across experiments.
+
+\textbf{Compute.} RQ1--RQ3 executed on CPU (1TB RAM, no GPU) using float32 precision. RQ4 executed on 5$\times$ NVIDIA H100 NVL (95GB each) in bfloat16.
+
+\textbf{Reproducibility.} All experiments use random seed$=1$ for dataset subsampling. Code available upon request.
+
+\subsection{Evaluation Metrics}
+
+\textbf{$\Delta$ECE (Delta Expected Calibration Error).} Primary outcome variable. $\Delta$ECE $= \text{ECE}(\text{adversarial}) - \text{ECE}(\text{clean})$. Positive $\Delta$ECE: calibration degradation. Negative $\Delta$ECE: calibration improvement.
+
+\textbf{Label preservation rate.} For RQ2: fraction of adversarial examples where the adversarial label matches the original clean label. Required to be $\geq$0.80 for $\Delta$ECE to be interpretable as a calibration signal.
+
+\textbf{$\Delta\Delta$ECE (Delta-delta ECE).} For RQ4: $\Delta\Delta$ECE $= \Delta$ECE(base) $- \Delta$ECE(chat). Positive $=$ RLHF helps; negative $=$ alignment tax.
+
+\textbf{Moderation rate.} For RQ4: fraction of adversarial cells where $\Delta\Delta$ECE $> 0.01$. Gate criterion: $\geq$60\% of cells.
+
+\textbf{Accuracy ($\Delta$Acc).} Reported alongside $\Delta$ECE for interpretive context. Not the primary outcome.

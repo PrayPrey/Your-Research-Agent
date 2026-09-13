@@ -1,0 +1,9 @@
+﻿# Research Idea: Understanding Shortcut Learning Dynamics in Self-Supervised Contrastive Learning through Loss Landscape Analysis
+
+## Motivation
+Self-supervised contrastive learning (SSCL) has become foundational for pre-training large models, yet its susceptibility to spurious correlations remains poorly understood. Unlike supervised learning, SSCL lacks explicit labels, making it unclear how and when shortcuts emerge during training. Recent work shows that loss landscape geometry influences learning biases in supervised settings, but this connection is unexplored for SSCL. Understanding these dynamics is crucial as foundation models trained with contrastive objectives are deployed across diverse downstream tasks where spurious correlations may cause failures.
+
+## Main Idea
+We propose to systematically analyze how spurious correlations shape the loss landscape in contrastive learning and influence the temporal dynamics of feature learning. Our methodology involves: (1) constructing controlled contrastive datasets with known spurious features (e.g., synthetic augmentations correlated with semantic content), (2) tracking the evolution of loss landscape curvature (via Hessian eigenspectrum) around spurious versus core features throughout training, and (3) measuring when representations encode spurious patterns relative to semantic content using probing classifiers.
+
+We hypothesize that spurious features create sharper, more accessible minima early in training, explaining their preferential encoding. Based on these insights, we will develop a curvature-aware contrastive loss that penalizes optimization toward sharp spurious-feature-aligned directions. Expected outcomes include theoretical characterization of shortcut emergence in SSCL and a practical robustification method applicable to foundation model pre-training.

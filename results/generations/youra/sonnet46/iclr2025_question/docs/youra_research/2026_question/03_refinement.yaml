@@ -1,0 +1,355 @@
+# 03_refinement.yaml - Phase 2A Output (v10.0.0 Free-Parse Schema)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-03-16T14:30:00Z"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+  gap_title: "No AUROC Baseline for Generation-Free Post-Hoc NLI on Multi-Task HaluEval"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 15
+  convergence_reason: "All six criteria met: specific claim, mechanism, 3 testable predictions, novelty (extrospective NLI + structural ceiling), feasibility confirmed, objections addressed via pre-registered design"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "NLI-based inconsistency detection achieves 74.4% balanced accuracy on summarization benchmarks (SummaC)"
+      status: "BUILD_ON"
+      evidence: "Laban et al. (2022) SummaC: SUMMACConv on 6 heterogeneous summarization datasets"
+    - claim: "TRUE-style fine-tuned NLI metrics achieve ROC AUC ~81.5 across diverse factuality datasets"
+      status: "BUILD_ON"
+      evidence: "Honovich et al. (2022) TRUE: cross-task NLI evaluation across 11 datasets"
+    - claim: "SelfCheckGPT-NLI achieves 93.42 AUC-PR on WikiBio (sampling-based, not context-grounded)"
+      status: "BUILD_ON"
+      evidence: "Manakul et al. (2023) SelfCheckGPT — different signal type (self-consistency vs. external grounding)"
+    - claim: "HaluEval provides labeled (context, response, label) triples for Dialogue, QA, and Summarization"
+      status: "BUILD_ON"
+      evidence: "Li et al. (2023) HaluEval — benchmark already cached; labels are binary hallucination indicators"
+    - claim: "FActScore demonstrates 40% atomic facts are unsupported in long-form LLM outputs at sentence granularity"
+      status: "BUILD_ON"
+      evidence: "Min et al. (2023) FActScore — motivates sentence-level max aggregation for localized hallucinations"
+    - claim: "DeBERTa-v3-large-mnli is publicly available and already cached from prior pipeline runs"
+      status: "BUILD_ON"
+      evidence: "cross-encoder/nli-deberta-v3-large on HuggingFace; confirmed available from h-e1 runs"
+    - claim: "No prior work reports AUROC for zero-shot DeBERTa NLI applied directly to HaluEval multi-task"
+      status: "PROVE_NEW"
+      evidence: "Phase 1 gap analysis: HaluEval paper (Li et al., 2023) tested only LLM-based detectors"
+    - claim: "Optimal NLI scoring framing (contradiction vs. 1-entailment vs. net-contradiction) is unestablished for HaluEval"
+      status: "PROVE_NEW"
+      evidence: "SummaC uses entailment probability without comparing alternatives; TRUE does not ablate framings"
+    - claim: "Sentence-level vs. response-level NLI aggregation not compared on HaluEval tasks"
+      status: "PROVE_NEW"
+      evidence: "SummaC demonstrates sentence-level wins on summarization; not validated on dialogue/QA in HaluEval"
+  scope_reduction_percentage: 54
+  phase2b_4_instructions: |
+    Three BUILD_ON claims (SummaC, TRUE, SelfCheckGPT) establish that NLI-based detection is viable.
+    The experiment targets three PROVE_NEW claims: AUROC measurement on HaluEval multi-task,
+    framing ablation, and aggregation strategy comparison.
+    Phase 2B should focus verification protocol on the PROVE_NEW claims.
+    BUILD_ON claims serve as baselines and motivation, not as replication targets.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-ExtrospectiveNLI-v1"
+  confidence_level: 0.72
+  core_hypothesis_statement: |
+    Under the post-hoc, generation-free evaluation setting where only existing (context, response,
+    label) triples from HaluEval are used (no LLM generation at experiment time), if
+    cross-encoder/nli-deberta-v3-large is applied with (a) net-contradiction framing
+    (P(contradiction) - P(entailment)) as the primary configuration, (b) sentence-level max
+    aggregation for dialogue and QA, (c) full-document response-level for summarization, and
+    (d) last-3-turn windowed premise for dialogue, then AUROC >= 0.65 will be achieved on
+    HaluEval-Summarization and HaluEval-QA (primary), and AUROC >= 0.60 on HaluEval-Dialogue
+    (exploratory), because DeBERTa's MNLI training encodes graded support sensitivity sufficient
+    to detect factual inconsistency between grounding context and generated response without any
+    LLM generation.
+  alternative_hypothesis_h0: |
+    No NLI framing achieves AUROC >= 0.65 on both HaluEval-Summarization and HaluEval-QA
+    simultaneously when applied zero-shot without any task-specific training.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "NLI scoring framing"
+      type: "categorical"
+      operationalization: "Which function of DeBERTa softmax output is used as hallucination score"
+      levels:
+        - "contradiction (P(contradiction) alone)"
+        - "entailment_deficit (1 - P(entailment))"
+        - "net_contradiction (P(contradiction) - P(entailment))"
+    - name: "Aggregation granularity"
+      type: "categorical"
+      operationalization: "Whether NLI is computed on full response or individual sentences"
+      levels:
+        - "response_level (full response as single hypothesis)"
+        - "sentence_level_max (max contradiction over response sentences)"
+        - "sentence_level_mean (mean contradiction over response sentences)"
+    - name: "Premise window"
+      type: "categorical"
+      operationalization: "How much of the dialogue context is used as NLI premise"
+      levels:
+        - "full_context (full conversation history, truncated at 512 tokens)"
+        - "last_3_turns (last 3 dialogue turns as premise)"
+        - "last_user_only (most recent user query as premise)"
+    - name: "HaluEval task type"
+      type: "categorical"
+      operationalization: "Which HaluEval subset is being evaluated"
+      levels:
+        - "Dialogue (~12,988 examples)"
+        - "Summarization (document-summary pairs)"
+        - "QA (question-answer pairs with knowledge)"
+  dependent:
+    - name: "AUROC"
+      type: "continuous"
+      operationalization: "Area under ROC curve, binary hallucination label (1=hallucinated, 0=not), range [0,1]"
+      primary: true
+    - name: "Cohen's d (score distribution separation)"
+      type: "continuous"
+      operationalization: "Effect size between NLI score distributions for positive vs. negative examples"
+      primary: false
+    - name: "Structural ceiling AUROC"
+      type: "continuous"
+      operationalization: "Theoretical max AUROC given hallucination type distribution: p + 0.5*(1-p)"
+      primary: false
+  controlled:
+    - name: "Model"
+      operationalization: "Fixed: cross-encoder/nli-deberta-v3-large (frozen, no fine-tuning)"
+    - name: "Dataset split"
+      operationalization: "HaluEval test sets as-released; no modification or re-splitting"
+    - name: "Tokenizer"
+      operationalization: "DeBERTa tokenizer with max_length=512, truncation=True"
+    - name: "Batch size"
+      operationalization: "batch_size=32 for all NLI inference runs"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 4
+  steps:
+    - step: 1
+      description: "DeBERTa-v3-large-mnli, trained on MNLI/SNLI, encodes graded support sensitivity — the probability that a hypothesis text is logically consistent with a premise text"
+      evidence: "MNLI training with >433K premise-hypothesis pairs; cross-encoder architecture processes full (premise, hypothesis) jointly for precise contextual alignment"
+      falsifier: "If DeBERTa scores are uniformly distributed (near 1/3 each class) on HaluEval, the NLI signal is non-informative — mechanism fails at step 1"
+    - step: 2
+      description: "Factually inconsistent (hallucinated) responses will receive lower entailment and/or higher contradiction scores relative to their grounding context, because they introduce content not supported by or contradicting the context"
+      evidence: "SummaC (Laban et al., 2022) demonstrates NLI scores separate consistent from inconsistent summaries; ORION (Gerner et al., 2025) shows F1=0.83 on RAGTruth using NLI encoder without training on task data"
+      falsifier: "If contradiction/entailment scores show no systematic difference between hallucinated and non-hallucinated examples (DeLong test p >= 0.05), mechanism fails at step 2"
+    - step: 3
+      description: "Net-contradiction framing (P(contradiction) - P(entailment)) captures both explicit contradictions and unsupported-but-non-entailed content by penalizing entailment and rewarding contradiction simultaneously — extending coverage beyond raw contradiction-only framing"
+      evidence: "SummaC uses entailment probability without comparing alternatives; neutral class captures non-entailed content; net-contradiction explicitly penalizes both neutral and contradiction responses relative to entailment"
+      falsifier: "If 1-entailment consistently outperforms net-contradiction across all tasks (AUROC delta >= 0.03), then pure entailment-deficit framing is superior, and net-contradiction adds no benefit"
+    - step: 4
+      description: "Sentence-level max aggregation isolates the most contradictory sentence in the response, preventing dilution of localized hallucination signals by non-hallucinated sentences"
+      evidence: "FActScore (Min et al., 2023): 40% of atomic facts unsupported at sentence granularity, suggesting localized rather than pervasive hallucinations; SummaC: sentence-level wins by 2.4 points over document-level on summarization benchmarks"
+      falsifier: "If response-level NLI equals or outperforms sentence-level max by >= 0.02 AUROC on dialogue/QA, localization assumption is unsupported for HaluEval"
+  key_tension: "HaluEval labels 'unverifiable information' not 'contradiction' — hallucinations may be unsupported-but-consistent, which NLI contradiction scoring may not detect. This creates a theoretical ceiling (AUROC_max = p + 0.5*(1-p) where p = proportion of context-contradictory positives)."
+  evidence_summary: |
+    NLI-based factual inconsistency detection is well-established for summarization (SummaC 74.4% balanced acc,
+    TRUE 81.5 AUROC average). The novel extension to HaluEval multi-task without generation is motivated by
+    HaluEval's (context, response) structure that maps directly to NLI (premise, hypothesis) pairs.
+    The structural ceiling analysis is the key innovation: by quantifying the hallucination type distribution
+    and computing the theoretical max AUROC, the experiment provides both a practical measurement and a
+    diagnostic characterization of NLI-based detection limits on HaluEval.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "A non-trivial proportion (>50%) of HaluEval hallucinated responses are context-contradictory or unsupported-but-non-entailed, making NLI framing informative"
+    supporting_evidence: "HaluEval's sampling-then-filtering construction produces responses that 'diverge significantly' from context; ORION achieves F1=0.83 on RAGTruth using NLI without task training"
+    consequence_if_violated: "NLI scores will not discriminate hallucinated from non-hallucinated examples; AUROC will fall below 0.65 on all tasks; paradigm claim is unsupported"
+  - id: "A2"
+    assumption: "DeBERTa-v3-large-mnli generalizes from MNLI short-sentence pairs to HaluEval longer text pairs (passage-level dialogue, document-summary pairs)"
+    supporting_evidence: "TRUE demonstrated NLI generalization across 11 heterogeneous datasets; ORION shows cross-encoder NLI generalizes without domain-specific fine-tuning"
+    consequence_if_violated: "Score distributions will be poorly calibrated (mode near neutral) for long-context inputs; AUROC degraded by distribution shift from MNLI training data"
+  - id: "A3"
+    assumption: "HaluEval-Dialogue hallucinations are sufficiently localized that sentence-level max aggregation (capturing the worst sentence) improves over response-level NLI"
+    supporting_evidence: "FActScore: 40% unsupported atomic facts at sentence granularity; SummaC: sentence-level wins by 2.4 points on summarization"
+    consequence_if_violated: "Sentence-level max aggregation provides no AUROC improvement or degrades performance; response-level NLI is sufficient for dialogue"
+  - id: "A4"
+    assumption: "Last-3-turn dialogue window contains the factually relevant context that the hallucinated response violates — truncation of earlier turns does not remove key grounding evidence"
+    supporting_evidence: "Dialogue hallucinations are typically responses to the most recent query; HaluEval dialogue context includes the 'knowledge' field that grounds the response"
+    consequence_if_violated: "Last-3-turn window AUROC equals or underperforms full-context AUROC (controlling for truncation artifacts); window selection is not a principled recency effect"
+  - id: "A5"
+    assumption: "HaluEval binary labels (hallucinated/not) are high quality (kappa=0.811) and cleanly separate context-inconsistent from context-consistent responses"
+    supporting_evidence: "Li et al. (2023) reports inter-annotator agreement kappa=0.811 (substantial agreement); sampling-then-filtering pipeline ensures label quality"
+    consequence_if_violated: "Label noise (mislabeled non-hallucinations or missed hallucinations) suppresses AUROC; noise analysis may be needed to separate model performance from annotation quality"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Post-hoc evaluation settings where (context, response) pairs already exist
+    - Hallucination detection on English text in Dialogue, QA, and Summarization tasks
+    - HaluEval benchmark specifically (pminervini/HaluEval on HuggingFace)
+    - Settings where no LLM generation is performed at detection time
+    - Binary hallucination classification (hallucinated vs. not hallucinated)
+    - Generation-free environments (no access to LLM logits, no stochastic sampling)
+  does_not_apply_to: |
+    - Open-domain hallucination detection without grounding context
+    - Multimodal hallucination (vision-language models)
+    - Settings where instruction-tuned LLMs are accessible (P(True) would be preferred)
+    - Fine-grained span-level hallucination localization (method produces response-level score)
+    - Multilingual or non-English HaluEval variants
+    - Real-time hallucination detection during generation
+  known_limitations: |
+    - 512-token context limit: DeBERTa truncates long contexts; full-document premise for
+      summarization likely truncated — controlled truncation experiment required
+    - HaluEval hallucination type distribution unknown: proportion of context-contradictory
+      vs. unsupported-but-consistent positives determines structural AUROC ceiling
+    - Zero-shot generalization: MNLI training on short crowd-sourced sentence pairs may not
+      fully generalize to HaluEval's longer, domain-specific text
+    - Sentence tokenization quality: NLTK sent_tokenize may produce poor segmentation on
+      dialogue turns, affecting sentence-level aggregation
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "DeBERTa-v3-large-mnli with net-contradiction framing and appropriate aggregation strategy achieves AUROC >= 0.65 on HaluEval-Summarization and HaluEval-QA simultaneously"
+    test_method: "Apply cross-encoder/nli-deberta-v3-large to HaluEval test sets; compute AUROC using sklearn.metrics.roc_auc_score with binary hallucination labels"
+    success_criterion: "AUROC >= 0.65 on BOTH HaluEval-Summarization AND HaluEval-QA; statistical significance via DeLong test (p < 0.05) vs. uniform baseline AUROC=0.5"
+    falsification: "AUROC < 0.65 on either Summarization or QA (or both) across all three NLI framing variants tested"
+  - id: "P2"
+    primary: false
+    statement: "Net-contradiction framing (P(contradiction) - P(entailment)) achieves higher AUROC than raw contradiction alone on at least 2/3 HaluEval tasks, with DELTA >= 0.02"
+    test_method: "Compare AUROC for net-contradiction vs. contradiction_only vs. 1-entailment across all three tasks; report pairwise differences with bootstrap 95% CIs"
+    success_criterion: "net_contradiction AUROC - contradiction_only AUROC >= 0.02 on at least 2 of 3 tasks; bootstrap 95% CI excludes 0"
+    falsification: "No framing shows consistent AUROC advantage >= 0.02 across tasks; all three framings within 0.01 AUROC of each other"
+  - id: "P3"
+    primary: false
+    statement: "The empirical AUROC on HaluEval-Summarization and HaluEval-QA exceeds 70% of the theoretical structural ceiling (p + 0.5*(1-p)) estimated from the hallucination type audit"
+    test_method: "Label audit: sample 200 positive examples per task, categorize as (A) contradiction, (B) unsupported-non-contradicted, (C) ambiguous; compute structural ceiling per task; compare to empirical AUROC"
+    success_criterion: "Empirical AUROC >= 0.70 * ceiling on Summarization and QA — indicating the NLI model is near-optimal for context-contradictory hallucinations within its signal scope"
+    falsification: "Empirical AUROC < 0.50 * ceiling — indicating severe underperformance even for the hallucination types NLI should handle, suggesting model failure beyond scope limitations"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "HaluEval"
+    type: "standard"
+    source: "pminervini/HaluEval on HuggingFace"
+    path: "Cached from prior h-e1 pipeline runs; load via datasets.load_dataset('pminervini/HaluEval', split_name)"
+    hypothesis_fit: "HaluEval provides binary-labeled (context, response) pairs for Dialogue, QA, and Summarization — maps directly to NLI (premise, hypothesis) without any data preprocessing beyond what h-e1 already implemented. No generation needed."
+  model:
+    name: "cross-encoder/nli-deberta-v3-large"
+    type: "Cross-encoder NLI discriminative model"
+    source: "HuggingFace: cross-encoder/nli-deberta-v3-large (public, no gating)"
+    hypothesis_fit: "3-way softmax output (contradiction, neutral, entailment) enables all three framing ablations (contradiction, 1-entailment, net-contradiction) from a single inference pass. Already cached from h-e1-v2 runs."
+  baselines:
+    - name: "P(True) AUROC reference (prior pipeline, h-e1)"
+      method: "LLaMA-3-8B-Instruct verbalized confidence — AUROC 0.84 (Dialogue), 0.729 (Summarization). Not executable (instruct model gated). Theoretical reference only."
+    - name: "SelfCheckGPT-NLI AUROC reference (prior pipeline, h-e1)"
+      method: "SelfCheckGPT-NLI with base Llama-3.1-8B — AUROC 0.48 (Dialogue), 0.53 (QA). Available as executed baseline from prior runs."
+    - name: "Lexical NLI baseline (NER overlap)"
+      method: "Named entity overlap F1 between context and response as hallucination score. Trivial to implement; SummaC reports 53.0 balanced accuracy for NER-Overlap."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First systematic AUROC measurement for zero-shot DeBERTa NLI applied to HaluEval multi-task (Dialogue, QA, Summarization) under generation-free constraint"
+  key_innovation: |
+    (1) Extrospective NLI paradigm: applies NLI to existing (context, response) pairs rather than
+        querying the generating model — fundamentally different from SelfCheckGPT (self-consistency)
+        and P(True) (introspective confidence)
+    (2) Structural ceiling analysis: quantifies theoretical maximum AUROC for contradiction-based
+        detection given hallucination type distribution — first such analysis on HaluEval
+    (3) Self-diagnostic framing ablation: framing comparison (contradiction vs. 1-entailment vs.
+        net-contradiction) simultaneously characterizes hallucination type distribution and
+        optimizes detection, making ablation results publishable even without high AUROC
+  differentiation:
+    - prior_work: "SummaC (Laban et al., 2022)"
+      difference: "SummaC measures balanced accuracy on summarization benchmarks only; does not measure AUROC; does not test on HaluEval; does not compare framing variants; does not characterize hallucination type distribution"
+    - prior_work: "TRUE (Honovich et al., 2022)"
+      difference: "TRUE uses fine-tuned NLI models (not zero-shot); evaluates cross-task factual consistency on 11 different datasets (not HaluEval); does not ablate NLI scoring framings"
+    - prior_work: "SelfCheckGPT (Manakul et al., 2023)"
+      difference: "SelfCheckGPT compares response against other sampled responses (self-consistency); requires LLM generation (N=5 samples); our method compares response against provided context (external grounding) — orthogonal signal"
+    - prior_work: "HaluEval (Li et al., 2023)"
+      difference: "HaluEval paper evaluated LLM-based detectors (ChatGPT, GPT-3, Claude) for hallucination recognition; did not test discriminative NLI models; did not report AUROC; our work fills this measurement gap"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "SelfCheckGPT-NLI (base Llama-3.1-8B)"
+      performance: "AUROC 0.48 (Dialogue), 0.53 (QA) — below chance on Dialogue"
+      dataset: "HaluEval (executed in prior pipeline run h-e1)"
+      why_insufficient: "Fails due to base model producing near-identical stochastic outputs at temperature=0.7; no semantic diversity for self-consistency scoring"
+    - method: "P(True) LLaMA-3-8B-Instruct"
+      performance: "AUROC 0.84 (Dialogue), 0.73 (Summarization) — strong signal but inaccessible"
+      dataset: "HaluEval (prior pipeline run h-e1)"
+      why_insufficient: "Requires instruction-tuned model (gated HuggingFace access unavailable); generation-based; max modification attempts exhausted"
+    - method: "SummaC NLI (sentence-level, summarization only)"
+      performance: "74.4% balanced accuracy (not AUROC) on SUMMAC benchmark (not HaluEval)"
+      dataset: "SUMMAC benchmark (CoGenSumm, XSumFaith, Polytope, FactCC, SummEval, FRANK)"
+      why_insufficient: "Not evaluated on HaluEval; balanced accuracy not directly comparable to AUROC; summarization-only; no framing ablation; establishes prior art motivation"
+  best_baseline_performance: "P(True) AUROC 0.84 on HaluEval-Dialogue (inaccessible; theoretical reference only)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "DeBERTa-v3-large-mnli contradiction/entailment scores systematically differ between hallucinated and non-hallucinated (context, response) pairs on HaluEval — NLI signal is informative (AUROC > random)"
+  sh2_mechanism: "Net-contradiction framing with sentence-level max aggregation achieves AUROC >= 0.65 on HaluEval-Summarization and HaluEval-QA — primary mechanism test"
+  sh3_comparison: "Structural ceiling analysis quantifies NLI's theoretical maximum given hallucination type distribution — characterizes method ceiling vs. annotation scope (deferred to Phase 5 full comparison)"
+  open_questions:
+    - "What proportion of HaluEval hallucinated responses are context-contradictory vs. unsupported-but-consistent? (Label audit required)"
+    - "How much does DeBERTa truncation (512 tokens) suppress AUROC for summarization full-document premise?"
+    - "Does last-3-turn window for dialogue improve AUROC over full-context-truncated by delta >= 0.03?"
+    - "Is the NLI signal (external grounding) orthogonal to or redundant with self-consistency signal?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All six criteria met after 15 exchanges: specific claim stated, mechanism explained, 3 testable predictions with criteria, novelty (extrospective NLI paradigm + structural ceiling analysis) articulated, technical/theoretical feasibility established, major objections (truncation, framing underspecification, hallucination type distribution) addressed via pre-registered experimental design"
+  clarity_verified: true
+  remaining_objections:
+    - "Hallucination type distribution in HaluEval-Dialogue empirically unknown — addressed by mandatory label audit (200 positive samples per task)"
+    - "512-token truncation sensitivity unquantified — addressed by controlled truncation experiment"
+
+discussion_context:
+  total_exchanges: 15
+  agent_participation:
+    dr_nova: 3
+    prof_vera: 3
+    dr_sage: 2
+    prof_pax: 2
+    dr_ally: 3
+    prof_rex: 3
+  paper_citations: 12
+  convergence_type: "qualitative"

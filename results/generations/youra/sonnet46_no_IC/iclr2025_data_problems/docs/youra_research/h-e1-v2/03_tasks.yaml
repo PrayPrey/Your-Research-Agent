@@ -1,0 +1,344 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e1-v2
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  created_at: "2026-08-04T20:10:00Z"
+  description: "Scale-Dependent Optimal Curation Existence Test (Scope-Reduced): Pythia 14M/31M x FineWeb x 6 curation conditions x 2 seeds = 24 training runs"
+  base_hypothesis: h-e1
+  reuse_strategy: "Config-override pattern — import h-e1/code/ directly, add config_v2.py + run_experiment.py"
+
+budget_summary:
+  infrastructure: 1
+  epic_tasks: 7
+  subtasks: 5
+  failsafe: 1
+  total: 14
+  budget: 15
+  within_budget: true
+
+tasks:
+
+  # ─────────────────────────────────────────────
+  # INFRASTRUCTURE (priority 94)
+  # ─────────────────────────────────────────────
+
+  - id: ENV-1
+    title: "Environment setup"
+    type: setup
+    priority: 94
+    status: todo
+    description: >
+      Set up h-e1-v2 Python environment. Install required packages:
+      torch>=2.0, transformers>=4.35, datasets>=2.14, deepspeed>=0.10,
+      nemo-curator>=0.3, lm-eval>=0.4, scipy, numpy, pandas, matplotlib,
+      seaborn, pyyaml, tqdm. Clone EleutherAI/gpt-neox (v2.0) and
+      NVIDIA/NeMo-Curator if not already present from h-e1 environment.
+      Verify h-e1/code/ is importable (sys.path setup). FineWeb and
+      HellaSwag stream automatically via HuggingFace — no manual download.
+    reference_files:
+      - file: "03_prd.md"
+        section: "7.1 Python Packages"
+      - file: "03_prd.md"
+        section: "7.2 External Repositories"
+    acceptance_criteria:
+      - "python -c 'import torch, transformers, datasets, nemo_curator, lm_eval' succeeds"
+      - "gpt-neox repo cloned and deepy.py accessible"
+      - "h-e1/code/ importable from h-e1-v2/code/ via sys.path"
+
+  # ─────────────────────────────────────────────
+  # EPIC TASKS (priority 93-50)
+  # ─────────────────────────────────────────────
+
+  - id: A-1
+    title: "Config override (config_v2.py)"
+    type: implementation
+    priority: 93
+    status: todo
+    complexity: 5
+    complexity_breakdown: "1+1+1+2 (Module_Size+Dependencies+Algorithm+Integration)"
+    description: >
+      Write h-e1-v2/code/config_v2.py with CONFIG_V2 using dataclasses.replace().
+      Override: scales=[14,31], total_tokens=1B, train_steps=500,
+      checkpoint_interval_tokens=100M, seeds=[1,2], corpora=['fineweb'],
+      eval_tasks=['hellaswag'], eval_num_fewshot=0, updated pythia_configs dict,
+      updated path fields. Also add CURATION_CONDITIONS list (6 dicts).
+      Field names verified from actual h-e1/code/config.py.
+    reference_files:
+      - file: "03_config.md"
+        section: "C-1: ExperimentConfig Override"
+      - file: "03_architecture.md"
+        section: "Module Definitions — ConfigV2"
+    acceptance_criteria:
+      - "CONFIG_V2 = dataclasses.replace(ExperimentConfig(), ...) succeeds"
+      - "CONFIG_V2.scales == [14, 31]"
+      - "CONFIG_V2.total_tokens == 1_000_000_000"
+      - "CONFIG_V2.eval_tasks == ['hellaswag']"
+      - "CURATION_CONDITIONS has 6 entries"
+
+  - id: A-2
+    title: "FineWeb curation pipeline"
+    type: data-pipeline
+    priority: 92
+    status: todo
+    complexity: 8
+    complexity_breakdown: "2+2+2+2"
+    description: >
+      Update curate.py (or write curate_v2.py) to:
+      (1) Use FineWeb streaming as sole corpus (get_corpus_stream already supports 'fineweb').
+      (2) Add pad_to_token_budget() for repeat-sampling to reach exactly 1B tokens when
+      filtered corpus is smaller (likely for tau=20 variants ~150M tokens).
+      (3) Write curate_all_variants_v2() that calls pad_to_token_budget after dedup.
+      FuzzyDeduplicationWorkflow params: J=0.7→(num_bands=25, minhashes_per_band=10),
+      J=0.9→(num_bands=15, minhashes_per_band=15). Fallback: exact dedup.
+      Verify all 6 variants produce padded JSONL with >= 1B tokens.
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-2: FineWeb Streaming Corpus Pipeline"
+      - file: "03_config.md"
+        section: "C-2: Curation Condition Configs"
+      - file: "03_prd.md"
+        section: "FR-1: Data Corpus Curation Pipeline"
+    acceptance_criteria:
+      - "6 corpus variants produced in corpus_root"
+      - "Each variant has token_count >= 1_000_000_000 after padding"
+      - "meta.json and _SUCCESS flag written per variant"
+      - "Fallback exact dedup works if NeMo GPU unavailable"
+
+  - id: A-3
+    title: "Training configs (14M/31M SCALE_OVERRIDES)"
+    type: implementation
+    priority: 91
+    status: todo
+    complexity: 7
+    complexity_breakdown: "2+1+2+2"
+    description: >
+      Update SCALE_OVERRIDES dict in h-e1/code/train.py (or config_v2.py) to add
+      entries for scales 14 and 31.
+      14M: num_layers=6, hidden_size=128, num_attention_heads=4, lr=1e-3, min_lr=1e-4,
+           train_iters=500, train_tokens=1B, checkpoint_factor=50.
+      31M: num_layers=6, hidden_size=256, num_attention_heads=8, lr=1e-3, min_lr=1e-4,
+           train_iters=500, train_tokens=1B, checkpoint_factor=50.
+      Verify GPT-NeoX config YAML is generated correctly for both scales.
+    reference_files:
+      - file: "03_logic.md"
+        section: "Subtask L-3: SCALE_OVERRIDES update"
+      - file: "03_config.md"
+        section: "C-1: ExperimentConfig Override — pythia_configs"
+      - file: "03_prd.md"
+        section: "FR-3: Model Training"
+    acceptance_criteria:
+      - "SCALE_OVERRIDES[14] and SCALE_OVERRIDES[31] exist"
+      - "build_neox_config(14, ...) produces valid YAML with hidden_size=128"
+      - "build_neox_config(31, ...) produces valid YAML with hidden_size=256"
+      - "train_iters=500 in both configs"
+
+  - id: A-4
+    title: "Evaluation update (HellaSwag-only)"
+    type: implementation
+    priority: 90
+    status: todo
+    complexity: 5
+    complexity_breakdown: "1+1+1+2"
+    description: >
+      Restrict evaluation to HellaSwag 0-shot only by updating CONFIG_V2 (eval_tasks=['hellaswag'],
+      eval_num_fewshot=0). Verify acc_norm extraction path:
+      results['results']['hellaswag']['acc_norm,none'].
+      h-e1/code/evaluate.py reads eval_tasks from config — structural change not needed.
+      Update results schema: drop mmlu_4shot and contamination_rate columns,
+      use hellaswag_acc_norm and checkpoint_tokens instead.
+      Full validation set: 10,003 examples (no subsampling).
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-4: Model Evaluation"
+      - file: "03_logic.md"
+        section: "results_df columns (v2)"
+    acceptance_criteria:
+      - "evaluate.py runs with eval_tasks=['hellaswag'] from CONFIG_V2"
+      - "results CSV has columns: scale, ppl_threshold, dedup_j, corpus, seed, checkpoint_tokens, hellaswag_acc_norm"
+      - "HellaSwag runs on full 10003-example val set (no --limit flag)"
+
+  - id: A-5
+    title: "Analysis adapt (direction-based gate)"
+    type: implementation
+    priority: 89
+    status: todo
+    complexity: 8
+    complexity_breakdown: "2+2+2+2"
+    description: >
+      Write h-e1-v2/code/analyze_v2.py with:
+      (1) check_direction_v2(df, dv='hellaswag_acc_norm') — uses scales 14/31 (not 70/160),
+          computes tau*(14M) and tau*(31M) via argmax, direction_confirmed = tau*(14M) <= tau*(31M).
+      (2) gate_check_v2(analysis_results) — direction + above_random + interaction_exists,
+          NO ANCOVA required.
+      (3) run_full_analysis_v2(csv_path) — drops ANCOVA path, uses check_direction_v2 + gate_check_v2.
+      Existing h-e1 check_direction() and run_ancova_interaction() remain for diagnostic use.
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-1: Direction-based gate_check_v2()"
+      - file: "03_prd.md"
+        section: "FR-5: Statistical Analysis"
+    acceptance_criteria:
+      - "check_direction_v2 returns tau_star_14m, tau_star_31m, direction_confirmed"
+      - "gate_check_v2 passes when direction_confirmed AND above_random AND interaction_exists"
+      - "run_full_analysis_v2 prints gate result to stdout"
+      - "ANCOVA failure does NOT cause gate FAIL in v2"
+
+  - id: A-6
+    title: "Run 24 training experiments"
+    type: training
+    priority: 88
+    status: todo
+    complexity: 9
+    complexity_breakdown: "2+2+2+3"
+    description: >
+      Execute run_experiment_v2() for all 24 conditions:
+      2 scales (14M, 31M) × 6 curation conditions (tau={20,35,50} × J={0.7,0.9}) × 2 seeds.
+      Each run: ~500 optimizer steps, 1B tokens, batch=2M tokens, ~2-3 hours on H100.
+      Total: ~48-72 GPU-hours. Runs are parallelizable across GPUs.
+      Save checkpoint every 100M tokens (10 checkpoints per run = 240 total).
+      Collect results.csv: scale, ppl_threshold, dedup_j, seed, checkpoint_tokens, hellaswag_acc_norm.
+      Resume support: skip runs with status='done' in training_state.json.
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-3: Parallel Experiment Runner"
+      - file: "03_architecture.md"
+        section: "RunExperiment module"
+      - file: "03_prd.md"
+        section: "FR-3: Model Training"
+    acceptance_criteria:
+      - "24 training runs complete (training_state.json shows 24 'done' entries)"
+      - "results/h-e1-v2/results.csv has >= 240 rows (10 checkpoints × 24 runs)"
+      - "All hellaswag_acc_norm values > 0 (successful eval)"
+      - "Experiment results saved to h-e1-v2/experiment_results.json"
+
+  - id: A-7
+    title: "Figures + gate evaluation"
+    type: evaluation
+    priority: 87
+    status: todo
+    complexity: 6
+    complexity_breakdown: "1+2+1+2"
+    description: >
+      Generate all figures and evaluate gate. Run run_full_analysis_v2(results_csv) to compute
+      gate pass/fail. Generate figures via h-e1/code/visualize.py (adapted):
+      (1) Mandatory: bar chart HellaSwag acc_norm by Scale × PPL-threshold × Dedup-J
+      (2) Interaction heatmap: 2×3×2 grid
+      (3) Learning curves: acc_norm at 100M-token checkpoints
+      (4) Interaction plot: PPL threshold vs acc_norm, lines for 14M vs 31M, panels for J
+      (5) Corpus size violin plot
+      Save all to h-e1-v2/figures/. Write gate result to h-e1-v2/experiment_results.json.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-7: Visualization"
+      - file: "03_prd.md"
+        section: "6. Success Criteria"
+      - file: "03_logic.md"
+        section: "L-1: gate_check_v2"
+    acceptance_criteria:
+      - "h-e1-v2/figures/ contains >= 4 PNG files"
+      - "gate result logged (PASS or FAIL with reason)"
+      - "tau_star_14m and tau_star_31m recorded in experiment_results.json"
+
+  # ─────────────────────────────────────────────
+  # SUBTASKS (priority 49-2)
+  # ─────────────────────────────────────────────
+
+  - id: L-1-1
+    title: "Write analyze_v2.py with direction-based gate"
+    type: subtask
+    parent_epic: A-5
+    priority: 49
+    status: todo
+    description: >
+      Create h-e1-v2/code/analyze_v2.py containing:
+      check_direction_v2(), gate_check_v2(), run_full_analysis_v2().
+      Import load_results from h-e1/code/analyze.py (reuse unchanged).
+      Scale keys: 14 and 31 (not 70/160). DV: hellaswag_acc_norm.
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-1: Direction-based gate_check_v2()"
+
+  - id: L-2-1
+    title: "Write curate_v2.py with token budget enforcement"
+    type: subtask
+    parent_epic: A-2
+    priority: 48
+    status: todo
+    description: >
+      Create h-e1-v2/code/curate_v2.py with pad_to_token_budget() and
+      curate_all_variants_v2() that calls it after dedup.
+      Target: exactly 1B tokens per variant via repeat-sampling.
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-2: FineWeb Streaming Corpus Pipeline"
+
+  - id: L-3-1
+    title: "Write run_experiment.py entry point"
+    type: subtask
+    parent_epic: A-6
+    priority: 47
+    status: todo
+    description: >
+      Create h-e1-v2/code/run_experiment.py with run_experiment_v2().
+      Inject CONFIG_V2 into h-e1 module globals. Override curate stage to
+      fineweb-only + token budget enforcement. Delegate other stages to h-e1 run_pipeline.
+      CLI: --stage [all|curate|preprocess|train|evaluate|analyze|visualize], --no-resume.
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-3: run_experiment_v2 entry point"
+      - file: "03_architecture.md"
+        section: "RunExperiment module"
+
+  - id: C-1-1
+    title: "Write config_v2.py with CONFIG_V2 and CURATION_CONDITIONS"
+    type: subtask
+    parent_epic: A-1
+    priority: 46
+    status: todo
+    description: >
+      Create h-e1-v2/code/config_v2.py. Use dataclasses.replace(ExperimentConfig(), ...) with
+      all v2 overrides. Add CURATION_CONDITIONS list of 6 dicts (ppl_threshold, jaccard_threshold,
+      ppl_filter params, dedup num_bands/minhashes_per_band, expected_retention_pct).
+    reference_files:
+      - file: "03_config.md"
+        section: "C-1: ExperimentConfig Override"
+      - file: "03_config.md"
+        section: "C-2: Curation Condition Configs"
+
+  - id: C-2-1
+    title: "Add CURATION_CONDITIONS to config_v2.py"
+    type: subtask
+    parent_epic: A-2
+    priority: 45
+    status: todo
+    description: >
+      Add CURATION_CONDITIONS_BY_ID dict to config_v2.py for O(1) lookup by condition_id.
+      Each condition has: condition_id, ppl_threshold, jaccard_threshold, ppl_filter dict,
+      dedup dict (num_bands, minhashes_per_band), expected_retention_pct.
+    reference_files:
+      - file: "03_config.md"
+        section: "C-2: Curation Condition Configs"
+
+  # ─────────────────────────────────────────────
+  # FAILSAFE (priority 1)
+  # ─────────────────────────────────────────────
+
+  - id: FAILSAFE-1
+    title: "Pipeline continuation checkpoint"
+    type: failsafe
+    priority: 1
+    status: todo
+    description: >
+      Verify all Phase 3 outputs exist before Phase 4 begins:
+      03_prd.md, 03_architecture.md, 03_logic.md, 03_config.md, 03_tasks.yaml.
+      Verify h-e1-v2/code/ directory exists with config_v2.py, run_experiment.py.
+      Run 23 existing h-e1 tests against v2 config to confirm no regressions.
+      Confirm results/h-e1-v2/ directory writable.
+      If any check fails: STOP and report to orchestrator before running training.
+    acceptance_criteria:
+      - "All 5 Phase 3 documents present in h-e1-v2/"
+      - "h-e1/code/tests/ all 23 tests pass with CONFIG_V2 injected"
+      - "results/h-e1-v2/ directory created and writable"

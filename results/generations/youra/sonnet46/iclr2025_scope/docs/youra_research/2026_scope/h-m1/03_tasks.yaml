@@ -1,0 +1,689 @@
+version: '1.1'
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_id_upper: H-M1
+  tier: FULL
+  total_budget: 30
+  generated_at: '2026-05-08T07:30:00Z'
+  source_documents:
+  - 03_prd.md
+  - 03_architecture.md
+  - 03_logic.md
+  - 03_config.md
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+
+  # ── Environment Setup (priority 94) ────────────────────────────────────────
+
+  - id: task-001
+    epic: Environment Setup
+    title: Setup development environment for h-m1
+    description: |
+      Install required packages:
+        pip install torch>=2.0 transformers>=4.40 datasets>=2.18 numpy>=1.24
+                    scipy>=1.11 pingouin>=0.5.4 pandas>=2.0 matplotlib>=3.7 seaborn>=0.12
+
+      Verify GPU availability:
+        nvidia-smi  # Select lowest-memory GPU
+        export CUDA_VISIBLE_DEVICES=<GPU_ID>
+
+      Verify LLaMA-3.1-8B model access:
+        from transformers import AutoModelForCausalLM
+        AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B")
+
+      Create output directories:
+        mkdir -p h-m1/figures h-m1/code/tests
+
+      Key dependency: pingouin>=0.5.4 is NEW (not in h-e1) — required for ICC(3,k).
+    feature_tag: setup
+    priority: 94
+    source_document: 03_prd.md
+    complexity: null
+    test_requirements: Environment setup does not require tests.
+    reference_files:
+      prd: 03_prd.md#non-functional-requirements
+      config: 03_config.md#environment-setup-instructions
+
+  # ── Epic Implementation Tasks (priority 93–83) ─────────────────────────────
+
+  - id: task-002
+    epic: E1 - Environment Setup
+    title: '[E1] Environment validation and output directory creation'
+    description: |
+      Verify all dependencies are installed and create runtime output structure.
+      - Check pingouin, scipy, pingouin imports work
+      - Create h-m1/figures/ directory
+      - Validate CUDA_VISIBLE_DEVICES is set (single GPU)
+      - Validate LLaMA-3.1-8B is accessible via HuggingFace Hub
+      - Create h-m1/code/ and h-m1/code/tests/ directories
+    feature_tag: setup
+    priority: 93
+    source_document: 03_architecture.md
+    complexity: 6
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_environment.py
+      - Test: all required packages importable
+      - Test: output directories created
+      - Test: GPU available (skip if not)
+    reference_files:
+      architecture: 03_architecture.md#epic-tasks
+      config: 03_config.md#environment-setup-instructions
+
+  - id: task-003
+    epic: E2 - Config Module
+    title: '[E2] Implement h-m1 ExperimentConfig dataclass'
+    description: |
+      Extend h-e1 ExperimentConfig with h-m1-specific fields.
+      File: h-m1/code/config.py
+
+      Key changes from h-e1:
+      - model_name: "meta-llama/Llama-3.1-8B" (was Meta-Llama-3-8B)
+      - max_length: 512 (replaces short_length=128/long_length=512)
+      - Add: sst2_dataset="nyu-mll/glue", sst2_config_name="sst2"
+      - Add: mnli_dataset="nyu-mll/glue", mnli_config_name="mnli", mnli_split="validation_matched"
+      - Add: sep_token=" [SEP] "
+      - Add: icc_threshold=0.75 (replaces cv_threshold)
+      - Keep: tau_threshold=0.6
+      - results_path: "h-m1/experiment_results.json" (was results_dir)
+      - Add __post_init__ validation (n_samples>=512, batch divides n_samples, primary_epsilon in epsilons)
+    feature_tag: implementation
+    priority: 92
+    source_document: 03_architecture.md
+    complexity: 7
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_config.py
+      - Test: default values are correct
+      - Test: __post_init__ validation raises on invalid inputs
+      - Test: icc_threshold and tau_threshold defaults correct
+    reference_files:
+      architecture: 03_architecture.md#config-h-m1codeconfigpy
+      config: 03_config.md#experimentconfig-dataclass
+
+  - id: task-004
+    epic: E3 - Dataset Loading Extension
+    title: '[E3] Extend data_utils.py with SST-2 and MNLI loaders'
+    description: |
+      File: h-m1/code/data_utils.py
+      Copy h-e1/code/data_utils.py as base, then add:
+
+      NEW: load_sst2_dataloader(tokenizer, cfg, max_length: int) -> DataLoader
+        - dataset: nyu-mll/glue, config="sst2", split="validation"
+        - Take first 512 samples
+        - Field: row["sentence"], encode with tokenizer(max_length=max_length, padding=True, truncation=True)
+        - Return DataLoader(TokenizedDataset(encoded), batch_size=cfg.batch_size, shuffle=False)
+
+      NEW: load_mnli_dataloader(tokenizer, cfg, max_length: int) -> DataLoader
+        - dataset: nyu-mll/glue, config="mnli", split="validation_matched"
+        - Take first 512 samples
+        - Field: row["premise"] + cfg.sep_token + row["hypothesis"]
+        - Return DataLoader(TokenizedDataset(encoded), batch_size=cfg.batch_size, shuffle=False)
+
+      NEW: load_all_dataloaders(tokenizer, cfg) -> Dict[str, DataLoader]
+        - Returns {"alpaca": ..., "wikitext": ..., "sst2": ..., "mnli": ...}
+        - NOTE: load_alpaca_dataloader and load_wikitext_dataloader take max_length as 3rd positional arg
+
+      Reference: h-e1/code/data_utils.py for TokenizedDataset and existing loaders.
+    feature_tag: data-pipeline
+    priority: 91
+    source_document: 03_architecture.md
+    complexity: 9
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_data_utils.py
+      - Test: load_sst2_dataloader returns DataLoader with correct batch size
+      - Test: load_mnli_dataloader concatenates premise+SEP+hypothesis
+      - Test: load_all_dataloaders returns dict with all 4 keys
+      - Use mock tokenizer (AutoTokenizer mock) to avoid model download in tests
+    reference_files:
+      architecture: 03_architecture.md#datautils-h-m1codedata_utilspy
+      logic: 03_logic.md#data_utils-extended-from-h-e1
+
+  - id: task-005
+    epic: E4 - Sparsity Measurement
+    title: '[E4] Extend measure_sparsity.py with 4-distribution wrapper'
+    description: |
+      File: h-m1/code/measure_sparsity.py
+      Copy h-e1/code/measure_sparsity.py as base (unchanged), then add:
+
+      NEW: measure_all_distributions(model, dataloaders, epsilon, cfg) -> Dict[str, np.ndarray]
+        - For each dist_name, dataloader in dataloaders.items():
+            profiles[dist_name] = measure_layer_sparsity(model, dataloader, epsilon, cfg)
+        - Returns {dist_name: np.ndarray(32,)} for all 4 distributions
+
+      Note: measure_layer_sparsity(model, dataloader, epsilon, cfg) is already in h-e1 — just call it.
+      Note: Core register_hooks unchanged — gate_proj, epsilon threshold, 32 layers.
+
+      Run full sweep: call measure_all_distributions for each epsilon in cfg.epsilons.
+    feature_tag: experiment
+    priority: 90
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_measure_sparsity.py
+      - Test: measure_all_distributions returns dict with 4 keys
+      - Test: each value is np.ndarray of shape (32,) with values in [0, 1]
+      - Use small mock model (2-layer) to avoid GPU in tests
+    reference_files:
+      architecture: 03_architecture.md#measuresparsity-h-m1codemeasure_sparsitypy
+      logic: 03_logic.md#measure_sparsitypy-extended-from-h-e1
+
+  - id: task-006
+    epic: E5 - ICC(3,k) Computation
+    title: '[E5] Implement compute_icc.py with pingouin ICC(3,k)'
+    description: |
+      File: h-m1/code/compute_icc.py (NEW)
+
+      build_icc_dataframe(sparsity_profiles: Dict[str, np.ndarray]) -> pd.DataFrame
+        - Input: {dist_name: array(32,)} for 4 distributions
+        - Output: long-format DF, columns=[layer, distribution, sparsity], 128 rows
+        - rows.append({"layer": layer_idx, "distribution": dist_name, "sparsity": val})
+        - return pd.DataFrame(rows)
+
+      compute_icc3k(sparsity_profiles: Dict[str, np.ndarray]) -> Dict[str, float]
+        - df = build_icc_dataframe(sparsity_profiles)
+        - icc_results = pg.intraclass_corr(data=df, targets="layer", raters="distribution", ratings="sparsity")
+        - row = icc_results[icc_results["Type"] == "ICC3k"].iloc[0]
+        - return {"icc3k": float(row["ICC"]), "ci_lower": row["CI95%"][0], "ci_upper": row["CI95%"][1]}
+
+      compute_icc_sensitivity(sparsity_by_epsilon: Dict[float, Dict[str, np.ndarray]]) -> Dict[float, Dict]
+        - return {eps: compute_icc3k(profiles) for eps, profiles in sparsity_by_epsilon.items()}
+    feature_tag: experiment
+    priority: 89
+    source_document: 03_architecture.md
+    complexity: 11
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_compute_icc.py
+      - Test: build_icc_dataframe produces correct shape (128, 3)
+      - Test: compute_icc3k on perfectly correlated profiles returns ICC3k near 1.0
+      - Test: compute_icc3k on uncorrelated profiles returns ICC3k < 0.5
+      - Use synthetic sparsity profiles (no model needed)
+    reference_files:
+      architecture: 03_architecture.md#computeicc-h-m1codecompute_iccpy
+      logic: 03_logic.md#compute_iccpy-new
+
+  - id: task-007
+    epic: E6 - Pairwise Kendall's Tau
+    title: '[E6] Extend compute_metrics.py with pairwise tau and gate evaluation'
+    description: |
+      File: h-m1/code/compute_metrics.py
+      Copy h-e1/code/compute_metrics.py as base, then add:
+
+      NEW: compute_pairwise_tau(sparsity_profiles: Dict[str, np.ndarray]) -> Dict[str, Dict[str, float]]
+        - dists = list(sparsity_profiles.keys())  # 4 distributions
+        - For each pair (d1, d2) in itertools.combinations(dists, 2):
+            tau, pval = scipy.stats.kendalltau(sparsity_profiles[d1], sparsity_profiles[d2])
+            results[f"{d1}_vs_{d2}"] = {"tau": float(tau), "pval": float(pval)}
+        - Returns dict with 6 entries
+
+      NEW: compute_tau_min(tau_results) -> float
+        - return min(v["tau"] for v in tau_results.values())
+
+      NEW: evaluate_gate(icc3k: float, tau_results: Dict, cfg) -> Dict[str, Any]
+        - tau_min = compute_tau_min(tau_results)
+        - icc_passed = icc3k > cfg.icc_threshold
+        - tau_passed = tau_min >= cfg.tau_threshold
+        - gate_result = "PASS" if (icc_passed and tau_passed) else "FAIL"
+        - failed = []
+        - if not icc_passed: failed.append(f"ICC3k={icc3k:.4f} <= {cfg.icc_threshold}")
+        - if not tau_passed: failed.append(f"tau_min={tau_min:.4f} < {cfg.tau_threshold}")
+        - return {"gate_result": gate_result, "icc3k": icc3k, "tau_min": tau_min,
+                  "icc_passed": icc_passed, "tau_passed": tau_passed,
+                  "failed_conditions": failed, "tau_results": tau_results}
+    feature_tag: experiment
+    priority: 88
+    source_document: 03_architecture.md
+    complexity: 9
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_compute_metrics.py
+      - Test: compute_pairwise_tau produces 6 pairs from 4 distributions
+      - Test: evaluate_gate PASS when icc3k=0.8 and tau_min=0.7
+      - Test: evaluate_gate FAIL when icc3k=0.7 (below threshold)
+    reference_files:
+      architecture: 03_architecture.md#computemetrics-h-m1codecompute_metricspy
+      logic: 03_logic.md#compute_metricspy-extended-from-h-e1
+
+  - id: task-008
+    epic: E7 - Gate Evaluation
+    title: '[E7] Implement gate reporting and results JSON structure'
+    description: |
+      Implement gate evaluation reporting in run_experiment.py:
+
+      save_results(results: Dict[str, Any], output_path: str) -> None
+        - Serialize full results dict to JSON (json.dump with indent=2)
+        - results must include: gate_result, icc3k, tau_min, all 6 tau values,
+          sensitivity analysis per epsilon, figures_generated list
+
+      Print gate summary to stdout:
+        print(f"=== GATE EVALUATION: {gate['gate_result']} ===")
+        print(f"ICC(3,k) = {gate['icc3k']:.4f} (threshold: > {cfg.icc_threshold})")
+        print(f"tau_min  = {gate['tau_min']:.4f} (threshold: >= {cfg.tau_threshold})")
+        for pair, vals in gate['tau_results'].items():
+            print(f"  {pair}: tau={vals['tau']:.4f}, p={vals['pval']:.4f}")
+        if gate['failed_conditions']:
+            for fc in gate['failed_conditions']:
+                print(f"FAILED: {fc}")
+    feature_tag: experiment
+    priority: 87
+    source_document: 03_architecture.md
+    complexity: 8
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Test: save_results writes valid JSON
+      - Test: JSON contains gate_result key
+    reference_files:
+      architecture: 03_architecture.md#epic-tasks
+      logic: 03_logic.md#run_experimentpy-new
+
+  - id: task-009
+    epic: E8 - Visualization
+    title: '[E8] Implement all 6 visualization figures in visualize.py'
+    description: |
+      File: h-m1/code/visualize.py (NEW — different from h-e1 visualize.py)
+
+      plot_gate_metrics_bar(icc3k, tau_min, output_path):
+        - Bar chart: x=["ICC(3,k)", "tau_min"], y=[icc3k, tau_min]
+        - Add horizontal dashed lines at y=0.75 (ICC threshold) and y=0.6 (tau threshold)
+        - Color bars green if above threshold, red if below
+        - Save to output_path
+
+      plot_sparsity_heatmap(sparsity_profiles, output_path):
+        - Build matrix: rows=distributions(4), cols=layers(32)
+        - seaborn.heatmap with colormap="viridis"
+        - x-axis: layer 0-31, y-axis: distribution names
+
+      plot_pairwise_tau_matrix(tau_results, output_path):
+        - Build 4x4 symmetric matrix from tau_results dict
+        - diagonal = 1.0
+        - seaborn.heatmap with annot=True, vmin=0, vmax=1
+
+      plot_icc_confidence(icc3k, ci_lower, ci_upper, output_path):
+        - Bar at icc3k with error bars [ci_lower, ci_upper]
+        - Horizontal dashed line at 0.75
+
+      plot_sparsity_profiles_overlay(sparsity_profiles, output_path):
+        - 4 lines, x=range(32), y=sparsity per layer
+        - Different color/marker per distribution
+
+      plot_epsilon_sensitivity(icc_sensitivity, tau_sensitivity, output_path):
+        - Two subplots: ICC(3,k) vs epsilon, tau_min vs epsilon
+        - x-axis: log scale for epsilon values
+
+      generate_all_figures(sparsity_profiles, icc_result, tau_results, gate_result,
+                           icc_sensitivity, tau_sensitivity, figures_dir) -> List[str]:
+        - Create figures_dir if not exists
+        - Call all 6 plot functions with correct paths
+        - Return list of generated file paths
+    feature_tag: experiment
+    priority: 86
+    source_document: 03_architecture.md
+    complexity: 13
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_visualize.py
+      - Test: generate_all_figures creates 6 PNG files
+      - Test: plot functions don't raise exceptions with valid input
+      - Use matplotlib non-interactive backend (matplotlib.use("Agg")) in tests
+    reference_files:
+      architecture: 03_architecture.md#visualize-h-m1codevisualizepy
+      logic: 03_logic.md#visualizepy-new
+
+  - id: task-010
+    epic: E9 - Main Runner Integration
+    title: '[E9] Implement run_experiment.py main orchestrator'
+    description: |
+      File: h-m1/code/run_experiment.py (NEW)
+
+      setup_environment(cfg):
+        - np.random.seed(cfg.seed), torch.manual_seed(cfg.seed)
+        - os.makedirs(cfg.figures_dir, exist_ok=True)
+
+      load_model_and_tokenizer(cfg) -> (model, tokenizer):
+        - model = AutoModelForCausalLM.from_pretrained(cfg.model_name,
+              torch_dtype=torch.float16, device_map="auto")
+        - model.eval()
+        - tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+        - if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
+        - return model, tokenizer
+
+      run_sparsity_measurement(model, dataloaders, cfg) -> Dict[float, Dict[str, np.ndarray]]:
+        - sparsity_by_epsilon = {}
+        - for eps in cfg.epsilons:
+            sparsity_by_epsilon[eps] = measure_all_distributions(model, dataloaders, eps, cfg)
+        - return sparsity_by_epsilon
+
+      run_statistical_analysis(sparsity_by_epsilon, cfg) -> Dict:
+        - primary = sparsity_by_epsilon[cfg.primary_epsilon]
+        - icc_result = compute_icc3k(primary)
+        - tau_results = compute_pairwise_tau(primary)
+        - gate = evaluate_gate(icc_result["icc3k"], tau_results, cfg)
+        - icc_sensitivity = compute_icc_sensitivity(sparsity_by_epsilon)
+        - tau_sensitivity = compute_tau_sensitivity(sparsity_by_epsilon)
+        - return {"gate": gate, "icc": icc_result, "tau": tau_results,
+                  "icc_sensitivity": icc_sensitivity, "tau_sensitivity": tau_sensitivity,
+                  "sparsity_profiles": {str(k): {dk: dv.tolist() for dk,dv in v.items()}
+                                         for k,v in sparsity_by_epsilon.items()}}
+
+      main():
+        - cfg = ExperimentConfig()
+        - setup_environment(cfg)
+        - model, tokenizer = load_model_and_tokenizer(cfg)
+        - dataloaders = load_all_dataloaders(tokenizer, cfg)
+        - sparsity_by_epsilon = run_sparsity_measurement(model, dataloaders, cfg)
+        - results = run_statistical_analysis(sparsity_by_epsilon, cfg)
+        - primary_profiles = sparsity_by_epsilon[cfg.primary_epsilon]
+        - figs = generate_all_figures(primary_profiles, results["icc"],
+                    results["tau"], results["gate"],
+                    results["icc_sensitivity"], results["tau_sensitivity"],
+                    cfg.figures_dir)
+        - results["figures_generated"] = figs
+        - save_results(results, cfg.results_path)
+        - (print gate summary)
+    feature_tag: experiment
+    priority: 85
+    source_document: 03_architecture.md
+    complexity: 14
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_run_experiment.py
+      - Test: setup_environment creates output dir
+      - Test: run_statistical_analysis with mock sparsity data returns gate dict
+      - Integration smoke test: run main() on tiny mock data (skip if no GPU)
+    reference_files:
+      architecture: 03_architecture.md#runexperiment-h-m1coderun_experimentpy
+      logic: 03_logic.md#run_experimentpy-new
+
+  - id: task-011
+    epic: E10 - Results JSON
+    title: '[E10] Implement structured results JSON with gate reporting'
+    description: |
+      Ensure experiment_results.json contains complete structured output:
+      {
+        "hypothesis": "h-m1",
+        "gate_result": "PASS" or "FAIL",
+        "primary_epsilon": 0.01,
+        "icc3k": <float>,
+        "icc_ci_lower": <float>,
+        "icc_ci_upper": <float>,
+        "tau_min": <float>,
+        "tau_results": {
+          "alpaca_vs_wikitext": {"tau": <float>, "pval": <float>},
+          ... (6 pairs total)
+        },
+        "icc_sensitivity": {
+          "0.001": {"icc3k": <float>, ...},
+          "0.01": {"icc3k": <float>, ...},
+          "0.05": {"icc3k": <float>, ...},
+          "0.1": {"icc3k": <float>, ...}
+        },
+        "tau_sensitivity": { ... },
+        "sparsity_profiles": { <dist>: [<32 floats>], ... },
+        "figures_generated": ["h-m1/figures/gate_metrics.png", ...]
+      }
+      Verify JSON is valid and parseable for Phase 6 paper writing.
+    feature_tag: experiment
+    priority: 84
+    source_document: 03_architecture.md
+    complexity: 8
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Test: JSON output is valid and parseable
+      - Test: gate_result key present
+      - Test: tau_results has 6 pairs
+    reference_files:
+      architecture: 03_architecture.md#epic-tasks
+      logic: 03_logic.md#run_experimentpy-new
+
+  - id: task-012
+    epic: E11 - Testing
+    title: '[E11] Implement unit test suite for h-m1 modules'
+    description: |
+      Create comprehensive test suite in h-m1/code/tests/:
+
+      test_data_utils.py:
+        - test_sst2_loader_shape: mock tokenizer, verify DataLoader batch shape
+        - test_mnli_sep_concatenation: verify "premise [SEP] hypothesis" formatting
+        - test_load_all_dataloaders_keys: verify returns 4-key dict
+
+      test_compute_icc.py:
+        - test_dataframe_shape: 4 dists × 32 layers = 128 rows
+        - test_perfect_correlation_icc: identical profiles → ICC3k near 1.0
+        - test_icc3k_output_keys: verify {icc3k, ci_lower, ci_upper} present
+
+      test_run_experiment.py (smoke tests):
+        - test_setup_environment: creates output dir
+        - test_statistical_analysis_keys: mock sparsity → verify gate dict keys
+        - test_save_results: writes valid JSON
+
+      Run all tests: pytest h-m1/code/tests/ -v
+    feature_tag: testing
+    priority: 83
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Tests are themselves the deliverable
+      - All tests must pass with pytest
+      - No placeholder tests (assert True, pass, ...)
+    reference_files:
+      architecture: 03_architecture.md#epic-tasks
+      logic: 03_logic.md#testing
+
+  # ── Logic Subtasks (priority 49–37) ────────────────────────────────────────
+
+  - id: task-013
+    epic: E9 - Main Runner (Subtask)
+    title: '[E9-ST1] Implement load_model_and_tokenizer with pad_token fix'
+    description: |
+      Implement load_model_and_tokenizer in run_experiment.py.
+      Critical: LLaMA-3.1-8B tokenizer may lack pad_token — must set pad_token=eos_token.
+      Use torch.float16 and device_map="auto" for multi-GPU compatibility.
+      Set model.eval() and torch.no_grad() context in measurement functions.
+    feature_tag: experiment
+    priority: 49
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_run_experiment.py
+    reference_files:
+      logic: 03_logic.md#run_experimentpy-new
+
+  - id: task-014
+    epic: E9 - Main Runner (Subtask)
+    title: '[E9-ST2] Implement run_sparsity_measurement epsilon sweep loop'
+    description: |
+      Implement epsilon sweep: for each of 4 epsilon values, call measure_all_distributions
+      on all 4 DataLoaders. Store as nested dict {epsilon: {dist: array(32,)}}.
+      Total: 16 forward-pass measurement runs.
+      Ensure hooks are properly removed after each distribution measurement.
+    feature_tag: experiment
+    priority: 48
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_run_experiment.py
+    reference_files:
+      logic: 03_logic.md#run_experimentpy-new
+
+  - id: task-015
+    epic: E9 - Main Runner (Subtask)
+    title: '[E9-ST3] Implement run_statistical_analysis pipeline'
+    description: |
+      Wire together compute_icc3k, compute_pairwise_tau, evaluate_gate,
+      compute_icc_sensitivity, compute_tau_sensitivity into run_statistical_analysis.
+      Primary epsilon = 0.01 for gate evaluation.
+      All 4 epsilons for sensitivity analysis.
+      Return unified results dict for JSON serialization.
+    feature_tag: experiment
+    priority: 47
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_run_experiment.py
+    reference_files:
+      logic: 03_logic.md#run_experimentpy-new
+
+  - id: task-016
+    epic: E8 - Visualization (Subtask)
+    title: '[E8-ST1] Implement sparsity_heatmap and sparsity_profiles_overlay plots'
+    description: |
+      plot_sparsity_heatmap: reshape sparsity_profiles dict to (4, 32) numpy array,
+      use seaborn.heatmap(annot=False, cmap="viridis"), set axis labels correctly.
+
+      plot_sparsity_profiles_overlay: use matplotlib with 4 lines (different colors),
+      x=layer index 0-31, y=sparsity value, add legend with distribution names.
+      Both save to PNG using plt.savefig(output_path, dpi=150, bbox_inches="tight").
+    feature_tag: experiment
+    priority: 46
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 (matplotlib Agg backend)
+    reference_files:
+      logic: 03_logic.md#visualizepy-new
+
+  - id: task-017
+    epic: E8 - Visualization (Subtask)
+    title: '[E8-ST2] Implement pairwise_tau_matrix, icc_confidence, epsilon_sensitivity plots'
+    description: |
+      plot_pairwise_tau_matrix: build 4x4 matrix from tau_results (symmetric, diagonal=1.0),
+      use seaborn.heatmap(annot=True, vmin=0, vmax=1, fmt=".2f").
+
+      plot_icc_confidence: single bar at icc3k, yerr=[[icc3k-ci_lower], [ci_upper-icc3k]],
+      horizontal dashed line at 0.75.
+
+      plot_epsilon_sensitivity: fig, (ax1, ax2) = plt.subplots(1,2),
+      ax1: ICC3k vs log(epsilon), ax2: tau_min vs log(epsilon),
+      add threshold dashed lines on both.
+    feature_tag: experiment
+    priority: 45
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 (matplotlib Agg backend)
+    reference_files:
+      logic: 03_logic.md#visualizepy-new
+
+  - id: task-018
+    epic: E5 - ICC(3,k) (Subtask)
+    title: '[E5-ST1] Implement build_icc_dataframe with correct pingouin format'
+    description: |
+      pingouin.intraclass_corr requires long-format DataFrame with:
+        targets="layer" (integer 0-31), raters="distribution" (string name), ratings="sparsity" (float)
+      Total 4 × 32 = 128 rows.
+      Verify column names exactly match pingouin's expected parameter names.
+      Test with pg.intraclass_corr(data=df, targets="layer", raters="distribution", ratings="sparsity").
+    feature_tag: experiment
+    priority: 44
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_compute_icc.py
+    reference_files:
+      logic: 03_logic.md#compute_iccpy-new
+
+  - id: task-019
+    epic: E5 - ICC(3,k) (Subtask)
+    title: '[E5-ST2] Extract ICC3k value and CI from pingouin results'
+    description: |
+      pingouin returns a DataFrame with multiple ICC types (ICC1, ICC2, ICC3, ICC1k, ICC2k, ICC3k).
+      Filter: icc_results[icc_results["Type"] == "ICC3k"]
+      Extract: ICC value from "ICC" column, CI from "CI95%" column (returns list [lower, upper]).
+      Validate ICC value is in [-1, 1] range (pingouin can return negative for poor reliability).
+    feature_tag: experiment
+    priority: 43
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_compute_icc.py
+    reference_files:
+      logic: 03_logic.md#compute_iccpy-new
+
+  - id: task-020
+    epic: E4 - Sparsity Measurement (Subtask)
+    title: '[E4-ST1] Implement measure_all_distributions wrapper with hook cleanup'
+    description: |
+      measure_all_distributions must ensure forward hooks are properly removed after each
+      distribution measurement. h-e1's measure_layer_sparsity already handles this internally
+      (hooks are removed in finally block), but verify this when copying code.
+      Return dict preserves distribution name ordering: alpaca, wikitext, sst2, mnli.
+    feature_tag: experiment
+    priority: 42
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_measure_sparsity.py
+    reference_files:
+      logic: 03_logic.md#measure_sparsitypy-extended-from-h-e1
+
+  - id: task-021
+    epic: E4 - Sparsity Measurement (Subtask)
+    title: '[E4-ST2] Validate epsilon sweep outputs consistent shapes'
+    description: |
+      After epsilon sweep, validate all 16 measurements (4 eps × 4 dists) have shape (32,).
+      Assert all values are in [0, 1] (sparsity fractions).
+      Assert primary epsilon (0.01) results are consistent with h-e1 Alpaca result ≈ baseline
+      (can tolerate minor differences due to model version Llama-3.1 vs 3.0).
+    feature_tag: experiment
+    priority: 41
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_measure_sparsity.py
+    reference_files:
+      logic: 03_logic.md#measure_sparsitypy-extended-from-h-e1
+
+  - id: task-022
+    epic: E3 - Dataset Loading (Subtask)
+    title: '[E3-ST1] Implement MNLI validation_matched loader with SEP token'
+    description: |
+      MNLI uses "validation_matched" split (not "validation").
+      Concatenate: row["premise"] + cfg.sep_token + row["hypothesis"]
+      where sep_token = " [SEP] " (single space on each side).
+      Handle edge case: if premise or hypothesis is empty string.
+      MNLI has ~9815 samples in validation_matched — take first 512.
+    feature_tag: data-pipeline
+    priority: 40
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_data_utils.py
+    reference_files:
+      logic: 03_logic.md#data_utils-extended-from-h-e1
+
+  - id: task-023
+    epic: E6 - Kendall Tau (Subtask)
+    title: '[E6-ST1] Implement compute_tau_sensitivity for all 4 epsilon values'
+    description: |
+      compute_tau_sensitivity(sparsity_by_epsilon: Dict[float, Dict[str, np.ndarray]]) -> Dict[float, Dict]:
+        For each epsilon value:
+          - compute_pairwise_tau(profiles) → tau_results
+          - tau_min = compute_tau_min(tau_results)
+          - return {eps: {"tau_min": tau_min, "tau_results": tau_results}}
+      Used for epsilon sensitivity visualization and reporting in results JSON.
+    feature_tag: experiment
+    priority: 39
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Covered by task-012 test_compute_metrics.py
+    reference_files:
+      logic: 03_logic.md#compute_metricspy-extended-from-h-e1
+
+  # ── Failsafe (priority 1) ───────────────────────────────────────────────────
+
+  - id: task-024
+    epic: Pipeline Management
+    title: Pipeline Continuation Checkpoint
+    description: /full-pipeline-unattended - FAILSAFE CONTINUATION TASK
+    feature_tag: pipeline-continue
+    priority: 1
+    source_document: system
+    complexity: null
+    test_requirements: Failsafe task does not require tests.
+    reference_files: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 11
+  subtasks: 11
+  failsafe: 1
+  total: 24

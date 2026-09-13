@@ -1,0 +1,37 @@
+\section{Methodology}
+
+Our methodology is motivated by a single observation: Pythia's sequential dataloader preserves the exact order in which documents were consumed during training, and The Pile's block structure makes this order informationally rich --- different checkpoints have genuinely different domain exposure profiles.
+
+\subsection{Domain Content Analysis (h-m1)}
+
+We operationalize domain cognitive content using three automated proxies measured via spaCy \texttt{en\_core\_web\_sm}:
+
+\begin{itemize}
+  \item \textbf{Entity density}: proportion of named entity tokens --- characterizes factual, encyclopedic content (Wikipedia $\to$ MMLU)
+  \item \textbf{Narrative coherence}: proportion of discourse connectives --- characterizes sequential reasoning content (Books $\to$ HellaSwag)
+  \item \textbf{Formal syntax density}: proportion of programming keywords and typed tokens --- characterizes structured content (GitHub $\to$ reasoning benchmarks)
+\end{itemize}
+
+We apply Welch's ANOVA across 4,200 domain-representative documents (200 per domain, 21 domains), with Tukey HSD pairwise tests and $\eta^2$ effect size measurement. Documents were domain-representative generated texts (HuggingFace streaming initialization overhead prevented real-time Pile access); $\eta^2$ values are upper bounds relative to real Pile documents.
+
+\subsection{Domain Exposure Trajectory Extraction (h-e1)}
+
+Pythia's identity index mapping (\texttt{doc\_idx.npy}, 134M entries confirmed) allows exact reconstruction of each checkpoint's training history. \texttt{step\_to\_sample(t)} computes total samples consumed at step $t$:
+
+\begin{equation}
+\text{samples\_consumed}(t) = \lfloor (\text{step} \times 2{,}097{,}152) / 2{,}049 \rfloor
+\end{equation}
+
+\texttt{build\_domain\_lookup()} streams 600,000 documents from The Pile's JSONL.zst format. \texttt{compute\_domain\_exposure\_trajectories()} produces a $22\text{-domain} \times 154\text{-checkpoint}$ matrix. The gate criterion ($\geq$10 of 22 domains with std $> 0.001$) was pre-registered.
+
+\subsection{Spearman Correlation Analysis (h-m2)}
+
+For each domain--benchmark pair, we compute Spearman $\rho(\text{exposure}_d, \text{score}_b)$ across $N$ available checkpoints (floor filter: exclude checkpoints where any benchmark $< 0.20$). The directional test (P1) uses Fisher z-test at $\alpha = 0.10$, one-tailed. Minimum reliable $N$ pre-registered at 100 checkpoints.
+
+\subsection{Panel OLS Regression (h-m3)}
+
+\begin{equation}
+\text{benchmark\_score}(i, t) = \alpha_i + \sum_d \beta_{d,b} \cdot \text{exposure}_d(t) + \gamma \cdot \log(\text{params}_i) + \varepsilon(i,t)
+\end{equation}
+
+Entity (model-size) fixed effects control for scale confounds. Safeguards: \texttt{verify\_books3\_variance()} guard (aborts if std $< 10^{-6}$), PooledOLS fallback ($N < 3$ entities), \texttt{min\_entities} = 3. Statistical tests: Wald z-test (P1/P2), LRT + BH-FDR correction (P3), cross-scale Spearman of $\beta$ rankings (P4).

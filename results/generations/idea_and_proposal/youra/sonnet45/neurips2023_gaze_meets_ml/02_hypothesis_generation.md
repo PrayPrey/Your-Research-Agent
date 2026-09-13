@@ -1,0 +1,525 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-08
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-G2ACL-001
+**Confidence Level:** 0.85 (HIGH)
+
+**Main Hypothesis:**
+
+If human eye gaze is used to dynamically modulate deep learning model attention weights during inference (independent variable: gaze-driven attention modulation strength α), while model uncertainty heat maps guide human gaze to high-uncertainty regions (independent variable: uncertainty-guided visual cue intensity), then the alignment between human gaze distribution and model attention distribution will converge (dependent variable: KL divergence < 0.15 within 5 iterations), resulting in improved diagnostic accuracy (dependent variable: +5% F1 score improvement over static baseline on MIMIC-CXR) and reduced attention mismatch (dependent variable: IOU > 0.70 between gaze-attention regions), because bidirectional control loops with confidence-based handoff enable human-AI collaborative decision-making with convergence guarantees (causal mechanism: shared autonomy paradigm from assistive robotics transferred to explainable AI).
+
+**Alternative Hypothesis (H0):**
+
+Static attention mechanisms without gaze-guided modulation achieve equivalent or superior diagnostic accuracy and attention alignment compared to the bidirectional G2ACL framework, indicating that real-time human gaze input does not provide additional value over pre-trained attention patterns.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Measurement Method | Range/Units |
+|----------|------|-------------------|-------------------|-------------|
+| **Gaze-driven attention modulation (α)** | Independent | Modulation coefficient in A'[i] = α·A[i] + (1-α)·θ(gaze, region[i]) | Eye tracker coordinates mapped to attention weight adjustment | α ∈ [0, 1] |
+| **Uncertainty-guided cue intensity** | Independent | Visual cue brightness f(H) where H = -Σp(y)log p(y) | Model entropy per spatial region rendered as adaptive highlights | Normalized intensity [0, 1] |
+| **KL divergence (gaze-attention)** | Dependent | D_KL(P_gaze || P_attention) | Computed at each iteration using spatial distributions | Convergence threshold < 0.15 |
+| **Diagnostic accuracy** | Dependent | F1 score and AUC for chest X-ray diagnosis | Binary classification on MIMIC-CXR pathology labels | F1, AUC ∈ [0, 1] |
+| **Attention alignment (IOU)** | Dependent | Intersection-over-Union of gaze fixation and top-K attention regions | Spatial overlap metric | IOU ∈ [0, 1], target > 0.70 |
+| **Iteration count** | Controlled | Number of bidirectional refinement loops | Counter with max limit | 1-5 iterations OR 10s timeout |
+| **Lazy recomputation K** | Controlled | Top-K gaze-attended regions recomputed | Computational optimization parameter | K = 20-50 (resolution-dependent) |
+| **Base model architecture** | Controlled | Vision Transformer variant | ViT-B/16 or Swin Transformer | Fixed architecture |
+| **User expertise level** | Confounding | Radiologist experience years | Self-reported or credentialing data | Continuous (years of practice) |
+| **Eye tracker drift** | Confounding | Gaze accuracy degradation over time | Calibration validation tests | Mitigated by 15-min recalibration |
+
+### 1.3 Causal Mechanism
+
+**Mechanism Chain:**
+
+1. **Human gaze input → Attention modulation:** Eye tracker captures real-time gaze coordinates (x, y) → Learned mapping function θ translates gaze to spatial attention weights → Attention modulation formula A'[i] = α·A[i] + (1-α)·θ(gaze, region[i]) dynamically adjusts transformer attention layer weights → Model focuses on human-indicated regions
+
+2. **Model uncertainty → Gaze guidance:** Model computes entropy H = -Σp(y)log p(y) per spatial region → High-uncertainty regions (H > threshold) rendered as visual cues (highlights, halos) with adaptive intensity f(H) → Human gaze is naturally drawn to highlighted regions → Creates feedback loop guiding human attention to ambiguous areas
+
+3. **Bidirectional convergence:** KL divergence D_KL(P_gaze || P_attention) decreases with each iteration as human and model attention distributions align → Convergence criterion: D_KL < 0.15 OR max 5 iterations OR 10s timeout → Stable collaborative decision state achieved
+
+4. **Performance improvement:** Aligned attention reduces misdiagnosis from attention mismatch (radiologist focuses on wrong region) → Combined human expertise + model pattern recognition improves diagnostic accuracy → Lazy attention recomputation (only top-K regions) maintains real-time performance (<100ms latency)
+
+**Evidence for Causal Links:**
+
+- **Gaze-attention correlation:** Phase 1 evidence (Duan et al. 2025 systematic review) confirms eye gaze reflects diagnostic reasoning patterns; Paper #7 (Nishiyama 2022) demonstrates gaze-guided self-attention improves model robustness against bias
+- **Uncertainty-guided attention:** Entropy-based uncertainty quantification is established for attention mechanisms; visual saliency research confirms humans prioritize high-contrast regions
+- **Bidirectional control convergence:** Assistive robotics literature (shared autonomy wheelchair navigation, teleoperation) demonstrates arbitration functions with confidence-based handoff achieve stable task completion
+- **Lazy recomputation efficiency:** Computational analysis shows O(K·N) vs O(N²) complexity reduction for K=20-50 spatial regions in 224×224 images → 20-30ms overhead within 100ms budget
+
+**Key Tension:**
+
+**Trade-off between alignment convergence speed and cognitive load:**
+- Faster convergence (fewer iterations) requires stronger visual cues → Risk of distracting radiologist or inducing confirmation bias toward model suggestions
+- Slower convergence (more iterations) preserves human autonomy → Risk of exceeding latency budget (10s timeout) without achieving alignment
+
+**Resolution strategy:** Adaptive cue intensity that decreases as alignment improves (high uncertainty → bright cues → gaze adjustment → lower uncertainty → subtle cues → convergence)
+
+### 1.4 Key Assumptions
+
+1. **Human gaze reflects diagnostic attention:** Eye fixations in medical imaging correlate with cognitive reasoning processes and diagnostic decision-making (not random scanning)
+   - *Evidence:* REFLACX dataset (3,940 radiologist-annotated chest X-rays) shows consistent gaze patterns on pathological regions; Neves et al. 2024 systematic review validates gaze as interpretability ground truth
+
+2. **Model entropy indicates uncertainty regions:** High entropy H = -Σp(y)log p(y) reliably identifies spatial regions where the model lacks confidence and would benefit from human guidance
+   - *Evidence:* Uncertainty quantification literature for deep neural networks; Bayesian deep learning methods validate entropy as uncertainty proxy
+
+3. **Real-time latency achievable:** Lazy attention recomputation (top-K regions only) combined with attention weight caching enables <100ms inference latency on standard GPU hardware
+   - *Computational validation:* Base ViT inference ~50-80ms; K=20-50 region recomputation adds ~20-30ms → Total ~80-110ms (tight but feasible)
+
+4. **Transfer learning effectiveness:** Two-phase training (pre-train θ mapping on REFLACX, fine-tune on MIMIC-CXR) enables gaze-attention mapping to generalize across medical imaging tasks
+   - *Evidence:* Transfer learning standard practice in medical AI; domain adaptation from radiology to radiology task maintains feature relevance
+
+5. **Convergence within iteration limits:** Bidirectional loop achieves KL divergence < 0.15 within 5 iterations for 80% of cases (remaining 20% timeout at 10s with best-effort alignment)
+   - *Theoretical basis:* Control theory convergence proofs for arbitration functions; shared autonomy robotics achieves task completion in finite iterations
+
+6. **Eye tracking accuracy sufficient:** Commercial eye trackers (Tobii Pro, Pupil Labs) provide <1 degree visual angle accuracy after calibration, sufficient for spatial region mapping
+   - *Evidence:* Eye tracking hardware specifications; recalibration every 15 minutes mitigates drift
+
+7. **No cognitive overload:** Radiologists can integrate uncertainty-guided visual cues into diagnostic workflow without excessive cognitive burden
+   - *Requires validation:* User study with NASA-TLX workload assessment during Phase 4
+
+### 1.5 Scope & Boundaries
+
+**Primary Domain:** Medical image analysis (chest X-ray diagnosis using MIMIC-CXR dataset)
+
+**Included:**
+- Inference-time bidirectional interaction (real-time collaboration)
+- Binary and multi-label classification tasks (pathology detection: pneumonia, cardiomegaly, etc.)
+- Single-image diagnosis scenarios (radiologist + AI co-review)
+- Commercial eye tracking hardware (Tobii Pro, Pupil Labs)
+- Vision Transformer architectures (ViT-B/16, Swin Transformer)
+
+**Excluded:**
+- Training-time gaze supervision only (addressed by prior work - Paper #7)
+- Post-hoc gaze-attention comparison (addressed by prior work - Papers #16-18)
+- Multi-image longitudinal analysis (time-series, CT volumes)
+- Non-medical domains (document analysis, VQA) - deferred to future work
+- Novel eye tracking technologies (event cameras, VR headsets)
+- Non-transformer architectures (CNNs, hybrid models)
+
+**Boundary Conditions:**
+- Radiologist expertise: Minimum 2 years clinical experience (avoid novice gaze patterns)
+- Image quality: Standard clinical resolution (≥224×224 pixels), no severe artifacts
+- Hardware: GPU with ≥8GB VRAM (RTX 3080 or equivalent), eye tracker with ≥60Hz sampling
+- Session duration: Maximum 30 minutes continuous use (recalibration every 15 min)
+- Task complexity: Pathologies detectable via 2D radiography (excludes 3D volumetric analysis)
+
+**Generalization Limits:**
+- Cross-domain transfer (medical → document QA): Requires additional validation; gaze patterns domain-specific
+- Expert vs novice users: Framework designed for experienced radiologists; novice gaze may be noisy
+- Hardware variation: Calibration and mapping function θ may need retraining for different eye tracker models
+- Cultural/individual differences: Gaze patterns may vary by training background (Western vs Eastern radiology curricula)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**Prediction 1 (Accuracy Improvement):**
+*If* radiologists use G2ACL bidirectional framework on MIMIC-CXR chest X-ray diagnosis,
+*then* diagnostic F1 score will improve by +5% (absolute) over static attention baseline (no gaze input),
+*because* attention alignment reduces misdiagnosis from human-model attention mismatch.
+
+**Quantitative Threshold:** F1_G2ACL ≥ F1_baseline + 0.05 (95% confidence interval via bootstrap test, n=200 test images, 10 radiologists)
+
+---
+
+**Secondary Predictions:**
+
+**Prediction 2 (Alignment Convergence):**
+*If* G2ACL is applied to medical image diagnosis tasks,
+*then* KL divergence between gaze and attention distributions will decrease below 0.15 within 5 iterations for ≥80% of test cases,
+*because* the bidirectional control loop with uncertainty-guided cues creates stable convergence dynamics.
+
+**Quantitative Threshold:** Proportion of cases with D_KL < 0.15 within 5 iterations ≥ 0.80 (n=200 test images)
+
+**Prediction 3 (Real-time Performance):**
+*If* lazy attention recomputation is implemented with K=20-50 regions,
+*then* P99 latency (99th percentile) will remain ≤100ms per inference,
+*because* caching non-gaze regions reduces computational complexity from O(N²) to O(K·N).
+
+**Quantitative Threshold:** P99_latency ≤ 100ms measured across 1000 inference runs on RTX 3080 GPU
+
+**Prediction 4 (Attention Alignment IOU):**
+*If* G2ACL achieves convergence (D_KL < 0.15),
+*then* spatial Intersection-over-Union between gaze fixation regions and top-K model attention regions will exceed 0.70,
+*because* aligned distributions imply spatial overlap of focus regions.
+
+**Quantitative Threshold:** IOU_gaze_attention ≥ 0.70 for converged cases (D_KL < 0.15)
+
+---
+
+**Falsification Criteria:**
+
+The G2ACL hypothesis will be **REFUTED** if ANY of the following occur:
+
+1. **No accuracy improvement:** F1_G2ACL ≤ F1_baseline (no statistically significant improvement at p<0.05 level) → Indicates bidirectional interaction provides no diagnostic value
+
+2. **Non-convergence:** <50% of test cases achieve D_KL < 0.15 within 5 iterations → Indicates bidirectional loop does not reliably converge
+
+3. **Latency violation:** P99 latency >150ms consistently (exceeds real-time threshold with 50% margin) → Indicates lazy recomputation insufficient for interactive use
+
+4. **Accuracy degradation:** F1_G2ACL < F1_baseline - 0.05 (statistically significant decrease) → Indicates gaze input introduces harmful noise or distraction
+
+5. **User rejection:** NASA-TLX workload score >70 (high cognitive load) OR >50% radiologists report framework unusable → Indicates clinical deployment infeasible
+
+**Partial Refutation Scenarios:**
+- Convergence achieved but no accuracy gain → Alignment alone insufficient; may need stronger integration mechanism
+- Accuracy gain only for novice users, not experts → Expert radiologists already have optimal attention; framework adds value only for training
+- Latency acceptable but accuracy degraded → Real-time interaction creates time pressure reducing diagnostic quality
+
+### 1.7 SOTA Baseline (SOTA Comparison Mode)
+
+**Primary Baseline: Static Vision Transformer Attention**
+- **Model:** Pre-trained ViT-B/16 on ImageNet → Fine-tuned on MIMIC-CXR chest X-ray classification
+- **Attention Mechanism:** Standard multi-head self-attention with learned query-key-value projections (no gaze modulation)
+- **Performance (MIMIC-CXR 14 pathology labels):** F1 ≈ 0.68-0.72, AUC ≈ 0.85-0.89 (reported in literature for ViT-based medical imaging models)
+- **Comparison Point:** G2ACL must exceed F1 + 0.05 to demonstrate bidirectional gaze value
+
+**Secondary Baseline 1: Gaze-Supervised Training (Unidirectional)**
+- **Approach:** Train attention weights using gaze annotations as supervision signal (Paper #7 - Nishiyama et al. 2022 Gaze-Guided Self-Attention)
+- **Key Difference:** Gaze used during training only; no inference-time interaction
+- **Expected Performance:** F1 ≈ 0.70-0.74 (gaze supervision improves feature learning but lacks real-time adaptation)
+- **Comparison Point:** G2ACL must demonstrate incremental value of bidirectional inference-time loop over training-time supervision
+
+**Secondary Baseline 2: Post-hoc Gaze-Attention Comparison (Interpretability Validation)**
+- **Approach:** Compare model attention maps to radiologist gaze fixations after inference (Papers #16-18 - Neves et al. 2024, Duan et al. 2025)
+- **Key Difference:** Validation only; no feedback loop for attention adjustment
+- **Expected Performance:** IOU_gaze_attention ≈ 0.50-0.65 (moderate alignment without active alignment mechanism)
+- **Comparison Point:** G2ACL bidirectional framework should achieve IOU > 0.70 via active convergence
+
+**SOTA Context:**
+- Current SOTA on MIMIC-CXR (14 labels): Ensemble models with data augmentation achieve AUC ~0.90-0.92
+- G2ACL goal: Match or approach SOTA via human-AI collaboration (F1 ≈ 0.73-0.77) while providing interpretability benefits (attention alignment, uncertainty resolution)
+- **Not aiming for SOTA benchmark dominance** - instead demonstrating collaborative paradigm that enhances trust and explainability
+
+### 1.8 Statistical Verification Design
+
+**Experimental Design:** Within-subjects repeated measures with randomized task order
+
+**Participants:**
+- **N = 10 board-certified radiologists** (minimum 2 years experience)
+- **Recruitment:** Academic medical centers with IRB approval
+- **Compensation:** Standard research participation rate (~$100/hour)
+
+**Dataset:**
+- **Source:** MIMIC-CXR-JPG (publicly available)
+- **Test Set:** n=200 chest X-ray images stratified by pathology prevalence (pneumonia, cardiomegaly, edema, etc.)
+- **Held-out:** Separate from training/fine-tuning data
+
+**Conditions (Within-Subjects):**
+1. **Condition A (G2ACL):** Bidirectional gaze-attention framework with uncertainty-guided cues
+2. **Condition B (Static Baseline):** Standard ViT model without gaze input
+3. **Condition C (Gaze-Supervised):** Model trained with gaze supervision but no inference-time interaction
+
+**Task Order:** Latin square counterbalancing to mitigate order effects (training effects across 200 images)
+
+**Procedure:**
+1. Calibrate eye tracker (5-point calibration, validation test)
+2. Radiologist diagnoses 200 images (randomized condition assignment per image)
+3. Record: diagnostic labels, confidence scores, gaze data, attention maps, latency
+4. Post-session NASA-TLX workload questionnaire
+5. Recalibration every 15 minutes
+
+**Primary Outcome Metrics:**
+- **Diagnostic accuracy:** F1 score (macro-average across 14 pathology labels), AUC
+- **Attention alignment:** KL divergence, IOU between gaze and attention regions
+- **Latency:** P50, P99 inference time per image
+
+**Secondary Outcome Metrics:**
+- **Convergence rate:** Proportion of cases achieving D_KL < 0.15 within 5 iterations
+- **Iteration count:** Mean/median iterations to convergence
+- **Cognitive load:** NASA-TLX total workload score
+- **User satisfaction:** 5-point Likert scale for perceived usefulness, ease of use
+
+**Statistical Tests:**
+- **Accuracy comparison:** Paired t-test or Wilcoxon signed-rank test (G2ACL vs Static, within-subject)
+- **Effect size:** Cohen's d for mean F1 difference
+- **Multiple comparisons:** Bonferroni correction for 3-way condition comparison
+- **Convergence analysis:** Binomial test (observed proportion ≥ 0.80)
+- **Latency validation:** Bootstrap 95% CI for P99 latency
+
+**Power Analysis:**
+- Target effect size: d=0.50 (medium), α=0.05, power=0.80
+- Required sample: n=10 radiologists × 200 images = 2000 diagnosis instances (sufficient for within-subjects design)
+
+**Confound Control:**
+- **Eye tracker drift:** Recalibration every 15 min, drift validation tests
+- **Expertise variation:** Stratify radiologists by experience (2-5 years, 5-10 years, >10 years); analyze as covariate
+- **Image difficulty:** Stratify test set by pathology prevalence (common/rare) and ensure balanced condition assignment
+- **Learning effects:** Latin square counterbalancing, exclude first 10 images per condition as practice trials
+
+**Data Analysis Pipeline:**
+1. Preprocessing: Gaze fixation detection (dispersion-based, 100ms threshold), attention map extraction
+2. Metric computation: F1, AUC, KL divergence, IOU per image-condition pair
+3. Statistical testing: Paired tests within-subject, ANOVA for 3-way comparison
+4. Subgroup analysis: Stratify by radiologist experience, pathology type, image difficulty
+5. Qualitative analysis: Post-hoc interviews on visual cue perception, workflow integration
+
+**Validation Criteria (Hypothesis Support):**
+- ✅ **SUPPORTED:** F1_G2ACL > F1_baseline + 0.05 (p<0.05) AND convergence rate ≥80% AND P99 latency ≤100ms
+- ⚠️ **PARTIALLY SUPPORTED:** 2 of 3 criteria met (e.g., accuracy gain but latency violation → engineering refinement needed)
+- ❌ **REFUTED:** <2 criteria met OR F1_G2ACL < F1_baseline (accuracy degradation)
+
+---
+
+## 2. Contribution Summary
+
+**Theoretical Contributions:**
+
+1. **Cross-domain paradigm transfer:** First application of shared autonomy control paradigm from assistive robotics to explainable AI, reframing human-AI interaction as collaborative agents with bidirectional information flow rather than unidirectional supervision/validation
+
+2. **Bidirectional alignment framework:** Novel theoretical model where human gaze and model attention co-evolve through real-time feedback loop with convergence guarantees (KL divergence threshold, iteration limits)
+
+3. **Human-in-the-loop XAI:** Extends explainable AI from post-hoc explanation to interactive collaboration, enabling real-time attention adjustment during inference
+
+**Methodological Contributions:**
+
+1. **Gaze-attention mapping function θ:** Learned end-to-end mapping from eye tracker coordinates to transformer attention weight modulation, trained via two-phase protocol (pre-train on REFLACX, fine-tune on task)
+
+2. **Lazy attention recomputation:** Computational optimization caching non-gaze regions and recomputing only top-K gaze-attended regions (K=20-50), reducing O(N²) to O(K·N) complexity for real-time performance
+
+3. **Uncertainty-guided visual cue rendering:** Adaptive cue intensity f(H) based on model entropy H, creating feedback mechanism guiding human gaze to high-uncertainty regions
+
+4. **Convergence protocol:** Formal stopping criteria combining KL divergence threshold (D_KL < 0.15), iteration limit (max 5), and timeout (10s) to guarantee termination and real-time responsiveness
+
+**Practical Contributions:**
+
+1. **Clinical decision support:** Interactive medical image diagnosis tool reducing misdiagnosis from attention mismatch (radiologist focuses on wrong region while model detects critical finding)
+
+2. **Interpretability enhancement:** Direct spatial alignment between human gaze and model attention provides verifiable reasoning pathway, addressing "black box" concerns in medical AI
+
+3. **Workflow integration:** Real-time latency (<100ms) enables seamless integration into radiology reading workflow without disrupting clinical practice
+
+4. **Generalization potential:** Framework applicable beyond medical imaging to document analysis, visual QA, any domain where human-AI attention alignment improves outcomes
+
+**Gap Resolution:**
+
+**Target Gap (Phase 1):** Gap 3 - Bidirectional Alignment Framework Between Human Gaze and Model Attention for Explainable AI
+
+**How G2ACL Resolves Gap:**
+- ✅ **Bidirectional interaction:** Human gaze → model attention (inference-time modulation) AND model uncertainty → human gaze (visual cue guidance)
+- ✅ **Real-time collaboration:** Synchronous during inference, not asynchronous training/post-hoc validation
+- ✅ **Convergence guarantees:** KL divergence threshold + iteration/time limits ensure stable alignment
+- ✅ **Interactive refinement:** Iterative loop where human corrects model attention via gaze, model adapts in real-time
+
+**Prior work limitations addressed:**
+- Paper #7 (Nishiyama 2022): Gaze-guided attention during **training only** → G2ACL enables **inference-time** interaction
+- Papers #16-18 (Neves 2024, Duan 2025, Ikhwantri 2024): Gaze for **post-hoc validation** → G2ACL enables **real-time bidirectional** adjustment
+- No prior work: Combines gaze→model AND model→gaze in synchronous loop → G2ACL fills gap
+
+**Paradigm Shift:**
+- **FROM:** Static attention (pre-trained) OR Gaze supervision (training-time) OR Post-hoc comparison (interpretability validation)
+- **TO:** Interactive human-AI collaboration with real-time attention co-evolution
+- **Impact:** Transforms XAI from explanation to collaboration, enabling verifiable reasoning and trust in clinical AI deployment
+
+---
+
+## 3. Key Related Work
+
+**Foundational Papers (Cross-Domain Transfer):**
+
+1. **Assistive Robotics / Shared Autonomy** (Cross-domain source)
+   - *Conceptual foundation:* Bidirectional human-robot control loops with confidence-based handoff for wheelchair navigation, robotic arm teleoperation
+   - *Transferable mechanism:* Arbitration functions blending human intent (joystick, gaze) with autonomous control (robot planner); convergence protocols for task completion
+   - *Application to G2ACL:* Gaze = human control signal, Model attention = autonomous component, Uncertainty = confidence metric triggering human guidance request, KL divergence = convergence criterion
+   - *Novelty:* First application of shared autonomy paradigm to deep learning interpretability
+
+**Gaze-Attention Integration (Medical Imaging):**
+
+2. **Duan et al. (2025)** - "Eye Tracking-Enhanced Deep Learning for Medical Image Analysis: A Systematic Review on Data Efficiency, Interpretability, and Multimodal Integration"
+   - Semantic Scholar ID: e95f64a78c1ba85ef296378c3e472405c66bda1e
+   - Citations: 1 | Year: 2025 | Systematic Review
+   - *Contribution:* Unified framework positioning ET as (1) data efficiency optimizer via weak supervision, (2) interpretability validator comparing machine-human attention, (3) multimodal alignment supervisor for VLMs
+   - *Relevance to G2ACL:* Validates gaze as interpretability ground truth; identifies lack of bidirectional frameworks (gap G2ACL addresses)
+   - *Key insight:* ET-DL integration mature for supervision/validation but lacking real-time interactive collaboration
+
+3. **Neves et al. (2024)** - "Shedding light on ai in radiology: A systematic review and taxonomy of eye gaze-driven interpretability in deep learning"
+   - Semantic Scholar ID: 06481d8bc76457c73b95c63fc3cd19ea95b93332
+   - Citations: 15 | Year: 2024 | Systematic Review
+   - *Contribution:* Taxonomy of eye gaze-driven interpretability methods; benchmarks for gaze data quality verification and model-clinician attention alignment
+   - *Relevance to G2ACL:* Establishes medical imaging as primary application domain; all reviewed approaches unidirectional (gaze validates model, not interactive)
+   - *Differentiation:* G2ACL adds bidirectional real-time refinement absent in reviewed methods
+
+**Gaze-Guided Attention Mechanisms:**
+
+4. **Nishiyama et al. (2022)** - "Gender Recognition Using a Gaze-Guided Self-Attention Mechanism Robust Against Background Bias in Training Samples"
+   - Semantic Scholar ID: 977becb5fac4afd27aa1312ad9ce80ce47402c8a
+   - Citations: 2 | Year: 2022
+   - *Contribution:* Gaze-Guided Self-Attention (GSA) mechanism using human gaze distribution to assign spatially suitable attention weights; robust against background bias
+   - *Relevance to G2ACL:* Demonstrates feasibility of gaze-attention integration; provides architectural inspiration for mapping function θ
+   - *Differentiation:* GSA operates during **training only**; G2ACL extends to **inference-time** bidirectional interaction
+
+5. **Ikhwantri et al. (2024)** - "Analyzing Interpretability of Summarization Model with Eye-gaze Information"
+   - Semantic Scholar ID: 666a8fab22c06d75854f7f530cca7c20154d80ee
+   - Citations: 2 | Year: 2024 | NLP Application
+   - *Contribution:* Uses eye-gaze to analyze and validate attention mechanisms in text summarization models
+   - *Relevance to G2ACL:* Validates NLP as secondary application domain beyond medical imaging; demonstrates gaze-attention correlation in language tasks
+   - *Differentiation:* Analysis-only (post-hoc); no bidirectional refinement loop
+
+**Datasets (Gaze Annotations for Medical Imaging):**
+
+6. **REFLACX Dataset** (Johnson et al. 2021)
+   - *Content:* 3,940 chest X-ray images with radiologist eye-tracking annotations
+   - *Relevance:* Pre-training source for gaze-attention mapping function θ (Phase 1 of two-phase training protocol)
+   - *Usage in G2ACL:* Learn baseline correspondence between gaze coordinates and diagnostic attention patterns
+
+7. **MIMIC-CXR Dataset** (Johnson et al. 2019)
+   - *Content:* 227,835 chest X-ray images with radiology reports; 14 pathology labels
+   - *Relevance:* Fine-tuning and evaluation dataset for G2ACL medical diagnosis task
+   - *Usage in G2ACL:* Phase 2 fine-tuning of mapping function θ; primary test set for hypothesis validation
+
+**Computational Optimization:**
+
+8. **Vision Transformer Efficiency** (Dosovitskiy et al. 2020, Liu et al. 2021)
+   - *ViT (Dosovitskiy):* Standard transformer architecture for images; O(N²) attention complexity
+   - *Swin Transformer (Liu):* Hierarchical architecture with shifted windows; reduced complexity
+   - *Relevance to G2ACL:* Base model architectures; lazy attention recomputation builds on these foundations to achieve real-time performance
+   - *G2ACL innovation:* Caches non-gaze regions, recomputes only top-K attended regions (novel optimization for gaze-guided systems)
+
+**Privacy-Preserving Gaze (Future Work Context):**
+
+9. **Wilson et al. (2024)** - "Privacy-Preserving Gaze Data Streaming in Immersive Interactive Virtual Reality"
+   - Semantic Scholar ID: 73421b5ec50d2ff00c8717f94bbb0887cafff483
+   - Citations: 22 | Year: 2024
+   - *Contribution:* Benchmarks privacy mechanisms (blurring, noising, downsampling, iris style transfer) in VR; re-identification reduced to 14% while maintaining usability
+   - *Relevance to G2ACL:* Future extension requiring privacy-preserving gaze processing for clinical deployment at scale
+   - *Current scope:* G2ACL Phase 1 focuses on accuracy/alignment; privacy mechanisms deferred to Phase 2 based on Gap 2 (real-time privacy-preserving processing)
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+The main hypothesis H-G2ACL-001 will decompose into the following sub-hypotheses for Phase 2B verification:
+
+**SH1 (Existence): Bidirectional alignment achieves convergence**
+
+*Sub-hypothesis:* The bidirectional gaze-attention control loop reliably converges to stable alignment (KL divergence < 0.15) within iteration/time limits (5 iterations OR 10 seconds) for the majority (≥80%) of medical image diagnosis cases.
+
+*Verification approach:* Convergence rate analysis on n=200 test images; measure proportion achieving D_KL < 0.15 within limits; analyze iteration count distribution; identify failure modes (oscillation, timeout, non-convergence)
+
+*Success criterion:* Convergence rate ≥ 0.80 (binomial test p<0.05)
+
+---
+
+**SH2 (Mechanism): Lazy attention recomputation maintains real-time performance**
+
+*Sub-hypothesis:* Caching non-gaze attention regions and recomputing only top-K gaze-attended regions (K=20-50) reduces computational complexity sufficiently to achieve P99 latency ≤100ms on standard GPU hardware (RTX 3080 or equivalent).
+
+*Verification approach:* Latency profiling across 1000 inference runs; decompose latency into components (base ViT, gaze mapping θ, attention recomputation, cue rendering); vary K parameter (10, 20, 30, 50, 100) to measure latency-accuracy tradeoff
+
+*Success criterion:* P99_latency ≤ 100ms for K=20-50 range; accuracy (F1) degradation <1% vs full recomputation
+
+---
+
+**SH3 (Comparison): G2ACL improves diagnostic accuracy over static baseline**
+
+*Sub-hypothesis:* Radiologists using G2ACL bidirectional framework achieve statistically significant improvement in diagnostic F1 score (+5% absolute) compared to static attention baseline (ViT without gaze input) on MIMIC-CXR chest X-ray classification task.
+
+*Verification approach:* Within-subjects controlled experiment (n=10 radiologists × 200 images); paired t-test comparing F1_G2ACL vs F1_static; stratify by pathology type (common/rare) and radiologist experience (novice/expert)
+
+*Success criterion:* F1_G2ACL ≥ F1_static + 0.05 (p<0.05, Cohen's d≥0.50)
+
+---
+
+**SH4 (Mechanism - Gaze Transfer Learning): Two-phase training enables cross-task generalization**
+
+*Sub-hypothesis:* Pre-training the gaze-attention mapping function θ on REFLACX dataset and fine-tuning on MIMIC-CXR enables effective transfer learning, achieving comparable performance to end-to-end training with 5× less task-specific gaze annotation.
+
+*Verification approach:* Ablation study comparing (1) two-phase (REFLACX pre-train + MIMIC fine-tune with 100 annotated images), (2) end-to-end (MIMIC only with 500 annotated images), (3) no pre-training (MIMIC only with 100 images); measure F1, convergence rate, IOU
+
+*Success criterion:* Two-phase F1 ≥ End-to-end F1 - 0.02 (non-inferior with 80% less data)
+
+---
+
+**SH5 (Usability): Cognitive load remains acceptable for clinical workflow integration**
+
+*Sub-hypothesis:* Uncertainty-guided visual cues do not induce excessive cognitive load; radiologists report NASA-TLX total workload score <60 (moderate load, comparable to standard PACS reading) and ≥70% perceive framework as useful (Likert scale ≥4/5).
+
+*Verification approach:* Post-session NASA-TLX questionnaire (mental demand, physical demand, temporal demand, performance, effort, frustration); 5-point Likert scales for perceived usefulness, ease of use, workflow integration; qualitative semi-structured interviews
+
+*Success criterion:* Mean NASA-TLX ≤60 AND ≥70% useful rating ≥4/5
+
+---
+
+### Readiness Checklist
+
+| Criterion | Status | Evidence/Notes |
+|-----------|--------|---------------|
+| **Core hypothesis statement** | ✅ READY | If-Then-Because format with causal mechanism; quantitative thresholds specified |
+| **Variables operationalized** | ✅ READY | 10 variables (2 independent, 3 dependent, 3 controlled, 2 confounding) with measurement methods |
+| **Causal mechanism decomposed** | ✅ READY | 4-step chain with evidence for each link; key tension identified (convergence speed vs cognitive load) |
+| **Assumptions explicit** | ✅ READY | 7 assumptions with evidence sources; assumption #7 flagged for Phase 4 validation (NASA-TLX) |
+| **Testable predictions** | ✅ READY | 1 primary + 3 secondary predictions with quantitative thresholds; falsification criteria specified |
+| **SOTA baseline defined** | ✅ READY | Static ViT (primary), Gaze-supervised training (secondary 1), Post-hoc comparison (secondary 2) |
+| **Statistical design** | ✅ READY | Within-subjects n=10 radiologists × 200 images; paired t-test; power analysis; confound controls |
+| **Sub-hypotheses preview** | ✅ READY | 5 sub-hypotheses (SH1-SH5) covering existence, mechanism, comparison, transfer learning, usability |
+| **Phase 1 evidence integrated** | ✅ READY | 9 key papers cited with Semantic Scholar IDs; REFLACX/MIMIC-CXR datasets; assistive robotics analogy |
+| **Scope boundaries clear** | ✅ READY | Medical imaging primary domain; excluded: multi-image, non-medical, non-transformer; generalization limits stated |
+| **Contributions articulated** | ✅ READY | Theoretical (cross-domain transfer), Methodological (lazy recomputation), Practical (clinical decision support) |
+| **Gap resolution explicit** | ✅ READY | Gap 3 addressed: bidirectional (not unidirectional), real-time (not post-hoc), convergence guarantees |
+| **MCP evidence gathered** | ✅ READY | Scholar paper details (Duan 2025), Archon KB (no results - domain gap), ClearThought scientific method |
+| **Quantitative thresholds** | ✅ READY | All predictions have numeric targets (F1+0.05, D_KL<0.15, P99≤100ms, IOU≥0.70, convergence≥80%) |
+
+**Overall Readiness:** ✅ **14/14 criteria met - READY FOR PHASE 2B VERIFICATION PLANNING**
+
+---
+
+### Open Questions
+
+**Technical Implementation:**
+
+1. **Optimal modulation coefficient α:** What is the optimal value or adaptive schedule for gaze-attention modulation strength α? Fixed α=0.5 vs adaptive α(t) decreasing with alignment?
+
+2. **Uncertainty threshold calibration:** What entropy threshold H_threshold best separates high-uncertainty regions requiring visual cues from low-uncertainty regions (minimize false positives/negatives)?
+
+3. **Visual cue design:** What cue rendering strategy (halo, highlight, pulse, color-coding) is most effective without distracting radiologists? Requires user study in Phase 4.
+
+4. **Multi-pathology interaction:** How does G2ACL perform on images with multiple pathologies (e.g., pneumonia + cardiomegaly)? Does convergence require separate loops per pathology region?
+
+**Generalization & Transfer:**
+
+5. **Cross-domain applicability:** Can gaze-attention mapping θ transfer from medical imaging to document QA or visual reasoning tasks? Or is domain-specific re-training required?
+
+6. **Novice vs expert users:** Do novice radiologists (residents) benefit more from uncertainty-guided cues than experienced radiologists? Does expertise moderate the accuracy improvement effect?
+
+7. **Cultural/training variation:** Do gaze patterns differ between radiologists trained in different educational systems (Western vs Eastern medical schools)? Impact on mapping function θ generalization?
+
+**Clinical Deployment:**
+
+8. **Integration with PACS workflow:** How to seamlessly integrate G2ACL into existing Picture Archiving and Communication Systems (PACS) used in clinical radiology departments?
+
+9. **Eye tracker hardware variation:** Does mapping function θ generalize across different eye tracker models (Tobii Pro vs Pupil Labs) or require per-device calibration?
+
+10. **Long-term user adaptation:** Do radiologists' gaze patterns change after extended use of G2ACL (weeks/months)? Does this require periodic re-training of mapping function θ?
+
+**Theoretical Understanding:**
+
+11. **Convergence dynamics:** What are the formal conditions guaranteeing KL divergence convergence for the bidirectional loop? Can we prove convergence bounds or identify oscillation risk scenarios?
+
+12. **Attention mismatch characterization:** What types of attention mismatch (spatial, semantic, temporal) does G2ACL most effectively resolve? Are some mismatch types unresolvable via gaze guidance?
+
+13. **Shared autonomy analogy limits:** Where does the robotics shared autonomy analogy break down for gaze-attention systems? What adaptations are needed beyond direct transfer?
+
+**Future Extensions:**
+
+14. **Multi-modal integration:** Can G2ACL be extended to integrate other physiological signals (EEG, GSR) beyond gaze for richer human-AI collaboration? (Gap 1 from Phase 1)
+
+15. **Privacy-preserving deployment:** How to implement differential privacy or federated learning for G2ACL in multi-institution clinical trials while maintaining real-time latency? (Gap 2 from Phase 1)
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Scientific Clarification)*
+*Date: 2026-02-08*
+*Hypothesis ID: H-G2ACL-001*
+*Status: Ready for Phase 2B Verification Planning*

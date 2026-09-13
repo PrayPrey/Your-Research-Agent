@@ -1,0 +1,739 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m1"
+  hypothesis_id_upper: "H-M1"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-05-04T04:30:00+00:00"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ── Environment Setup ──────────────────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Install Python dependencies"
+    description: |
+      Install all required Python packages for H-M1 pipeline.
+      Requirements: datasketch, datasets, scipy, numpy, pandas, matplotlib,
+      seaborn, scikit_posthocs, tqdm.
+      Optional: clone allenai/wimbd for Pile-specific tooling.
+      Create requirements.txt pinning all versions.
+      Command:
+        pip install datasketch datasets scipy numpy pandas matplotlib seaborn scikit_posthocs tqdm
+        git clone https://github.com/allenai/wimbd.git && cd wimbd && pip install -e .
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Verify all imports succeed: import datasketch, datasets, scipy, scikit_posthocs
+      - Check versions match requirements.txt
+    reference_files:
+      architecture: "03_architecture.md#File-Structure"
+      logic: null
+      config: "03_config.md#C-8-1"
+
+  # ── Epic Tasks ─────────────────────────────────────────────────────────────
+  - id: "task-002"
+    epic: "A-1: Project Setup"
+    title: "Project Setup: config.py, directory structure, env vars"
+    description: |
+      Implement code/config.py with Config dataclass for all pipeline parameters.
+      Create directory structure: indices/, results/, figures/, code/.
+      Config fields: ngram_n=13, num_perm=128, lsh_threshold=0.5, seed=1,
+      min_token_length=13, text_format, corpus_configs (pile/c4/redpajama HF paths),
+      checkpoint_interval=500000, retry_attempts=3, sample_fraction=0.1,
+      output paths, gate thresholds (gate_p_threshold=0.05, min_pair_diff_pp=0.02,
+      wimbd_spearman_min_rho=0.7, wimbd_pile_tolerance_pp=0.05).
+      Implement load_config() with YAML file support and env var overrides.
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: |
+      - Config instantiates with defaults
+      - load_config() reads YAML correctly
+      - Directory creation succeeds
+    reference_files:
+      architecture: "03_architecture.md#Config"
+      logic: null
+      config: "03_config.md#C-8-1"
+
+  - id: "task-003"
+    epic: "A-2: Benchmark Data Loading"
+    title: "Implement DataLoader for 59 benchmark sub-tasks"
+    description: |
+      Implement code/data_loader.py with DataLoader class.
+      Load 57 MMLU sub-tasks from cais/mmlu v1.0.0 (split="test").
+      Load HellaSwag from Rowan/hellaswag (split="validation", 10042 instances).
+      Load BIG-Bench Hard from lukaemon/bbh (split="test", 23 tasks).
+      Implement format_text(): question+choices concatenation (primary) and
+      question-only (sensitivity). Pin dataset versions — no floating latest.
+      Return load_all() as dict {subtask_name: [formatted_text, ...]} (59 keys).
+    feature_tag: "data-pipeline"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - load_all() returns dict with exactly 59 keys
+      - Each value is non-empty list of strings
+      - format_text() produces correct question+choices format
+    reference_files:
+      architecture: "03_architecture.md#DataLoader"
+      logic: "03_logic.md#A-2"
+      config: "03_config.md#Overall-Config"
+
+  - id: "task-004"
+    epic: "A-3: NgramExtractor + MinHash"
+    title: "Implement NgramExtractor with MinHash construction"
+    description: |
+      Implement code/ngram_extractor.py with NgramExtractor class.
+      extract(text): sliding-window 13-gram extraction over whitespace-tokenized
+      lowercase text. Returns [] if < min_token_length (13) tokens.
+      extract_batch(texts): batch extraction with skip logging.
+      text_to_minhash(text): converts text to MinHash(num_perm=128, seed=1).
+      Use lowercase for MinHash consistency (datasketch recommendation).
+      n-gram formula: tokens[i:i+13] joined with " " for i in range(len-12).
+    feature_tag: "data-pipeline"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - extract() returns correct 13-gram count for known text
+      - text_to_minhash() returns MinHash with correct num_perm
+      - Short text (<13 tokens) returns empty list
+    reference_files:
+      architecture: "03_architecture.md#NgramExtractor"
+      logic: null
+      config: "03_config.md#Overall-Config"
+
+  - id: "task-005"
+    epic: "A-4: Corpus Index Construction"
+    title: "Implement CorpusIndexer for Pile/C4/RedPajama MinHash LSH"
+    description: |
+      Implement code/corpus_indexer.py with CorpusIndexer class.
+      load_or_build(corpus_name): load from path if exists, else call build().
+      build(corpus_name): stream HF corpus, build MinHashLSH(threshold=0.5,
+      num_perm=128), checkpoint every 500k docs, fallback to 10% sample after
+      retry_attempts failures (flag as SAMPLED in results).
+      _stream_corpus(corpus_name): yield (doc_id, text) with exponential-backoff
+      retry (3 attempts, base_delay=2s, max_delay=30s).
+      save/load via pickle. checkpoint() saves to indices/{corpus}_ckpt_{N}.pkl.
+      Pile: reuse h-e1/pile_index.pkl if available, else rebuild.
+      C4: load_dataset("allenai/c4", "en.noclean", streaming=True, split="train").
+      RedPajama: load_dataset("togethercomputer/RedPajama-Data-1T", streaming=True).
+    feature_tag: "data-pipeline"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 18
+    test_requirements: |
+      - load_or_build() returns MinHashLSH instance
+      - checkpoint() saves file to correct path
+      - _stream_corpus() retries on failure
+    reference_files:
+      architecture: "03_architecture.md#CorpusIndexer"
+      logic: "03_logic.md#A-4"
+      config: "03_config.md#Overall-Config"
+
+  - id: "task-006"
+    epic: "A-5: Contamination Matrix"
+    title: "Implement MatrixBuilder for 59x3 contamination rate matrix"
+    description: |
+      Implement code/matrix_builder.py with MatrixBuilder class.
+      query_cell(subtask_name, texts, corpus_name, lsh): query all texts against
+      MinHashLSH, return {subtask, corpus, n_items, n_contaminated, rate}.
+      build_matrix(benchmarks, indices): iterate 59 subtasks × 3 corpora (177 cells),
+      log progress, return DataFrame with columns: subtask, corpus, n_items,
+      n_contaminated, rate. Shape: 177 rows.
+      to_wide(df): pivot to wide format with subtask index and corpus columns
+      (pile, c4, redpajama).
+      Save to results/contamination_matrix.csv.
+    feature_tag: "evaluation"
+    priority: 80
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      - build_matrix() returns DataFrame with 177 rows for 59 subtasks × 3 corpora
+      - rate values are between 0.0 and 1.0
+      - to_wide() returns DataFrame with 3 corpus columns
+    reference_files:
+      architecture: "03_architecture.md#MatrixBuilder"
+      logic: "03_logic.md#A-5"
+      config: "03_config.md#Overall-Config"
+
+  - id: "task-007"
+    epic: "A-6: Statistical Analysis"
+    title: "Implement StatsAnalyzer: Kruskal-Wallis, Dunn, Spearman, gate"
+    description: |
+      Implement code/stats_analyzer.py with StatsAnalyzer class.
+      kruskal_wallis(matrix_wide): run scipy.stats.kruskal(pile_rates, c4_rates,
+      rp_rates), return {kruskal_H, kruskal_p, gate_pass, corpus_means,
+      max_pair_diff_pp}. gate_pass = (p < 0.05).
+      dunn_posthoc(matrix_wide): scikit_posthocs.posthoc_dunn with Bonferroni
+      correction, return 3×3 p-value DataFrame.
+      spearman_wimbd(pile_rates, wimbd_reference): compute Spearman rho between
+      H-M1 Pile column and WIMBD published rates for MMLU sub-tasks.
+      sensitivity_analysis(primary, sensitivity): compare Kruskal-Wallis p and
+      Spearman rho between question+choices and question-only formats.
+      assert_gate(p_value): assert p < 0.05.
+    feature_tag: "evaluation"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - kruskal_wallis() returns dict with gate_pass key
+      - assert_gate() raises AssertionError when p >= 0.05
+      - spearman_wimbd() returns (rho, p_value) tuple
+    reference_files:
+      architecture: "03_architecture.md#StatsAnalyzer"
+      logic: "03_logic.md#A-6"
+      config: "03_config.md#Overall-Config"
+
+  - id: "task-008"
+    epic: "A-7: Visualization"
+    title: "Implement Visualizer: 6 required figures"
+    description: |
+      Implement code/visualizer.py with Visualizer class generating all 6 figures.
+      plot_corpus_comparison_bar(): bar chart mean rate per corpus ±1 SE,
+        2pp reference line, Kruskal-Wallis H/p annotation.
+        Save: figures/corpus_comparison_barplot.png
+      plot_contamination_heatmap(): 59×3 heatmap rows sorted by mean rate desc.
+        Save: figures/contamination_matrix_heatmap.png
+      plot_corpus_pair_differences(): pairwise mean diff bars with 2pp threshold.
+        Save: figures/corpus_pair_differences.png
+      plot_wimbd_consistency_scatter(): Pile column vs WIMBD rates, Spearman rho.
+        Save: figures/wimbd_consistency_scatter.png
+      plot_per_corpus_rankings(): top-10/bottom-10 sub-tasks per corpus.
+        Save: figures/per_corpus_rankings.png
+      plot_dunn_posthoc_heatmap(): Dunn's test p-value heatmap.
+        Save: figures/dunn_posthoc_heatmap.png
+    feature_tag: "evaluation"
+    priority: 70
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      - All 6 figure files created in figures/ directory
+      - No matplotlib errors on execution
+    reference_files:
+      architecture: "03_architecture.md#Visualizer"
+      logic: null
+      config: "03_config.md#C-7-1"
+
+  - id: "task-009"
+    epic: "A-8: Orchestration + Sensitivity"
+    title: "Implement run_experiment.py pipeline orchestration"
+    description: |
+      Implement code/run_experiment.py as pipeline entry point.
+      build_indices(config, extractor): call CorpusIndexer.load_or_build() for
+        all 3 corpora, return {corpus_name: MinHashLSH}.
+      run_primary(config): full pipeline — load benchmarks → build indices →
+        build 59×3 matrix → stats analysis → visualization → save results.
+      run_sensitivity(config, indices, primary_matrix): repeat with question-only
+        text format, run stats comparison.
+      save_results(matrix_df, stats, config): write
+        results/contamination_matrix.csv and results/statistical_tests.json.
+      main(): load_config → run_primary → run_sensitivity → save_results →
+        assert_gate.
+    feature_tag: "experiment"
+    priority: 65
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - main() runs end-to-end without error on small sample
+      - results/statistical_tests.json is valid JSON with gate_pass key
+      - results/contamination_matrix.csv has 177 rows
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: "03_logic.md#A-8"
+      config: "03_config.md#C-8-1"
+
+  # ── Logic Subtasks ─────────────────────────────────────────────────────────
+  - id: "task-010"
+    epic: "A-4: Corpus Index Construction"
+    title: "L-4-1: CorpusIndexer.build() streaming algorithm with checkpointing"
+    description: |
+      Implement the full build() method body:
+      1. Init MinHashLSH(threshold=0.5, num_perm=128)
+      2. Iterate _stream_corpus() yielding (doc_id, text)
+      3. For each doc: extractor.text_to_minhash(text) → lsh.insert(f"d{doc_id}", minhash)
+      4. Every checkpoint_interval docs: call self.checkpoint(lsh, corpus_name, doc_id)
+      5. Log progress: f"Building {corpus_name} index: {doc_id:,} docs processed"
+      6. On completion: self.save(lsh, config.{corpus}_index_path)
+      7. Return lsh
+    feature_tag: "data-pipeline"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: 18
+    test_requirements: |
+      - build() on small mock corpus produces non-empty LSH
+      - Checkpoint files created at correct intervals
+    reference_files:
+      architecture: "03_architecture.md#CorpusIndexer"
+      logic: "03_logic.md#A-4"
+      config: null
+
+  - id: "task-011"
+    epic: "A-4: Corpus Index Construction"
+    title: "L-4-2: CorpusIndexer._stream_corpus() exponential backoff retry"
+    description: |
+      Implement _stream_corpus() with retry logic:
+      1. attempt = 0
+      2. while attempt < config.retry_attempts:
+           try: yield from load_dataset(hf_path, config, streaming=True, split="train")
+           except Exception as e:
+             delay = min(2 ** attempt * 2, 30)
+             log warning, sleep(delay), attempt += 1
+      3. If all retries fail and sample_fraction < 1.0:
+           log warning "Falling back to {sample_fraction*100}% sample"
+           yield from sampled stream (take first N docs)
+           set self._sampled_flag[corpus_name] = True
+      4. If no fallback: raise RuntimeError
+    feature_tag: "data-pipeline"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: 18
+    test_requirements: |
+      - Retries on exception (mock HF failure)
+      - Fallback sample flag set correctly
+    reference_files:
+      architecture: "03_architecture.md#CorpusIndexer"
+      logic: "03_logic.md#A-4"
+      config: null
+
+  - id: "task-012"
+    epic: "A-4: Corpus Index Construction"
+    title: "L-4-3: CorpusIndexer.checkpoint() + save/load pickle protocol"
+    description: |
+      Implement checkpoint(), save(), and load() methods:
+      checkpoint(lsh, corpus_name, doc_id):
+        path = Path(config.indices_dir) / f"{corpus_name}_ckpt_{doc_id}.pkl"
+        self.save(lsh, str(path))
+        log: f"Checkpoint saved: {path}"
+      save(lsh, path):
+        with open(path, 'wb') as f: pickle.dump(lsh, f)
+      load(path):
+        with open(path, 'rb') as f: return pickle.load(f)
+      load_or_build() uses Path(config.{corpus}_index_path).exists() to decide.
+    feature_tag: "data-pipeline"
+    priority: 44
+    source_document: "03_logic.md"
+    complexity: 18
+    test_requirements: |
+      - save/load round-trip preserves LSH state
+      - checkpoint() creates file at correct path
+    reference_files:
+      architecture: "03_architecture.md#CorpusIndexer"
+      logic: "03_logic.md#A-4"
+      config: null
+
+  - id: "task-013"
+    epic: "A-4: Corpus Index Construction"
+    title: "L-4-4: MinHash LSH threshold calibration and accuracy validation"
+    description: |
+      Implement spot-validation after index build:
+      1. Select 5-10 benchmark texts known to appear in corpus (WIMBD reference)
+      2. Query each against lsh: hits = lsh.query(text_to_minhash(text))
+      3. Compare hit rate against WIMBD published rates for Pile
+      4. Assert abs(measured_rate - wimbd_rate) <= config.wimbd_pile_tolerance_pp
+         for Pile column only (sanity check)
+      5. Log validation summary: f"LSH validation: {n_correct}/{n_total} within tolerance"
+      This is the WIMBD sanity check (FR-3.1c).
+    feature_tag: "evaluation"
+    priority: 42
+    source_document: "03_logic.md"
+    complexity: 18
+    test_requirements: |
+      - Validation runs without error
+      - Tolerance check passes on mock data
+    reference_files:
+      architecture: "03_architecture.md#CorpusIndexer"
+      logic: "03_logic.md#A-4"
+      config: "03_config.md#Overall-Config"
+
+  - id: "task-014"
+    epic: "A-4: Corpus Index Construction"
+    title: "L-4-5: Fallback sampling strategy (10% sample when streaming fails)"
+    description: |
+      Implement fallback sampling in _stream_corpus():
+      1. Calculate approximate corpus size (C4 ~300GB → ~30M docs; RP ~1.2TB → ~120M docs)
+      2. sample_size = int(total_docs * config.sample_fraction)
+      3. Stream first sample_size documents (use itertools.islice)
+      4. Record flag: results/statistical_tests.json must include
+         "c4_sampled": true/false, "rp_sampled": true/false
+      5. Log: f"WARNING: {corpus_name} using {sample_fraction*100}% sample due to streaming failure"
+      Fallback is documented as limitation in results JSON.
+    feature_tag: "data-pipeline"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: 18
+    test_requirements: |
+      - Fallback activates when streaming mock raises exception
+      - Sampled flag recorded in results JSON
+    reference_files:
+      architecture: "03_architecture.md#CorpusIndexer"
+      logic: "03_logic.md#A-4"
+      config: "03_config.md#C-8-2"
+
+  - id: "task-015"
+    epic: "A-6: Statistical Analysis"
+    title: "L-6-1: StatsAnalyzer.kruskal_wallis() full implementation"
+    description: |
+      Implement kruskal_wallis(matrix_wide) body:
+      1. pile_rates = matrix_wide['pile'].tolist()
+         c4_rates   = matrix_wide['c4'].tolist()
+         rp_rates   = matrix_wide['redpajama'].tolist()
+      2. H, p = scipy.stats.kruskal(pile_rates, c4_rates, rp_rates)
+      3. corpus_means = {c: np.mean(rates) for c, rates in zip(['pile','c4','rp'], [pile_rates,c4_rates,rp_rates])}
+      4. max_pair_diff = max(abs(a-b) for a,b in combinations(corpus_means.values(), 2))
+      5. gate_pass = (p < config.gate_p_threshold)
+      6. return {kruskal_H: H, kruskal_p: p, gate_pass: gate_pass,
+                 corpus_means: corpus_means, max_pair_diff_pp: max_pair_diff}
+    feature_tag: "evaluation"
+    priority: 38
+    source_document: "03_logic.md"
+    complexity: 14
+    test_requirements: |
+      - Returns dict with all 5 keys
+      - gate_pass=True when p<0.05
+    reference_files:
+      architecture: "03_architecture.md#StatsAnalyzer"
+      logic: "03_logic.md#A-6"
+      config: null
+
+  - id: "task-016"
+    epic: "A-6: Statistical Analysis"
+    title: "L-6-2: StatsAnalyzer.dunn_posthoc() with Bonferroni correction"
+    description: |
+      Implement dunn_posthoc(matrix_wide):
+      1. groups = [matrix_wide['pile'].tolist(),
+                   matrix_wide['c4'].tolist(),
+                   matrix_wide['redpajama'].tolist()]
+      2. posthoc_df = scikit_posthocs.posthoc_dunn(groups, p_adjust='bonferroni')
+      3. Rename index/columns to ['pile','c4','redpajama']
+      4. return posthoc_df  # 3×3 DataFrame of corrected p-values
+      Bonferroni alpha = 0.05/3 = 0.0167 per pair.
+    feature_tag: "evaluation"
+    priority: 36
+    source_document: "03_logic.md"
+    complexity: 14
+    test_requirements: |
+      - Returns 3×3 DataFrame
+      - All p-values between 0 and 1
+    reference_files:
+      architecture: "03_architecture.md#StatsAnalyzer"
+      logic: "03_logic.md#A-6"
+      config: null
+
+  - id: "task-017"
+    epic: "A-6: Statistical Analysis"
+    title: "L-6-3: StatsAnalyzer.spearman_wimbd() WIMBD consistency check"
+    description: |
+      Implement spearman_wimbd(pile_rates, wimbd_reference):
+      wimbd_reference: dict {subtask_name: published_rate} from WIMBD paper
+        (professional_medicine→0.173, high_school_math→0.004, etc.)
+      1. Filter pile_rates to MMLU sub-tasks only (57 tasks)
+      2. Align with wimbd_reference keys (intersection)
+      3. rho, p = scipy.stats.spearmanr(h_m1_pile_vals, wimbd_vals)
+      4. log: f"WIMBD consistency: Spearman rho={rho:.3f}, p={p:.4f}"
+      5. assert rho >= config.wimbd_spearman_min_rho, f"WIMBD consistency low: rho={rho}"
+      6. return (rho, p)
+      Hard-code top WIMBD reference rates in module constant WIMBD_REFERENCE.
+    feature_tag: "evaluation"
+    priority: 34
+    source_document: "03_logic.md"
+    complexity: 14
+    test_requirements: |
+      - Returns (rho, p) tuple
+      - WIMBD_REFERENCE constant defined in module
+    reference_files:
+      architecture: "03_architecture.md#StatsAnalyzer"
+      logic: "03_logic.md#A-6"
+      config: null
+
+  - id: "task-018"
+    epic: "A-6: Statistical Analysis"
+    title: "L-6-4: StatsAnalyzer.sensitivity_analysis() cross-format correlation"
+    description: |
+      Implement sensitivity_analysis(matrix_wide_primary, matrix_wide_sensitivity):
+      1. Run kruskal_wallis() on both matrices
+      2. Compute Spearman rho between primary and sensitivity pile_rates
+      3. Compute Spearman rho between primary and sensitivity c4_rates
+      4. Compute Spearman rho between primary and sensitivity rp_rates
+      5. return {
+           primary_kruskal_p, sensitivity_kruskal_p,
+           format_spearman_rho: {pile: rho, c4: rho, rp: rho},
+           conclusion: "Rankings robust" if all rho > 0.7 else "Rankings diverge"
+         }
+    feature_tag: "evaluation"
+    priority: 32
+    source_document: "03_logic.md"
+    complexity: 14
+    test_requirements: |
+      - Returns dict with all required keys
+      - Spearman rho computed for all 3 corpora
+    reference_files:
+      architecture: "03_architecture.md#StatsAnalyzer"
+      logic: "03_logic.md#A-6"
+      config: null
+
+  - id: "task-019"
+    epic: "A-5: Contamination Matrix"
+    title: "L-5-1: MatrixBuilder.query_cell() MinHash query and rate computation"
+    description: |
+      Implement query_cell(subtask_name, texts, corpus_name, lsh):
+      1. n_contaminated = 0
+      2. for text in texts:
+           minhash = extractor.text_to_minhash(text)
+           if lsh.query(minhash):  # returns list of candidate doc IDs
+               n_contaminated += 1
+      3. rate = n_contaminated / len(texts) if texts else 0.0
+      4. log: f"Querying {corpus_name} for {subtask_name}: {n_contaminated}/{len(texts)} ({rate:.3f})"
+      5. return {subtask: subtask_name, corpus: corpus_name,
+                 n_items: len(texts), n_contaminated: n_contaminated, rate: rate}
+    feature_tag: "evaluation"
+    priority: 30
+    source_document: "03_logic.md"
+    complexity: 13
+    test_requirements: |
+      - Returns dict with all 5 keys
+      - rate = n_contaminated/n_items
+    reference_files:
+      architecture: "03_architecture.md#MatrixBuilder"
+      logic: "03_logic.md#A-5"
+      config: null
+
+  - id: "task-020"
+    epic: "A-5: Contamination Matrix"
+    title: "L-5-2: MatrixBuilder.build_matrix() full 177-cell iteration"
+    description: |
+      Implement build_matrix(benchmarks, indices):
+      1. rows = []
+      2. total_cells = len(benchmarks) * len(indices)  # 59 × 3 = 177
+      3. for i, (subtask, texts) in enumerate(benchmarks.items()):
+           for corpus_name, lsh in indices.items():
+               cell = self.query_cell(subtask, texts, corpus_name, lsh)
+               rows.append(cell)
+               log progress every 10 cells: f"Matrix: {len(rows)}/{total_cells} cells"
+      4. df = pd.DataFrame(rows)
+      5. df.to_csv(Path(config.results_dir)/"contamination_matrix.csv", index=False)
+      6. return df
+    feature_tag: "evaluation"
+    priority: 28
+    source_document: "03_logic.md"
+    complexity: 13
+    test_requirements: |
+      - Returns DataFrame with 177 rows
+      - CSV saved to results/contamination_matrix.csv
+    reference_files:
+      architecture: "03_architecture.md#MatrixBuilder"
+      logic: "03_logic.md#A-5"
+      config: null
+
+  - id: "task-021"
+    epic: "A-2: Benchmark Data Loading"
+    title: "L-2-1: DataLoader.load_all() with version pinning and format dispatch"
+    description: |
+      Implement load_all():
+      1. mmlu = self.load_mmlu()    # returns {subtask: [texts]} for 57 sub-tasks
+      2. hs   = self.load_hellaswag()  # returns {"hellaswag": [texts]}
+      3. bbh  = self.load_bbh()     # returns {"bbh_combined": [texts]}
+      4. merged = {**mmlu, **hs, **bbh}
+      5. assert len(merged) == 59, f"Expected 59 sub-tasks, got {len(merged)}"
+      6. log: f"Loaded {len(merged)} sub-tasks, {sum(len(v) for v in merged.values())} total items"
+      7. return merged
+      Version pinning: use revision= parameter in load_dataset() to pin MMLU to v1.0.0.
+    feature_tag: "data-pipeline"
+    priority: 26
+    source_document: "03_logic.md"
+    complexity: 10
+    test_requirements: |
+      - Returns dict with exactly 59 keys
+      - All values are non-empty lists
+    reference_files:
+      architecture: "03_architecture.md#DataLoader"
+      logic: "03_logic.md#A-2"
+      config: null
+
+  - id: "task-022"
+    epic: "A-2: Benchmark Data Loading"
+    title: "L-2-2: DataLoader.format_text() question+choices and question-only"
+    description: |
+      Implement format_text(item, dataset):
+      if config.text_format == "question_choices":
+        if dataset == "mmlu":
+          return f"{item['question']} {' '.join(item['choices'])}"
+        elif dataset == "hellaswag":
+          return f"{item['ctx']} {' '.join(item['endings'])}"
+        elif dataset == "bbh":
+          return item['input']  # BBH already has full context
+      elif config.text_format == "question_only":
+        if dataset == "mmlu":    return item['question']
+        elif dataset == "hellaswag": return item['ctx']
+        elif dataset == "bbh":   return item['input']
+      Apply .lower() for MinHash consistency.
+    feature_tag: "data-pipeline"
+    priority: 24
+    source_document: "03_logic.md"
+    complexity: 10
+    test_requirements: |
+      - question_choices format includes both question and choices
+      - question_only returns only the question field
+    reference_files:
+      architecture: "03_architecture.md#DataLoader"
+      logic: "03_logic.md#A-2"
+      config: null
+
+  # ── Config Subtasks ────────────────────────────────────────────────────────
+  - id: "task-023"
+    epic: "A-7: Visualization"
+    title: "C-7-1: Visualizer figure configuration (sizes, DPI, color palettes)"
+    description: |
+      Implement figure configuration constants in visualizer.py:
+      FIGURE_SIZES = {
+        'corpus_comparison_bar': (10, 6),
+        'contamination_heatmap': (14, 16),
+        'corpus_pair_differences': (10, 5),
+        'wimbd_consistency_scatter': (8, 8),
+        'per_corpus_rankings': (12, 10),
+        'dunn_posthoc_heatmap': (6, 5),
+      }
+      FIGURE_DPI = 150
+      CORPUS_COLORS = {'pile': '#1f77b4', 'c4': '#ff7f0e', 'redpajama': '#2ca02c'}
+      HEATMAP_CMAP = 'YlOrRd'
+      Each plot method uses plt.figure(figsize=FIGURE_SIZES[key], dpi=FIGURE_DPI)
+      and saves with plt.savefig(path, dpi=FIGURE_DPI, bbox_inches='tight').
+    feature_tag: "evaluation"
+    priority: 22
+    source_document: "03_config.md"
+    complexity: 11
+    test_requirements: |
+      - FIGURE_SIZES dict has all 6 keys
+      - CORPUS_COLORS has pile, c4, redpajama keys
+    reference_files:
+      architecture: "03_architecture.md#Visualizer"
+      logic: null
+      config: "03_config.md#C-7-1"
+
+  - id: "task-024"
+    epic: "A-7: Visualization"
+    title: "C-7-2: Plot annotation configuration (fonts, reference lines, legends)"
+    description: |
+      Implement annotation configuration in visualizer.py:
+      FONT_SIZES = {'title': 14, 'axis_label': 12, 'tick': 10, 'annotation': 10}
+      REFERENCE_LINE_STYLE = {'color': 'red', 'linestyle': '--', 'linewidth': 1.5,
+                               'alpha': 0.7, 'label': '2pp threshold'}
+      LEGEND_LOC = 'upper right'
+      For corpus_comparison_bar: annotate with
+        f"Kruskal-Wallis H={H:.2f}, p={p:.2e}"
+        using ax.text() at top-right, fontsize=FONT_SIZES['annotation'].
+      For wimbd_consistency_scatter: add diagonal reference line (y=x),
+        annotate rho value.
+    feature_tag: "evaluation"
+    priority: 20
+    source_document: "03_config.md"
+    complexity: 11
+    test_requirements: |
+      - FONT_SIZES dict has all 4 keys
+      - REFERENCE_LINE_STYLE dict complete
+    reference_files:
+      architecture: "03_architecture.md#Visualizer"
+      logic: null
+      config: "03_config.md#C-7-2"
+
+  - id: "task-025"
+    epic: "A-8: Orchestration + Sensitivity"
+    title: "C-8-1: RunExperiment pipeline config and output schema"
+    description: |
+      Define output schema for results/statistical_tests.json:
+      {
+        "hypothesis_id": "h-m1",
+        "gate": {"type": "MUST_WORK", "threshold": 0.05, "pass": bool, "p_value": float},
+        "kruskal_wallis": {"H": float, "p": float},
+        "corpus_means": {"pile": float, "c4": float, "redpajama": float},
+        "max_pair_diff_pp": float,
+        "wimbd_consistency": {"spearman_rho": float, "p_value": float},
+        "sensitivity": {"pile_rho": float, "c4_rho": float, "rp_rho": float},
+        "c4_sampled": bool, "rp_sampled": bool,
+        "dunn_posthoc": [[float, float, float], ...],  # 3×3 matrix
+        "completed_at": "ISO8601"
+      }
+      Environment variable overrides: H_M1_CONFIG_PATH, H_M1_INDICES_DIR,
+      H_M1_RESULTS_DIR. Implement via os.environ.get() in load_config().
+    feature_tag: "experiment"
+    priority: 18
+    source_document: "03_config.md"
+    complexity: 10
+    test_requirements: |
+      - JSON schema matches all required keys
+      - Environment variable override works
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: null
+      config: "03_config.md#C-8-1"
+
+  - id: "task-026"
+    epic: "A-8: Orchestration + Sensitivity"
+    title: "C-8-2: Sensitivity analysis configuration (text_format override)"
+    description: |
+      Implement sensitivity config pattern in run_experiment.py:
+      1. sensitivity_config = copy.copy(config)
+      2. sensitivity_config.text_format = "question_only"
+      3. sensitivity_loader = DataLoader(sensitivity_config)
+      4. benchmarks_sensitivity = sensitivity_loader.load_all()
+      5. matrix_sensitivity = MatrixBuilder(sensitivity_config, extractor)
+           .build_matrix(benchmarks_sensitivity, indices)
+      This reuses the same indices (no rebuild) — only text formatting changes.
+      Results JSON must include both primary and sensitivity Kruskal-Wallis p-values.
+    feature_tag: "experiment"
+    priority: 16
+    source_document: "03_config.md"
+    complexity: 10
+    test_requirements: |
+      - sensitivity_config.text_format == "question_only"
+      - Sensitivity matrix has same shape as primary (177 rows)
+    reference_files:
+      architecture: "03_architecture.md#RunExperiment"
+      logic: null
+      config: "03_config.md#C-8-2"
+
+  # ── Failsafe ───────────────────────────────────────────────────────────────
+  - id: "task-027"
+    epic: "Pipeline Continuation"
+    title: "FAILSAFE: Pipeline continuation checkpoint"
+    description: |
+      This task marks the end of Phase 4 implementation for H-M1.
+      When reached: verify all outputs exist:
+        - results/contamination_matrix.csv (177 rows)
+        - results/statistical_tests.json (gate_pass key present)
+        - figures/ directory with 6 PNG files
+      Confirm gate result: read gate_pass from statistical_tests.json.
+      Update verification_state.yaml: set h-m1 validation.status = COMPLETED or FAILED.
+      Trigger Phase 4 validation step (04_validation.md).
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: null
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 8
+  subtasks: 17
+  failsafe: 1
+  total: 27

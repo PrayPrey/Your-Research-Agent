@@ -1,0 +1,8 @@
+# Title
+Topology-Aware Unbalanced Multi-Marginal Optimal Transport for Scalable Multi-Source Machine Learning
+
+# Motivation
+Multi-marginal optimal transport (OT) is critical for aligning multiple data distributions in applications like multi-source domain adaptation, federated learning, and single-cell genomics. However, existing methods face a fundamental scalability barrier: unbalanced formulations (handling class imbalance and noise) require O(N^K) complexity, making problems with K>5 distributions computationally intractable. Meanwhile, real-world ML applications naturally exhibit structural patterns—multi-source domain adaptation has star topology (K sources → 1 target), hierarchical learning has tree structures—that remain unexploited. No existing method combines unbalanced formulation, multi-marginal capability (K>10), and computational efficiency.
+
+# Main Idea
+We propose TAUMOT (Topology-Aware Unbalanced Multi-marginal Optimal Transport), which exploits application-specific coupling topologies (star, tree, hierarchical) to decompose K-way OT into parallel 2-marginal subproblems. The causal mechanism: topology constraints reduce coupling space from O(N^K) to O(KN²) while preserving unbalanced properties through independent KL-divergence penalties per subproblem. Using entropic regularization, approximation error decays exponentially (Tang et al. 2024), achieving <5% error. We test on synthetic data (K∈{3,10,20}, N∈{1000,10000}) and real applications (Office-31 domain adaptation, single-cell genomics). Expected outcomes: 50-100× speedup versus unconstrained methods, enabling practical K>10 problems while maintaining unbalanced formulation benefits for imbalanced data—unlocking previously intractable multi-source ML applications.

@@ -1,0 +1,576 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m4"
+  hypothesis_id_upper: "H-M4"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-05-04T17:15:00Z"
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Setup development environment"
+    description: |
+      Install required packages:
+        numpy>=1.21.0
+        scipy>=1.7.0
+        matplotlib>=3.4.0
+        seaborn>=0.11.0
+        scikit-learn>=0.24.0
+        torch>=1.9.0
+        torchvision>=0.10.0
+        pyyaml>=5.4.0
+
+      External repositories for reference (do NOT install, reference only):
+        PolinaKirichenko/deep_feature_reweighting (Official DFR protocol)
+        kohpangwei/group_DRO (WaterbirdsDataset class, WGA eval, ERM training)
+
+      Waterbirds dataset already cached at:
+        .data_cache/datasets/waterbirds (from H-M1, verified=True — NO download needed)
+    feature_tag: "setup"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+  - id: "task-002"
+    epic: "E-1: Project Setup"
+    title: "Project Setup — config.py, configs/waterbirds.yaml, directory skeleton"
+    description: |
+      Create the full project skeleton for h-m4/code/:
+        run_experiment.py, train_backbone.py, feature_extractor.py,
+        dfr_module.py, correlation_analyzer.py, visualizer.py,
+        results_exporter.py, config.py, data/waterbirds.py,
+        configs/waterbirds.yaml, figures/ (auto-created), results/ (auto-created),
+        checkpoints/ (auto-created)
+
+      Implement config.py with ExperimentConfig dataclass (TrainConfig, DFRConfig,
+      AnalysisConfig, PathConfig) and load_config(config_path) function.
+      Write configs/waterbirds.yaml with all four sub-config sections.
+    feature_tag: "setup"
+    priority: 99
+    source_document: "03_architecture.md"
+    complexity: 5
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: "03_architecture.md#ExperimentConfig"
+      logic: null
+      config: "03_config.md#E-1-Project-Setup"
+
+  - id: "task-003"
+    epic: "E-2: Data Module"
+    title: "Data Module — WaterbirdsDataset with group_id + loaders"
+    description: |
+      Copy h-e1/code/data/waterbirds.py to h-m4/code/data/waterbirds.py and extend:
+      - Add group_id = 2 * spurious_label + core_label to __getitem__ return dict
+      - Verify WaterbirdsDataset works for train/val/test splits
+      - Implement get_waterbirds_loader(root, split, batch_size, num_workers, augment)
+      CRITICAL: H-E1 original does NOT include group_id — must add it for WGA evaluation.
+    feature_tag: "data-pipeline"
+    priority: 98
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_data.py
+      - Test __getitem__ returns dict with keys: image, core_label, spurious_label, group_id
+      - Test group_id = 2*spurious_label + core_label for a sample
+      - Test loader returns correct batch shapes
+    reference_files:
+      architecture: "03_architecture.md#WaterbirdsDataset"
+      logic: null
+      config: null
+
+  - id: "task-004"
+    epic: "E-3: Backbone Trainer"
+    title: "Backbone Trainer — ERM training loop with checkpoint saving at {1,2,10,20,30}"
+    description: |
+      Implement BackboneTrainer in train_backbone.py:
+      - build_model(num_classes=2, pretrained=True): ResNet-50 with fc=Linear(2048,2)
+      - get_transforms(augment): same as H-E1
+      - BackboneTrainer.train_seed(seed): train 30 epochs, save checkpoints at specific
+        epochs {1,2,10,20,30} (NOT interval-based like H-E1)
+      - Batch key: batch["core_label"] (verified from H-E1 actual code)
+      - Checkpoint path: checkpoints/seed_{seed}/epoch_{epoch:03d}.pt
+      - Skip-if-exists: if all checkpoints exist, return early
+    feature_tag: "training"
+    priority: 97
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_train_backbone.py
+      - Test _checkpoint_exists returns True when file present
+      - Test train_seed returns dict with correct epoch keys
+      - Test checkpoint files are created at specified epochs
+    reference_files:
+      architecture: "03_architecture.md#BackboneTrainer"
+      logic: "03_logic.md#E-3-BackboneTrainer"
+      config: "03_config.md#E-3-TrainConfig"
+
+  - id: "task-005"
+    epic: "E-4: Feature Extractor"
+    title: "Feature Extractor — frozen ResNet-50 2048-dim layer4 features"
+    description: |
+      Implement FeatureExtractor in feature_extractor.py:
+      - load_backbone(checkpoint_path): load ResNet-50 state_dict, THEN set model.fc=Identity()
+        (avoids shape mismatch — load full state_dict first, then replace fc)
+      - extract(backbone, loader): batched extraction, assert features.shape[1]==2048
+        Use batch["core_label"] and batch["group_id"]
+      - extract_split(root, split, cfg, checkpoint_path): convenience wrapper
+      Returns: (features [N,2048], labels [N], group_ids [N])
+    feature_tag: "model"
+    priority: 96
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_feature_extractor.py
+      - Test feature shape is [N, 2048]
+      - Test backbone is frozen (no grad on parameters)
+      - Test group_ids match expected range 0..3
+    reference_files:
+      architecture: "03_architecture.md#FeatureExtractor"
+      logic: "03_logic.md#E-4-FeatureExtractor"
+      config: null
+
+  - id: "task-006"
+    epic: "E-5: DFR Module"
+    title: "DFR Module — WGA evaluation + LogReg DFR reweighting"
+    description: |
+      Implement DFRModule in dfr_module.py:
+      - worst_group_accuracy(predictions, labels, group_ids): min accuracy over groups 0..3
+      - DFRModule._fit_dfr(val_feats, val_labels): LogisticRegression(C=1.0,
+        class_weight='balanced', solver='lbfgs', max_iter=1000, random_state=42)
+      - DFRModule._erm_wga(checkpoint_path, test_feats, test_labels, test_groups, device):
+        load fc weights as numpy, matmul with test_feats → predictions → WGA
+      - DFRModule.evaluate_checkpoint(...): returns {erm_wga, dfr_wga, wga_improvement, feature_dim}
+        Log: "DFR applied at epoch N: ERM WGA=X, DFR WGA=Y, improvement=Z"
+    feature_tag: "evaluation"
+    priority: 95
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_dfr_module.py
+      - Test worst_group_accuracy with synthetic 4-group predictions
+      - Test _fit_dfr returns converged LogReg (check coef_ shape)
+      - Test evaluate_checkpoint returns all required keys
+    reference_files:
+      architecture: "03_architecture.md#DFRModule"
+      logic: "03_logic.md#E-5-DFRModule"
+      config: "03_config.md#E-5-DFRConfig"
+
+  - id: "task-007"
+    epic: "E-6: 5-Condition Pipeline"
+    title: "5-Condition Pipeline — full seed×epoch loop with feature cache"
+    description: |
+      Implement run() in run_experiment.py:
+      Phase A: for each seed → trainer.train_seed(seed) → ckpt_map
+      Phase B: nested seed×epoch loop over conditions {1,2,10,20,30}
+               feature cache dict keyed by (seed,epoch) to avoid re-extraction
+               dfr.evaluate_checkpoint() for each condition
+      Phase C: aggregate, compute_pearson, evaluate_gate, verify_monotonicity
+      Phase D: viz.save_all(), exporter.save_json(), exporter.print_summary()
+    feature_tag: "experiment"
+    priority: 94
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_pipeline.py
+      - Test run() completes without error for 1 seed × 2 conditions (smoke test)
+      - Test results_per_seed has correct structure {seed: {epoch: metrics}}
+      - Test feature cache prevents redundant extraction
+    reference_files:
+      architecture: "03_architecture.md#MainOrchestrator"
+      logic: "03_logic.md#E-6-5-Condition-Pipeline"
+      config: "03_config.md#E-6-PathConfig"
+
+  - id: "task-008"
+    epic: "E-7: Correlation Analyzer"
+    title: "Correlation Analyzer — Pearson r + gate check + monotonicity"
+    description: |
+      Implement CorrelationAnalyzer in correlation_analyzer.py:
+      - aggregate_across_seeds(results_per_seed): mean/std of metrics over seeds per epoch
+        Returns {epoch: {mean_erm_wga, mean_dfr_wga, mean_wga_improvement, std_wga_improvement}}
+      - compute_pearson(aggregated, t_star): x=[epoch-t_star], y=[mean_wga_improvement]
+        pearsonr(x,y) → r, p_two; p_one = p_two/2 if r>0 else 1-p_two/2
+      - evaluate_gate(pearson_r): SHOULD_WORK gate r>0.7
+      - verify_monotonicity(improvements): count positive consecutive diffs
+    feature_tag: "evaluation"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_correlation_analyzer.py
+      - Test aggregate_across_seeds with synthetic 3-seed data
+      - Test compute_pearson returns expected keys including pearson_r
+      - Test evaluate_gate returns gate_passed=True when r>0.7
+    reference_files:
+      architecture: "03_architecture.md#CorrelationAnalyzer"
+      logic: "03_logic.md#E-7-CorrelationAnalyzer"
+      config: "03_config.md#E-7-AnalysisConfig"
+
+  - id: "task-009"
+    epic: "E-8: Visualizer"
+    title: "Visualizer — 4 plots: bar chart, scatter+regression, WGA curves, monotonicity"
+    description: |
+      Implement Visualizer in visualizer.py:
+      - plot_gate_metrics(aggregated, pearson_r, t_star, r_threshold=0.7):
+        bar chart WGA improvement per epoch; horizontal line at r=0.7; annotate r value
+      - plot_scatter_correlation(epochs_past_tstar, improvements, pearson_r, pearson_p):
+        scatter with regression line + 95% CI
+      - plot_wga_curves(results_per_seed, conditions): ERM+DFR WGA vs epoch, error bars
+      - plot_monotonicity_check(improvements, conditions): diff[t+1]-diff[t] bar chart
+      - save_all(...): call all 4 plots, save to figures/, return list of paths
+    feature_tag: "evaluation"
+    priority: 92
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_visualizer.py
+      - Test save_all returns list of 4 file paths
+      - Test each file is created at expected path under figures/
+      - Test plot functions run without error on synthetic data
+    reference_files:
+      architecture: "03_architecture.md#Visualizer"
+      logic: null
+      config: "03_config.md#E-8-Visualizer"
+
+  - id: "task-010"
+    epic: "E-9: Results Exporter"
+    title: "Results Exporter — JSON save + stdout gate summary"
+    description: |
+      Implement ResultsExporter in results_exporter.py:
+      - save_json(results_per_seed, aggregated, correlation_results, gate_result, figure_paths):
+        save to results/h-m4_results.json; return path
+      - print_summary(correlation_results, gate_result):
+        print PASS/LIMITATION + pearson_r to stdout
+        Format: "GATE: PASS (r=X.XX > 0.7)" or "GATE: LIMITATION (r=X.XX <= 0.7)"
+    feature_tag: "experiment"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_results_exporter.py
+      - Test save_json creates valid JSON file with expected keys
+      - Test print_summary outputs PASS when r>0.7
+      - Test JSON file path is in results/ directory
+    reference_files:
+      architecture: "03_architecture.md#ResultsExporter"
+      logic: null
+      config: null
+
+  - id: "task-011"
+    epic: "E-10: Orchestrator"
+    title: "Orchestrator — run_experiment.py full pipeline + argparse"
+    description: |
+      Wire up run() in run_experiment.py as the full pipeline entry point:
+      - argparse: --config (default: configs/waterbirds.yaml), --device (default: cuda)
+      - Import and call all modules in correct order (see E-6 pseudo-code)
+      - __main__ block: parse args → run(args.config, args.device)
+      - Print final gate result to stdout
+      CUDA_VISIBLE_DEVICES must be set externally before running.
+    feature_tag: "experiment"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_orchestrator.py
+      - Test run() accepts config_path and device parameters
+      - Test returned dict has keys: results_per_seed, aggregated, gate
+      - Smoke test: run with 1 seed, 2 conditions completes without error
+    reference_files:
+      architecture: "03_architecture.md#MainOrchestrator"
+      logic: "03_logic.md#E-6-5-Condition-Pipeline"
+      config: "03_config.md#E-10-Orchestrator"
+
+  - id: "task-012"
+    epic: "E-11: Integration Test"
+    title: "Integration Test — 1 seed × 2 conditions smoke test in <5 min"
+    description: |
+      Create integration test that runs the full pipeline with reduced scope:
+      - 1 seed (seed=1), 2 conditions (epochs 1 and 2 only)
+      - Use smoke_config with checkpoint_epochs=[1, 2], seeds=[1], max_epochs=2
+      - Verify: feature shape == 2048, DFR WGA > 0, results JSON created
+      - Must complete in <5 minutes
+      This validates the full pipeline works end-to-end before full 3-seed × 5-condition run.
+    feature_tag: "experiment"
+    priority: 89
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_integration.py
+      - Test feature_dim == 2048 for extracted features
+      - Test dfr_wga > 0 for at least 1 condition
+      - Test results JSON file is created and parseable
+    reference_files:
+      architecture: "03_architecture.md#Epic-E11-Integration-Test"
+      logic: null
+      config: "03_config.md#E-11-Integration-Test"
+
+  # Subtasks for high-complexity modules (from 03_logic.md)
+
+  - id: "task-013"
+    epic: "E-3: Backbone Trainer"
+    title: "L-3-1: Training loop implementation"
+    description: |
+      Implement the ERM training loop in BackboneTrainer.train_seed:
+      - Seed setup: torch.manual_seed(seed), np.random.seed(seed), random.seed(seed)
+      - Use batch["core_label"] as labels (NOT batch["label"] — verified from H-E1 code)
+      - SGD(lr=1e-3, momentum=0.9, weight_decay=1e-4), CrossEntropyLoss
+      - Training transforms: RandomResizedCrop(224) + RandomHorizontalFlip + Normalize
+    feature_tag: "training"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-3 tests."
+    reference_files:
+      logic: "03_logic.md#L-3-1"
+      config: null
+
+  - id: "task-014"
+    epic: "E-3: Backbone Trainer"
+    title: "L-3-2: Checkpoint saving at specific epochs"
+    description: |
+      Implement _save_checkpoint and _checkpoint_exists:
+      - Save at specific epoch set {1,2,10,20,30} — NOT interval-based
+      - Path: checkpoints/seed_{seed}/epoch_{epoch:03d}.pt
+      - skip-if-exists: if ALL checkpoint_epochs already exist, return early without training
+      - Verify file exists after save (assertion check)
+    feature_tag: "training"
+    priority: 48
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-3 tests."
+    reference_files:
+      logic: "03_logic.md#L-3-2"
+      config: null
+
+  - id: "task-015"
+    epic: "E-3: Backbone Trainer"
+    title: "L-3-3: ERM WGA logging at checkpoints"
+    description: |
+      Evaluate ERM WGA at each checkpoint epoch using backbone's own fc layer:
+      - Log per-checkpoint ERM WGA during training
+      - Use backbone fc weights as numpy matmul (same as DFRModule._erm_wga)
+      - Store in results dict alongside checkpoint path
+    feature_tag: "training"
+    priority: 47
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-3 tests."
+    reference_files:
+      logic: "03_logic.md#L-3-3"
+      config: null
+
+  - id: "task-016"
+    epic: "E-6: 5-Condition Pipeline"
+    title: "L-6-1: Training phase — seed loop"
+    description: |
+      Implement Phase A of run():
+      - Loop over cfg.train.seeds (default [1,2,3])
+      - Call trainer.train_seed(seed) for each seed
+      - Build ckpt_map = {seed: {epoch: path}}
+      - Initialize results_per_seed[seed] = {} for each seed
+    feature_tag: "experiment"
+    priority: 46
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-6 tests."
+    reference_files:
+      logic: "03_logic.md#L-6-1"
+      config: null
+
+  - id: "task-017"
+    epic: "E-6: 5-Condition Pipeline"
+    title: "L-6-2: Feature extraction + DFR evaluation loop with cache"
+    description: |
+      Implement Phase B of run():
+      - Nested seed × epoch loop over conditions {1,2,10,20,30}
+      - Feature cache dict keyed by (seed, epoch) to avoid re-extraction
+      - Call extractor.extract_split() for val and test splits
+      - Call dfr.evaluate_checkpoint() with cached features
+      - Store metrics in results_per_seed[seed][epoch]
+    feature_tag: "experiment"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-6 tests."
+    reference_files:
+      logic: "03_logic.md#L-6-2"
+      config: null
+
+  - id: "task-018"
+    epic: "E-6: 5-Condition Pipeline"
+    title: "L-6-3: Analysis, visualization, and export"
+    description: |
+      Implement Phases C and D of run():
+      - analyzer.aggregate_across_seeds(results_per_seed)
+      - analyzer.compute_pearson(aggregated, cfg.analysis.t_star_mean)
+      - analyzer.evaluate_gate(corr["pearson_r"])
+      - analyzer.verify_monotonicity(corr["improvements"])
+      - viz.save_all(results_per_seed, aggregated, corr, t_star)
+      - exporter.save_json(...), exporter.print_summary(corr, gate)
+    feature_tag: "experiment"
+    priority: 44
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-6 tests."
+    reference_files:
+      logic: "03_logic.md#L-6-3"
+      config: null
+
+  - id: "task-019"
+    epic: "E-5: DFR Module"
+    title: "L-5-1: worst_group_accuracy + _fit_dfr"
+    description: |
+      Implement WGA helper and DFR fitting:
+      - worst_group_accuracy: min accuracy over groups 0..3 (groups are int in {0,1,2,3})
+      - _fit_dfr: LogisticRegression(C=1.0, class_weight='balanced', solver='lbfgs',
+        max_iter=1000, random_state=42) — fixed seed for reproducibility
+    feature_tag: "evaluation"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-5 tests."
+    reference_files:
+      logic: "03_logic.md#L-5-1"
+      config: null
+
+  - id: "task-020"
+    epic: "E-5: DFR Module"
+    title: "L-5-2: evaluate_checkpoint + _erm_wga"
+    description: |
+      Implement checkpoint evaluation:
+      - _erm_wga: load fc weights as numpy, logits = test_feats @ fc_weights.T + fc_bias
+        → argmax predictions → worst_group_accuracy
+      - evaluate_checkpoint: call _erm_wga for ERM WGA; _fit_dfr + predict for DFR WGA
+        wga_improvement = dfr_wga - erm_wga; feature_dim = test_feats.shape[1]
+        Log: "DFR applied at epoch N: ERM WGA=X.XX, DFR WGA=Y.YY, improvement=Z.ZZ"
+    feature_tag: "evaluation"
+    priority: 42
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-5 tests."
+    reference_files:
+      logic: "03_logic.md#L-5-2"
+      config: null
+
+  - id: "task-021"
+    epic: "E-7: Correlation Analyzer"
+    title: "L-7-1: aggregate_across_seeds"
+    description: |
+      Implement seed aggregation:
+      - For each epoch condition in [1,2,10,20,30]:
+        collect erm_wga, dfr_wga, wga_improvement from all seeds
+        compute mean and std (numpy)
+      - Returns {epoch: {mean_erm_wga, mean_dfr_wga, mean_wga_improvement, std_wga_improvement}}
+    feature_tag: "evaluation"
+    priority: 41
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-7 tests."
+    reference_files:
+      logic: "03_logic.md#L-7-1"
+      config: null
+
+  - id: "task-022"
+    epic: "E-7: Correlation Analyzer"
+    title: "L-7-2: compute_pearson + evaluate_gate + verify_monotonicity"
+    description: |
+      Implement correlation analysis:
+      - compute_pearson: x=[epoch-t_star for epoch in sorted conditions]
+        y=[mean_wga_improvement]; scipy.stats.pearsonr(x,y)
+        p_one = p_two/2 if r>0 else 1-p_two/2
+      - evaluate_gate: gate_passed = (r > 0.7)
+        note: "PASS" or "LIMITATION: r<=0.7, log as limitation"
+      - verify_monotonicity: diffs=[improvements[i+1]-improvements[i]]
+        is_monotonic = all(d>0 for d in diffs)
+    feature_tag: "evaluation"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-7 tests."
+    reference_files:
+      logic: "03_logic.md#L-7-2"
+      config: null
+
+  - id: "task-023"
+    epic: "E-4: Feature Extractor"
+    title: "L-4-1: load_backbone — ResNet-50 with fc=Identity"
+    description: |
+      Implement backbone loading:
+      - torchvision.models.resnet50(pretrained=False) → load state_dict from checkpoint
+      - THEN set model.fc = nn.Identity() (load full state_dict first to avoid mismatch)
+      - model.eval(); freeze all parameters (param.requires_grad = False)
+      - Move to device
+    feature_tag: "model"
+    priority: 39
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-4 tests."
+    reference_files:
+      logic: "03_logic.md#L-4-1"
+      config: null
+
+  - id: "task-024"
+    epic: "E-4: Feature Extractor"
+    title: "L-4-2: extract + extract_split"
+    description: |
+      Implement feature extraction:
+      - extract(backbone, loader): with torch.no_grad():
+        forward pass → backbone(imgs) → [B, 2048] (Identity fc)
+        collect batch["core_label"] as labels, batch["group_id"] as groups
+        assert features.shape[1] == 2048
+      - extract_split(root, split, cfg, checkpoint_path): build loader → load_backbone → extract
+    feature_tag: "model"
+    priority: 38
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: "Covered by parent task E-4 tests."
+    reference_files:
+      logic: "03_logic.md#L-4-2"
+      config: null
+
+  - id: "task-025"
+    epic: "Pipeline Management"
+    title: "Pipeline Continuation Checkpoint"
+    description: "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK"
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "system"
+    complexity: null
+    test_requirements: "Failsafe task does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 11
+  subtasks: 12
+  failsafe: 1
+  total: 25

@@ -1,0 +1,8 @@
+# Title
+Layer-Wise Adaptive Precision Homomorphic Encryption for Real-Time Privacy-Preserving Deep Learning Inference
+
+# Motivation
+Fully homomorphic encryption (FHE) enables computation on encrypted data, offering cryptographic privacy guarantees for machine learning inference. However, current FHE implementations suffer from prohibitive latency (24-90 seconds for deep neural networks), preventing deployment in real-time applications like medical diagnosis, fraud detection, and personalized recommendations. Existing approaches apply uniform encryption precision across all network layers, treating computational resources equally despite varying privacy sensitivity. This creates a critical gap between theoretical privacy guarantees and practical deployment feasibility.
+
+# Main Idea
+We propose treating encryption precision as an allocatable resource through layer-wise adaptive CKKS parameter assignment. The core hypothesis: privacy-sensitive layers (input, output, embeddings) require high-precision encryption, while intermediate layers tolerate reduced precision without compromising accuracy or privacy. Through offline gradient-based sensitivity profiling, we categorize layers into three precision tiers (HIGH/MEDIUM/LOW) and assign corresponding CKKS scale parameters (0%, 30%, 50% reduction). This achieves 3-5× latency reduction (24s→5-10s) while maintaining >95% plaintext accuracy and preserving privacy against membership inference attacks (<55% success rate). We validate across three architectures (DLRM, ResNet-18, Transformer) using rigorous statistical testing with 1,080 experimental runs. This enables near-real-time encrypted inference, unlocking practical FHE deployment for privacy-critical applications.

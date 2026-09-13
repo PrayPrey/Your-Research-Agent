@@ -1,0 +1,481 @@
+version: "1.0"
+schema_version: "1.1"
+
+metadata:
+  hypothesis_id: h-m4
+  hypothesis_type: MECHANISM
+  gate_type: SHOULD_WORK
+  tier: FULL
+  total_budget: 30
+  base_hypothesis: h-m1
+  incremental: true
+  generated_at: "2026-03-15T00:00:00Z"
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 12
+  subtasks: 17
+  failsafe: 0
+  total: 30
+
+tasks:
+
+  # ── ENVIRONMENT SETUP (priority 94) ──────────────────────────────────────
+  - id: ENV-1
+    title: "Environment setup and dependency verification"
+    type: setup
+    priority: 94
+    description: >
+      Verify existing conda/venv from h-m1/h-m2. Install statsmodels>=0.14.0 if not present.
+      Confirm sentence-transformers, datasets, pandas, scipy, numpy, matplotlib, seaborn available.
+      Set CUDA_VISIBLE_DEVICES to empty GPU. Verify h-m2/code/ import paths accessible.
+    reference_files:
+      - file: "03_prd.md"
+        section: "4.3 Environment"
+      - file: "03_architecture.md"
+        section: "File Organization"
+
+  # ── EPIC TASKS (priority 93-50, ordered by dependency) ───────────────────
+  - id: A-1
+    title: "Environment + Data Setup"
+    type: implementation
+    priority: 93
+    complexity: 7
+    description: >
+      Copy/link h-m2 code modules to h-m4 workspace. Create h-m4/code/ directory structure.
+      Verify HH-RLHF data cache at .data_cache/datasets/hh-rlhf. Validate N_pairs >= 1000
+      per tier (empirically confirmed >=14,426 from h-m3). Verify sys.path.insert pattern
+      for h-m2 imports works from h-m4/code/.
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Epic Tasks / A-1"
+      - file: "03_prd.md"
+        section: "4.1 Codebase Reuse"
+
+  - id: A-2
+    title: "config.py — ExperimentConfig + RegressionConfig"
+    type: implementation
+    priority: 92
+    complexity: 8
+    description: >
+      Implement ExperimentConfig dataclass extending h-m2 pattern. Add new RegressionConfig
+      (cov_type='HC3', tier_reference='helpful-base', vif_warn_threshold=10.0). Add
+      POLITENESS_TOKENS frozenset, SURFACE_FEATURE_COLS list, TIER_ORDER, MODEL_NAMES constants.
+      Implement load_config() YAML loader. Set embeddings_dir to ../h-m2/code/embeddings.
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Module Definitions / config.py"
+      - file: "03_config.md"
+        section: "Complete ExperimentConfig"
+
+  - id: A-3
+    title: "data_loader.py — chosen/rejected branch extension"
+    type: implementation
+    priority: 91
+    complexity: 13
+    description: >
+      Implement extract_chosen_rejected_pairs() parsing both branches from HH-RLHF records.
+      Implement split_by_tier_bidir() loading all 3 tiers with chosen+rejected per conversation.
+      Implement build_regression_dataframe() joining C_sem + pm_proxy + surface features.
+      Track conversation_id. Use PM_PROXY_MAP={chosen:1, rejected:0}. Validate N_pairs per tier.
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Module Definitions / data_loader.py"
+      - file: "03_config.md"
+        section: "A-3: data_loader config"
+      - file: "03_logic.md"
+        section: "A-5: C_sem Computation per Branch"
+
+  - id: A-4
+    title: "surface_features.py — 5 surface-feature extractors"
+    type: implementation
+    priority: 90
+    complexity: 10
+    description: >
+      Implement extract_response_length(), extract_bullet_density(), extract_politeness_freq(),
+      extract_ttr(), extract_mean_sent_len(). Implement extract_all_features() combining all 5.
+      Implement batch_extract_features() returning DataFrame with SURFACE_FEATURE_COLS.
+      Implement validate_features() checking FEATURE_VALIDATION_THRESHOLDS. Handle edge cases:
+      empty text, single word, no bullet lines, no sentences.
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Module Definitions / surface_features.py"
+      - file: "03_config.md"
+        section: "A-4: surface features config"
+
+  - id: A-5
+    title: "C_sem computation per chosen/rejected branch"
+    type: implementation
+    priority: 89
+    complexity: 14
+    description: >
+      Encode H_next and A_response for chosen and rejected branches per tier using Embedder.
+      Use distinct cache key prefixes: 'a_chosen_' for chosen, 'a_rejected_' for rejected.
+      Compute per-row C_sem^H<-A using compute_h_given_a_csem_array() with topic-matched
+      shuffle baseline (build_topic_control, knn_k=5, n_jobs=1). Build regression DataFrame
+      joining (tier, pm_proxy, c_sem) rows. Arrays: emb [N,D], csem [N,].
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: C_sem Computation per Branch"
+      - file: "03_architecture.md"
+        section: "External Dependencies (Base Hypothesis)"
+
+  - id: A-6
+    title: "regression.py — 4-stage OLS mediation pipeline"
+    type: implementation
+    priority: 88
+    complexity: 15
+    description: >
+      Implement run_pm_only_model() Stage 1: C_sem ~ pm_proxy + tier dummies (HC3).
+      Implement run_full_model() Stage 2: C_sem ~ pm_proxy + 5 surface features + tier dummies (HC3).
+      Implement run_robustness_model() Stage 3: replace pm_proxy with tier_rank ordinal 1/2/3.
+      Implement compute_mediation_proportion() Stage 4: mediation_ratio + pm_effect_retained.
+      Implement compute_vif() using variance_inflation_factor. Implement check_rank_deficiency().
+      All models: sm.OLS(y, X).fit(cov_type='HC3'). Tier dummies: pd.get_dummies(drop_first=True).
+      OLSStageResult and MediationResult dataclasses.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: 4-Stage OLS Regression Engine"
+      - file: "03_architecture.md"
+        section: "Module Definitions / regression.py"
+
+  - id: A-7
+    title: "evaluate.py — gate check and mechanism activation"
+    type: implementation
+    priority: 87
+    complexity: 10
+    description: >
+      Implement verify_mechanism_activated() checking 5 indicators (model_fitted,
+      beta_pm_nonzero, p_value_valid, n_obs_sufficient, surface_controls_included).
+      Implement check_gate() returning GateResult (beta_PM > 0 AND p < 0.05).
+      Implement evaluate_cross_model_gate() for >=2/3 criterion.
+      Implement generate_gate_report() producing human-readable string for 04_validation.md.
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Module Definitions / evaluate.py"
+      - file: "03_prd.md"
+        section: "3.6 Mechanism Activation Verification"
+
+  - id: A-8
+    title: "visualize.py — 3 mandatory figures"
+    type: implementation
+    priority: 86
+    complexity: 11
+    description: >
+      Fig 1: plot_beta_pm_comparison() — beta_PM (full model) with 95% CI across 3 SBERT models
+      (bar chart + error bars). Fig 2: plot_mediation_decomposition() — beta_PM_reduced vs
+      beta_PM_full per model (grouped bar). Fig 3: plot_coefficient_forest() — all OLS
+      coefficients with 95% CI per model (forest plot). Save all to h-m4/figures/.
+      Use FigureConfig (dpi=150, png). Reference line at y=0 on forest plot.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-8: visualization config"
+      - file: "03_prd.md"
+        section: "3.7 Visualization Requirements"
+
+  - id: A-9
+    title: "visualize.py — 3 autonomous figures"
+    type: implementation
+    priority: 85
+    complexity: 9
+    description: >
+      Fig 4: plot_csem_vs_pm_scatter() — C_sem vs PM_proxy per tier with regression line.
+      Fig 5: plot_partial_regression() — C_sem residuals vs PM_proxy residuals.
+      Fig 6: plot_tier_pm_interaction() — C_sem by tier x branch grouped bar chart.
+      Implement generate_all_figures() calling all 6 generators. Save to h-m4/figures/.
+    reference_files:
+      - file: "03_prd.md"
+        section: "3.7 Visualization Requirements"
+      - file: "03_architecture.md"
+        section: "Module Definitions / visualize.py"
+
+  - id: A-10
+    title: "run_experiment.py — main orchestrator"
+    type: implementation
+    priority: 84
+    complexity: 15
+    description: >
+      Implement main() orchestrating full pipeline: load config -> split_by_tier_bidir() ->
+      loop 3 SBERT models: run_single_model() -> evaluate_cross_model_gate() ->
+      generate_all_figures() -> save_results(). Implement run_single_model() returning
+      (MediationResult, DataFrame). Implement save_results() writing regression_results.json.
+      Error handling: LinAlgError singularity catch, KS-triggered IPW check per tier.
+      Bootstrap: rng.choice (NOT rng.integers). sys.path.insert for h-m2 imports.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-10: Orchestrator"
+      - file: "03_architecture.md"
+        section: "Module Definitions / run_experiment.py"
+
+  - id: A-11
+    title: "Results + Validation reporting"
+    type: implementation
+    priority: 83
+    complexity: 9
+    description: >
+      Save regression_results.json with full schema: gate (overall_pass, models_passed),
+      per-model stages (beta_pm, p_pm, ci, r_squared, nobs, all_params, all_pvalues),
+      mediation (mediation_ratio, pm_effect_retained), vif per feature, gate_pass.
+      Generate 04_validation.md with gate result (PASS/FAIL), key findings, mechanism
+      activation indicator table, and interpretation of epistemic vs formatting hypothesis.
+    reference_files:
+      - file: "03_logic.md"
+        section: "save_results() JSON Schema"
+      - file: "03_prd.md"
+        section: "3.8 Output Requirements"
+
+  - id: A-12
+    title: "Integration + failsafe testing"
+    type: implementation
+    priority: 82
+    complexity: 11
+    description: >
+      End-to-end pipeline run with all 3 SBERT models. Singularity check before OLS fit.
+      N_pairs < 1000 warning handler. IPW trigger check (KS p < ipw_trigger_threshold=0.1).
+      Graceful degradation on statsmodels convergence issues. Write 04_checkpoint.yaml tracking
+      models_completed/pending. Unit tests: test_data_loader.py, test_surface_features.py,
+      test_regression.py, test_evaluate.py.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-12: integration config"
+      - file: "03_logic.md"
+        section: "Error Handling + IPW Trigger"
+
+  # ── LOGIC SUBTASKS (priority 49-20) ──────────────────────────────────────
+  - id: L-5-1
+    title: "chosen/rejected branch embedding with distinct cache prefixes"
+    type: subtask
+    priority: 49
+    parent_epic: A-5
+    description: >
+      Implement encode_tier() calls with prefix='a_chosen' for chosen branch and
+      prefix='a_rejected' for rejected branch. Ensures distinct .npy cache files
+      and avoids cache collision between branches.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: Subtasks / L-5-1"
+
+  - id: L-5-2
+    title: "per-row C_sem^H<-A computation with matched-shuffle baseline"
+    type: subtask
+    priority: 48
+    parent_epic: A-5
+    description: >
+      Call compute_h_given_a_csem_array(emb_h_next, emb_a_curr, emb_a_shuffle) per
+      (tier, branch). emb_a_shuffle = build_topic_control(emb_p, emb_a, k=5).
+      Output csem_array shape [N,]. One value per (conversation_id, branch) pair.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: Tensor Shapes"
+
+  - id: L-5-3
+    title: "join tier + pm_proxy + C_sem into regression DataFrame"
+    type: subtask
+    priority: 47
+    parent_epic: A-5
+    description: >
+      Assemble rows: (tier, pm_proxy, c_sem) from csem_arrays dict. Merge with surface
+      features and pm_proxy label. build_regression_dataframe() output: [N_total, 8] DataFrame
+      with columns tier, pm_proxy, c_sem, response_length, bullet_density, politeness_freq,
+      ttr, mean_sent_len. N_total ~ 28k-70k rows.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: Pseudo-code"
+
+  - id: L-6-1
+    title: "Stage 1 PM-only OLS model"
+    type: subtask
+    priority: 46
+    parent_epic: A-6
+    description: >
+      run_pm_only_model(): C_sem ~ const + pm_proxy + tier_T2 + tier_T3.
+      Tier dummies via pd.get_dummies(df['tier'], prefix='tier', drop_first=True).
+      sm.OLS(y, X).fit(cov_type='HC3'). Returns OLSStageResult with beta_pm, p_pm, CI, R².
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: Pseudo-code Stage 1"
+
+  - id: L-6-2
+    title: "Stage 2 full OLS model with surface-feature controls"
+    type: subtask
+    priority: 45
+    parent_epic: A-6
+    description: >
+      run_full_model(): C_sem ~ const + pm_proxy + response_length + bullet_density +
+      politeness_freq + ttr + mean_sent_len + tier_T2 + tier_T3 (HC3 SE).
+      Gate criterion: beta_pm > 0 AND p_pm < 0.05. Returns OLSStageResult with all params.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: Pseudo-code Stage 2"
+
+  - id: L-6-3
+    title: "Stage 3 robustness model with tier_rank predictor"
+    type: subtask
+    priority: 44
+    parent_epic: A-6
+    description: >
+      run_robustness_model(): replace pm_proxy with tier_rank ordinal (base=1, RS=2, online=3).
+      Model: C_sem ~ const + tier_rank + 5 surface features (HC3 SE).
+      Confirms tier effect survives formatting controls independent of binary PM proxy.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: Pseudo-code Stage 3"
+
+  - id: L-6-4
+    title: "Stage 4 mediation proportion + VIF diagnostics"
+    type: subtask
+    priority: 43
+    parent_epic: A-6
+    description: >
+      compute_mediation_proportion(): mediation_ratio = (beta_pm_reduced - beta_pm_full) /
+      beta_pm_reduced; pm_effect_retained = |beta_pm_full / beta_pm_reduced|. Guard: nan if
+      beta_pm_reduced == 0. compute_vif() using variance_inflation_factor; warn if VIF > 10.0.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: Subtasks / L-6-4"
+
+  - id: L-10-1
+    title: "main() entry point full pseudo-code"
+    type: subtask
+    priority: 42
+    parent_epic: A-10
+    description: >
+      Full main() implementation: load_config -> split_by_tier_bidir -> loop 3 models
+      (run_single_model) -> evaluate_cross_model_gate -> generate_all_figures -> save_results.
+      setup_logging to output_dir. argparse: --config, --dry-run flags.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-10: Pseudo-code main()"
+
+  - id: L-10-2
+    title: "run_single_model() pipeline with tensor shapes"
+    type: subtask
+    priority: 41
+    parent_epic: A-10
+    description: >
+      run_single_model(model_name, config, tier_pairs) -> (MediationResult, DataFrame).
+      Stages: Embedder init -> compute_all_branch_csem -> batch_extract_features per tier/branch
+      -> build_regression_dataframe -> run_mediation_ols. Key shapes: emb [N,D], csem [N,],
+      surface_df [N,5], regression_df [N_total,8].
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-10: Pseudo-code run_single_model()"
+
+  - id: L-10-3
+    title: "save_results() JSON schema and file output"
+    type: subtask
+    priority: 40
+    parent_epic: A-10
+    description: >
+      save_results() writes regression_results.json with schema: hypothesis, date, gate
+      (overall_pass, models_passed, models_required, interpretation), per-model stages
+      (pm_only, full, robustness, mediation, vif, gate_pass). Path: h-m4/results/regression_results.json.
+    reference_files:
+      - file: "03_logic.md"
+        section: "save_results() JSON Schema"
+
+  - id: L-10-4
+    title: "Error handling + KS-triggered IPW check"
+    type: subtask
+    priority: 39
+    parent_epic: A-10
+    description: >
+      Wrap run_mediation_ols in try/except np.linalg.LinAlgError. Call check_rank_deficiency()
+      on failure. KS IPW trigger: ks_2samp(csem_chosen, csem_rejected) per tier; if p < 0.1
+      log warning and apply IPW weights before regression DataFrame construction.
+    reference_files:
+      - file: "03_logic.md"
+        section: "Error Handling + IPW Trigger"
+
+  # ── CONFIG SUBTASKS (priority 38-20) ─────────────────────────────────────
+  - id: C-3-1
+    title: "chosen/rejected parsing config schema"
+    type: subtask
+    priority: 38
+    parent_epic: A-3
+    description: >
+      Define PM_PROXY_MAP = {chosen:1, rejected:0}, BRANCH_LABELS = ('chosen','rejected'),
+      MIN_N_PAIRS=1000 in config.py. Add chosen_cache_prefix='a_chosen' and
+      rejected_cache_prefix='a_rejected' to CacheConfig for distinct embedding cache keys.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-3: data_loader config / C-3-1"
+
+  - id: C-3-2
+    title: "PM-proxy construction schema with conversation_id tracking"
+    type: subtask
+    priority: 37
+    parent_epic: A-3
+    description: >
+      Define DataFrame schema for regression dataset: columns (conversation_id, tier, branch,
+      pm_proxy, c_sem, response_length, bullet_density, politeness_freq, ttr, mean_sent_len).
+      conversation_id ensures chosen/rejected pairs are identifiable. pm_proxy int8 {0,1}.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-3: data_loader config / C-3-2"
+
+  - id: C-4-1
+    title: "Surface feature extraction config"
+    type: subtask
+    priority: 36
+    parent_epic: A-4
+    description: >
+      Define POLITENESS_TOKENS frozenset in config.py. Define SURFACE_FEATURE_COLS list.
+      Define FEATURE_VALIDATION_THRESHOLDS dict with min/max per feature. Import into
+      surface_features.py from config.py.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-4: surface features config / C-4-1"
+
+  - id: C-8-1
+    title: "Figure config schema with tier and branch palettes"
+    type: subtask
+    priority: 35
+    parent_epic: A-8
+    description: >
+      Add tier_palette and branch_palette dicts to FigureConfig. tier_palette maps
+      helpful-base/RS/online to hex colors. branch_palette maps chosen/rejected to
+      blue/red. figures_dir='../figures', dpi=150, save_format='png'.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-8: visualization config / C-8-1"
+
+  - id: C-8-2
+    title: "Regression plot specifications"
+    type: subtask
+    priority: 34
+    parent_epic: A-8
+    description: >
+      Define REGRESSION_PLOT_CONFIG dict: ci_level=0.95, reference_line_y=0.0,
+      reference_line_style='--', reference_line_color='gray', axis label strings for
+      beta_PM, C_sem, PM_proxy. Used across plot_beta_pm_comparison and plot_coefficient_forest.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-8: visualization config / C-8-2"
+
+  - id: C-12-1
+    title: "End-to-end pipeline config flags"
+    type: subtask
+    priority: 33
+    parent_epic: A-12
+    description: >
+      Define PIPELINE_FLAGS dict: fail_fast_on_data_error=True, fail_fast_on_rank_deficiency=True,
+      warn_on_vif_exceeded=True, ipw_trigger_threshold=0.1, save_intermediate_dfs=False.
+      dry_run=False, n_samples_dry_run=500 in ExperimentConfig.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-12: integration config / C-12-1"
+
+  - id: C-12-2
+    title: "04_checkpoint.yaml schema for Phase 4 tracking"
+    type: subtask
+    priority: 32
+    parent_epic: A-12
+    description: >
+      Initialize 04_checkpoint.yaml at start of Phase 4: hypothesis_id=h-m4, status=in_progress,
+      models_completed=[], models_pending=[all-MiniLM-L6-v2, paraphrase-MiniLM-L6-v2,
+      all-mpnet-base-v2], gate_result=null, error_log=[], dry_run=false.
+      Update models_completed as each SBERT model finishes.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-12: integration config / C-12-2"

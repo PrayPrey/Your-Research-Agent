@@ -1,0 +1,106 @@
+
+Hierarchical Bayesian calibration integrates consistency-based and conformal prediction methods through mutual calibration. The design exploits potential complementarity: if consistency and conformal methods measure distinct uncertainty dimensions, bidirectional information flow may improve both signals beyond independent application.
+
+\subsubsection{Overview: Three-Step Mechanism}
+
+The method operates through three steps:
+
+\begin{enumerate}
+\item \textbf{Consistency Sampling}: Generate multiple samples from the model and compute consistency score C(x) $\in$ [0,1] via natural language inference and BERTScore ensemble, capturing epistemic uncertainty.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Conformal Prediction}: Construct calibrated prediction intervals I(x) using conformity scores on a validation set, capturing aleatoric uncertainty with coverage guarantees.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Hierarchical Bayesian Co-Calibration}: Use consistency prior C(x) to inform weighted conformal scoring, while statistical coverage results feed back to update consistency thresholds.
+\end{enumerate}
+
+\subsubsection{Step 1: Consistency-Based Epistemic Uncertainty}
+
+Given input query x, we generate k=5 samples $\{y_1, y_2, \ldots, y_{5}\}$ from the foundation model using temperature $\tau =0.7$ to induce diversity while maintaining coherence. The initial response $y_0$ is generated greedily ($\tau =0)$ as the reference answer.
+
+We compute consistency score C(x) as a weighted ensemble of two metrics:
+
+\textbf{Natural Language Inference Entailment Probability}: Using RoBERTa-large-MNLI, we compute pairwise entailment probabilities between the reference answer $y_0$ and each sample $y_i$:
+
+\begin{verbatim}
+C_NLI(x) = (1/k) Σᵢ P(y₀ entails yᵢ)
+\end{verbatim}
+
+This captures semantic consistency.
+
+\textbf{BERTScore Semantic Similarity}: Using DeBERTa-xlarge-MNLI, we compute token-level F1 scores:
+
+\begin{verbatim}
+C_BERT(x) = (1/k) Σᵢ BERTScore_F1(y₀, yᵢ)
+\end{verbatim}
+
+This captures lexical consistency.
+
+\textbf{Final Ensemble Score}:
+
+\begin{verbatim}
+C(x) = 0.6 × C_NLI(x) + 0.4 × C_BERT(x)
+\end{verbatim}
+
+The weights prioritize semantic entailment over lexical overlap based on SelfCheckGPT practices. High consistency C(x) $\approx$ 1 indicates epistemic confidence; low C(x) $\approx$ 0 signals epistemic uncertainty.
+
+\subsubsection{Step 2: Conformal Prediction with Coverage Guarantees}
+
+We construct a labeled calibration set D\_cal = {($x_1, y_{1})$, ..., (x\_n, y\_n)} with n examples drawn from the same distribution as test queries. For each calibration example $x_i$, we compute the model's predicted answer $ŷ_i$ and its ground truth label $y_i$.
+
+We define conformity score as the negative log-likelihood:
+
+\begin{verbatim}
+s(xᵢ) = -log P(yᵢ | xᵢ)
+\end{verbatim}
+
+Lower conformity scores indicate better model performance. We sort calibration set conformity scores: $s_{(1)} \leq s_{(2)} \leq \ldots \leq s_{(n)}$.
+
+For miscoverage rate $\alpha =0.1$ (targeting 90\% coverage), we construct prediction interval I(x) for test query x by including all candidate answers ŷ whose conformity scores satisfy:
+
+\begin{verbatim}
+s(x, ŷ) ≤ s_(⌈(n+1)(1-α)⌉)
+\end{verbatim}
+
+This guarantees P(y $\in$ I(x)) $\geq$ 1-$\alpha$ under exchangeability, independent of model architecture.
+
+\subsubsection{Step 3: Hierarchical Bayesian Co-Calibration}
+
+\textbf{Consistency-Informed Conformal Scoring}: High consistency (C $\approx$ 1) signals epistemic confidence, suggesting that conformal intervals can be tighter. We introduce weighted conformity scores:
+
+\begin{verbatim}
+s_HBC(x, ŷ) = s(x, ŷ) / (1 + C(x))
+\end{verbatim}
+
+When consistency is high (C(x) $\approx$ 1), the denominator approaches 2, reducing effective conformity score by approximately 50\%, making conformal intervals tighter. When consistency is low (C(x) $\approx$ 0), the denominator approaches 1, and intervals revert to standard conformal bounds.
+
+This weighting may reduce calibration set size requirements. High-consistency queries may require fewer validation examples to achieve target coverage.
+
+\textbf{Statistical Validation Feedback}: Conformal prediction provides coverage statistics on validation sets, which we use to update consistency thresholds via Bayesian updating:
+
+\begin{verbatim}
+θ_updated = θ_prior + η × (Coverage_target - Coverage_actual)
+\end{verbatim}
+
+where $\theta$ is the consistency threshold for filtering low-confidence predictions, $\eta$=0.1 is the learning rate, and Coverage\_target=0.9.
+
+If coverage falls below target, the consistency threshold is loosened, allowing more queries through even with lower consistency. If coverage exceeds target, the threshold tightens, leveraging epistemic filtering to reduce computational cost.
+
+\subsubsection{Implementation Details}
+
+\textbf{Model}: Llama-2-7B (meta-llama/Llama-2-7b-hf from HuggingFace)
+
+\textbf{Consistency Metrics}: Natural language inference (RoBERTa-large-MNLI), BERTScore (DeBERTa-xlarge-MNLI)
+
+\textbf{Sampling}: k=5 samples, temperature $\tau =0.7$
+
+\textbf{Conformal Parameters}: $\alpha =0.1$ (90\% coverage target), calibration set size varies by experiment
+
+\textbf{Bayesian Updating}: $\eta$=0.1 learning rate, $\theta _initial=0.5$ consistency threshold
+
+\subsubsection{Computational Complexity}
+
+Consistency scoring requires k forward passes (k=5) plus 2k natural language inference or BERTScore computations, yielding O(k) complexity. Conformal prediction requires one forward pass per query plus O(n log n) calibration set sorting as a one-time cost. The hierarchical Bayesian calibration total is O(k) per query.

@@ -1,0 +1,28 @@
+# Introduction
+
+We ask a simple question: does respecting neural network structure improve weight embedding quality? Neural network weights encode rich information about model functionality—training history, learned representations, and performance characteristics. Yet the dominant approach to weight embeddings flattens all parameters into a single vector, discarding the architectural structure that organizes these weights into meaningful layers.
+
+This matters because weight embeddings underpin critical applications: model selection from large zoos, neural network editing, and automated model analysis. When practitioners must choose among tens of thousands of pretrained models, embeddings that accurately predict properties like accuracy enable efficient selection. Poor embeddings waste compute evaluating unsuitable candidates.
+
+The weight embedding literature has developed several approaches with varying structural sophistication. Hyper-Representations use variational autoencoders on flattened weights. Neural Functional Transformers provide permutation-equivariant processing. Git Re-Basin enables weight alignment across permutation symmetries. However, no systematic comparison exists evaluating these methods on the same benchmark with consistent metrics. We cannot answer the basic question: which structural biases actually improve property prediction?
+
+We address this gap through a principled ablation study. We design an **embedding ladder** with increasing structural sophistication:
+
+1. **Flatten+MLP**: Flatten all weights, encode with MLP (no structure)
+2. **Layer-wise**: Per-layer statistics with mean aggregation (structure-aware)
+3. **Layer-wise+GRB**: Add Git Re-Basin alignment preprocessing
+4. **NFN**: Permutation-equivariant architecture
+
+Each step adds exactly one structural inductive bias, isolating its contribution to property prediction.
+
+Our key finding is striking: simply preserving layer boundaries—computing per-layer statistics (mean, std, min, max) rather than flattening—improves accuracy prediction correlation by **Δr = 0.126** (from r = 0.421 to r = 0.547, p < 0.001). This 30% relative improvement holds across all five random seeds tested. The effect size substantially exceeds our conservative threshold of Δr > 0.1.
+
+Why does layer-wise encoding help? Each neural network layer learns different levels of abstraction. Early layers detect edges; deeper layers encode semantic features. Their weight distributions reflect these functional differences. Flattening destroys this hierarchical structure, mixing edge-detector statistics with semantic-feature statistics. Layer-wise encoding preserves the functional organization.
+
+This paper makes three contributions:
+
+1. **Systematic ablation methodology** for evaluating structural biases in weight embeddings
+2. **Quantified evidence** that layer-wise encoding provides substantial improvement over flattening (Δr = 0.126, p < 0.001)
+3. **Validated benchmark** confirming CIFAR-10 Model Zoo (N = 61,335, σ = 15.62%) as viable testbed
+
+We validate on CIFAR-10 Model Zoo, leaving cross-dataset generalization to future work. Our results suggest that structural inductive biases are as important in weight space as they are in input space—a principle that should guide future embedding method design.

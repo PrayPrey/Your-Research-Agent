@@ -1,0 +1,413 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-05-09T16:30:00+00:00"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: true
+    excluded_count: 2
+    excluded_ids:
+      - "task-012"  # E-4.1: LIA constraint extraction (parent complexity 12 - lowest)
+      - "task-010"  # E-2.1: Model loading pipeline (parent complexity 14 - second lowest)
+
+tasks:
+
+  # ─────────────────────────────────────────────────────────────────
+  # ENVIRONMENT SETUP (priority 94)
+  # Source: 03_prd.md Section 7
+  # ─────────────────────────────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Install Python Dependencies"
+    description: |
+      Install all required Python packages for h-e1 experiment.
+      Run: pip install evalplus>=0.3.0 transformers>=4.35.0 accelerate torch syncode z3-solver>=4.12.0 mypy>=1.0.0 matplotlib>=3.7.0 seaborn>=0.12.0 numpy>=1.24.0 scipy>=1.10.0 pyyaml>=6.0
+      If syncode pip fails, clone: git clone https://github.com/uiuc-focal-lab/syncode && pip install -e ./syncode
+      Set CUDA_VISIBLE_DEVICES to GPU with lowest memory usage (check nvidia-smi).
+      Verify all imports succeed: from syncode import SynCode; import z3; import mypy.api; from evalplus.data import get_human_eval_plus
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Verify: python -c "from syncode import SynCode; import z3; import mypy.api; from evalplus.data import get_human_eval_plus, get_mbpp_plus; print('All imports OK')"
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#environment-requirements"
+
+  # ─────────────────────────────────────────────────────────────────
+  # EPIC IMPLEMENTATION TASKS (priority 93-50)
+  # Source: 03_architecture.md Epic Tasks table
+  # ─────────────────────────────────────────────────────────────────
+  - id: "task-002"
+    epic: "E-1"
+    title: "Data Loading Setup"
+    description: |
+      Implement DataLoader module (code/data_loader.py).
+      Functions: load_humaneval_plus(), load_mbpp_plus(), validate_datasets().
+      load_humaneval_plus() must return exactly 164 problem dicts with keys: task_id, prompt, canonical_solution, test.
+      load_mbpp_plus() must return exactly 374 problem dicts.
+      validate_datasets() asserts correct sizes and raises ValueError if mismatch.
+    feature_tag: "data-pipeline"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 5
+    test_requirements: |
+      - Create tests/test_data_loader.py
+      - test_humaneval_size: assert len(load_humaneval_plus()) == 164
+      - test_mbpp_size: assert len(load_mbpp_plus()) == 374
+      - test_problem_keys: assert all required keys present in first problem
+    reference_files:
+      architecture: "03_architecture.md#DataLoader"
+      logic: "03_logic.md#DataLoader-API"
+      config: "03_config.md#DatasetConfig"
+
+  - id: "task-003"
+    epic: "E-2"
+    title: "Baseline Pool Generation"
+    description: |
+      Implement BaselineGenerator class (code/baseline_generator.py).
+      Load CodeLlama-7B via AutoModelForCausalLM.from_pretrained("codellama/CodeLlama-7b-hf", device_map="auto").
+      Generate N=20 samples per HumanEval problem with seeds=[0..19], temperature=0.8, max_new_tokens=256.
+      Serialize pool to h-e1/data/baseline_pool.jsonl: one line per {task_id, completion, seed, generation_time}.
+      Returns Dict[str, List[str]]: {task_id: [completion_str × 20]}.
+    feature_tag: "model"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - Create tests/test_baseline_generator.py
+      - test_pool_size: assert len(pool) == 164 and len(pool[first_key]) == 20
+      - test_jsonl_exists: assert os.path.exists("h-e1/data/baseline_pool.jsonl")
+      - test_determinism: run twice with same seeds, assert completions identical
+    reference_files:
+      architecture: "03_architecture.md#BaselineGenerator"
+      logic: "03_logic.md#BaselineGenerator-subtasks"
+      config: "03_config.md#GenerationConfig"
+
+  - id: "task-004"
+    epic: "E-3"
+    title: "SynCode Grammar-Constrained Pool Generation"
+    description: |
+      Implement SyncodeGenerator class (code/syncode_generator.py).
+      Wrap CodeLlama-7B with SynCode(model=model, grammar="python", tokenizer=tokenizer, mode="grammar_mask").
+      Generate N=20 grammar-constrained samples per HumanEval problem with same seeds=[0..19] as baseline.
+      Log grammar_decoder.filtered_count per step; verify_constraint_active() asserts count > 0 for >=50% of problems.
+      Serialize pool to h-e1/data/syncode_pool.jsonl: {task_id, completion, seed, filtered_token_count}.
+    feature_tag: "model"
+    priority: 83
+    source_document: "03_architecture.md"
+    complexity: 16
+    test_requirements: |
+      - Create tests/test_syncode_generator.py
+      - test_syncode_importable: from syncode import SynCode (no import error)
+      - test_pool_size: assert len(syncode_pool) == 164
+      - test_constraint_active: assert verify_constraint_active(pool) == True
+      - test_jsonl_exists: assert os.path.exists("h-e1/data/syncode_pool.jsonl")
+    reference_files:
+      architecture: "03_architecture.md#SyncodeGenerator"
+      logic: "03_logic.md#SyncodeGenerator-subtasks"
+      config: "03_config.md#SynCodeConfig"
+
+  - id: "task-005"
+    epic: "E-4"
+    title: "Z3 SMT Constraint Eligibility Check"
+    description: |
+      Implement Z3EligibilityChecker class (code/z3_eligibility.py).
+      For each of the 164 HumanEval problems, extract postconditions from docstring assert statements,
+      attempt Z3 LIA encoding, check with z3.Solver().set("timeout", 2000).
+      check_problem() returns (bool, str): (is_eligible, reason). z3.unknown treated as ineligible.
+      check_all() runs on all problems, serializes {task_id: bool} to h-e1/data/z3_eligibility.json.
+      Compute eligibility rate = eligible_count / 164 (target >= 0.15).
+    feature_tag: "evaluation"
+    priority: 80
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - Create tests/test_z3_eligibility.py
+      - test_z3_importable: import z3 (no error)
+      - test_eligibility_rate: rate >= 0.15 on HumanEval
+      - test_timeout_respected: check_problem completes within 3 seconds
+      - test_json_exists: assert os.path.exists("h-e1/data/z3_eligibility.json")
+    reference_files:
+      architecture: "03_architecture.md#Z3EligibilityChecker"
+      logic: "03_logic.md#Z3EligibilityChecker-API"
+      config: "03_config.md#Z3Config"
+
+  - id: "task-006"
+    epic: "E-5"
+    title: "mypy Structured Output Check"
+    description: |
+      Implement MypyChecker class (code/mypy_checker.py).
+      Run mypy.api.run([temp_file, "--ignore-missing-imports"]) on 50 sampled baseline completions.
+      check_code() returns (stdout, stderr, exit_code) 3-tuple.
+      parse_output() parses stdout into List[{line, col, error_code, message}].
+      check_pool() selects first completion per problem for sample_size=50 problems.
+      Compute mypy_structured_rate = successes (exit_code in {0,1}) / 50 (target >= 0.90).
+      Serialize results to h-e1/data/mypy_results.json.
+    feature_tag: "evaluation"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Create tests/test_mypy_checker.py
+      - test_mypy_importable: import mypy.api (no error)
+      - test_structured_output: exit_code in {0, 1} for valid Python code
+      - test_rate: mypy_structured_rate >= 0.90
+      - test_json_exists: assert os.path.exists("h-e1/data/mypy_results.json")
+    reference_files:
+      architecture: "03_architecture.md#MypyChecker"
+      logic: "03_logic.md#MypyChecker-API"
+      config: "03_config.md#MypyConfig"
+
+  - id: "task-007"
+    epic: "E-6"
+    title: "Metrics Computation and Gate Evaluation"
+    description: |
+      Implement MetricsEvaluator class (code/metrics.py).
+      compute_ast_failure_rate(pool): for each completion, try ast.parse(); count failures / total.
+      compute_delta_ast(baseline_pool, syncode_pool): Δ_ast = baseline_rate - syncode_rate (must be > 0).
+      compute_z3_eligibility_rate(eligibility): eligible_count / len(eligibility).
+      compute_mypy_structured_rate(mypy_results): parseable_count / total_checked.
+      evaluate_gate(delta_ast, z3_rate, mypy_rate, output_path): gate_pass = all 3 conditions met.
+      Serialize full metrics dict to h-e1/results/metrics.json.
+      Print GATE PASS or GATE FAIL with metric values.
+    feature_tag: "evaluation"
+    priority: 70
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Create tests/test_metrics.py
+      - test_ast_failure_rate: compute on known-good and known-bad code strings
+      - test_delta_ast_direction: syncode pool should have lower failure rate
+      - test_gate_evaluation: PASS when all 3 conditions met; FAIL when any fails
+      - test_metrics_json_exists: assert os.path.exists("h-e1/results/metrics.json")
+    reference_files:
+      architecture: "03_architecture.md#MetricsEvaluator"
+      logic: "03_logic.md#MetricsEvaluator-API"
+      config: "03_config.md#ThresholdConfig"
+
+  - id: "task-008"
+    epic: "E-7"
+    title: "Visualization"
+    description: |
+      Implement Visualizer class (code/visualization.py).
+      plot_gate_metrics(): 3-panel bar chart (Δ_ast, z3_rate, mypy_rate vs thresholds) saved to h-e1/figures/gate_metrics.pdf + .png.
+      plot_ast_failure_heatmap(): per-problem failure rates baseline vs syncode saved to h-e1/figures/ast_failure_heatmap.pdf + .png.
+      plot_z3_eligibility(): bar chart of eligible vs non-eligible problems saved to h-e1/figures/z3_eligibility.pdf + .png.
+      plot_mypy_error_types(): distribution of mypy error codes saved to h-e1/figures/mypy_error_types.pdf + .png.
+      save_all() calls all four methods. Use publication-quality matplotlib/seaborn formatting.
+    feature_tag: "experiment"
+    priority: 65
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      - Create tests/test_visualization.py
+      - test_figures_saved: all 8 files exist (4 × pdf + png) after save_all()
+      - test_gate_metrics_pass_annotation: PASS/FAIL annotation visible in gate_metrics figure
+    reference_files:
+      architecture: "03_architecture.md#Visualizer"
+      logic: "03_logic.md#Visualizer-API"
+      config: null
+
+  - id: "task-009"
+    epic: "E-8"
+    title: "Integration and Experiment Runner"
+    description: |
+      Implement run_experiment.py orchestrating the full pipeline:
+      1. Load datasets via DataLoader
+      2. Generate baseline pool via BaselineGenerator (serialize to h-e1/data/baseline_pool.jsonl)
+      3. Generate SynCode pool via SyncodeGenerator (serialize to h-e1/data/syncode_pool.jsonl)
+      4. Check Z3 eligibility via Z3EligibilityChecker (serialize to h-e1/data/z3_eligibility.json)
+      5. Run mypy checks via MypyChecker (serialize to h-e1/data/mypy_results.json)
+      6. Compute metrics and evaluate gate via MetricsEvaluator (serialize to h-e1/results/metrics.json)
+      7. Generate all figures via Visualizer (save to h-e1/figures/)
+      8. Print GATE PASS/FAIL summary with metric values
+      Load config from ExperimentConfig dataclass (03_config.md).
+    feature_tag: "experiment"
+    priority: 60
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - Create tests/test_run_experiment.py
+      - test_pipeline_runs: run_experiment.py exits with code 0
+      - test_all_outputs_exist: all data/, results/, figures/ files present after run
+      - test_gate_result_in_metrics: metrics.json contains gate_pass key
+    reference_files:
+      architecture: "03_architecture.md#ExperimentRunner"
+      logic: "03_logic.md#ExperimentRunner-API"
+      config: "03_config.md#ExperimentConfig"
+
+  # ─────────────────────────────────────────────────────────────────
+  # SUBTASKS (priority 49-2)
+  # Source: 03_logic.md — high-complexity Epic subtask decomposition
+  # Budget rebalancing: E-4.1 and E-2.1 excluded (lowest parent complexity)
+  # ─────────────────────────────────────────────────────────────────
+  - id: "task-011"
+    epic: "E-2"
+    title: "E-2.2: Deterministic Sampling Loop"
+    description: |
+      Implement BaselineGenerator._generate_pool_for_problem() with full determinism.
+      Use torch.manual_seed(seed) + transformers.set_seed(seed) before EVERY generation call.
+      Completion extraction: slice output_ids[0, prompt_len:], decode, strip EOS tokens.
+      Include generation_time metadata per sample (time.time() delta).
+      Handle tokenization: add_special_tokens=False for prompt, truncate to model max_length.
+    feature_tag: "model"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_determinism: same seed → identical completion across two runs
+      - test_completion_extraction: no prompt tokens in output
+    reference_files:
+      architecture: "03_architecture.md#BaselineGenerator"
+      logic: "03_logic.md#E-2.2-DeterministicSampling"
+      config: "03_config.md#GenerationConfig"
+
+  - id: "task-013"
+    epic: "E-2"
+    title: "E-2.3: JSONL Serialization with Metadata"
+    description: |
+      Implement BaselineGenerator.save_pool_to_jsonl() streaming serialization.
+      Format per line: {"task_id": str, "completion": str, "seed": int, "generation_time": float}.
+      Stream writes: write each (task_id, seed, completion) immediately after generation (no full-dict in memory).
+      Validate: count lines in output file == 164 × 20 = 3280.
+      Handle JSON escaping for code strings (backslashes, quotes, newlines).
+    feature_tag: "model"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_line_count: wc -l baseline_pool.jsonl == 3280
+      - test_json_valid: all lines parseable as JSON
+      - test_required_keys: each line has task_id, completion, seed, generation_time
+    reference_files:
+      architecture: "03_architecture.md#BaselineGenerator"
+      logic: "03_logic.md#E-2.3-JSONLSerialization"
+      config: null
+
+  - id: "task-014"
+    epic: "E-3"
+    title: "E-3.1: SynCode Initialization and Constraint Verification"
+    description: |
+      Implement SyncodeGenerator.load_model() and verify_constraint_active().
+      load_model(): initialize base AutoModelForCausalLM, then wrap with SynCode(model, grammar="python", tokenizer, mode="grammar_mask").
+      verify_constraint_active(pool): iterate pool, assert grammar_decoder.filtered_count > 0 for >= 50% of task_ids.
+      Add logging: "SynCode grammar constraint active: tokens filtered at step {i}" per generation step.
+      Handle SynCode import error gracefully with instructions for source install fallback.
+    feature_tag: "model"
+    priority: 40
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_syncode_wraps_model: type(syn_model).__name__ == "SynCode"
+      - test_constraint_active: verify_constraint_active returns True on real generation
+    reference_files:
+      architecture: "03_architecture.md#SyncodeGenerator"
+      logic: "03_logic.md#E-3.1-SynCodeInit"
+      config: "03_config.md#SynCodeConfig"
+
+  - id: "task-015"
+    epic: "E-3"
+    title: "E-3.2: Grammar-Constrained Generation Loop"
+    description: |
+      Implement SyncodeGenerator._generate_constrained_for_problem() with seed control.
+      Reuse same seed sequence as BaselineGenerator for controlled comparison.
+      torch.manual_seed(seed) + transformers.set_seed(seed) before each constrained generation.
+      Capture grammar_decoder.filtered_count per step; accumulate in filtered_count_log dict.
+      Constrained generation uses identical hyperparams as baseline: T=0.8, max_new_tokens=256.
+    feature_tag: "model"
+    priority: 38
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_same_seeds_as_baseline: syncode uses seeds=[0..19] identical to baseline
+      - test_filtered_count_logged: filtered_count_log populated after generation
+    reference_files:
+      architecture: "03_architecture.md#SyncodeGenerator"
+      logic: "03_logic.md#E-3.2-ConstrainedLoop"
+      config: "03_config.md#SynCodeConfig"
+
+  - id: "task-016"
+    epic: "E-3"
+    title: "E-3.3: SynCode JSONL Serialization with filtered_token_count"
+    description: |
+      Implement SyncodeGenerator.save_pool_to_jsonl() with filtered_token_count metadata.
+      Format per line: {"task_id": str, "completion": str, "seed": int, "filtered_token_count": int}.
+      filtered_token_count = total tokens masked by SynCode grammar constraint during this generation.
+      Validate: count lines == 164 × 20 = 3280; filtered_token_count > 0 for majority of lines.
+    feature_tag: "model"
+    priority: 36
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_line_count: wc -l syncode_pool.jsonl == 3280
+      - test_filtered_count_present: "filtered_token_count" key in each JSON line
+      - test_nonzero_filtering: majority of lines have filtered_token_count > 0
+    reference_files:
+      architecture: "03_architecture.md#SyncodeGenerator"
+      logic: "03_logic.md#E-3.3-JSONLSerialization"
+      config: null
+
+  # ─────────────────────────────────────────────────────────────────
+  # FAILSAFE TASK (priority 1)
+  # Pipeline continuation checkpoint
+  # ─────────────────────────────────────────────────────────────────
+  - id: "task-failsafe"
+    epic: "Failsafe"
+    title: "Pipeline Continuation Checkpoint"
+    description: |
+      Final validation checkpoint for h-e1 Phase 4 execution.
+      Verify all experiment outputs are present:
+      - h-e1/data/baseline_pool.jsonl (164 × 20 = 3280 lines)
+      - h-e1/data/syncode_pool.jsonl (3280 lines)
+      - h-e1/data/z3_eligibility.json (164 entries)
+      - h-e1/data/mypy_results.json (50 entries)
+      - h-e1/results/metrics.json (gate_pass key present)
+      - h-e1/figures/*.pdf and *.png (8 files total)
+      Read metrics.json and extract gate_pass, delta_ast, z3_eligibility_rate, mypy_structured_rate.
+      Report GATE PASS or GATE FAIL for Phase 4 validator.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "03_architecture.md"
+    complexity: null
+    test_requirements: |
+      - Verify all output files exist with correct sizes
+      - Assert metrics.json is valid JSON with gate_pass key
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 8
+  subtasks: 5
+  failsafe: 1
+  total: 15
+
+  excluded_subtasks:
+    - id: "task-012"
+      original_id: "E-4.1"
+      title: "LIA constraint extraction from docstring assertions"
+      parent_epic: "E-4"
+      parent_complexity: 12
+      reason: "Budget rebalancing - lowest parent complexity"
+    - id: "task-010"
+      original_id: "E-2.1"
+      title: "Model loading and tokenization pipeline"
+      parent_epic: "E-2"
+      parent_complexity: 14
+      reason: "Budget rebalancing - second lowest parent complexity (model loading covered in E-2 epic)"

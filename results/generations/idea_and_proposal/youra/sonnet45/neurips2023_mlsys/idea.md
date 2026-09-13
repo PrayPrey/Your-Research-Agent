@@ -1,0 +1,8 @@
+# Title
+LLM-Guided Reinforcement Learning for Production-Scale Compiler Partitioning in Distributed LLM Training
+
+# Motivation
+Training large language models on thousands of GPUs requires compiler partitioning strategies that distribute computation across devices. Current approaches rely on hand-tuned heuristics or search-based methods that fail to generalize across diverse model architectures and hardware topologies. This creates a critical bottleneck: each new LLM training run requires expensive manual optimization, wasting computational resources and increasing carbon emissions. With LLM training costs exceeding millions of dollars per run, even modest improvements in compiler efficiency translate to substantial economic and environmental impact.
+
+# Main Idea
+We propose a two-phase approach combining reinforcement learning with LLM-guided exploration for automated compiler partitioning. **Core innovation**: Pre-validate LLM knowledge about SPMD (Single Program Multiple Data) partitioning strategies through targeted prompting; if validation succeeds, use LLM guidance to accelerate RL exploration, otherwise fall back to expert heuristics. The RL agent learns partitioning policies on 25 diverse transformer architectures (70B-175B parameters) trained across 1024+ GPUs, then generalizes to unseen models. We test whether this approach achieves >10% end-to-end training speedup compared to state-of-the-art baselines (torchtitan, Alpa) on hold-out models. Expected impact: $1.2M cost savings and ~500 tons CO₂ reduction per major LLM training run, with 100× ROI after deployment across production workloads.

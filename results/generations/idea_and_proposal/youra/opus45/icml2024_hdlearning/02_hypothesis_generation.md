@@ -1,0 +1,188 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md (Round 1 - BCD)
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-BCD-v1
+**Confidence Level:** 0.72
+
+**Main Hypothesis:**
+Under standard deep learning training conditions (SGD/Adam on MLPs/CNNs for classification tasks), if multi-axis order parameters (SSR for frequency bias, LRD for complexity bias) are tracked during training, then predictable phase transitions between bias regimes will occur at detectable crossings in dynamical trajectories, because gradient flow induces coupled dynamics on these order parameters that differentially favor certain function classes at different training stages.
+
+**Alternative Hypothesis (H0):**
+The dynamics of SSR and LRD during training are independent and do not exhibit predictable phase transitions; any observed correlations between order parameter crossings and behavioral changes (e.g., grokking, generalization improvements) are coincidental or attributable to confounding factors.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Architecture Configuration | Independent | Network type (MLP/CNN), width (32-512), depth (2-8 layers) | MLP-2L to ResNet-18 |
+| Data Complexity | Independent | Dataset spectral content via FFT, label complexity | Modular arithmetic, MNIST, CIFAR-10 |
+| Optimizer Configuration | Independent | Optimizer type, learning rate (1e-4 to 1e-1), weight decay (0 to 0.1) | SGD, Adam with varying WD |
+| SSR(t) | Dependent | E_low(t)/E_high(t) via Fourier analysis of network output function | 0.1 to 10.0 (ratio) |
+| LRD(t) | Dependent | Linear regions per unit input volume via Patel & Montufar methodology | 10^2 to 10^6 regions/unit |
+| GGT(t) | Dependent | train_loss(t) - test_loss(t) as memorization proxy | -0.5 to 2.0 |
+| Phase Transition Timing | Dependent | Training step where order parameter crossings occur | Step 100 to 100,000 |
+| Batch Size | Controlled | Fixed across experiments | 64 or 128 |
+| Random Seeds | Controlled | Multiple seeds (n≥15) for statistical significance | 5 distinct seeds minimum |
+| Training Duration | Controlled | Sufficiently long to observe transitions | 10,000-500,000 steps |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=4 steps):**
+
+```
+Architecture + Data → Initial Bias Configuration → Gradient Flow on OPs → Differential Bias Pressure → Phase Transitions
+     [Step 1]               [Step 2]                    [Step 3]                    [Step 4]
+```
+
+**Step 1:** Network structure and data spectral content determine starting position in (SSR, LRD) phase space.
+
+**Step 2:** SGD/Adam training induces coupled ODEs governing dSSR/dt and dLRD/dt.
+
+**Step 3:** Different function classes experience different gradient magnitudes at each training stage.
+
+**Step 4:** When gradient-flow trajectories cross in normalized (SSR, LRD) space, dominant bias switches.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | Bencomo 2025; Lu 2025 | Initial weights modulate bias; architecture affects spectral profile | Strong |
+| Step2 → Step3 | Chaudhari 2017; Mannelli 2020 | SGD as modified potential; BBP-type transitions | Strong |
+| Step3 → Step4 | Gamba 2022; Lu 2025 | LRD correlates with double descent; SSR trackable | Medium |
+| Step4 → Outcome | Power 2022; Humayun 2024 | Grokking as delayed transition; LRD governs grokking | Strong |
+
+**Key Tension:**
+Lu 2025 suggests SSR is externally controlled (regularization), while Humayun 2024 suggests LRD is internally driven. Resolution: Test coupling by varying WD and tracking both simultaneously.
+
+### 1.4 Key Assumptions
+
+1. **Bias Decomposability:** Biases decompose into frequency (SSR), complexity (LRD), memorization (GGT) axes.
+   - *If violated:* Framework loses interpretability; need alternative decomposition
+
+2. **Order Parameter Sufficiency:** SSR and LRD capture essential competition dynamics.
+   - *If violated:* Need additional parameters; framework becomes more complex
+
+3. **Transition Detectability:** Transitions are sharp enough to detect via tracking.
+   - *If violated:* Need longer training or different detection methods
+
+4. **Gradient-Flow Tractability:** Dynamics yield tractable ODEs on order parameters.
+   - *If violated:* Predictions limited to empirical patterns only
+
+5. **Qualitative Generalization:** Results on controlled settings generalize to larger networks.
+   - *If violated:* Findings limited to toy settings
+
+### 1.5 Scope & Boundaries
+
+**Applies to:** Feedforward ReLU networks, classification tasks, SGD/Adam, single-GPU scale
+
+**Does NOT apply to:** Transformers, generative models, RL, production-scale LLMs
+
+**Limitations:** LRD computation expensive (requires sampling); SSR requires dense output sampling; GGT is proxy only
+
+### 1.6 Testable Predictions
+
+**Primary Prediction (P1):**
+The (SSR(t), LRD(t)) trajectory follows a predictable path in phase space, with phase transitions at specific crossings corresponding to behavioral changes.
+
+*Success:* ≥70% of detected transitions correspond to observable behavioral changes
+*Falsification:* <30% correspondence
+
+**Secondary Predictions:**
+
+**P2 (Weight Decay Modulation):**
+Higher WD → Earlier SSR stabilization, Later LRD transition
+*Success:* Timing shifts ≥20% between WD=0 and WD=0.1 (p<0.05)
+
+**P3 (Prediction Accuracy):**
+BCD framework predicts final dominant bias and transition timing within ±10% of training steps
+*Success:* Accuracy ≥60% (vs 33% random baseline)
+
+**Falsification Criteria:**
+
+1. **Trajectory Independence:** SSR-LRD correlation r < 0.3 → axes independent, not competing
+2. **No Detectable Transitions:** Smooth trajectories in ≥80% runs → phase model wrong
+3. **No Behavioral Correspondence:** Correspondence < 30% → SSR/LRD epiphenomenal
+4. **Prediction Failure:** Accuracy < 40% → dynamics unpredictable
+
+### 1.7 SOTA Baseline
+
+Not applicable - theoretical framework, not performance improvement.
+
+**Comparison Baselines:** Li2 Framework (single-bias), Geiger Phase Diagrams (regime-based), Random (33%)
+
+### 1.8 Statistical Verification Design
+
+**Sample Size:** n ≥ 15 per condition, 27 conditions, 405 total runs minimum
+
+**Tests:** Change point detection (PELT), Fisher's exact test, Binomial test, Pearson correlation
+
+**Report:** Mean ± std, 95% CI, p-values, Cohen's d
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Do SSR(t) and LRD(t) exhibit correlated dynamics during training, with detectable phase transitions corresponding to behavioral changes?"
+- Verification: Empirical observation
+- Critical: MUST PASS
+
+**SH2 (Mechanism):**
+"Is gradient flow the causal mechanism driving phase transitions?"
+- Decomposes into 4 sub-hypotheses (H-M1 to H-M4)
+- Verification: Causal analysis + interventions
+
+**SH3 (Comparison):**
+"Does BCD predict transitions more accurately than Li2 or Geiger?"
+- Verification: Comparative empirical
+- Critical: Determines practical value
+
+**Total sub-hypotheses:** 6 (1 + 4 + 1)
+
+### Readiness Checklist
+
+- [x] Hypothesis in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID: H-BCD-v1
+- [x] Confidence level: 0.72
+- [x] Alternative hypothesis (H0) defined
+- [x] Variables operationalized with evidence
+- [x] Causal mechanism with 4 steps and evidence table
+- [x] Causal chain length N=4 documented
+- [x] Key tension identified with resolution
+- [x] Assumptions with consequences
+- [x] 3 testable predictions (P1 primary)
+- [x] 4 falsification criteria defined
+- [x] Baselines identified (Li2, Geiger, Random)
+- [x] SH1, SH2, SH3 ready for Phase 2B
+
+### Open Questions
+
+1. **Compute:** What LRD sampling approximation balances accuracy vs cost?
+2. **Datasets:** Prioritize grokking tasks (sharp transitions) or vision (gradual)?
+3. **Order:** Validate SH1 first or run SH1/SH2 in parallel?
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work (10 citations with URLs)
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

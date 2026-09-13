@@ -1,0 +1,318 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-31T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-2"
+  gap_title: "No PEFT Method Exploiting SSM State Structure (State-Aware PEFT)"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 7
+  convergence_reason: "All 6 convergence criteria met at Exchange 7: SPECIFIC (core claim stated), MECHANISM (decay adaptation mechanism explained), PREDICTIONS (3 testable predictions with quantitative criteria), NOVELTY (memory-horizon adaptation as new PEFT axis), FEASIBILITY (mechanistically sound, existing infrastructure), OBJECTIONS (dt_proj redundancy, scale, benchmark scope all addressed)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "LoRA on nn.Linear layers is architecture-agnostic and applies to Mamba projection layers (in_proj, out_proj, x_proj, dt_proj) without modification"
+      status: "BUILD_ON"
+      evidence: "LoRA [Hu et al., 2022] validated on multiple architectures; Mamba projection layers are standard nn.Linear"
+    - claim: "Mamba-1 A_log bias adaptation preserves recurrent stability automatically because A = -exp(A_log) is always negative regardless of bias magnitude"
+      status: "BUILD_ON"
+      evidence: "Mathematical derivation in discussion: A_bar = exp(Δ·A) ∈ (0,1) for A < 0, Δ > 0 — guaranteed stable"
+    - claim: "Mamba-2 scalar A per SSM head enables IA³-style multiplicative state adaptation with O(num_heads) parameter overhead"
+      status: "BUILD_ON"
+      evidence: "Mamba-2 [Dao & Gu, 2024]: SSD layer uses scalar-times-identity A; num_heads typically 16-64"
+    - claim: "State-aware PEFT (A-adaptation) is non-redundant with projection-layer LoRA: A controls unconditional base decay rate; projections control input-dependent state read/write"
+      status: "PROVE_NEW"
+      evidence: "Mathematical argument in discussion (Exchange 7); empirical validation is the contribution"
+    - claim: "State-aware PEFT outperforms naive projection-only LoRA on NLP benchmarks"
+      status: "PROVE_NEW"
+      evidence: "No prior empirical study; this is the primary hypothesis to validate"
+  scope_reduction_percentage: 60
+  phase2b_4_instructions: |
+    BUILD_ON claims (stability math, architecture-agnosticism) do not require re-derivation.
+    PROVE_NEW claims require empirical validation: run 4-condition ablation on GLUE + LongBench
+    at Mamba-130m and Mamba-370m scales. Primary success criterion: GLUE average ≥1% gain
+    or LongBench ≥2% gain for state-aware conditions vs. projection-only baseline.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-SA-LoRA-v1"
+  confidence_level: 0.72
+  core_hypothesis_statement: |
+    Under fine-tuning of Mamba SSMs (Mamba-1 130m/370m; Mamba-2 if checkpoint available)
+    on NLP classification and long-context tasks (GLUE + LongBench subset), if we adapt
+    the recurrent state decay parameters (A_log bias for Mamba-1; scalar A multiplier for
+    Mamba-2) in addition to standard LoRA on projection layers (in_proj, out_proj, x_proj,
+    dt_proj), then downstream task accuracy improves beyond projection-only LoRA
+    (GLUE average ≥1%, LongBench ≥2%), because A-adaptation modifies task-specific memory
+    horizons (base forgetting rate) in a way that projection-layer LoRA cannot replicate,
+    with gain magnitude positively correlated with task sequence length requirements.
+  alternative_hypothesis_h0: |
+    There is no statistically significant difference in downstream NLP accuracy (GLUE average,
+    LongBench) between State-Aware LoRA (projection LoRA + A-adaptation) and projection-only
+    LoRA at matched or lower trainable parameter count on Mamba-130m and Mamba-370m.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "PEFT configuration"
+      type: "categorical"
+      operationalization: "Which parameter groups are adapted during fine-tuning"
+      levels:
+        - "A: projection-only LoRA (in_proj, out_proj, x_proj)"
+        - "B: projection LoRA + dt_proj LoRA (indirect state adaptation)"
+        - "C: projection LoRA + A_log bias (direct state decay adaptation)"
+        - "D: projection LoRA + dt_proj LoRA + A_log bias (full state-aware)"
+    - name: "Model scale"
+      type: "categorical"
+      operationalization: "Pretrained Mamba checkpoint used"
+      levels:
+        - "Mamba-130m (state-spaces/mamba-130m-hf)"
+        - "Mamba-370m (state-spaces/mamba-370m-hf)"
+    - name: "LoRA rank"
+      type: "categorical"
+      operationalization: "Rank r for LoRA decomposition on projection layers"
+      levels:
+        - "r=4"
+        - "r=8"
+        - "r=16"
+  dependent:
+    - name: "GLUE average accuracy"
+      type: "continuous"
+      operationalization: "Mean accuracy across SST-2, MNLI, QNLI, QQP using lm-evaluation-harness; range [0,1]"
+      primary: true
+    - name: "LongBench 2WikiMultihopQA F1"
+      type: "continuous"
+      operationalization: "F1 score on 2WikiMultihopQA from LongBench benchmark; range [0,1]"
+      primary: false
+    - name: "Trainable parameter count"
+      type: "continuous"
+      operationalization: "Count of parameters with requires_grad=True; reported as % of total model params"
+      primary: false
+    - name: "Learned A_log bias magnitude"
+      type: "continuous"
+      operationalization: "Mean absolute value of learned A_log bias tensor after fine-tuning; diagnostic"
+      primary: false
+  controlled:
+    - name: "LoRA alpha"
+      operationalization: "Fixed at alpha=2r (standard doubling convention) across all conditions"
+    - name: "Training hyperparameters"
+      operationalization: "lr=3e-4, batch_size=32, epochs=3, warmup_ratio=0.1; fixed across all conditions"
+    - name: "Random seed"
+      operationalization: "Seeds {42, 43, 44}; report mean ± std across 3 runs"
+    - name: "Base model weights"
+      operationalization: "Identical pretrained checkpoint; only PEFT parameters differ"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: "LoRA on projection layers (in_proj, out_proj, x_proj) adapts what information enters and exits the SSM recurrent state — modifying the input-to-state (B) and state-to-output (C) effective mappings without changing how state evolves over time"
+      evidence: "LoRA [Hu et al., 2022]: rank decomposition of nn.Linear layers; Mamba [Gu & Dao, 2023]: in_proj generates B and x which feed into state update"
+      falsifier: "If projection LoRA alone achieves within 0.5% of full fine-tuning on all tasks, Step 1 is sufficient and Steps 2-3 are unnecessary"
+    - step: 2
+      description: "A_log bias adaptation shifts the base state decay rate per channel (Mamba-1) or per head (Mamba-2), allowing the model to retain information for task-appropriate temporal horizons — longer retention for tasks requiring multi-step reasoning, shorter for local-context tasks"
+      evidence: "Mamba [Gu & Dao, 2023]: A controls exponential decay of hidden state; initialized via HiPPO for general sequences; task-specific timescales differ. Mamba-2 [Dao & Gu, 2024]: scalar A per head provides clean per-head memory horizon"
+      falsifier: "If learned A_log biases are near-zero (|δ| < 0.01) across all tasks after training, Step 2 contributes no adaptation and the mechanism fails"
+    - step: 3
+      description: "The combination of projection LoRA (Steps 1, channel adaptation) and A-bias (Step 2, temporal adaptation) is complementary and non-redundant: projection LoRA cannot compensate for mismatched memory horizons because it only changes what is stored/read, not how long information persists"
+      evidence: "Mathematical argument: y_t = C_t·h_t; h_t = α·h_{t-1} + B_t·x_t. Adapting C (output) and B (input) leaves α (decay) unchanged. Only A-adaptation changes α."
+      falsifier: "If conditions B (dt_proj LoRA) and C (A_log bias) show equal accuracy gains vs. A (baseline), then indirect decay adaptation via Δ is sufficient and direct A-adaptation is redundant"
+  key_tension: "dt_proj LoRA (condition B) provides indirect decay adaptation via Δ modulation; A_log bias (condition C) provides direct decay adaptation. Whether these are sufficiently distinct in effect size is the key empirical uncertainty."
+  evidence_summary: |
+    The causal chain is mathematically grounded in the Mamba state update equation.
+    All three steps are distinct operations on different components of the SSM computation.
+    The chain predicts that gain from state-aware adaptation is larger on longer-range tasks,
+    which is the key empirical signature distinguishing it from a generic fine-tuning improvement.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Pretrained Mamba A_log initialization (HiPPO-based) is suboptimal for specific downstream tasks, leaving room for task-specific decay rate adaptation"
+    supporting_evidence: "HiPPO initialization optimizes for memorizing continuous functions — a general prior. Task-specific tasks (sentiment vs. multi-hop QA) have different temporal structure."
+    consequence_if_violated: "If HiPPO initialization is already optimal for all tasks, A_log bias will train to zero and state-aware PEFT provides no benefit"
+  - id: "A2"
+    assumption: "GLUE and LongBench tasks are sufficiently diverse in required temporal depth to reveal memory-horizon effects"
+    supporting_evidence: "SST-2 avg length ~20 tokens; MNLI ~100 tokens; 2WikiMultihopQA ~5000 tokens — three orders of magnitude difference in context length"
+    consequence_if_violated: "If all tasks require similar temporal depths, memory-horizon adaptation provides uniform (and possibly negligible) benefit"
+  - id: "A3"
+    assumption: "Mamba-130m and 370m pretrained checkpoints are available and loadable via HuggingFace transformers"
+    supporting_evidence: "state-spaces/mamba-130m-hf and state-spaces/mamba-370m-hf are listed on HuggingFace Hub"
+    consequence_if_violated: "Experiment requires alternative checkpoint source or Mamba-2 variants"
+  - id: "A4"
+    assumption: "EleutherAI lm-evaluation-harness supports Mamba for both classification (GLUE) and generation (LongBench) evaluation"
+    supporting_evidence: "lm-eval-harness has Mamba integration per Phase 1 research; GLUE classification is standard; LongBench generation needs verification"
+    consequence_if_violated: "LongBench evaluation may require custom evaluation code; fallback to SCROLLS or just GLUE+MMLU"
+  - id: "A5"
+    assumption: "HuggingFace PEFT library's get_peft_model() can be extended to handle nn.Parameter targets (A_log, B, C) via a custom LoRA-like wrapper, or A_log bias can be added manually before calling get_peft_model()"
+    supporting_evidence: "A_log bias is simpler than LoRA — just register a trainable nn.Parameter δ and add it to A_log in forward(); no custom PEFT extension needed"
+    consequence_if_violated: "Custom training loop needed; adds engineering complexity but does not block the experiment"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Mamba-1 architecture (130m, 370m parameter scales)
+    - Mamba-2 (SSD) architecture if pretrained checkpoints available
+    - Standard NLP fine-tuning tasks: classification (GLUE), long-context QA (LongBench)
+    - LoRA-family PEFT methods (rank-decomposition on projection layers)
+    - Tasks with diverse sequence length requirements (short to long)
+  does_not_apply_to: |
+    - Transformer architectures (no A_log parameter; different inductive bias)
+    - RWKV (different state parameterization — WKV operator; different adaptation needed)
+    - RetNet (retention decay γ is a different parameter with different update rule)
+    - Mamba variants with fundamentally different A parameterizations not covered by A_log bias
+    - Tasks requiring generation length > Mamba's practical sequence limit
+    - Full fine-tuning comparison at very large scale (>1.3B parameters — out of scope for Phase 4)
+  known_limitations: |
+    - Results at 130m/370m may not generalize to larger scales without additional experiments
+    - A_log bias is a simpler adaptation than LoRA (bias only, not full rank decomposition);
+      a full LoRA on A_log (if A were nn.Linear) would be stronger but inapplicable
+    - LongBench evaluation validity for Mamba generation tasks unverified at Phase 2A stage
+    - No RWKV or RetNet comparison in Phase 4 (would require separate implementation)
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "State-Aware LoRA (condition D: projection LoRA + dt_proj LoRA + A_log bias) achieves higher GLUE average accuracy than projection-only LoRA (condition A) by ≥1 percentage point on Mamba-130m"
+    test_method: "4-condition ablation on GLUE (SST-2, MNLI, QNLI, QQP) using lm-evaluation-harness; 3 seeds; compare condition D vs. condition A mean accuracy"
+    success_criterion: "Mean GLUE accuracy of condition D > condition A by ≥1.0 pp (p<0.05, paired t-test across 3 seeds)"
+    falsification: "If condition D GLUE accuracy ≤ condition A + 0.5pp (within noise), P1 is falsified and H₀ is supported"
+  - id: "P2"
+    primary: false
+    statement: "The accuracy gain from state-aware conditions (C and D vs. A) is larger on longer-range tasks (LongBench 2WikiMultihopQA) than on short-range tasks (SST-2), consistent with the memory-horizon mechanism"
+    test_method: "Compare delta accuracy (condition C - condition A) on SST-2 vs. LongBench 2WikiMultihopQA; test whether LongBench delta > SST-2 delta"
+    success_criterion: "LongBench accuracy gain for condition C vs. A exceeds SST-2 accuracy gain by ≥1 pp"
+    falsification: "If SST-2 shows equal or larger gain than LongBench under state-aware conditions, the memory-horizon mechanism is not task-length-sensitive"
+  - id: "P3"
+    primary: false
+    statement: "Learned A_log bias magnitudes differ systematically across GLUE tasks: tasks requiring longer-range context (MNLI multi-sentence) show larger bias magnitude than local-context tasks (SST-2 single sentence)"
+    test_method: "After fine-tuning on each GLUE task, compute mean |δ_A_log| per channel; compare across tasks"
+    success_criterion: "Mean |δ| for MNLI > mean |δ| for SST-2 (directional, no significance threshold — diagnostic)"
+    falsification: "If all tasks produce |δ| < 0.01 (near-zero), the A_log prior is already task-optimal and adaptation is unnecessary"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "GLUE + LongBench (2WikiMultihopQA subset)"
+    type: "standard"
+    source: "HuggingFace datasets (glue), THUDM/LongBench"
+    path: "hf://datasets/glue; hf://datasets/THUDM/LongBench"
+    hypothesis_fit: "GLUE provides short-range classification tasks (SST-2: ~20 tokens, MNLI: ~100 tokens) to test baseline PEFT transfer; LongBench 2WikiMultihopQA provides long-range QA (~5K tokens) to test memory-horizon effect. Together they span the sequence length range needed to validate P2."
+  model:
+    name: "Mamba-130m, Mamba-370m"
+    type: "State Space Model (SSM), causal language model"
+    source: "state-spaces/mamba-130m-hf, state-spaces/mamba-370m-hf (HuggingFace Hub)"
+    hypothesis_fit: "Primary target architecture; 130m provides fast iteration; 370m validates scale generalization per Prof. Rex's Concern 2"
+  baselines:
+    - name: "Condition A: Projection-only LoRA"
+      method: "HuggingFace PEFT LoraConfig with target_modules=['in_proj','out_proj','x_proj'], r=8, alpha=16"
+    - name: "Condition B: Projection + dt_proj LoRA"
+      method: "target_modules=['in_proj','out_proj','x_proj','dt_proj'], r=8, alpha=16"
+    - name: "Full fine-tuning"
+      method: "All parameters trainable; gradient checkpointing; used to establish accuracy ceiling"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First PEFT method to explicitly adapt SSM state decay parameters (A_log/scalar A) as a distinct adaptation target separate from projection layers"
+  key_innovation: "Memory-horizon adaptation — treating the SSM decay parameter as a task-specific prior over information persistence, analogous to but distinct from attention span adaptation in transformers"
+  differentiation:
+    - prior_work: "Standard LoRA on Mamba (projection-only)"
+      difference: "SA-LoRA additionally adapts the recurrent state dynamics (A), which controls how long information persists — a fundamentally different operation from adapting what enters/exits state"
+    - prior_work: "IA³ (multiplicative rescaling of activations)"
+      difference: "SA-LoRA targets the state transition parameter (A_log) rather than activations; the decay parameter controls temporal dynamics across time steps, not single-step activation scaling"
+    - prior_work: "AdaLoRA (adaptive rank allocation)"
+      difference: "AdaLoRA optimizes rank budget across existing LoRA targets; SA-LoRA introduces a new target category (state parameters) that AdaLoRA cannot discover since A_log is not nn.Linear"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "LoRA on transformer (GPT-2, LLaMA-7B)"
+      performance: "GLUE average: ~85-90% for GPT-2-large equivalent; competitive with full fine-tuning at r=8"
+      dataset: "GLUE"
+      why_insufficient: "Transformer-specific; no SSM evaluation; cannot address recurrent state adaptation"
+    - method: "Full fine-tuning of Mamba (if published)"
+      performance: "Unknown — no systematic GLUE evaluation of fine-tuned Mamba in Phase 1 literature"
+      dataset: "GLUE"
+      why_insufficient: "Trains all parameters; no parameter efficiency; establishes accuracy ceiling only"
+    - method: "Projection-only LoRA on Mamba (Condition A)"
+      performance: "Unknown — this is the primary comparison baseline being established"
+      dataset: "GLUE, LongBench"
+      why_insufficient: "Does not exploit SSM state structure; treats Mamba as generic transformer alternative"
+  best_baseline_performance: "Unknown pre-experiment; expected to be comparable to transformer LoRA (GLUE ~83-87%) based on Mamba's zero-shot performance"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "LoRA on Mamba projection layers achieves non-trivial GLUE accuracy (>70% on SST-2) — demonstrates basic PEFT transfer to SSMs works before testing state-aware improvement"
+  sh2_mechanism: "A_log bias adaptation produces measurably different learned biases across tasks with different sequence length requirements (P3 diagnostic), and this correlates with accuracy gain (P1, P2)"
+  sh3_comparison: "Compare Condition D (full state-aware) vs. Condition A (projection-only) as primary comparison; compare to full fine-tuning as ceiling; deferred to Phase 5 for cross-architecture comparison (Mamba vs. transformer at equivalent scale)"
+  open_questions:
+    - "Does lm-evaluation-harness support Mamba for LongBench generation tasks? (verify before Phase 4 coding)"
+    - "Is dt_proj LoRA (Condition B) actually redundant with A_log bias (Condition C)? (answered empirically in Phase 4)"
+    - "Does Mamba-2 pretrained checkpoint exist on HuggingFace at 130m/370m scale? (check before Phase 4)"
+    - "What is the optimal LoRA rank for Mamba projection layers? (ablate r=4,8,16 in Phase 4)"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All 6 convergence criteria met at Exchange 7 after full 6-persona discussion"
+  clarity_verified: true
+  remaining_objections:
+    - "LongBench generation evaluation validity for Mamba needs pre-experiment verification (Prof. Rex mitigation: use 2WikiMultihopQA as extractive QA primary)"
+    - "dt_proj and A_log adaptation may show smaller separation than theory predicts — resolved by including both as separate ablation conditions"
+
+discussion_context:
+  total_exchanges: 7
+  agent_participation:
+    dr_nova: 2
+    prof_vera: 1
+    dr_sage: 1
+    prof_pax: 1
+    dr_ally: 2
+    prof_rex: 1
+  paper_citations: 5
+  convergence_type: "qualitative"

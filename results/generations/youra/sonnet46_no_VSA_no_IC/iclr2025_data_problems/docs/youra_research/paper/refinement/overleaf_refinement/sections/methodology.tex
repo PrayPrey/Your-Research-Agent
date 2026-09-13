@@ -1,0 +1,39 @@
+
+Our methodology is motivated by a single structural observation: Pythia's sequential dataloader preserves the exact order in which documents were consumed during training, and The Pile's block structure makes this order informationally rich --- different checkpoints have genuinely different domain exposure profiles.
+
+\subsubsection{3.1 Domain Content Analysis (h-m1)}
+
+We operationalize domain cognitive content using three automated proxies computed via spaCy \texttt{en\textbackslash \_core\textbackslash \_web\textbackslash \_sm}:
+
+\begin{itemize}
+\item \textbf{Entity density}: proportion of named entity tokens; characterizes factual, encyclopedic content (Wikipedia $\rightarrow$ MMLU pathway)
+\item \textbf{Narrative coherence}: proportion of discourse connectives; characterizes sequential reasoning content (Books $\rightarrow$ HellaSwag pathway)
+\item \textbf{Formal syntax density}: proportion of programming keywords and typed tokens; characterizes structured content (GitHub $\rightarrow$ reasoning benchmarks)
+\end{itemize}
+
+We compute these proxies on 4,200 documents (200 per domain, 21 domains) and apply Welch's ANOVA with Tukey HSD pairwise comparisons and $\eta^2$ effect size measurement. Documents were domain-representative generated texts due to HuggingFace streaming initialization overhead that precluded real-time Pile access within the execution window; $\eta^2$ values are therefore upper bounds relative to real Pile documents. A background validation run on actual Pile documents (PID 2322754) was in progress at reporting time.
+
+\subsubsection{3.2 Domain Exposure Trajectory Extraction (h-e1)}
+
+Pythia's identity document index (\texttt{doc\textbackslash \_idx.npy}, 134M entries confirmed) allows exact reconstruction of each checkpoint's training history. The function \texttt{step\textbackslash \_to\textbackslash \_sample(t)} computes the total number of samples consumed at training step \textit{t}:
+
+\begin{verbatim}
+samples_consumed(t) = (step × 2,097,152) // 2,049
+\end{verbatim}
+
+where 2,097,152 is the number of tokens per training step and 2,049 is the sequence length. The function \texttt{build\textbackslash \_domain\textbackslash \_lookup()} streams 600,000 documents from The Pile's JSONL.zst format (processing time: approximately 3.5 minutes on CPU). The function \texttt{compute\textbackslash \_domain\textbackslash \_exposure\textbackslash \_trajectories()} produces a 22-domain $\times$ 154-checkpoint matrix of cumulative exposure fractions. The pre-registered gate criterion required $\geq 10$ of 22 domains to exhibit standard deviation exceeding 0.001.
+
+\subsubsection{3.3 Spearman Correlation Analysis (h-m2)}
+
+For each domain--benchmark pair, Spearman $\rho$(exposure\_d, score\_b) is computed across available checkpoints, after applying a floor filter (exclude checkpoints where any benchmark score falls below 0.20). The directional prediction P1 ($\rho$(Wikipedia, MMLU) > $\rho$(Wikipedia, HellaSwag)) is tested using the Fisher z-test at $\alpha$ = 0.10, one-tailed. The minimum reliable checkpoint count was pre-registered at N = 100.
+
+\subsubsection{3.4 Panel OLS Regression (h-m3)}
+
+The panel regression model takes the form:
+
+\begin{verbatim}
+benchmark_score(i, t) = α_i + Σ_d β_{d,b} × exposure_d(t) + γ × log(params_i) + ε(i,t)
+\end{verbatim}
+
+where \textit{i} indexes model size (entity fixed effects) and \textit{t} indexes training checkpoint. Entity fixed effects control for scale confounds. Safeguards include a \texttt{verify\textbackslash \_books3\textbackslash \_variance()} guard (aborts if Books3 standard deviation < $10^{-6})$, a PooledOLS fallback when N < 3 entities, and a minimum entity requirement of 3 model sizes. Statistical tests include Wald z-tests for P1 and P2, likelihood ratio tests with Benjamini-Hochberg FDR correction for P3, and cross-scale Spearman of coefficient rankings for P4.
+

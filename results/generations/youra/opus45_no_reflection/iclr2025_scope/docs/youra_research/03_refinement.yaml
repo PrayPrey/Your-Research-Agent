@@ -1,0 +1,308 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-18T13:50:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap1"
+  gap_title: "Systematic Comparison of Distillation Methods Across Sequence Lengths"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 17
+  convergence_reason: "All convergence criteria met: SPECIFIC core claim, MECHANISM explained, PREDICTIONS quantified, NOVELTY articulated, FEASIBILITY verified, OBJECTIONS addressed"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "MOHAWK achieves Phi-Mamba distillation with 3B tokens (<1% of typical pretraining)"
+      status: "BUILD_ON"
+      evidence: "Bick et al., 2024 - published result"
+    - claim: "CAB's token-level alignment avoids O(L²) attention map materialization"
+      status: "BUILD_ON"
+      evidence: "Wang et al., 2025 - architectural design"
+    - claim: "Mamba achieves linear-time sequence modeling via selective SSM"
+      status: "BUILD_ON"
+      evidence: "Gu & Dao, 2023 - foundational architecture"
+    - claim: "Token-level distillation generalizes better than matrix-level at extrapolated lengths"
+      status: "PROVE_NEW"
+      evidence: "Novel hypothesis requiring experimental validation"
+    - claim: "Crossover point exists between 8K-16K sequences where optimal objective switches"
+      status: "PROVE_NEW"
+      evidence: "Predicted from attention sparsification mechanism"
+  scope_reduction_percentage: 40
+  phase2b_4_instructions: |
+    Phase 2B should focus verification on the PROVE_NEW claims:
+    1. Token-level vs matrix-level performance at extrapolated lengths
+    2. Crossover point identification in 8K-16K range
+    BUILD_ON claims are already established in literature.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-LenDistill-v1"
+  confidence_level: 0.80
+  core_hypothesis_statement: |
+    Under the setting of distilling a pretrained Transformer (Phi-1.5) into a Mamba-based
+    architecture (Phi-Mamba) for long-context NLU tasks, if we compare token-level distillation
+    objectives (CAB-style Q/K→C/B alignment) versus matrix-level objectives (MOHAWK-style
+    attention map matching), then token-level objectives achieve superior F1 retention at
+    extrapolated sequence lengths (≥16K) while matrix-level objectives achieve comparable or
+    better performance at in-distribution lengths (≤4K), because token-level representations
+    capture the functional structure of attention that generalizes to unseen lengths, whereas
+    matrix-level objectives overfit to specific attention values that degrade under length
+    extrapolation.
+  alternative_hypothesis_h0: |
+    There is no significant difference in F1 retention between token-level and matrix-level
+    distillation objectives across sequence lengths (4K, 16K, 32K). The interaction term
+    (Objective Type × Sequence Length) is not statistically significant at p<0.05.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "distillation_objective_type"
+      type: "categorical"
+      operationalization: "Type of alignment objective used during distillation training"
+      levels:
+        - "matrix_level"   # MOHAWK Stage 1: minimize ||TeacherMixer - StudentMixer||
+        - "token_level"    # CAB: align (Q,K) → (C,B) via MLP bridge
+    - name: "sequence_length"
+      type: "categorical"
+      operationalization: "Maximum sequence length during distillation and evaluation"
+      levels:
+        - "4K"   # In-distribution (2x Phi-1.5 training length)
+        - "16K"  # Moderate extrapolation (8x training length)
+        - "32K"  # Aggressive extrapolation (16x training length)
+  dependent:
+    - name: "f1_retention_ratio"
+      type: "continuous"
+      operationalization: "Student F1 / Teacher F1 on LongBench single-document QA, range [0,1]"
+      primary: true
+    - name: "hidden_state_drift"
+      type: "continuous"
+      operationalization: "Mean L2 distance between teacher attention output and student Mamba output per layer"
+      primary: false
+    - name: "perplexity_retention"
+      type: "continuous"
+      operationalization: "Teacher PPL / Student PPL on held-out C4 validation"
+      primary: false
+  controlled:
+    - name: "source_model"
+      operationalization: "Phi-1.5 (1.3B parameters) for all conditions"
+    - name: "target_architecture"
+      operationalization: "Phi-Mamba with MOHAWK modifications (multi-head SSM, no Δ, open gates)"
+    - name: "training_data"
+      operationalization: "C4 dataset, same tokenizer (Phi tokenizer)"
+    - name: "training_budget"
+      operationalization: "1.5B tokens per condition"
+    - name: "evaluation_benchmark"
+      operationalization: "LongBench single-document QA subset"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: "Training Distribution Bound: Phi-1.5 was trained on 2048-length sequences; attention patterns at 16K-32K are extrapolations beyond training distribution"
+      evidence: "Phi-1.5 documentation states 2048 max training length"
+      falsifier: "If Phi-1.5 demonstrates reliable attention at 32K (low entropy, structured patterns), this step is weakened"
+    - step: 2
+      description: "Representation Robustness: Token-level Q/K projections encode local attention 'intent' that transfers across lengths; full attention maps at extrapolated lengths contain extrapolation noise"
+      evidence: "CAB paper shows token-level alignment requires O(L) vs O(L²) for maps; local representations are length-invariant"
+      falsifier: "If attention maps at 32K are as structured as at 4K (similar entropy), map-based transfer should work equally"
+    - step: 3
+      description: "Objective-Task Match: Token-level alignment transfers robust local representations; matrix-level alignment captures both signal and noise, with noise dominating at extrapolated lengths"
+      evidence: "MOHAWK's matrix alignment explicitly minimizes ||TeacherMixer - StudentMixer|| which includes noise"
+      falsifier: "If matrix-level distillation includes noise filtering (e.g., top-k attention), it may match token-level"
+  key_tension: "Whether attention at extrapolated lengths contains any structured signal, or is purely degenerate"
+  evidence_summary: |
+    The mechanism is grounded in: (1) Phi-1.5's training length limit creates out-of-distribution
+    extrapolation at 16K-32K; (2) CAB's design explicitly avoids attention map materialization;
+    (3) MOHAWK's Stage 1 directly optimizes attention map matching. The chain predicts that
+    token-level objectives are more robust under length extrapolation.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Phi-1.5 attention at 32K is not fully degenerate (contains some structured signal)"
+    supporting_evidence: "Language models often exhibit reasonable extrapolation to 2-4x training length"
+    consequence_if_violated: "Both distillation methods fail equally; hypothesis is vacuously true"
+  - id: "A2"
+    assumption: "Modified Mamba-2 (Phi-Mamba) can faithfully learn to approximate attention patterns"
+    supporting_evidence: "MOHAWK demonstrates successful attention-to-SSM transfer at 2K length"
+    consequence_if_violated: "Architecture is the bottleneck, not distillation objective"
+  - id: "A3"
+    assumption: "1.5B tokens per condition is sufficient for distillation convergence"
+    supporting_evidence: "CAB uses 200M-4B tokens; MOHAWK uses 3B; 1.5B is within range"
+    consequence_if_violated: "Results may show noise rather than true objective differences"
+  - id: "A4"
+    assumption: "LongBench single-doc QA performance generalizes to other long-context tasks"
+    supporting_evidence: "LongBench is a standard benchmark used across prior work"
+    consequence_if_violated: "Conclusions limited to single-doc QA task type"
+  - id: "A5"
+    assumption: "Token-level and matrix-level objectives can be fairly compared using same training setup"
+    supporting_evidence: "Both can use same Phi-Mamba architecture and C4 data"
+    consequence_if_violated: "Confounds from implementation differences may affect results"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Transformer-to-Mamba distillation for language modeling
+    - Pre-trained Transformers with limited context windows (e.g., 2-4K)
+    - Target lengths of 4K-32K tokens
+    - English NLU tasks (LongBench evaluated)
+  does_not_apply_to: |
+    - Vision or multimodal distillation (T2MD covers this separately)
+    - From-scratch SSM training (not distillation)
+    - Very long sequences (>32K) where both methods may fail
+    - Non-English languages (not evaluated)
+  known_limitations: |
+    - Single source model (Phi-1.5) limits generalizability
+    - C4 training data may not match LongBench evaluation domain
+    - Hybrid objectives (combining matrix + token) not tested in main hypothesis
+    - Results may not transfer to Mamba-1 or other SSM variants
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "At 4K sequence length (in-distribution), matrix-level distillation achieves F1 retention ≥ token-level distillation, with difference ≤2 F1 points"
+    test_method: "Compare mean F1 retention on LongBench single-doc QA between conditions"
+    success_criterion: "(Matrix F1 Retention) - (Token F1 Retention) ≥ -2 points"
+    falsification: "Token-level outperforms matrix-level by >2 F1 points at 4K"
+  - id: "P2"
+    primary: true
+    statement: "At 16K sequence length (moderate extrapolation), token-level distillation achieves ≥3 F1 points higher retention than matrix-level"
+    test_method: "Compare mean F1 retention on LongBench single-doc QA at 16K"
+    success_criterion: "(Token F1 Retention) - (Matrix F1 Retention) ≥ 3 points"
+    falsification: "Matrix-level matches or outperforms token-level at 16K"
+  - id: "P3"
+    primary: true
+    statement: "At 32K sequence length (aggressive extrapolation), token-level distillation achieves ≥5 F1 points higher retention than matrix-level"
+    test_method: "Compare mean F1 retention on LongBench single-doc QA at 32K"
+    success_criterion: "(Token F1 Retention) - (Matrix F1 Retention) ≥ 5 points"
+    falsification: "Difference is <5 F1 points at 32K"
+  - id: "P4"
+    primary: false
+    statement: "Hidden state drift increases with sequence length for both methods, but increases more steeply for matrix-level distillation"
+    test_method: "Compute per-layer L2 drift, regress against sequence length, compare slopes"
+    success_criterion: "Matrix drift slope > Token drift slope (significant at p<0.05)"
+    falsification: "Drift slopes are not significantly different"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "LongBench"
+    type: "standard"
+    source: "THUDM/LongBench (HuggingFace)"
+    path: "huggingface:THUDM/LongBench"
+    hypothesis_fit: "Standard long-context NLU benchmark with single-doc QA tasks supporting 4K-32K evaluation"
+  model:
+    name: "Phi-Mamba"
+    type: "Modified Mamba-2 (SSM)"
+    source: "goombalab/phi-mamba + wph6/CAB (custom integration)"
+    hypothesis_fit: "Standard target architecture from MOHAWK with modifications enabling fair objective comparison"
+  baselines:
+    - name: "Phi-1.5 Teacher"
+      method: "Original pretrained Transformer (no distillation)"
+    - name: "MOHAWK Published"
+      method: "Phi-Mamba from original MOHAWK paper (3B tokens, 2K length)"
+    - name: "Random Init Mamba"
+      method: "Phi-Mamba architecture trained from scratch (control)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First controlled comparison of distillation objective types (matrix vs token-level) across sequence lengths for Transformer-to-Mamba conversion"
+  key_innovation: "Unified framework testing whether optimal distillation objective depends on target sequence length, with length-generalization framing"
+  differentiation:
+    - prior_work: "MOHAWK (Bick et al., 2024)"
+      difference: "MOHAWK validates matrix-level distillation at single length; we compare objectives across lengths"
+    - prior_work: "CAB (Wang et al., 2025)"
+      difference: "CAB validates token-level distillation; we test against matrix-level under controlled conditions"
+    - prior_work: "Hybrid Analysis (Wang et al., 2025)"
+      difference: "Hybrid Analysis compares architectures; we compare distillation objectives"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "MOHAWK Phi-Mamba"
+      performance: "~85% of Phi-1.5 on downstream tasks (reported)"
+      dataset: "Various NLU benchmarks"
+      why_insufficient: "Only evaluated at 2K length; does not test extrapolation"
+    - method: "CAB ViM/Language"
+      performance: "Matches teacher in low-data regime (vision); competitive on language"
+      dataset: "ImageNet, OpenWebText"
+      why_insufficient: "Different target architecture; no direct length comparison"
+    - method: "Mamba-3B from scratch"
+      performance: "Matches Transformer-3B on language modeling"
+      dataset: "Pile pretraining"
+      why_insufficient: "From-scratch training, not distillation; much higher compute"
+  best_baseline_performance: "MOHAWK Phi-Mamba at ~85% teacher performance (2K length)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Token-level and matrix-level distillation objectives can be implemented in unified framework"
+  sh2_mechanism: "Length-dependent performance difference due to attention extrapolation behavior"
+  sh3_comparison: "Compare against MOHAWK published results and Phi-1.5 teacher (Phase 5)"
+  open_questions:
+    - "Exact crossover point in 8K-16K range"
+    - "Whether hybrid objectives outperform pure approaches"
+    - "Generalization to other source models (Llama, Mistral)"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All 6 convergence criteria met after 17 exchanges"
+  clarity_verified: true
+  remaining_objections: []
+
+discussion_context:
+  total_exchanges: 17
+  agent_participation:
+    dr_nova: 3
+    prof_vera: 3
+    dr_sage: 2
+    prof_pax: 3
+    dr_ally: 3
+    prof_rex: 3
+  paper_citations: 8
+  convergence_type: "qualitative"

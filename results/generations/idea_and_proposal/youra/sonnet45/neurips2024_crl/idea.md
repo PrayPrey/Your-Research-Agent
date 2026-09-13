@@ -1,0 +1,8 @@
+# Title
+Causal Attention Transformers (H-CATs): Learning Interpretable Causal Graphs Through Asymmetric Multi-Head Attention in Vision Models
+
+# Motivation
+Deep learning models like Vision Transformers excel at pattern recognition but struggle with causal reasoning, relying on correlations that can be spurious or biased. Existing causal representation learning methods use separate VAE-based modules, adding architectural complexity. Meanwhile, 60% of CRL research focuses on VAEs with minimal transformer integration. This creates a critical gap: can we directly embed causal discovery into transformer attention mechanisms themselves, enabling interpretable causal reasoning without sacrificing performance?
+
+# Main Idea
+We propose H-CATs, which transforms standard transformer attention into a causal discovery mechanism through three innovations: (1) **asymmetric attention masks** (M_ij ≠ M_ji) encoding directional causal relationships, (2) **differentiable DAG constraints** preventing cyclic dependencies, and (3) **hybrid architecture** balancing 50% causal heads (learning sparse causal graphs) with 50% standard heads (preserving global context). The causal mechanism operates through five steps: asymmetric encoding → DAG enforcement → sparsity selection → progressive training → hybrid balance. We predict F1>0.70 for causal edge recovery on synthetic datasets while maintaining ≥80% ImageNet accuracy. Progressive training (pretrain → gradual DAG penalty → full optimization) prevents local minima. This enables counterfactual image generation and interpretable reasoning, validated through human evaluation (>75% agreement) and proxy tasks using real-world object relationships.

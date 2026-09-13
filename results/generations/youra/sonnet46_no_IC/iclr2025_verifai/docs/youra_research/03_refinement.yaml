@@ -1,0 +1,324 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-05T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap3"
+  gap_title: "Systematic Ranking of Formal Feedback Signal Types on Standard Code Benchmarks"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 15
+  convergence_reason: "All 6 convergence criteria met at exchange 15; all 6 personas participated; self-judged convergence"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Execution-based iterative repair feedback improves pass@1 on HumanEval and MBPP over no-feedback baseline"
+      status: "BUILD_ON"
+      evidence: "Reflexion [Shinn et al., 2023]: 91% HumanEval; Self-Debug [Chen et al., 2023]: +12% MBPP, 10x sample efficiency; Iterative Self-Repair [Arimbur, 2026]: +4.9-17.1pp HumanEval on modern 8B models"
+    - claim: "Type-constrained decoding reduces compilation/type errors by >50% on HumanEval/MBPP"
+      status: "BUILD_ON"
+      evidence: "Type-Constrained Code Generation [Mündler et al., 2025]: >50% compilation error reduction; no fine-tuning required"
+    - claim: "Pylint/Bandit iterative feedback reduces security issues on PythonSecurityEval"
+      status: "BUILD_ON"
+      evidence: "Static Analysis as Feedback Loop [Blyth et al., 2025]: 40%→13% security issue rate in 10 iterations on PythonSecurityEval"
+    - claim: "No existing study provides iso-compute comparison of execution vs. static analysis feedback in repair mode on HumanEval/MBPP functional correctness"
+      status: "PROVE_NEW"
+      evidence: "FeedbackEval [Dai et al., 2025] compared compiler/test/minimal feedback but excluded semantic pylint/mypy and type-constrained decoding; Blyth et al. tested only on security benchmark; no study normalizes by token budget"
+    - claim: "Pylint/mypy static analysis feedback improves functional correctness (pass@1) on HumanEval or MBPP"
+      status: "PROVE_NEW"
+      evidence: "No existing study tests this — Blyth et al. tested only on PythonSecurityEval (security metric, not pass@k); gap identified in Phase 1"
+  scope_reduction_percentage: 60
+  phase2b_4_instructions: |
+    Claims 1-3 (BUILD_ON) are established and should not be re-verified in Phase 2B.
+    Build experimental design on top of these as known foundations.
+    Claims 4-5 (PROVE_NEW) are the core empirical targets: the pass@1 comparison at iso-compute
+    and the pylint functional correctness test. All experimental effort should focus on these.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-IsoComputeFeedback-v1"
+  confidence_level: 0.75
+  core_hypothesis_statement: |
+    Under HumanEval and MBPP benchmarks, for open-source instruction-tuned LLMs at 7B scale
+    (Llama 3.1 8B primary; Qwen2.5-Coder-7B replication),
+    if formal feedback type is varied between (A) pylint/mypy static analysis feedback and
+    (B) execution test feedback — both in iterative repair mode at fixed token budget
+    B=1000 output tokens per problem instance —
+    then execution test feedback achieves a statistically significantly larger pass@1 improvement
+    delta over no-feedback baseline than pylint/mypy feedback (McNemar's test, α=0.05),
+    because execution feedback covers the full distribution of code errors (logic, runtime, type,
+    syntax) while static analysis covers a subset with lower correlation to the specific logical
+    failures that dominate HumanEval/MBPP problem types,
+    as evidenced by automated pylint coverage analysis showing that pylint detects a significantly
+    lower fraction of HumanEval baseline failures pre-execution than execution test feedback catches.
+  alternative_hypothesis_h0: |
+    There is no statistically significant difference in pass@1 improvement delta between
+    pylint/mypy static analysis feedback and execution test feedback at equal token budget
+    (B=1000 output tokens per problem) on HumanEval/MBPP for 7B instruction-tuned LLMs
+    (H0: Δ_pylint = Δ_execution, McNemar's test α=0.05).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Feedback Type"
+      type: "categorical"
+      operationalization: "Which feedback signal is used in the iterative repair loop"
+      levels:
+        - "no_feedback (baseline — no repair, single generation pass)"
+        - "pylint_mypy (pylint default rules + mypy type checking output formatted as structured feedback prompt)"
+        - "execution_test (unit test execution results including error type, traceback, expected vs. actual output)"
+        - "type_constrained_decoding (prevention baseline — vocabulary-filtered generation via eth-sri implementation, one-pass, separate secondary study)"
+    - name: "Token Budget (B)"
+      type: "continuous"
+      operationalization: "Total output tokens generated per problem instance, summed across all repair rounds. Fixed at B=1000 for main experiment."
+      levels: ["B=1000 (primary)"]
+  dependent:
+    - name: "pass@1 improvement delta"
+      type: "continuous"
+      operationalization: "pass@1(condition) - pass@1(no_feedback_baseline), measured over all HumanEval/MBPP problems per model. Range: [-1, +1]. Units: proportion points."
+      primary: true
+    - name: "pylint pre-execution failure coverage"
+      type: "continuous"
+      operationalization: "Fraction of no-feedback baseline failure cases that pylint/mypy flags an error on (without executing the code). Measured via automated tool analysis. Range: [0, 1]."
+      primary: false
+    - name: "per-round pass@1"
+      type: "continuous"
+      operationalization: "pass@1 after each repair round (1, 2, 3), measuring incremental improvement trajectory. Reports diminishing returns profile."
+      primary: false
+  controlled:
+    - name: "Model architecture and weights"
+      operationalization: "Llama 3.1 8B Instruct (HuggingFace) — exact model checkpoint fixed; Qwen2.5-Coder-7B-Instruct — exact model checkpoint fixed. Same model used across all feedback conditions."
+    - name: "Prompt template"
+      operationalization: "Same base prompt template for code generation across all repair conditions; feedback signal appended in a standardized format. Template frozen before experiment."
+    - name: "Benchmarks"
+      operationalization: "Official HumanEval (164 problems) and MBPP (374 problems) test sets; no custom filtering or subsampling."
+    - name: "Random seed"
+      operationalization: "Fixed seed for reproducibility; greedy decoding (temperature=0) for deterministic results."
+    - name: "Repair framework"
+      operationalization: "Johin2/iterative-code-repair base framework; adapted for pylint condition. Token budget enforcement: stop repair when cumulative output tokens ≥ B."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: "LLM generates code that contains errors (logic, type, syntax, runtime)"
+      evidence: "HumanEval/MBPP baseline pass@1 for 7B models is typically 40-60%, meaning 40-60% of problems fail on first generation [Iterative Self-Repair, Arimbur 2026; Self-Debug, Chen et al. 2023]"
+      falsifier: "If baseline pass@1 for Llama 3.1 8B on HumanEval is >90%, the improvement ceiling is too low to detect meaningful feedback signal differences"
+    - step: 2
+      description: "Feedback signal provides error information to the LLM for the next repair attempt; the informativeness of the signal determines how many errors the LLM can identify and fix"
+      evidence: "Execution test feedback provides expected vs. actual output (complete semantic information); pylint/mypy provides syntax/type/style warnings without program execution (partial semantic coverage). FeedbackEval [Dai et al., 2025] shows test feedback > compiler feedback > minimal feedback, consistent with informativeness ordering"
+      falsifier: "If pylint pre-execution coverage analysis shows pylint flags >80% of HumanEval baseline failures, the informativeness gap between pylint and execution may be small, predicting similar repair outcomes"
+    - step: 3
+      description: "LLM conditioned on more informative feedback (execution) successfully repairs a larger fraction of failures in subsequent attempts, producing a higher pass@1 delta"
+      evidence: "Self-Debug [Chen et al., 2023]: execution trace feedback achieves +12% MBPP; Reflexion [Shinn et al., 2023]: 91% HumanEval with execution + verbal feedback. Both significantly exceed expected pylint-only improvement (which has no direct functional correctness evidence on HumanEval/MBPP)"
+      falsifier: "If Δ_execution ≤ Δ_pylint + 5pp (not statistically significant by McNemar's test at α=0.05), the mechanism is not supported — pylint feedback is as informative as execution for these benchmarks"
+  key_tension: "Pylint catches some logical errors (undefined variables, wrong function signatures) — the degree to which pylint's coverage overlaps with execution feedback's coverage is the empirical unknown that determines whether the mechanism holds"
+  evidence_summary: |
+    The causal chain is supported by the information-theoretic argument (execution provides complete
+    program semantics; pylint provides a strict subset) and by the existing execution feedback
+    literature (Self-Debug, Reflexion, RLEF all show strong execution signal benefits). The pylint
+    functional correctness claim has no direct evidence on HumanEval/MBPP, which is why testing it
+    is the core contribution. The automated coverage analysis in Step 2 directly measures the
+    mechanism's key parameter (pylint failure coverage).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Llama 3.1 8B Instruct can successfully follow iterative repair instructions (read feedback, modify code, resubmit) via prompting alone, without fine-tuning"
+    supporting_evidence: "Iterative Self-Repair [Arimbur, 2026] shows Llama 3.1 8B succeeds at prompting-based self-repair with execution feedback (+9.8pp HumanEval)"
+    consequence_if_violated: "If Llama 3.1 8B cannot follow repair instructions, neither execution nor pylint conditions will show improvement over baseline — both Δ values will be near zero and the comparison is uninformative"
+  - id: "A2"
+    assumption: "The functional errors in HumanEval/MBPP baseline failures are predominantly logic/runtime errors (not syntax errors), making execution feedback more informative than pylint for most failure cases"
+    supporting_evidence: "Mündler et al. [2025] implicitly confirm that compilation errors are a subset of HumanEval failures (type-constrained decoding reduces them by >50%); the remaining failures are logic/runtime — exactly what pylint cannot catch without execution"
+    consequence_if_violated: "If HumanEval failures are predominantly syntax/type errors (not logic errors), pylint may cover a large fraction and achieve similar improvement to execution — the hypothesis would be refuted (publishable null result)"
+  - id: "A3"
+    assumption: "Token budget B=1000 output tokens is sufficient for at least 2 meaningful repair rounds on HumanEval problems (average solution length ~200-400 tokens)"
+    supporting_evidence: "HumanEval solutions are typically short Python functions (50-200 lines compressed); 1000 tokens allows 2-5 repair attempts. Iterative Self-Repair [Arimbur, 2026] finds most gains in rounds 1-2, consistent with B=1000 being adequate"
+    consequence_if_violated: "If B=1000 is too small (solutions require >500 tokens each), results should be rerun at B=2000; the paper should report the per-round breakdown to identify the optimal budget"
+  - id: "A4"
+    assumption: "cyb3rlab/CodeEnhancer (or a custom pylint wrapper) can be adapted to test on HumanEval/MBPP functional correctness within 2-4 days engineering effort"
+    supporting_evidence: "The pylint feedback loop design is straightforward — run pylint on generated code, format warnings as structured prompt text. The CodeEnhancer repo provides this loop; adapting the benchmark loader and evaluation metric to HumanEval is a known engineering task"
+    consequence_if_violated: "If the adaptation proves infeasible, a custom lightweight pylint wrapper (50-100 lines Python) can be implemented independently — lower risk than relying on the repo"
+  - id: "A5"
+    assumption: "Qwen2.5-Coder-7B instruction-tuned model is sufficiently similar to Llama 3.1 8B in capability tier to serve as a replication check (not an ablation of scale)"
+    supporting_evidence: "Both are 7B-scale, instruction-tuned, released in 2024-2025. Qwen2.5-Coder is specialized for code but at the same parameter scale. Differences in absolute performance are expected; similarity in relative ranking of feedback types is the replication claim"
+    consequence_if_violated: "If Qwen2.5-Coder-7B shows a dramatically different feedback type ranking (e.g., pylint > execution), this is an interaction finding that strengthens rather than weakens the paper"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    Open-source instruction-tuned LLMs at 7B parameter scale.
+    Standard Python code generation benchmarks measuring functional correctness (pass@k).
+    Specifically: HumanEval (164 algorithmic Python problems) and MBPP (374 Python problems).
+    Iterative repair mode: fixed token budget B=1000 output tokens per problem.
+    Pylint/mypy static analysis feedback in repair mode.
+    Execution test feedback in repair mode.
+    Type-constrained decoding (separate, prevention-mode secondary study).
+  does_not_apply_to: |
+    Models larger than 7B (e.g., 70B models) — scale interaction not studied.
+    RL-trained or fine-tuned models (e.g., RLEF, CodeRL) — results apply to prompting-based repair only.
+    Non-Python benchmarks (e.g., HumanEval-Java, MultiPL-E).
+    SWE-bench (real-world GitHub issue resolution) — different task type, not included.
+    Security-focused benchmarks (PythonSecurityEval) — different metric than pass@k.
+    Feedback budgets other than B=1000 — extrapolation to other budgets requires additional experiments.
+    Combined/stacked feedback conditions — pairwise and all-three combinations not tested in primary study.
+  known_limitations: |
+    7B-only model scope limits generalizability to larger models (70B+ behavior may differ).
+    Two models (Llama 3.1 8B, Qwen2.5-Coder-7B) is the minimum for replication; not a statistical meta-analysis.
+    HumanEval has only 164 problems — adequate for 10pp effect detection at α=0.05 but low power for small effects (<5pp).
+    Type-constrained decoding secondary study is one-pass only; a fair iterative-repair version of type constraints would require additional engineering.
+    pylint rule set: default pylint checkers (not tuned for code generation feedback utility) — future work could ablate which pylint rules are most useful.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Execution test feedback achieves a statistically significantly larger pass@1 improvement delta over no-feedback baseline than pylint/mypy feedback on HumanEval, at B=1000 output tokens per problem, using Llama 3.1 8B"
+    test_method: "McNemar's test on paired binary outcomes (each problem: pass=1/fail=0 per condition). Compare (pylint_pass, baseline_fail) vs. (baseline_pass, pylint_fail) counts against (execution_pass, baseline_fail) vs. (baseline_pass, execution_fail) counts. α=0.05."
+    success_criterion: "Δ_execution > Δ_pylint with p<0.05 on McNemar's test on HumanEval (164 problems) AND on MBPP (374 problems) for Llama 3.1 8B"
+    falsification: "If p>0.05 or if Δ_pylint ≥ Δ_execution, P1 is not supported — either pylint is as effective as execution or more effective. This is a publishable null result (establishes pylint parity with execution at equal token budget)."
+  - id: "P2"
+    primary: false
+    statement: "The fraction of HumanEval baseline failure cases that pylint/mypy detects pre-execution (without running the code) is significantly lower than the fraction that execution test feedback catches (100% of errors that cause test failure)"
+    test_method: "Run pylint + mypy on all HumanEval baseline failure cases (code that failed at least one test). Count fraction flagged with at least one pylint/mypy warning or error. Compare to 100% (execution catches all test failures by definition). Report the fraction and the distribution of pylint rule categories triggered."
+    success_criterion: "Pylint/mypy flags <50% of HumanEval baseline failures with at least one warning/error, supporting the mechanism that pylint's lower coverage explains the pass@1 delta gap"
+    falsification: "If pylint/mypy flags >80% of HumanEval baseline failures, the coverage gap is small, undermining the mechanism claim. If Δ_pylint ≈ Δ_execution despite low coverage (P1 not supported), mechanism and main result are both inconsistent."
+  - id: "P3"
+    primary: false
+    statement: "Type-constrained decoding achieves a positive pass@1 delta over unconstrained one-pass generation on HumanEval (secondary study, prevention mode)"
+    test_method: "Compare pass@1(type_constrained_one_pass) vs. pass@1(unconstrained_one_pass) at the same token budget (B=1000). No repair rounds; single generation pass. Use eth-sri/type-constrained-code-generation on Llama 3.1 8B."
+    success_criterion: "Δ_type_constrained > 0 (positive improvement over unconstrained generation); statistical significance not required (secondary study, smaller expected effect)"
+    falsification: "If Δ_type_constrained ≤ 0, type constraints provide no benefit on HumanEval in one-pass mode — possible if HumanEval failures are predominantly logic errors (not type/syntax) and type constraints don't help with logic."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "HumanEval + MBPP"
+    type: "standard"
+    source: "HumanEval: Chen et al. 2021 (openai/human-eval repo); MBPP: Austin et al. 2021 (google-research/mbpp repo)"
+    path: "Standard benchmark loaders; available via lm-evaluation-harness or direct download"
+    hypothesis_fit: "HumanEval (164 algorithmic Python problems) and MBPP (374 Python problems) are the canonical standard benchmarks for Python code generation functional correctness. Both have unit test oracles (required for execution feedback condition). No new benchmarks created."
+  model:
+    name: "Llama 3.1 8B Instruct (primary) + Qwen2.5-Coder-7B-Instruct (replication)"
+    type: "open-source instruction-tuned decoder-only transformer"
+    source: "HuggingFace model hub: meta-llama/Llama-3.1-8B-Instruct; Qwen/Qwen2.5-Coder-7B-Instruct"
+    hypothesis_fit: "7B-scale instruction-tuned models selected for: (1) sufficient instruction-following capability for repair tasks (validated by Iterative Self-Repair 2026 on Llama 3.1 8B); (2) feasible local inference without >24GB VRAM; (3) two different training regimes (Meta vs. Alibaba) for replication diversity; (4) honest scope (not claiming to generalize to 70B+)."
+  baselines:
+    - name: "No-feedback baseline"
+      method: "Single generation pass, no repair. pass@1 from one sample per problem at temperature=0 (greedy). Token budget: initial generation only (not charged against B)."
+    - name: "FeedbackEval compiler feedback"
+      method: "Compiler/syntax error feedback as in Dai et al. [2025] — syntax-only feedback, no semantic pylint. Not implemented but cited as point of comparison for interpreting magnitude of results."
+    - name: "Reflexion (upper bound reference)"
+      method: "Execution + verbal self-reflection. 91% HumanEval [Shinn et al., 2023]. Reference point for execution feedback ceiling — not re-implemented, cited from paper."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First iso-compute head-to-head comparison of execution feedback vs. pylint/mypy static analysis feedback in iterative repair mode on standard Python functional correctness benchmarks (HumanEval, MBPP) — with automated mechanism analysis"
+  key_innovation: "Iso-compute comparison framework (fixed total output token budget per problem) that enables fair comparison between repair modes that differ in number of passes; plus automated pylint failure coverage analysis that mechanistically explains the observed ranking"
+  differentiation:
+    - prior_work: "FeedbackEval [Dai et al., 2025]"
+      difference: "FeedbackEval uses compiler/syntax errors as 'compiler feedback' — not semantic pylint/mypy analysis. FeedbackEval does not normalize by token budget. FeedbackEval does not include type-constrained decoding. Our paper adds the pylint/mypy semantic feedback condition and the iso-compute normalization."
+    - prior_work: "Static Analysis as Feedback Loop [Blyth et al., 2025]"
+      difference: "Blyth et al. test only on PythonSecurityEval (security metric, not pass@k on functional correctness). No comparison to execution feedback. Our paper tests on HumanEval/MBPP functional correctness and directly compares to execution feedback at equal token budget."
+    - prior_work: "Type-Constrained Code Generation [Mündler et al., 2025]"
+      difference: "Mündler et al. compare only to unconstrained generation. No comparison to execution feedback or pylint feedback in repair mode. Our paper includes type-constrained decoding as a prevention baseline but does not claim to fully characterize it against repair conditions."
+    - prior_work: "Self-Debug [Chen et al., 2023]"
+      difference: "Self-Debug evaluates execution feedback only (rubber duck + execution trace). No comparison to static analysis or type-constrained signals. Our paper provides the comparison Self-Debug's design could not."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "No-feedback baseline (greedy decoding)"
+      performance: "~40-60% pass@1 on HumanEval for 7B models (estimated from Iterative Self-Repair 2026 figures)"
+      dataset: "HumanEval"
+      why_insufficient: "Does not address which feedback signal improves most efficiently"
+    - method: "Reflexion (execution + verbal feedback)"
+      performance: "91% pass@1 on HumanEval (GPT-4)"
+      dataset: "HumanEval"
+      why_insufficient: "GPT-4-based; no comparison to static analysis; no token budget normalization; upper bound reference only"
+    - method: "FeedbackEval compiler feedback"
+      performance: "~48% pass@1 HumanEval (compiler feedback condition from Dai et al. 2025)"
+      dataset: "HumanEval"
+      why_insufficient: "Compiler = syntax errors only (not semantic pylint/mypy); no token budget normalization"
+    - method: "Type-Constrained Decoding (Mündler et al. 2025)"
+      performance: ">50% compilation error reduction on HumanEval/MBPP"
+      dataset: "HumanEval, MBPP"
+      why_insufficient: "One-pass comparison only (vs. unconstrained); no comparison to execution or pylint repair modes"
+  best_baseline_performance: "Reflexion: 91% HumanEval pass@1 (GPT-4, execution + verbal feedback) — upper bound reference; not directly comparable to our 7B model scope"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Pylint/mypy static analysis feedback in iterative repair mode produces a measurable pass@1 delta on HumanEval/MBPP (may be positive, near-zero, or negative — all are valid outcomes)"
+  sh2_mechanism: "Execution feedback covers a larger fraction of HumanEval/MBPP failure cases than pylint pre-execution analysis, as measured by automated coverage analysis on baseline failures"
+  sh3_comparison: "Type-constrained decoding vs. unconstrained one-pass generation on HumanEval/MBPP (secondary study; prevention mode only)"
+  open_questions:
+    - "What fraction of HumanEval baseline failures does pylint detect pre-execution? (P2 — empirical unknown)"
+    - "Does Qwen2.5-Coder-7B show the same feedback type ranking as Llama 3.1 8B? (replication check)"
+    - "At what token budget B does the execution vs. pylint gap shrink? (not in scope for workshop paper, but important for follow-up)"
+    - "Do specific pylint rule categories (error vs. warning vs. convention) differ in their correlation with functional failures? (sub-analysis possible from P2 data)"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "Self-judged convergence at exchange 15; all 6 criteria PASS; all 6 personas participated with genuine disagreement and resolution across exchanges 1-15"
+  clarity_verified: true
+  remaining_objections:
+    - "Pylint functional coverage on HumanEval is empirically unknown — experiment may produce null result for pylint condition (which is the publishable finding)"
+    - "cyb3rlab/CodeEnhancer adaptation for HumanEval/MBPP requires 2-4 days engineering effort"
+    - "7B-only scope limits generalizability claims"
+
+discussion_context:
+  total_exchanges: 15
+  agent_participation:
+    dr_nova: 3
+    prof_vera: 3
+    dr_sage: 3
+    prof_pax: 3
+    dr_ally: 2
+    prof_rex: 2
+  paper_citations: 7
+  convergence_type: "qualitative_self_judged"

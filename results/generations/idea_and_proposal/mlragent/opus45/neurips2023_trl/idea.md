@@ -1,0 +1,9 @@
+﻿# Title: Cross-Table Relational Pre-training via Foreign Key-Aware Contrastive Learning
+
+## Motivation
+Current table representation learning methods predominantly focus on single tables in isolation, ignoring the relational structure that connects tables in real-world databases. This limitation severely restricts their applicability to enterprise scenarios where understanding cross-table relationships (e.g., foreign key constraints, join paths) is essential for tasks like multi-table question answering, schema matching, and complex text-to-SQL generation. Existing models struggle to capture semantic dependencies across related tables, leading to poor performance on queries requiring multi-hop reasoning over relational databases.
+
+## Main Idea
+We propose **RelTableBERT**, a pre-training framework that explicitly models inter-table relationships through foreign key-aware contrastive learning. The methodology involves: (1) constructing a relational graph where tables are nodes and foreign keys are edges, (2) designing a novel pre-training objective that pulls together representations of semantically linked columns across tables while pushing apart unrelated ones, and (3) introducing a "join-path prediction" auxiliary task where the model learns to predict valid join sequences between table pairs.
+
+The model architecture extends existing table encoders with a cross-table attention mechanism that conditions column representations on related foreign tables. We expect significant improvements on multi-table benchmarks including Spider (text-to-SQL), cross-table entity matching, and schema linking tasks, ultimately enabling more accurate database reasoning for LLM-based data analysis systems.

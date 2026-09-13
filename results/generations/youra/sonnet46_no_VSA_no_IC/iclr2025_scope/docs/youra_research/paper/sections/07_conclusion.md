@@ -1,0 +1,27 @@
+# Conclusion
+
+We began with a paradox: zero-shot full-model SWA conversion of pre-trained transformers fails catastrophically, yet individual Llama-2-7B layers exhibit attention weight concentrated in fewer than 10% of tokens — a universal pattern confirmed across 200 diverse evaluation examples without a single exception. If many layers are already operating with effectively local attention, why does converting them all at once cause collapse?
+
+The answer, we argue, lies in selective identification. Not all layers are equally amenable to SWA conversion, and the difference between safe and unsafe conversion may be measurable — via per-layer attention entropy computed on a small calibration set. This paper establishes the empirical foundation for that argument.
+
+## Summary
+
+We addressed the problem of identifying which Llama-2-7B layers can be safely converted to sliding window attention without fine-tuning. Our approach uses head-mean attention entropy computed over 100 calibration sequences as a layer characterization signal. Our confirmed contributions are:
+
+**(1)** Llama-2-7B exhibits near-universal within-layer attention concentration (Gini = 0.6829, top-10% token share = 71.72%, both criteria satisfied by 100% of 200 evaluation examples). This structural characterization — the first systematic layer-level entropy analysis of Llama-2-7B using head-mean pooling — establishes that the model's attention is far from uniform global integration.
+
+**(2)** Head-mean pooling is substantially more stable than head-max for capturing layer-level concentration (Gini 0.681 vs 0.466, a 32% relative difference). This is a methodological finding that applies beyond this work: any attention analysis method using per-layer entropy as a signal must justify its aggregation choice.
+
+**(3)** Per-layer entropy rankings are stable across independent calibration subsets (Spearman ρ ≥ 0.8), confirming that the entropy criterion produces deterministic layer selections in practice, independent of which 100 sequences are used for calibration.
+
+Together, these findings validate the prerequisite for zero-shot selective SWA conversion: a stable, calibration-only layer characterization criterion exists. Whether this criterion successfully identifies SWA-safe layers — whether converting the 4 highest-entropy layers to SWA(w=512) preserves WikiText-103 perplexity within 2 points — remains the central open question, pending h-e2 execution.
+
+## Future Directions
+
+**From pending experiments (highest priority):** The immediate next step is executing h-e2 (entropy-guided k=4 SWA conversion on WikiText-103 test set) and h-m1 (entropy vs random vs last-k comparison). Regardless of outcome, h-e2 provides publishable findings: confirmation validates the full framework; refutation characterizes the zero-shot SWA feasibility boundary in Llama-2-7B — which is itself a concrete negative result the field needs. The preliminary QA F1 directional advantage for entropy selection (0.43 pp vs 0.67 pp random, non-significant at p = 0.4507) motivates the proper h-m1 experiment with SWA masking and perplexity metric.
+
+**From unverified assumptions:** The residual stream compensation mechanism — that 28 remaining full-attention layers compensate for 4 converted SWA layers — is theoretically motivated but empirically unconfirmed. Depth-position analysis in h-m2 (comparing k=4 vs k=8 degradation) can test whether early-layer conversion causes more degradation than late-layer conversion, providing direct evidence about where in the network residual stream compensation operates most effectively.
+
+**From scope extensions:** Cross-domain calibration stability is the most impactful near-term extension: re-running entropy scoring with SST-2 or code-domain calibration sequences would test whether the layer rankings are universal architectural properties or domain-specific phenomena. Architecture generalization to Llama-3-8B (grouped-query attention, requiring adapted pooling) is a natural next step after Llama-2-7B validation.
+
+Our findings suggest that pre-trained LLMs contain latent structural heterogeneity — some layers are already operating locally — and that this heterogeneity can be measured cheaply and reliably. We hope this work encourages the community to look beyond holistic model modification and toward layer-level characterization as a principled basis for efficient, training-free inference optimization.

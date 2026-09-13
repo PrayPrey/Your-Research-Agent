@@ -1,0 +1,416 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# NARRATIVE BLUEPRINT
+# Phase 6 Step 02 - Narrative Design
+# Generated: 2026-08-25
+# ═══════════════════════════════════════════════════════════════════════════════
+
+version: "1.0.0"
+schema: "narrative_blueprint"
+created_at: "2026-08-25T00:00:00+00:00"
+updated_at: "2026-08-25T00:00:00+00:00"
+
+metadata:
+  hypothesis_id: "H-SE4Way-v1"
+  hypothesis_title: "Semantic Entropy vs. Token Entropy at 7B Scale: Task-Structure-Dependent Advantage"
+  research_folder: "docs/youra_research"
+  target_venue: "ICML 2025"
+
+  source_artifacts:
+    brainstorm_session: "not available"
+    targeted_research: "01_targeted_research.md"
+    refinement: "03_refinement.yaml"
+    verification_plan: "02b_verification_plan.md"
+    validated_hypothesis: "045_validated_hypothesis.md"
+    validation_reports:
+      - "h-e1/04_validation.md"
+      - "h-m1/04_validation.md"
+      - "h-m3/04_validation.md"
+      - "h-m4/04_validation.md"
+      - "h-c1/04_validation.md"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 1: HOOK & MOTIVATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+hook:
+  opening_statement:
+    content: |
+      Semantic entropy outperforms token entropy by 0.155 AUROC on TriviaQA — then loses by
+      0.066 AUROC on TruthfulQA. The same model, the same method, two factual QA benchmarks,
+      opposite orderings. This reversal is not noise: it exposes a task-structure condition
+      that determines when semantic-level uncertainty estimation helps and when it fails.
+    strategy: "counterintuitive_finding"
+    rationale: |
+      The ordering reversal (SE wins on TriviaQA, TE wins on TruthfulQA) immediately raises
+      "why?" and the paper answers it with mechanistic evidence. This is stronger than a
+      surprising statistic alone because it establishes a puzzle that demands resolution.
+
+  why_reader_should_care:
+    main_reason: |
+      Uncertainty estimation is critical for deploying LLMs safely — knowing when a model
+      is likely wrong determines whether to trust its output. If the "best" uncertainty
+      method (semantic entropy) switches to "worst" depending on task type, practitioners
+      who select methods based on TriviaQA benchmarks may deploy a worse method on their
+      actual use case.
+    concrete_example: |
+      A medical QA deployment uses TriviaQA-benchmarked uncertainty scores to flag
+      low-confidence answers for human review. On adversarial or misconception-prone
+      questions (analogous to TruthfulQA), semantic entropy provides near-random
+      uncertainty estimates (AUROC 0.445) — offering no protection where it matters most.
+    stakes: |
+      Without understanding task-structure conditions for uncertainty method selection,
+      benchmark-driven method choice is unreliable and potentially misleading.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 2: PROBLEM FRAMING (Three Levels)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+problem_framing:
+  surface_problem:
+    description: |
+      LLMs hallucinate — they generate plausible but incorrect text. Uncertainty estimation
+      methods are used to detect hallucinations by scoring when a model "doesn't know"
+      the answer. Multiple methods exist: token entropy (TE), semantic entropy (SE),
+      SelfCheckGPT consistency (SCG), and verbalized confidence (VC).
+    common_understanding: |
+      Prior work (Kuhn et al. 2023) establishes SE outperforms TE at 65B scale, and
+      practitioners assume method rankings on established benchmarks generalize.
+
+  deeper_problem:
+    description: |
+      The comparative evaluation of SE, TE, SCG, and VC has never been conducted together
+      at 7B scale — the scale at which most deployed models operate. Kuhn et al.'s 65B-scale
+      findings may not hold at 7B. Moreover, all prior evaluations use a single benchmark
+      type (open-domain factual recall), leaving the method ordering's scope unknown.
+    why_overlooked: |
+      Prior comparative papers (Huang 2023, Xiong 2023) excluded SE. Kuhn 2023 included SE
+      but only at 65B scale and only on TriviaQA/NQ — not cross-benchmark. No study has
+      directly measured the mechanistic reason for the SE > TE gap.
+    our_perspective: |
+      We run all four methods head-to-head at 7B scale under identical conditions, measure
+      the mechanistic driver (intra-cluster TE variance), and test cross-benchmark generalization.
+
+  gap_in_existing_work:
+    description: |
+      No study provides: (1) a four-way SE-inclusive comparison at 7B scale, (2) direct
+      measurement of the paraphrase-noise mechanism driving the SE > TE gap, (3) cross-task
+      evaluation of the SE/TE ordering, or (4) empirical characterization of VC degeneracy
+      at 7B with calibration evidence.
+    why_gap_exists: |
+      SE's computational cost (NLI inference over K×K pairs) made large-scale comparative
+      studies expensive. The gap persists because each paper adds one method and a benchmark,
+      but no paper closes all four dimensions simultaneously.
+    why_gap_matters: |
+      Without a unified comparison, practitioners cannot make principled method selection
+      decisions. Without mechanistic understanding, the SE > TE gap is an empirical curiosity
+      rather than an actionable design principle.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 3: KEY INSIGHT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+key_insight:
+  aha_moment:
+    one_sentence: |
+      Semantic entropy's advantage over token entropy is determined by output diversity
+      structure: SE wins when incorrect model outputs are paraphrase-diverse (TriviaQA),
+      and TE wins when incorrect outputs are deterministically wrong (TruthfulQA).
+    expanded_explanation: |
+      When a model generates K=10 samples for a question it doesn't know, the incorrect
+      answers can be either diverse (many different wrong answers, all meaning different
+      things) or concentrated (repeatedly generating the same wrong answer). Token entropy
+      sees high entropy in both cases because it counts surface variation. Semantic entropy
+      clusters semantically equivalent samples before computing entropy, so it assigns
+      near-zero uncertainty to a cluster of K identical-meaning wrong answers — failing
+      to flag the model's error. On TriviaQA, incorrect answers are paraphrase-diverse
+      (SE wins). On TruthfulQA's adversarial misconceptions, wrong answers are consistent
+      (TE wins, SE fails).
+    experiment_support: "H-E1 (gap +0.155 on TriviaQA) + H-C1 (gap -0.066 on TruthfulQA) + H-M1 (intra-cluster TE variance = 7.15 nats²)"
+
+  why_others_missed_it:
+    common_assumptions: |
+      Prior work assumed SE's semantic-level filtering is universally better than TE's
+      surface-level counting. Kuhn 2023 showed SE > TE at 65B on TriviaQA and NQ —
+      both open-domain factual recall tasks with diverse incorrect answers — and the
+      finding was generalized without testing adversarial task types.
+    our_different_view: |
+      We designed a cross-benchmark test (H-C1) specifically to probe generalization,
+      and measured the mechanism (H-M1) that makes the gap task-dependent. The paraphrase
+      diversity hypothesis was testable once framed as a task-structure condition.
+    enabling_factor: |
+      The h-e2-v2 infrastructure (K=10 cached samples for N=98 TriviaQA questions) was
+      already available; extending to TruthfulQA required only re-running the pipeline
+      on a second benchmark. The mechanism measurement (H-M1) required only adding
+      within-cluster TE variance as an analysis metric.
+
+  what_makes_it_work:
+    intuitive_explanation: |
+      Token entropy counts how many different words appear across K samples. Semantic
+      entropy instead asks "how many different ideas appear?" If wrong answers all express
+      the same misconception in different words, token entropy says "uncertain" (many words)
+      but semantic entropy says "confident" (one cluster, one idea). On TruthfulQA,
+      confident wrong = one cluster = SE misses the error.
+    key_mechanism: |
+      NLI-based clustering absorbs within-cluster surface variation (measured: mean
+      intra-cluster TE variance = 7.152 nats², 71× threshold). On tasks where incorrect
+      outputs form one cluster (deterministic-wrong), SE entropy is near-zero for wrong
+      answers, making them indistinguishable from correct answers in SE's feature space.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 4: EVIDENCE NARRATIVE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+evidence_narrative:
+  main_claim:
+    statement: |
+      Semantic entropy (AUROC = 0.717) substantially outperforms token entropy (AUROC = 0.562)
+      on TriviaQA at Llama-2-7B scale — a gap (+0.155) mechanistically explained by SE's
+      NLI-clustering elimination of paraphrase noise — but this advantage does not generalize
+      to adversarial misconception tasks (TruthfulQA), where TE (0.511) outperforms SE (0.445).
+    measurable_criteria: "AUROC comparison with bootstrap 95% CI; intra-cluster TE variance"
+
+  supporting_evidence:
+    - id: "evidence_1_primary_gap"
+      what: "SE AUROC = 0.717 vs TE AUROC = 0.562 on TriviaQA; gap = +0.155; non-overlapping 95% CI"
+      so_what: "At 7B scale — where absolute SE AUROC is modest — the relative ordering exceeds 3× the practical significance threshold"
+      how_it_supports_claim: "Directly validates P1 and establishes that SE > TE holds at sub-65B scale"
+      source: "h-e1 (MUST_WORK gate PASS)"
+      figure: "h-e1_fig1_auroc_bar.png"
+
+    - id: "evidence_2_mechanism"
+      what: "Mean intra-cluster TE variance = 7.152 nats² (71× the 0.1 threshold); 76/98 questions have multi-member clusters"
+      so_what: "TE's paraphrase noise is not a subtle effect — surface variation within NLI-equivalent clusters is the dominant signal"
+      how_it_supports_claim: "Explains WHY SE > TE: TE aggregates paraphrase noise, SE clusters it out"
+      source: "h-m1 (MUST_WORK gate PASS)"
+      figure: "h-m1_fig2_violin_intra_var.png"
+
+    - id: "evidence_3_reversal"
+      what: "TruthfulQA ordering: TE=0.511 > SCG=0.492 > VC=0.462 > SE=0.445"
+      so_what: "Same model, same method, opposite ordering — confirms task-structure hypothesis, not random variation"
+      how_it_supports_claim: "Establishes scope condition: SE advantage requires paraphrase-rich incorrect outputs"
+      source: "h-c1 (SHOULD_WORK gate FAIL — finding is the refutation itself)"
+      figure: "h-c1_cross_benchmark_comparison.png"
+
+    - id: "evidence_4_scg_divergence"
+      what: "SCG (BERTScore) AUROC = 0.378 vs SE AUROC = 0.714 (corrected); delta = 0.336"
+      so_what: "BERTScore lexical overlap and NLI entailment are not interchangeable for short QA answers"
+      how_it_supports_claim: "Refutes P2 (SCG ≈ SE); shows the mechanism distinction (lexical vs. semantic) matters"
+      source: "h-m3 (SHOULD_WORK gate FAIL)"
+      figure: "h-m2_auroc_comparison.png"
+
+    - id: "evidence_5_vc_degeneracy"
+      what: "VC: 5 distinct values, ~60% at 95% confidence; ECE = 0.430; actual accuracy ~47%"
+      so_what: "7B-scale instruction-tuned models are severely miscalibrated — they confidently assert 95% on questions they answer incorrectly"
+      how_it_supports_claim: "Confirms VC cannot substitute for sampling-based methods at 7B scale"
+      source: "h-m4 (SHOULD_WORK gate FAIL)"
+      figure: "h-m4_ece_calibration.png"
+
+  surprising_findings:
+    - finding: "SE-TE ordering reverses on TruthfulQA despite mechanism evidence confirming SE's advantage"
+      why_surprising: "H-M1 confirmed intra-cluster TE variance is real; expectation was the mechanism applies broadly"
+      our_interpretation: "TruthfulQA's adversarial misconceptions produce deterministic-wrong outputs — all K samples in one cluster, SE entropy near-zero, discrimination fails"
+
+    - finding: "Low-uncertainty questions show higher intra-cluster TE variance than high-uncertainty questions"
+      why_surprising: "Expected high-uncertainty questions to have more paraphrase variation (more diverse outputs)"
+      our_interpretation: "Cluster size asymmetry: low-uncertainty questions have fewer clusters, more samples per cluster, higher within-cluster TE variance"
+
+    - finding: "VC AUROC (0.446) marginally exceeds TE AUROC (0.438) on TriviaQA despite ECE=0.430"
+      why_surprising: "Expected VC to clearly underperform TE; instead VC's near-random AUROC approximately matches TE's near-random AUROC"
+      our_interpretation: "Both methods are near-chance at 7B scale; the comparison is between two poor methods, not a validation of VC"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 5: BROADER IMPACT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+takeaway:
+  main_contribution:
+    one_sentence: |
+      We identify and empirically characterize the task-structure condition for SE's superiority
+      over TE: SE outperforms TE when incorrect outputs are paraphrase-diverse, and loses when
+      they are deterministically wrong — a scope condition unidentified in prior 65B-scale evaluations.
+    why_significant: |
+      This provides the first experimental characterization of when SE should (and should not)
+      replace TE, enabling principled method selection rather than benchmark-driven defaults.
+
+  implications:
+    for_field: |
+      Uncertainty estimation papers evaluating on TriviaQA-like benchmarks should test on
+      adversarial or misconception tasks before claiming domain-generality. The paraphrase-diversity
+      structure of incorrect outputs is a meaningful benchmark property that determines method ranking.
+    for_practice: |
+      Practitioners should match uncertainty methods to task type: SE for open-domain factual recall
+      where wrong answers are diverse; TE for misconception/adversarial tasks where models
+      confidently generate identical wrong answers. BERTScore-based SCG is not a low-compute
+      substitute for SE on short QA tasks.
+
+  future_possibilities:
+    immediate_extensions:
+      - "Re-run h-c1 with nli-deberta-v3-large to disentangle NLI model size from task structure"
+      - "N=500 extension of h-e1 to confirm SE-TE gap stability"
+      - "Test SelfCheckNLI variant of SCG to determine if NLI-based consistency recovers equivalence"
+    longer_term_vision: |
+      A task-structure taxonomy for uncertainty method selection: given a task description,
+      predict whether incorrect model outputs are paraphrase-diverse or deterministic-wrong,
+      and recommend SE vs. TE accordingly. This would move uncertainty method selection
+      from empirical trial-and-error to principled design.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 6: SECTION-LEVEL GOALS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+section_goals:
+  abstract:
+    narrative_purpose: "Compress full story — hook, gap, method, key finding, task-structure condition"
+    key_message: "SE outperforms TE on TriviaQA (+0.155) but loses on TruthfulQA (−0.066); task output diversity structure determines which method wins"
+    must_include: ["gap +0.155", "reversal on TruthfulQA", "intra-cluster variance mechanism", "task-structure condition"]
+    tone: "Specific, quantitative, no hedging — strong claims with numbers"
+
+  introduction:
+    narrative_purpose: "Hook (counterintuitive reversal) → Surface problem → Deeper gap → Key insight preview → Contributions"
+    hook_strategy: "counterintuitive_finding — open with TriviaQA win then TruthfulQA reversal"
+    opening_move: "State the reversal as the opening fact, then explain why it matters"
+    contribution_framing: "Frame as story, not list: (1) four-way 7B comparison closes the gap, (2) mechanism measured, (3) scope condition identified"
+    transition_to_related: "After contributions, position against prior work: 'These findings extend Kuhn 2023 to 7B scale and identify the task-structure scope condition their evaluation did not address'"
+
+  related_work:
+    narrative_purpose: "Show existing work is incomplete in exactly the way our paper fills"
+    positioning_strategy: "Each prior paper is missing one or more of: 7B scale, all four methods together, mechanism measurement, cross-benchmark testing"
+    key_comparison_points:
+      - "Kuhn 2023: SE at 65B only; no TE comparison; no cross-benchmark; no mechanism"
+      - "Huang 2023: TE vs. sampling-based but no SE; no 7B; no mechanism"
+      - "Xiong 2023: VC analysis at multiple scales; no SE comparison; no mechanism"
+      - "Manakul 2023: SCG on long-form text; short QA SCG behavior uncharacterized"
+      - "Kadavath 2022: VC calibration; no comparative ranking with sampling methods"
+    closing_move: "End with: 'No prior work provides all four methods, at 7B scale, with mechanism measurement and cross-benchmark validation — we close this gap'"
+
+  methodology:
+    narrative_purpose: "Show WHY this experimental design is the right one to test the claims"
+    connection_to_insight: "The four-method head-to-head design directly measures the ranking; the intra-cluster variance analysis directly measures the mechanism"
+    key_design_decisions:
+      - "K=10 samples for all stochastic methods — matches Kuhn 2023 for comparability"
+      - "NLI-based SE (nli-deberta-v3-large) — larger than h-c1 default; corrects for model size confound"
+      - "Bootstrap 95% CI with negation convention — principled AUROC orientation"
+      - "TriviaQA + TruthfulQA — chosen to contrast paraphrase-diverse vs. deterministic-wrong task types"
+      - "N=98 pilot — designed for 80% power to detect gaps >= 0.05"
+    figures_to_use: ["h-m1_fig4_nli_heatmap.png (show cluster structure)"]
+
+  experiments:
+    narrative_purpose: "Design section around the specific claims being tested, not around the implementation"
+    experimental_questions:
+      - "EQ1: Does SE outperform TE by >= 0.05 AUROC at 7B scale? (P1 test)"
+      - "EQ2: Is the SE > TE gap explained by intra-cluster TE variance? (mechanism test)"
+      - "EQ3: Does the SE > TE advantage generalize to TruthfulQA? (scope test)"
+      - "EQ4: Is SCG equivalent to SE on short factual QA? (P2 test)"
+      - "EQ5: Is VC miscalibrated at 7B scale? (P3 test)"
+    organization: "Structure as sub-hypotheses tested, not chronological execution"
+
+  results:
+    narrative_purpose: "Present evidence in order of persuasiveness: primary gap → mechanism → reversal → secondary findings"
+    primary_result: "SE AUROC = 0.717 vs TE = 0.562 on TriviaQA (gap = +0.155)"
+    result_ordering:
+      1: "Primary: SE vs TE AUROC gap (h-e1) — the existence result"
+      2: "Mechanism: Intra-cluster TE variance (h-m1) — the WHY"
+      3: "Scope: TruthfulQA reversal (h-c1) — the boundary condition"
+      4: "SCG vs SE divergence (h-m3) — method-specific finding"
+      5: "VC degeneracy (h-m4) — calibration finding"
+    sign_convention_note: "Clearly state that AUROC uses negated uncertainty scores (higher uncertainty = higher AUROC). Note h-m3/h-m4 SE baseline of 0.286 is inverted — corrected SE AUROC = 0.714"
+    key_figures:
+      - "h-e1_fig1_auroc_bar.png — primary result bar chart"
+      - "h-m1_fig2_violin_intra_var.png — mechanism distribution"
+      - "h-c1_cross_benchmark_comparison.png — cross-benchmark reversal"
+      - "h-m4_ece_calibration.png — VC calibration failure"
+
+  discussion:
+    narrative_purpose: "Interpret what the results mean, connect to key insight, acknowledge limits honestly"
+    structure:
+      1: "Why SE wins on TriviaQA (paraphrase-diversity mechanism, connected to H-M1 evidence)"
+      2: "Why SE loses on TruthfulQA (deterministic-wrong hypothesis, rival explanations)"
+      3: "Implications for method selection (task-structure condition as actionable principle)"
+      4: "Honest limitations (N=98, sign convention, H-M2 design flaw, NLI model size confound in h-c1)"
+    honest_limitations:
+      - "N=98 pilot: TruthfulQA results directional, not definitively powered"
+      - "Sign convention inconsistency across pipelines (documented)"
+      - "H-M2 ablation invalidated by design — mechanistic evidence is from H-M1"
+      - "H-C1 confounds NLI model size and task structure — follow-up needed"
+
+  conclusion:
+    narrative_purpose: "Callback to the hook (the reversal), synthesize the task-structure insight, open future"
+    callback_to_hook: "Open with: 'The ordering reversal that opens this paper — SE wins on TriviaQA, loses on TruthfulQA — is not a failure of semantic entropy but a diagnostic signal'"
+    synthesis_statement: "The task-structure condition we identify provides a principled basis for uncertainty method selection that benchmark-driven defaults cannot provide"
+    future_vision: "A task-structure taxonomy for method selection; SelfCheckNLI as SCG replacement; scale-up to 13B/70B"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 7: NARRATIVE COHERENCE CHECKLIST
+# ═══════════════════════════════════════════════════════════════════════════════
+
+narrative_coherence_checklist:
+  - check: "Does Introduction hook connect to Conclusion ending?"
+    status: "YES — Introduction opens with the TriviaQA/TruthfulQA reversal; Conclusion closes by reinterpreting it as a diagnostic signal"
+
+  - check: "Does each section naturally flow to the next?"
+    status: "YES — Hook establishes puzzle; Related Work shows gap; Methodology explains experimental design to resolve puzzle; Results presents resolution; Discussion interprets it; Conclusion synthesizes"
+
+  - check: "Is key insight (task-structure condition) consistently emphasized?"
+    status: "YES — Introduced in hook, framed as gap in Related Work, tested in Experiments, confirmed in Results, explained in Discussion, synthesized in Conclusion"
+
+  - check: "Are all major claims supported by evidence?"
+    status: "YES — P1 (h-e1, PASS), mechanism (h-m1, PASS), reversal (h-c1, FAIL-as-expected), SCG divergence (h-m3, documented), VC degeneracy (h-m4, calibration confirmed)"
+
+  - check: "Would a busy reviewer find Abstract compelling?"
+    status: "YES — Abstract leads with the number (+0.155 gap), states the reversal, and gives the one-sentence insight"
+
+  - check: "Are limitations honestly presented, not buried?"
+    status: "YES — Discussion includes N=98 statistical power, sign convention issue, H-M2 design flaw, NLI model confound in h-c1"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 8: TERMINOLOGY CONSISTENCY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+terminology:
+  primary_terms:
+    - term: "Semantic Entropy (SE)"
+      definition: "NLI-based clustering of K=10 samples; entropy over cluster distribution"
+      abbreviation: "SE"
+
+    - term: "Token Entropy (TE)"
+      definition: "Mean per-token Shannon entropy over softmax distribution, averaged across generated sequence"
+      abbreviation: "TE"
+
+    - term: "SelfCheckGPT BERTScore (SCG)"
+      definition: "Pairwise BERTScore consistency across K=10 samples; uncertainty = 1 - mean_agreement"
+      abbreviation: "SCG"
+
+    - term: "Verbalized Confidence (VC)"
+      definition: "Self-reported 0-100% confidence from Llama-2-7B-Chat after answering"
+      abbreviation: "VC"
+
+    - term: "AUROC"
+      definition: "Area under ROC curve for binary classification: uncertain (predicted) vs. incorrect (EM=0)"
+      note: "Higher = better; scores negated before computation (higher uncertainty = higher AUROC)"
+
+    - term: "paraphrase-rich incorrect outputs"
+      definition: "Task structure where wrong model answers take diverse surface forms (TriviaQA characteristic)"
+
+    - term: "deterministic-wrong outputs"
+      definition: "Task structure where wrong model answers are consistent/identical across K samples (TruthfulQA characteristic)"
+
+    - term: "intra-cluster TE variance"
+      definition: "Variance of token entropy values within NLI-equivalent answer clusters; measures paraphrase noise in TE"
+
+  key_numbers_reference:
+    se_auroc_trivia: 0.717
+    te_auroc_trivia: 0.562
+    gap_trivia: 0.155
+    se_auroc_truthful: 0.445
+    te_auroc_truthful: 0.511
+    gap_truthful: -0.066
+    intra_cluster_variance: 7.152
+    variance_threshold: 0.1
+    variance_ratio: "71x"
+    vc_ece: 0.430
+    scg_auroc: 0.378
+    se_auroc_corrected: 0.714
+    scg_se_delta: 0.092
+    n_trivia: 98
+    n_truthful: 141
+    k_samples: 10

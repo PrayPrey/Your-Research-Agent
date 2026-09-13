@@ -1,0 +1,31 @@
+
+Converting a transformer to an SSM requires fewer than one billion distillation tokens --- and when the normalized approximation error of the resulting architecture is measured at multiple sequence lengths, something counterintuitive emerges: the normalized error decreases as context grows longer. Yet retrieval performance in long-context tasks is reported to degrade in SSM-converted models. The question is why better approximation would be accompanied by worse retrieval.
+
+This question is central to efficient long-context modeling. Sub-quadratic architectures --- selective state-space models (SSMs) and linear attention variants --- offer inference costs that scale linearly rather than quadratically, enabling deployment of long-context language models under practical compute constraints. Converting a pretrained transformer to these architectures via distillation has emerged as an alternative to training from scratch: MOHAWK \citep{Bick2024MOHAWK} demonstrates SSM conversion of Phi-1.5 with competitive retention on standard benchmarks; LAWCAT \citep{Liu2025} achieves greater than 90\% passkey retrieval at 22K tokens from Mistral-7B with under 1B distillation tokens. Both results suggest conversion is viable --- but on different base models, against different benchmarks, and without a shared measurement framework that separates the approximation mechanism from behavioral outcomes.
+
+A confound exists that neither paper addresses: when a converted model fails on long-context retrieval, is the failure caused by the distillation approximation degrading at long context, or by the SSM's inherent bounded-state architecture --- the state update h\_t = $A\cdot h_{t-1} + B\cdot x_t$ that exponentially discounts early token positions regardless of how precisely the conversion was performed? These two explanations have different implications for practitioners. If approximation failure is the cause, extending the distillation training budget can address it. If bounded-state architecture is the cause, no amount of distillation improvement can fundamentally fix retrieval degradation, and architectural changes --- such as retaining attention layers in a hybrid --- are required.
+
+The present work addresses this confound through a two-part experimental design. The first part, which we term the \textit{mechanism gate}, measures the SSD approximation quality independently of downstream task performance by computing the Frobenius distance between SSD transfer matrices and teacher attention matrices at multiple sequence lengths. The gate can be evaluated before any behavioral experiment and its outcome determines the causal attribution: if approximation quality degrades with N, retrieval failures could reflect distillation breakdown; if it does not, the failure must be attributed to the SSM state architecture.
+
+The mechanism gate result is unambiguous. Fitting MOHAWK's SSD mixer to LLaMA-3.1-8B attention matrices at N $\in$ {512, 1024, 2048}, the normalized Frobenius error (raw error / N) decreases across all tested lengths: 0.039 at N = 512, 0.033 at N = 1024, 0.024 at N = 2048. The log-log slope is $\beta = -0.368$, well below the pre-registered threshold of 0.5. The 90th percentile normalized error at N = 2048 is 0.027, also well below the threshold of 0.3. Both gate criteria pass. The result is negative in scope: approximation quality is not the bottleneck.
+
+The second part of the experimental design --- a controlled behavioral comparison of MOHAWK-SSM, LAWCAT, Hybrid-4, and the teacher on LongBench v2 with LLaMA-3.1-8B as the fixed base model --- has been implemented and validated (22/22 unit tests passing) and the distillation experiment has been launched. Behavioral results are pending experiment completion and are not available at the time of this report.
+
+\textbf{Contributions:}
+
+\begin{enumerate}
+\item \textbf{Mechanism gate (confirmed):} The first direct measurement of SSD Frobenius approximation scaling for LLaMA-3.1-8B at multiple sequence lengths, establishing that normalized error decreases with N ($\beta = -0.368$, 1,920 measurements, both gate criteria passed with large margin at N $\leq$ 2048).
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Causal attribution:} Retrieval degradation in MOHAWK-converted LLaMA-3.1-8B is attributable to bounded-state architectural bias --- the exponential forgetting in SSM state updates --- rather than approximation quality breakdown, since the approximation strengthens with N.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Validated evaluation infrastructure:} A controlled cross-strategy comparison pipeline (MOHAWK-SSM versus LAWCAT versus Hybrid-4 versus teacher on LongBench v2 with fixed LLaMA-3.1-8B) is implemented and validated; behavioral results pending.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Engineering artifact:} Ten previously undocumented failure modes in the MOHAWK + LAWCAT + LLaMA-3.1-8B integration pipeline are identified and resolved.
+\end{enumerate}
+

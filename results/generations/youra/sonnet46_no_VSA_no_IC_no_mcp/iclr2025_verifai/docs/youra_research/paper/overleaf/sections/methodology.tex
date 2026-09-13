@@ -1,0 +1,112 @@
+\section{Methodology}
+
+\subsection{Overview}
+
+Our key insight motivates the experimental design: if mypy output functions as
+a general diagnostic context enricher rather than a type-targeted correction
+signal, then the improvement should appear broadly across problem types, not
+concentrated on type-error problems. To test this, we need not just an existence
+check (does mypy help?) but a \emph{mechanistic decomposition} --- a causal
+chain from signal existence through LLM consumption to overall effect to
+type-specificity.
+
+We operationalize this as a five-sub-hypothesis experiment (h-e1 through h-z1),
+each testing one link in the causal chain. This structure lets us distinguish
+between ``mypy helps but through an unexpected mechanism'' (our finding) and
+``mypy doesn't help'' (an equally possible outcome).
+
+\subsection{Experimental Conditions}
+
+We define three experimental conditions:
+
+\begin{itemize}
+\item \textbf{Condition A (execution-only):} After each generation attempt, run
+the solution against EvalPlus test cases. Capture pass/fail status and, on
+failure, the exception trace or wrong-output message. Feed this as feedback to
+the LLM for the next repair attempt.
+
+\item \textbf{Condition B (execution+mypy):} Same as Condition A, but
+additionally run \texttt{mypy --ignore-missing-imports --no-strict-optional}
+on the generated code and append the mypy output to the feedback prompt before
+calling the LLM.
+
+\item \textbf{Condition C (execution+mypy+Z3):} Same as Condition B, but for
+problems in the arithmetic subset where a valid Z3 specification was generated
+and a counterexample was found, additionally append the Z3 counterexample to
+the repair prompt.
+\end{itemize}
+
+Condition A is the Self-Debug baseline. Condition B is the treatment.
+Condition C is the extension tested in h-z1.
+
+\subsection{LLM Configuration}
+
+All experiments use \textbf{GPT-4o-mini} via the OpenAI API:
+
+\begin{itemize}
+\item \textbf{Initial generation:} temperature=0.8, max\_tokens=1024
+\item \textbf{Repair loop:} temperature=0.0, max\_tokens=2048
+\item \textbf{Seeds for h-m3:} \{42, 123, 456\}
+\end{itemize}
+
+Temperature=0.0 for repair makes error elimination results (h-m1) interpretable
+--- the LLM's repair policy is a fixed function of the feedback. Three seeds at
+temperature=0.8 for initial generation separate initial solution randomness from
+repair-loop behavior.
+
+\subsection{Repair Loop Structure}
+
+\begin{algorithm}[t]
+\caption{Execution+mypy Repair Loop (Condition B)}
+\label{alg:repair}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} problem $p$, initial solution $s_0$, rounds $k=5$
+\STATE \textbf{Output:} final solution $s_k$, pass@1 indicator
+\FOR{round $r = 0$ to $k-1$}
+  \STATE $\text{result\_exec} \leftarrow \text{evaluate}(s_r, p.\text{tests})$
+  \IF{$\text{result\_exec.passed}$}
+    \RETURN $s_r$, PASS
+  \ENDIF
+  \STATE $\text{result\_mypy} \leftarrow \text{run\_mypy}(s_r)$ \COMMENT{Condition B only}
+  \STATE $\text{feedback} \leftarrow \text{format}(\text{result\_exec}, \text{result\_mypy})$
+  \STATE $s_{r+1} \leftarrow \text{LLM.generate}(\text{repair\_prompt}(p, s_r, \text{feedback}), T{=}0.0)$
+\ENDFOR
+\RETURN $s_k$, $\text{evaluate}(s_k, p.\text{tests}).\text{passed}$
+\end{algorithmic}
+\end{algorithm}
+
+mypy invocation uses \texttt{--ignore-missing-imports --no-strict-optional} to
+reduce false positives. mypy timeout: 30 seconds per call.
+
+\subsection{Sub-Hypothesis Structure}
+
+\begin{table}[h]
+\centering
+\caption{Five-sub-hypothesis causal chain.}
+\label{tab:hypotheses}
+\begin{tabular}{@{}llp{3.5cm}l@{}}
+\toprule
+Sub-hypothesis & Question & Gate Type \\
+\midrule
+h-e1 & Does mypy signal exist? ($\geq$10\%) & MUST\_WORK \\
+h-m1 & LLM consume mypy? ($\rho < 0$) & MUST\_WORK \\
+h-m2 & Type-specific improvement? & SHOULD\_WORK \\
+h-m3 & execution+mypy $>$ execution-only? & MUST\_WORK \\
+h-z1 & Z3 CE further improves pass@1? & SHOULD\_WORK \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The causal chain ensures that a null h-m3 result can be diagnosed: is it
+because mypy produces no signal (h-e1 fail), the LLM doesn't use it (h-m1
+fail), or type-specificity fails (h-m2 fail + h-m3 pass --- our actual finding)?
+
+\subsection{Z3 Specification Pipeline}
+
+For the arithmetic subset (h-z1), we use a three-stage pipeline: (1)
+\textbf{curation} by heuristic keyword matching (123 candidate problems); (2)
+\textbf{spec generation} by prompting GPT-4o-mini to write Z3 Python assertions;
+(3) \textbf{validation} against EvalPlus ground-truth tests (validity rate:
+91.1\%). For valid specs, we attempt counterexample generation per repair
+attempt (CE rate: 16.1\%). The pipeline is implemented in
+\texttt{h-z1/code/z3\_utils.py}.

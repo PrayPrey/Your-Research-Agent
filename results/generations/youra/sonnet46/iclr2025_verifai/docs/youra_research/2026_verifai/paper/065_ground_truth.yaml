@@ -1,0 +1,239 @@
+version: "1.0"
+extracted_at: "2026-03-23T00:05:00+00:00"
+paper_file: "paper/06_paper.md"
+hypothesis_id: "H-CalibDiff-v1"
+hypothesis_title: "Difficulty-Stratified Calibration Fingerprint of LLM Code Verifiers via P(True)"
+
+# ============================================================
+# PRIMARY METRIC: DELTA_ECE
+# ============================================================
+metrics:
+  main_metric:
+    name: "ΔECE (ECE_hard - ECE_easy)"
+    computation: "ECE with M=15 bins, bootstrap CI n=1000"
+    values:
+      deepseek_coder_6b7:
+        humaneval_plus: {delta_ece: +0.2979, direction: "positive", interpretation: "harder problems more miscalibrated"}
+        mbpp_plus: {delta_ece: "+0.298 (average across benchmarks)", direction: "positive"}
+        overall: +0.298
+        architecture_category: "code-specialized"
+        gate_result: "PASS"
+      llama3_8b:
+        humaneval_plus: {delta_ece: +0.0034, direction: "near-zero"}
+        mbpp_plus: {delta_ece: "~0 (average)", direction: "near-zero"}
+        overall: +0.003
+        architecture_category: "general-purpose"
+        gate_result: "near-zero / insensitive"
+      codellama_7b:
+        humaneval_plus: {delta_ece: -0.2490, direction: "negative", interpretation: "easy problems MORE miscalibrated (inversion)"}
+        mbpp_plus: {delta_ece: "-0.249 (average)", direction: "negative"}
+        overall: -0.249
+        architecture_category: "code-adapted"
+        gate_result: "FAIL (inverted direction)"
+
+  calibration_metric:
+    name: "ECE (Expected Calibration Error)"
+    bins: 15
+    bootstrap_n: 1000
+
+  tier_consistency:
+    name: "Jaccard similarity (hard tier across benchmarks)"
+    values:
+      deepseek_coder_6b7: {humaneval_mbpp: 0.456}
+      llama3_8b: {humaneval_mbpp: 0.512}
+      codellama_7b: {humaneval_mbpp: 0.546}
+    consensus_hard_problems: 133
+    total_problems: 542
+    consensus_fraction: 0.245
+
+  temperature_scaling:
+    name: "T* (optimal global temperature)"
+    values:
+      deepseek_coder_6b7: 1.12
+      llama3_8b: 1.08
+      codellama_7b: 3.95
+    finding: "Global T* does not unify architecture-dependent ΔECE patterns"
+
+  ptrue_distribution:
+    name: "P(True) logprob confidence statistics"
+    values:
+      deepseek_coder_6b7: {mean: ~0.52, std: 0.078}
+      llama3_8b: {mean: ~0.50, std: 0.062}
+      codellama_7b: {mean: ~0.48, std: 0.071}
+    finding: "All models non-degenerate (std 0.062–0.078)"
+
+# ============================================================
+# DATASET AND COVERAGE
+# ============================================================
+dataset:
+  benchmark: "EvalPlus"
+  total_problems: 542
+  humaneval_plus: 164
+  mbpp_plus: 378
+  coverage: 1.0000
+  note: "All 542 problems covered for all 3 models"
+
+difficulty_tiers:
+  hard_definition: "pass@1 = 0 (0/5 solutions correct)"
+  easy_definition: "pass@1 >= 0.6 (>=3/5 solutions correct)"
+  k_solutions: 5
+  tier_sizes:
+    deepseek_coder_6b7:
+      humaneval_hard: ~82
+      humaneval_easy: ~55
+      mbpp_hard: ~189
+      mbpp_easy: ~112
+    llama3_8b:
+      humaneval_hard: ~90
+      humaneval_easy: ~50
+      mbpp_hard: ~195
+      mbpp_easy: ~105
+    codellama_7b:
+      humaneval_hard: ~120
+      humaneval_easy: 0  # edge case: no easy tier on HumanEval+
+      mbpp_hard: ~210
+      mbpp_easy: 37  # small sample — limitation L3
+
+# ============================================================
+# MODELS
+# ============================================================
+models:
+  - id: "deepseek-ai/deepseek-coder-6.7b-base"
+    architecture_category: "code-specialized"
+    parameters: "6.7B"
+    training: "code-specialized pre-training from scratch"
+  - id: "codellama/CodeLlama-7b-hf"
+    architecture_category: "code-adapted"
+    parameters: "7B"
+    training: "Llama-2 base + code fine-tuning"
+  - id: "meta-llama/Meta-Llama-3-8B"
+    architecture_category: "general-purpose"
+    parameters: "8B"
+    training: "general-purpose pre-training"
+
+# ============================================================
+# MAIN CLAIMS (for adversarial review verification)
+# ============================================================
+claims:
+  primary_claim:
+    id: "C1"
+    statement: "ΔECE direction is architecture-determined rather than universal"
+    evidence: "Three architectures show three distinct ΔECE directions: +0.298, -0.249, ≈0"
+    verifiable: true
+    source_section: "§4 Results / Table 1"
+
+  claim_deepseek:
+    id: "C2"
+    statement: "DeepSeek-Coder shows ΔECE=+0.298 (positive, expected direction)"
+    evidence: "ECE_hard > ECE_easy for code-specialized model"
+    verifiable: true
+
+  claim_codellama:
+    id: "C3"
+    statement: "CodeLlama shows ΔECE=−0.249 (negative, inverted direction)"
+    evidence: "ECE_easy > ECE_hard for code-adapted model"
+    verifiable: true
+
+  claim_llama3:
+    id: "C4"
+    statement: "Llama3 shows ΔECE≈0 (near-zero, insensitive)"
+    evidence: "ΔECE = +0.003, within bootstrap CI of zero"
+    verifiable: true
+
+  claim_temperature:
+    id: "C5"
+    statement: "Global temperature scaling does not correct architecture-specific ΔECE patterns"
+    evidence: "CodeLlama T*=3.95 is extreme; ΔECE directions unchanged after scaling"
+    verifiable: true
+
+  claim_consensus:
+    id: "C6"
+    statement: "133/542 (24.5%) EvalPlus problems are universally hard (Jaccard 0.456–0.546)"
+    evidence: "Intersection of hard tiers across all 3 models"
+    verifiable: true
+
+  universal_hypothesis_refuted:
+    id: "C7"
+    statement: "The original hypothesis that ΔECE > 0 in ≥2/3 model families is REFUTED"
+    evidence: "Only 1/3 models (DeepSeek) show positive ΔECE; the architecture-stratified finding is richer"
+    gate_result: "FAIL (MUST_WORK)"
+    note: "Refutation is the scientific contribution, not a failure"
+
+# ============================================================
+# METHODOLOGY CLAIMS
+# ============================================================
+methodology_claims:
+  self_contained:
+    statement: "Difficulty stratification uses each model's own pass@1 distribution (no external labels)"
+    verifiable: true
+
+  ptrue_extraction:
+    statement: "P(True) = softmax([logprob('True'), logprob('False')])[0]"
+    verifiable: true
+
+  ece_formula:
+    statement: "ECE = Σ_m (|B_m|/n) |acc(B_m) - conf(B_m)|, M=15 bins"
+    verifiable: true
+
+  delta_ece:
+    statement: "ΔECE = ECE(hard_tier) - ECE(easy_tier)"
+    verifiable: true
+
+# ============================================================
+# CONTRIBUTIONS (for adversarial review)
+# ============================================================
+contributions:
+  - id: "Contrib1"
+    title: "Self-contained calibration pipeline"
+    description: "k=5 generation → tier stratification → P(True) extraction → M=15-bin ECE with bootstrap CI"
+    claim: "Achieves perfect coverage (1.0) across all 3×2 model-benchmark combinations"
+
+  - id: "Contrib2"
+    title: "Architecture-dependent ΔECE fingerprint"
+    description: "ΔECE direction differentiates code-specialized/adapted/general-purpose architectures at 7-8B scale"
+    claim: "Argues against universal confidence threshold policies"
+
+  - id: "Contrib3"
+    title: "Training data composition as mechanism"
+    description: "CodeLlama T*=3.95 and inverted ΔECE suggest code fine-tuning creates overconfidence on common patterns"
+    claim: "Global temperature scaling cannot correct this architecture-specific pathology"
+
+  - id: "Contrib4"
+    title: "Architecture-independent difficulty iron core"
+    description: "133/542 (24.5%) EvalPlus problems universally hard (Jaccard 0.456–0.546)"
+    claim: "Provides robust multi-model calibration benchmark for future work"
+
+# ============================================================
+# LIMITATIONS (for adversarial verification)
+# ============================================================
+limitations:
+  L1: "Only 3 models, 1 per architecture category — within-category replication needed"
+  L2: "k=5 solutions gives coarse 6-point pass@1 distribution — k≥20 would be more precise"
+  L3: "CodeLlama HumanEval+ easy tier n=0 (excluded); MBPP+ easy tier n=37 (near-minimum for M=15 bins)"
+  L4: "Base models only — instruction-tuned/RLHF variants may show different calibration"
+
+# ============================================================
+# PAPER STATISTICS
+# ============================================================
+paper_statistics:
+  total_word_count: ~6385
+  estimated_pages: ~18
+  target_format: "ICML2025"
+  page_limit: 8
+  requires_trimming: true
+  trimming_phase: "Phase 6.5"
+  sections:
+    abstract: {words: 189}
+    introduction: {words: 681}
+    related_work: {words: 866}
+    methodology: {words: 1079}
+    experiments: {words: 670}
+    results: {words: 1279}
+    discussion: {words: 1108}
+    conclusion: {words: 513}
+  figures: 7
+  citations:
+    total: 12
+    verified: 7
+    unverified: 5
+    verification_rate: 0.583

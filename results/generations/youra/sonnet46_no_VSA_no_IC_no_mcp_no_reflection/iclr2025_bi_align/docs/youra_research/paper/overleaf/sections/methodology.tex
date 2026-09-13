@@ -1,0 +1,41 @@
+\section{Methodology}
+\label{sec:methodology}
+
+The BAA detectability question requires measuring temporal trends in human behavioral engagement signals across a population of users whose AI interaction history spans multiple time points. This section explains each design decision.
+
+\subsection{Dataset Selection}
+
+\textbf{WildChat-1M} \citep{Zhao2024WildChat} provides approximately 1 million ChatGPT conversation logs with timestamps, hashed IP addresses, topic tags, toxicity flags, and full conversation text. The IP-hash pseudonymization allows approximate user-level longitudinal tracking without IRB-sensitive individual identification. We restrict to non-toxic English conversations and the date range January 2023 -- December 2024 (the planned extraction window; the effective analysis window after cohort-size filtering is April 2023 -- April 2024, as described in Section~\ref{sec:setup}).
+
+\textbf{LMSYS Chatbot Arena} \citep{Zheng2023Judging} was the intended source for Proxy 2. The primary dataset requires approved research access; the publicly available fallback contains no \texttt{tstamp} field, making temporal binning impossible.
+
+\subsection{Returning-User Cohort Construction}
+
+A user (IP-hash) is included in the analysis cohort if they appear in \textbf{$\geq$3 distinct calendar months}. This filter ensures sufficient within-user longitudinal data for trend detection but systematically selects for high-engagement users --- the paper's central limitation.
+
+The pipeline:
+\begin{enumerate}
+  \item Stream WildChat-1M, extract per-user per-month records.
+  \item Retain users with $\geq$3 distinct months.
+  \item Compute per-turn proxy values for retained users.
+  \item Aggregate to monthly cohort means.
+  \item Filter to bins with $\geq$50 cohort members; 13 bins remain (April 2023 -- April 2024).
+\end{enumerate}
+
+\subsection{Behavioral Proxy Computation}
+
+\textbf{Proxy 1: Prompt Token Count.} Tokenize the first user turn per conversation using \texttt{tiktoken cl100k\_base}. Monthly mean prompt token count; declining $\tau < 0$ predicted by BAA disengagement.
+
+\textbf{Proxy 2: Preference Vote Shannon Entropy.} $H = -\sum p_i \log_2 p_i$ over win/lose/tie distribution of LMSYS votes per monthly bin. \textbf{Not computed} --- LMSYS primary dataset access-gated.
+
+\textbf{Proxy 3: Correction/Negation Frequency.} Regex pattern matching explicit verbal corrections (e.g., ``no,'', ``actually,'', ``that's wrong''); monthly mean fraction of turns matching. Base rate $\approx$0.05\%.
+
+\subsection{Statistical Testing}
+
+When ACF lag-1 $> 0.1$, we apply the \textbf{Hamed-Rao modification} of Mann-Kendall \citep{Hamed1998Modified}, which adjusts the variance for autocorrelated series. Otherwise, standard Mann-Kendall (\texttt{scipy.stats.kendalltau}). Bootstrap 95\% CI for $\tau$ ($B = 1000$, seed = 42).
+
+\textbf{Gate criterion:} $\geq$2/3 proxies must show $|\tau| \geq 0.2$ with $p < 0.05$. Direction analyzed post-hoc.
+
+\subsection{Implementation}
+
+Seven Python modules: \texttt{data\_loader.py} (WildChat streaming + LMSYS fallback), \texttt{cohort\_builder.py} (returning-user filter, monthly aggregation), \texttt{proxy\_computer.py} (tiktoken, entropy, regex), \texttt{stats\_tester.py} (ACF, Hamed-Rao, bootstrap), \texttt{visualizer.py} (figures), \texttt{main.py} (CLI), \texttt{smoke\_test.py} (synthetic validation). All random operations use seed = 42.

@@ -1,0 +1,72 @@
+Building on our observation that existing hallucination detection methods lack controlled comparison, we design a matched-budget evaluation framework that enables direct method comparison across benchmarks. Our key design principle: hold computational budget constant while varying method and benchmark, exposing method-benchmark interactions that isolated evaluations cannot reveal.
+
+\subsection{Overview}
+
+We evaluate two sampling-based uncertainty methods---semantic entropy and self-consistency---under identical conditions:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Rationale} \\
+\midrule
+Sample count ($N$) & 10 & Standard in both original papers \\
+Temperature & 0.7 & Enables diverse sampling without excessive noise \\
+Max tokens & 256 & Sufficient for QA responses \\
+Model & Llama-3-8B-Instruct & Open-weight, reproducible \\
+Seed & 42 & Single seed for PoC mode \\
+\bottomrule
+\end{tabular}
+\caption{Matched-budget experimental parameters.}
+\label{tab:params}
+\end{table}
+
+This matched-budget design ensures that any performance differences reflect method characteristics, not confounding factors.
+
+\subsection{Semantic Entropy}
+
+Semantic entropy quantifies uncertainty by clustering generated responses according to semantic equivalence, then computing entropy over the cluster distribution.
+
+\textbf{Step 1: Generation.} For each query $q$, we generate $N=10$ responses $\{r_1, \ldots, r_N\}$ using temperature sampling.
+
+\textbf{Step 2: Semantic Clustering.} We use DeBERTa-large-mnli \citep{he2021deberta} to compute bidirectional NLI scores between response pairs. Responses $r_i$ and $r_j$ are considered semantically equivalent if both directions (premise$\rightarrow$hypothesis and hypothesis$\rightarrow$premise) yield entailment probability above threshold $\tau=0.5$.
+
+\textbf{Step 3: Entropy Computation.} Let $\{C_1, \ldots, C_K\}$ be the resulting clusters. The cluster probability distribution is:
+\begin{equation}
+p_k = \frac{|C_k|}{N}
+\end{equation}
+
+Semantic entropy is computed as:
+\begin{equation}
+H_{SE} = -\sum_{k=1}^{K} p_k \log p_k
+\end{equation}
+
+Higher entropy indicates responses fall into many distinct semantic clusters, suggesting the model is uncertain.
+
+\subsection{Self-Consistency}
+
+Self-consistency measures agreement across generated responses using surface-level similarity metrics.
+
+\textbf{Step 1: Generation.} Identical to semantic entropy---$N=10$ responses per query.
+
+\textbf{Step 2: Pairwise Similarity.} We compute BERTScore F1 \citep{zhang2020bertscore} between all response pairs:
+\begin{equation}
+S_{ij} = \text{BERTScore-F1}(r_i, r_j)
+\end{equation}
+
+\textbf{Step 3: Consistency Score.} Self-consistency is the mean off-diagonal similarity:
+\begin{equation}
+SC = \frac{1}{N(N-1)} \sum_{i \neq j} S_{ij}
+\end{equation}
+
+Higher consistency indicates responses are similar, suggesting confident factual knowledge. For hallucination detection, we use $1 - SC$ as the uncertainty score.
+
+\subsection{Evaluation Protocol}
+
+\textbf{Benchmarks.} We evaluate on TruthfulQA (817 questions) and HaluEval-QA (10,000 samples).
+
+\textbf{Pilot Mode.} For pipeline validation, we use PoC mode with $N=20$ samples per dataset.
+
+\textbf{Metrics.} Primary metric is AUROC with 95\% confidence intervals via bootstrap resampling (1,000 iterations).
+
+\textbf{Gate Criterion.} AUROC $> 0.55$ as minimum threshold for ``method works on this benchmark.''

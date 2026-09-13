@@ -1,0 +1,441 @@
+# H-M2 Implementation Tasks
+# Generated: 2026-03-18 | Phase 3 Step-09
+# Hypothesis: h-m2 (MECHANISM, SHOULD_WORK gate)
+# Tier: FULL (max 30 tasks) | Budget used: 17 tasks
+# Schema version: v1.1
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  gate_type: SHOULD_WORK
+  phase: 3
+  generated_date: "2026-03-18"
+  total_tasks: 17
+  budget_tier: FULL
+  budget_limit: 30
+  reference_files:
+    prd: "docs/youra_research/20260316_verifia/h-m2/03_prd.md"
+    architecture: "docs/youra_research/20260316_verifia/h-m2/03_architecture.md"
+    logic: "docs/youra_research/20260316_verifia/h-m2/03_logic.md"
+    config: "docs/youra_research/20260316_verifia/h-m2/03_config.md"
+  archon_document_ids:
+    prd: "20f6b435-9388-4424-abe3-753a799c2a3b"
+    architecture: "43d88904-9fe1-4140-a2cd-67164f8da5d5"
+    logic: "de8672d8-2bed-43d9-a287-385f99cdb789"
+    config: "aed10f28-770e-4f6f-9cbe-2a4cf8ec27e3"
+    experiment_design: "5915a14d-86f8-44b0-8835-7b22eb578576"
+
+tasks:
+
+  # ── Environment Setup ────────────────────────────────────────────────────────
+
+  - id: T-ENV
+    epic: A-1
+    title: "Project Setup: Environment & Directory Structure"
+    description: >
+      Create h-m2/code directory structure, pyproject.toml, requirements.txt,
+      and src/h_m2/__init__.py. Reuse youra-h-e1 conda environment.
+      Mirror h-m1 project layout exactly.
+    complexity: 6
+    type: setup
+    priority: critical
+    dependencies: []
+    reference_files:
+      - architecture: "## A-1: Project Setup"
+    acceptance_criteria:
+      - "h-m2/code/src/h_m2/ directory exists"
+      - "pyproject.toml with [project] name='h_m2' present"
+      - "requirements.txt lists numpy>=1.24, matplotlib>=3.7, pandas>=2.0"
+      - "conda activate youra-h-e1 succeeds (reuse existing env)"
+      - "pip install -e h-m2/code/ succeeds"
+
+  # ── Data Loader ──────────────────────────────────────────────────────────────
+
+  - id: T-A2-LOADER
+    epic: A-2
+    title: "Data Loader: Load H-M1 pass@1 JSON"
+    description: >
+      Implement load_pass_at_1() in stratify.py. Load h-m1/results/pass_at_1_hm1_verified.json.
+      CRITICAL: JSON schema is data["models"][hf_model_id][task_id] = float (flat float, not nested dict).
+      Validate 3 model keys and per-model count >= 500. Raise FileNotFoundError with clear message.
+    complexity: 8
+    type: implementation
+    priority: critical
+    dependencies: [T-ENV]
+    reference_files:
+      - prd: "## FR-1: Input Data Loading"
+      - logic: "## L-2: Data Loader"
+      - architecture: "## A-2: Data Loader"
+    acceptance_criteria:
+      - "load_pass_at_1(path) returns dict with 3 model keys"
+      - "Each model maps task_id -> float (flat float)"
+      - "Raises FileNotFoundError if file missing"
+      - "Validates 3 models present, raises ValueError otherwise"
+      - "Per-model count check >= 500 passes for h-m1 data"
+    notes: >
+      h-m1 JSON key is data["models"] not top-level model_id.
+      Use: with open(path) as f: raw = json.load(f); return raw["models"]
+
+  - id: T-A2-SPLIT
+    epic: A-2
+    title: "Data Loader: split_by_benchmark()"
+    description: >
+      Implement split_by_benchmark() in stratify.py.
+      Split pass@1 dict into HumanEval+ (prefix "HumanEval/") and MBPP+ (prefix "Mbpp/") subsets.
+      Returns {model_id: {"humaneval": {task_id: float}, "mbpp": {task_id: float}}}.
+      Verify HumanEval=164, MBPP=378 per model.
+    complexity: 5
+    type: implementation
+    priority: high
+    dependencies: [T-A2-LOADER]
+    reference_files:
+      - logic: "## L-3-1: split_by_benchmark"
+      - config: "BENCHMARK_PREFIXES"
+    acceptance_criteria:
+      - "Returns dict split by benchmark prefix"
+      - "HumanEval subset has exactly 164 problems per model"
+      - "MBPP subset has exactly 378 problems per model"
+      - "No task_id appears in both subsets"
+
+  # ── Tier Stratification ──────────────────────────────────────────────────────
+
+  - id: T-A3-TIERS
+    epic: A-3
+    title: "Tier Stratification: compute_difficulty_tiers()"
+    description: >
+      Implement compute_difficulty_tiers() in stratify.py.
+      Hard: pass@1 == 0.0. Easy: pass@1 >= 0.6. Medium: 0.0 < pass@1 < 0.6.
+      Returns {model_id: {"hard": set(task_ids), "easy": set(task_ids), "medium": set(task_ids)}}.
+      Use HARD_THRESHOLD=0.0, EASY_THRESHOLD=0.6 module-level constants.
+    complexity: 9
+    type: implementation
+    priority: critical
+    dependencies: [T-A2-LOADER]
+    reference_files:
+      - prd: "## FR-2: Difficulty Tier Stratification"
+      - logic: "## L-3-2: compute_difficulty_tiers"
+      - config: "HARD_THRESHOLD, EASY_THRESHOLD"
+    acceptance_criteria:
+      - "Hard tier: all task_ids with pass@1 == 0.0"
+      - "Easy tier: all task_ids with pass@1 >= 0.6"
+      - "Medium tier: remaining (pass@1 in {0.2, 0.4})"
+      - "Each model: |hard| + |easy| + |medium| == 542"
+      - "Returns sets (not lists) for O(1) intersection"
+      - "n_hard >= 20 per model (validated)"
+
+  - id: T-A3-VALIDATE
+    epic: A-3
+    title: "Tier Stratification: validate_tier_sizes()"
+    description: >
+      Implement validate_tier_sizes() in stratify.py.
+      Verify n_hard >= MIN_TIER_SIZE (20) and n_easy >= MIN_TIER_SIZE (20) per model.
+      Special case: CodeLlama HumanEval n_easy=0 expected — log warning, do NOT raise error.
+      Use MBPP+ as primary benchmark for CodeLlama (consistent with h-e1).
+    complexity: 4
+    type: implementation
+    priority: high
+    dependencies: [T-A3-TIERS]
+    reference_files:
+      - prd: "FR-2.2: Per-Benchmark Tier Sizes"
+      - config: "MIN_TIER_SIZE=20"
+    acceptance_criteria:
+      - "Raises ValueError if n_hard < 20 for any model on combined set"
+      - "Logs warning (not error) for CodeLlama HumanEval n_easy=0"
+      - "Returns tier_validation_report dict with per-model counts"
+
+  # ── Jaccard Module ───────────────────────────────────────────────────────────
+
+  - id: T-A4-JACCARD
+    epic: A-4
+    title: "Jaccard Module: jaccard_similarity()"
+    description: >
+      Implement jaccard_similarity(set_a, set_b) in jaccard.py.
+      Jaccard = |A ∩ B| / |A ∪ B|. Returns 0.0 if both empty.
+      Must handle: empty sets, identical sets, disjoint sets.
+    complexity: 6
+    type: implementation
+    priority: critical
+    dependencies: [T-ENV]
+    reference_files:
+      - prd: "FR-3.1: Pairwise Jaccard Computation"
+      - logic: "## L-4-1: jaccard_similarity"
+    acceptance_criteria:
+      - "jaccard_similarity({t3,t4}, {t3,t4,t5,t6}) == 0.333 (approx)"
+      - "jaccard_similarity(set(), set()) == 0.0"
+      - "jaccard_similarity(A, A) == 1.0"
+      - "Returns float in [0.0, 1.0]"
+
+  - id: T-A4-CROSS
+    epic: A-4
+    title: "Jaccard Module: compute_cross_model_jaccard()"
+    description: >
+      Implement compute_cross_model_jaccard(tiers) in jaccard.py.
+      Compute all 3 pairwise Jaccard scores on hard tier sets.
+      Use itertools.combinations(MODEL_IDS, 2) for 3 pairs.
+      Returns {(model_a, model_b): float} for 3 pairs.
+    complexity: 8
+    type: implementation
+    priority: critical
+    dependencies: [T-A4-JACCARD, T-A3-TIERS]
+    reference_files:
+      - prd: "FR-3.1, FR-3.2"
+      - logic: "## L-4-2: compute_cross_model_jaccard"
+    acceptance_criteria:
+      - "Returns exactly 3 pairs"
+      - "All values in [0.0, 1.0]"
+      - "Pairs: (llama3, codellama), (llama3, deepseek), (codellama, deepseek)"
+      - "Fixture: FIXTURE_TIERS_3MODEL → pairs (a,b)=0.5, (a,c)=0.2, (b,c)=0.5"
+
+  - id: T-A4-CONSENSUS
+    epic: A-4
+    title: "Jaccard Module: compute_consensus_set()"
+    description: >
+      Implement compute_consensus_set(tiers) in jaccard.py.
+      Consensus hard = intersection of all 3 models' hard sets.
+      Returns {"consensus_hard": set, "n": int, "percentage": float}.
+      Also compute per-benchmark consensus.
+    complexity: 5
+    type: implementation
+    priority: medium
+    dependencies: [T-A4-JACCARD, T-A3-TIERS]
+    reference_files:
+      - prd: "FR-3.3: Consensus Hard Set"
+      - logic: "## L-4-3: compute_consensus_set"
+    acceptance_criteria:
+      - "consensus_hard = hard_a ∩ hard_b ∩ hard_c (3-way intersection)"
+      - "percentage = n_consensus / COMBINED_TOTAL (542)"
+      - "Returns set for downstream use"
+
+  # ── Analysis Module ──────────────────────────────────────────────────────────
+
+  - id: T-A5-HIST
+    epic: A-5
+    title: "Analysis Module: compute_histograms()"
+    description: >
+      Implement compute_histograms() in analyze.py.
+      6-point bins: {0.0, 0.2, 0.4, 0.6, 0.8, 1.0} (from k=5 sampling).
+      Returns {model_id: {benchmark: {bin_value: {"count": int, "pct": float}}}}.
+      Use HIST_BINS module-level constant (from h-m1).
+    complexity: 7
+    type: implementation
+    priority: medium
+    dependencies: [T-A2-SPLIT]
+    reference_files:
+      - prd: "FR-5.1: Histogram Per Model Per Benchmark"
+      - logic: "## L-5-1: compute_histograms"
+      - config: "HIST_BINS=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]"
+    acceptance_criteria:
+      - "6 bins per model per benchmark"
+      - "Sum of counts == n_problems_in_benchmark"
+      - "pct values sum to ~1.0 per model per benchmark"
+
+  - id: T-A5-STATS
+    epic: A-5
+    title: "Analysis Module: compute_distribution_stats()"
+    description: >
+      Implement compute_distribution_stats() in analyze.py.
+      Compute mean, std, min, max per model per benchmark.
+      Report hard/easy/medium tier percentage breakdown.
+      Returns nested dict {model_id: {benchmark: {mean, std, min, max, tier_pcts}}}.
+    complexity: 6
+    type: implementation
+    priority: medium
+    dependencies: [T-A5-HIST]
+    reference_files:
+      - prd: "FR-5.2: Distribution Statistics"
+      - logic: "## L-5-2: compute_distribution_stats"
+    acceptance_criteria:
+      - "mean, std, min, max computed correctly using numpy"
+      - "tier_pcts sum to 1.0"
+
+  - id: T-A5-COMPILE
+    epic: A-5
+    title: "Analysis Module: compile_results()"
+    description: >
+      Implement compile_results() in analyze.py.
+      Assemble full results dict for JSON output (FR-6.1 format).
+      Includes: metadata, tier_sizes, jaccard_results, consensus_hard, gate.
+      Writes stratification_results.json and tier_assignments.csv.
+    complexity: 7
+    type: implementation
+    priority: high
+    dependencies: [T-A3-TIERS, T-A4-CROSS, T-A4-CONSENSUS, T-A5-STATS]
+    reference_files:
+      - prd: "FR-6.1: Stratification Results JSON, FR-6.2: Tier Assignment CSV"
+      - logic: "## L-5-3: compile_results"
+    acceptance_criteria:
+      - "stratification_results.json matches FR-6.1 schema"
+      - "tier_assignments.csv has columns: task_id, benchmark, llama3_tier, codellama_tier, deepseek_tier, n_models_hard, n_models_easy"
+      - "JSON parseable and complete"
+
+  # ── Gate Evaluation ──────────────────────────────────────────────────────────
+
+  - id: T-A6-GATE
+    epic: A-6
+    title: "Gate Evaluation: evaluate_gate() and verify_mechanism_activated()"
+    description: >
+      Implement evaluate_gate() and verify_mechanism_activated() in evaluate.py.
+      Gate: any(j > JACCARD_GATE_THRESHOLD for j in jaccard_results.values()) where threshold=0.3.
+      IMPORTANT: strict greater-than (not >=). 0.30 is NOT passing.
+      verify_mechanism_activated checks: tiers_populated, jaccard_computed (3 pairs), jaccard_non_trivial, tier_sizes_valid.
+    complexity: 8
+    type: implementation
+    priority: critical
+    dependencies: [T-A4-CROSS]
+    reference_files:
+      - prd: "FR-4.1, FR-4.2"
+      - logic: "## L-6: Gate Evaluation"
+      - config: "JACCARD_GATE_THRESHOLD=0.3"
+    acceptance_criteria:
+      - "FIXTURE_JACCARD_PASS (max=0.45) → gate_pass=True"
+      - "FIXTURE_JACCARD_FAIL (max=0.30) → gate_pass=False (strict >)"
+      - "Returns (bool, dict) with passing_pairs list"
+      - "verify_mechanism_activated returns (bool, indicators_dict)"
+
+  # ── Visualization ────────────────────────────────────────────────────────────
+
+  - id: T-A7-VIZ
+    epic: A-7
+    title: "Visualization: 5 figure generators (visualize_hm2.py)"
+    description: >
+      Implement 5 figure generators in visualize_hm2.py with matplotlib.use("Agg").
+      1. plot_jaccard_bars(): bar chart 3 pairs + dashed red threshold line at 0.3
+      2. plot_pass_at_1_histograms(): 3x2 subplot grid, 6-point bins, tier colors
+      3. plot_tier_size_summary(): stacked bar chart hard/medium/easy per model per benchmark
+      4. plot_jaccard_heatmap(): 3x3 symmetric matrix, Blues colormap
+      5. plot_consensus_pie(): pie chart 1/3, 2/3, 3/3 models hard
+      All save to h-m2/figures/ using FIG_FILENAMES constants.
+    complexity: 12
+    type: implementation
+    priority: high
+    dependencies: [T-A4-CROSS, T-A3-TIERS, T-A5-HIST, T-A4-CONSENSUS]
+    reference_files:
+      - prd: "FR-7.1 - FR-7.5"
+      - config: "A-7: Visualization Configuration"
+    acceptance_criteria:
+      - "All 5 PNG files saved to h-m2/figures/"
+      - "jaccard_similarity_bars.png: 3 bars + red dashed threshold at 0.3"
+      - "pass_at_1_histograms.png: 3x2 subplots, tier-colored bars"
+      - "tier_size_summary.png: stacked bars per model per benchmark"
+      - "jaccard_heatmap.png: 3x3 Blues heatmap"
+      - "consensus_hard_pie.png: 3-slice pie"
+      - "FIG_DPI=150, matplotlib backend=Agg"
+    config:
+      FIG_DPI: 150
+      TIER_COLORS: {hard: "red", medium: "gray", easy: "green"}
+      JACCARD_HEATMAP_CMAP: "Blues"
+      HIST_FIGURE_SIZE: [18, 8]
+
+  # ── CLI Orchestrator ─────────────────────────────────────────────────────────
+
+  - id: T-A8-CLI
+    epic: A-8
+    title: "CLI Orchestrator: run_hm2_stratification.py"
+    description: >
+      Implement argparse-based CLI orchestrator in run_hm2_stratification.py.
+      Args: --hm1_results_dir (default: ../../h-m1/results), --output_dir (default: results),
+            --figures_dir (default: figures).
+      Orchestrate: load → stratify → jaccard → analyze → gate → visualize → save.
+      Print structured JSON summary to stdout. Exit codes: 0=pass, 1=fail, 2=error.
+    complexity: 11
+    type: implementation
+    priority: high
+    dependencies: [T-A3-TIERS, T-A4-CROSS, T-A5-COMPILE, T-A6-GATE, T-A7-VIZ]
+    reference_files:
+      - prd: "NFR-2: Infrastructure"
+      - config: "A-8: CLI Orchestrator Configuration"
+    acceptance_criteria:
+      - "python -m h_m2.run_hm2_stratification --hm1_results_dir PATH runs end-to-end"
+      - "Exits with code 0 if gate passes, 1 if gate fails, 2 on exception"
+      - "Creates h-m2/results/ and h-m2/figures/ if not exist"
+      - "Prints JSON summary with gate result"
+    config:
+      DEFAULT_HM1_RESULTS: "../../h-m1/results"
+      DEFAULT_OUTPUT_DIR: "results"
+      DEFAULT_FIGURES_DIR: "figures"
+      RESULTS_FILENAME: "stratification_results.json"
+      TIER_CSV_FILENAME: "tier_assignments.csv"
+
+  # ── Unit Tests ───────────────────────────────────────────────────────────────
+
+  - id: T-A9-TEST-JACCARD
+    epic: A-9
+    title: "Unit Tests: test_jaccard.py"
+    description: >
+      Implement tests/test_jaccard.py with known fixture values.
+      Test jaccard_similarity with: (A,B)=0.333, empty=0.0, identical=1.0.
+      Test compute_cross_model_jaccard with FIXTURE_TIERS_3MODEL: (a,b)=0.5, (a,c)=0.2, (b,c)=0.5.
+    complexity: 5
+    type: test
+    priority: medium
+    dependencies: [T-A4-JACCARD, T-A4-CROSS]
+    reference_files:
+      - config: "Test fixtures for test_jaccard.py"
+    acceptance_criteria:
+      - "test_jaccard_ab: EXPECTED_JACCARD_AB = 0.333 (approx)"
+      - "test_jaccard_empty: returns 0.0"
+      - "test_jaccard_identical: returns 1.0"
+      - "test_cross_model_fixture: 3 pairs match expected values"
+      - "All tests pass with pytest"
+
+  - id: T-A9-TEST-STRATIFY
+    epic: A-9
+    title: "Unit Tests: test_stratify.py"
+    description: >
+      Implement tests/test_stratify.py with FIXTURE_PASS_AT_1_SIMPLE.
+      Test compute_difficulty_tiers tier assignment:
+      Mbpp/1(0.0)→hard, Mbpp/2(0.2)→medium, Mbpp/3(0.6)→easy, Mbpp/4(1.0)→easy, Mbpp/5(0.0)→hard.
+    complexity: 5
+    type: test
+    priority: medium
+    dependencies: [T-A3-TIERS]
+    reference_files:
+      - config: "Test fixtures for test_stratify.py"
+    acceptance_criteria:
+      - "EXPECTED_HARD_SIMPLE = {Mbpp/1, Mbpp/5}"
+      - "EXPECTED_EASY_SIMPLE = {Mbpp/3, Mbpp/4}"
+      - "EXPECTED_MEDIUM_SIMPLE = {Mbpp/2}"
+      - "All tests pass with pytest"
+
+  - id: T-A9-TEST-GATE
+    epic: A-9
+    title: "Unit Tests: test_evaluate.py"
+    description: >
+      Implement tests/test_evaluate.py with FIXTURE_JACCARD_PASS and FIXTURE_JACCARD_FAIL.
+      PASS fixture (max=0.45) → gate_pass=True, passing_pairs_count=1.
+      FAIL fixture (max=0.30) → gate_pass=False (strict >; 0.30 is NOT > 0.3).
+    complexity: 5
+    type: test
+    priority: medium
+    dependencies: [T-A6-GATE]
+    reference_files:
+      - config: "Test fixtures for test_evaluate.py"
+    acceptance_criteria:
+      - "FIXTURE_JACCARD_PASS → gate_pass=True, 1 passing pair"
+      - "FIXTURE_JACCARD_FAIL → gate_pass=False (all pairs <= 0.3)"
+      - "Gate threshold=0.3 used as strict greater-than"
+      - "All tests pass with pytest"
+
+  # ── Failsafe Validation ───────────────────────────────────────────────────────
+
+  - id: T-VALIDATE
+    epic: A-1
+    title: "End-to-End Validation: run full pipeline on h-m1 results"
+    description: >
+      Run python -m h_m2.run_hm2_stratification with actual h-m1/results/pass_at_1_hm1_verified.json.
+      Verify: 3 models × 542 problems loaded, n_hard >= 20 per model, 3 Jaccard pairs computed,
+      gate evaluated, 5 figures saved, 2 result files written.
+      This is the GATE VALIDATION step for Phase 4.
+    complexity: 4
+    type: validation
+    priority: critical
+    dependencies: [T-A8-CLI, T-A9-TEST-JACCARD, T-A9-TEST-STRATIFY, T-A9-TEST-GATE]
+    reference_files:
+      - prd: "## 7. Success Criteria"
+    acceptance_criteria:
+      - "Runs to completion without error"
+      - "stratification_results.json: gate.satisfied field present"
+      - "tier_assignments.csv: 542 rows (one per problem)"
+      - "5 figures exist in h-m2/figures/"
+      - "pytest tests/ passes (all unit tests green)"
+      - "Exit code 0 (gate PASS) OR exit code 1 (gate FAIL, but not error)"

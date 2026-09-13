@@ -1,0 +1,104 @@
+
+The three-component system addresses distinct failure modes in current dataset deprecation practice: automated health metrics for candidate detection (failure mode 1), context-aware successor graphs for task-specific recommendations (failure mode 2), and load-time instrumentation for adoption tracking (failure mode 3). Each component targets a separate infrastructure gap; their synergistic integration enables formal deprecation mechanisms validated through five sub-hypothesis experiments.
+
+\subsubsection{3.1 System Architecture}
+
+The system integrates three layers:
+
+\begin{enumerate}
+\item \textbf{Health Metrics Layer:} Computes deprecation signals from repository metadata (usage velocity, successor emergence, issue accumulation) without manual curator intervention.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Context-Aware Graph Layer:} Models task-conditional successor relationships (e.g., ImageNet $\rightarrow$ ImageNet-v2 for robustness versus ImageNet-21k for pretraining) inferred from dataset card citations and usage patterns.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Instrumentation Layer:} Wraps dataset loaders with SHA256-based content hashing and async telemetry queues to track adoption events with minimal overhead.
+\end{enumerate}
+
+Design rationale: Each component solves one failure mode independently but creates synergy through integration. Health metrics surface candidates, context graphs personalize recommendations, and instrumentation measures outcomes.
+
+\subsubsection{3.2 Component 1: Automated Health Metrics}
+
+Health metrics adapt software package deprecation patterns (NPM, PyPI) to machine learning's usage-driven lifecycle. A weighted score combines three signals:
+
+\begin{itemize}
+\item \textbf{Usage Velocity:} Download rate decline (velocity < 1.0 flags declining usage).
+\item \textbf{Successor Emergence:} Alternative dataset availability (emergence > 1 indicates replacements exist).
+\item \textbf{Issue Ratio:} Maintenance burden (issue\_ratio > 0.48 signals high open-issue accumulation).
+\end{itemize}
+
+\textbf{Weighted Score:} \texttt{score = 2.0 \$\textbackslash times\$ velocity\textbackslash \_flag + 1.5 \$\textbackslash times\$ emergence\textbackslash \_flag + 1.0 \$\textbackslash times\$ issue\textbackslash \_ratio\textbackslash \_flag}
+
+Velocity is weighted highest because declining usage is the strongest deprecation predictor. Emergence captures successor availability. Issue ratio indicates maintainer burden. Threshold $\geq 2.5$ flags deprecation candidates.
+
+Weighted scoring provides tunable precision-recall tradeoff. Alternatives considered included uniform weights (lower precision in pilot testing) and maintainer-only annotations (does not scale to 60,000+ datasets).
+
+\subsubsection{3.3 Component 2: Context-Aware Successor Graphs}
+
+Successor graphs model task-conditional replacement paths rather than linear version succession. Edges represent deprecation relationships labeled by task context (e.g., \texttt{ImageNet --[robustness\textbackslash \_eval]--> ImageNet-v2}, \texttt{ImageNet --[pretraining]--> ImageNet-21k}).
+
+\textbf{Context Inference:} Pattern-based matching on Python import history and dataset card citations:
+\begin{itemize}
+\item Import pattern matching: \texttt{sklearn} imports $\rightarrow$ classification task, \texttt{transformers} imports $\rightarrow$ pretraining task.
+\item Dataset card parsing: Citation fields such as \texttt{recommended\textbackslash \_successor} infer edges.
+\item Fallback: Users can override inferred context via explicit task parameter.
+\end{itemize}
+
+\textbf{Graph Construction:} NetworkX directed acyclic graph (DAG) with datasets as nodes and successor edges inferred from dataset card citations. Users may override inferred context when automated inference is ambiguous.
+
+Pattern-based inference enables validation on synthetic data. Embedding-based inference (using large language models) is deferred to production testing. Alternatives such as manual annotation do not scale, and usage co-occurrence requires longitudinal data unavailable at proof-of-concept scale.
+
+\subsubsection{3.4 Component 3: Load-Time Instrumentation}
+
+Decorator-based wrapper for \texttt{datasets.load\textbackslash \_dataset()} adds SHA256 content hashing and async telemetry logging:
+
+\begin{verbatim}
+@instrumented_loader
+def load_dataset(name, *args, **kwargs):
+    # 1. Compute SHA256 hash (lazy caching)
+    content_hash = compute_hash(name)
+    # 2. Check deprecation status via health metrics
+    if is_deprecated(name):
+        successor = get_context_aware_successor(name, infer_context())
+        warn(f"{name} deprecated. Recommended: {successor}")
+    # 3. Log event to async queue (non-blocking)
+    telemetry_queue.put({
+        "dataset": name,
+        "hash": content_hash,
+        "successor_shown": successor,
+        "timestamp": now()
+    })
+    # 4. Proceed with normal load
+    return original_load_dataset(name, *args, **kwargs)
+\end{verbatim}
+
+\textbf{Overhead Mitigation:} SHA256 hashing is amortized via lazy evaluation (compute once, cache result). Async queue writes prevent blocking I/O.
+
+Decorator pattern enables drop-in replacement without API changes. Alternatives such as monkey-patching are fragile, separate CLI tools create adoption barriers, and server-side tracking raises privacy concerns mitigated here via client-side hashing with no user personally identifiable information.
+
+\subsubsection{3.5 Sub-Hypothesis Decomposition}
+
+Five sub-hypotheses validate mechanisms through gate protocols:
+
+\begin{itemize}
+\item \textbf{h-e1 (MUST\_WORK):} Instrumentation overhead <10\%, capture rate $\geq 95$\%.
+\item \textbf{h-m1 (MUST\_WORK):} Health metrics precision $\geq 60$\%, recall $\geq 80$\%.
+\item \textbf{h-m2 (MUST\_WORK):} Context inference accuracy $\geq 70$\%, user override rate <50\%.
+\item \textbf{h-m3 (SHOULD\_WORK):} Dependency graph impact completeness $\geq 95$\%, schema accuracy $\geq 80$\%.
+\item \textbf{h-m4 (SHOULD\_WORK):} Full-stack telemetry capture $\geq 95$\%, overhead <10\%.
+\end{itemize}
+
+Gate categories (MUST\_WORK versus SHOULD\_WORK) prioritize critical components (detection, recommendation, measurement) over supporting infrastructure (dependency analysis).
+
+\subsubsection{3.6 Implementation Scope}
+
+Proof-of-concept validation uses:
+\begin{itemize}
+\item \textbf{Mock data (h-m2, h-m3, h-m4):} Isolates mechanism validation from external dependencies.
+\item \textbf{Simulated HuggingFace metadata (h-m1):} 1000-dataset corpus with synthetic health signals.
+\item \textbf{Benchmark datasets (h-e1):} 100 dataset loads (CIFAR-10, IMDB, WikiText-103) to validate overhead and capture feasibility.
+\end{itemize}
+
+Real HuggingFace API integration and production-scale testing are future work. Mock data enables controlled mechanism validation; generalization to real API data requires deployment testing.

@@ -1,0 +1,8 @@
+# Title
+Developmental Curriculum Learning for Neural Theorem Proving: Bridging Educational Science and AI for Mathematics
+
+# Motivation
+Current state-of-the-art neural theorem provers achieve 89% on benchmark problems (MiniF2F) but only 10.3% on research-level mathematics (RLMEval), revealing a critical generalization gap. This failure stems from models learning surface-level pattern matching rather than robust reasoning primitives. Existing curriculum approaches use ad-hoc heuristics without principled grounding. We address this by applying evidence-based educational learning science—specifically developmental psychology and cognitive demand frameworks—to design curricula that build generalizable mathematical reasoning, enabling practical AI assistance for research mathematicians.
+
+# Main Idea
+We hypothesize that a three-phase developmental curriculum will improve research-level performance from 10.3% to >25% on RLMEval. **Phase 1** (diversity pre-training) exposes models to 10,000 simple theorems across 10 mathematical domains, building broad reasoning primitives via transfer learning principles. **Phase 2** (cognitive demand progression) advances through four difficulty tiers (2-3 to 11+ proof steps) with 30% template variation, forcing abstract pattern learning over shortcuts. **Phase 3** integrates 613 authentic research problems with reinforcement learning. The causal mechanism—diversity enables transfer, progressive complexity prevents overfitting to surface patterns—is grounded in educational science (Neugebauer & Prediger 2022) and validated through template robustness tests (<30% performance drop vs. 47-73% baseline). This represents the first learning-theoretically principled curriculum for neural theorem proving.

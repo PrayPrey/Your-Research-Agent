@@ -1,0 +1,9 @@
+﻿# Title: Knowledge Graph-Augmented Memory Networks for Catastrophic Forgetting Prevention in Foundation Models
+
+## Motivation
+Catastrophic forgetting remains the central challenge when fine-tuning foundation models on new, smaller datasets. Current replay-based or regularization methods struggle to scale effectively because they either require storing massive amounts of past data or impose rigid constraints on weight updates. Meanwhile, structured knowledge sources like knowledge graphs (KGs) provide stable, factual anchors that persist across domains. By leveraging KGs as an external structured memory, we can create a scalable solution that grounds model knowledge in verifiable facts while allowing flexible adaptation to new information.
+
+## Main Idea
+We propose **KG-Memory Networks (KG-MN)**, a framework that integrates knowledge graphs as a persistent external memory to guide continual learning in foundation models. The approach consists of three components: (1) a **knowledge anchoring module** that links model representations to relevant KG entities during training, creating stable reference points; (2) a **selective consolidation mechanism** that identifies which learned associations should be preserved based on KG connectivity patterns; and (3) a **retrieval-augmented adaptation** strategy that queries the KG during fine-tuning to maintain consistency with established knowledge.
+
+Expected outcomes include significantly reduced forgetting rates (targeting <5% performance degradation on prior tasks) while maintaining plasticity for new domains. The framework is model-agnostic and scales efficiently since KG storage grows independently of model parameters. This bridges CL with structured knowledge integration, addressing a key workshop topic.

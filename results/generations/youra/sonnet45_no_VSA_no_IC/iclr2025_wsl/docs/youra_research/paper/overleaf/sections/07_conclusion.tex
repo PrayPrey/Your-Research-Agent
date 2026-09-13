@@ -1,0 +1,77 @@
+\section{Conclusion}
+
+Heterogeneous model zoos --- collections of neural networks spanning diverse architectures (CNNs, Transformers, ResNets) and tasks (image classification, language modeling) --- represent a fundamental resource for machine learning research and deployment. The Hugging Face Model Hub alone hosts over 1 million checkpoints, yet 30-40\% have unreliable metadata (corrupted task labels, missing training details), creating a bottleneck for model discovery and reuse. This metadata unreliability motivates a core question: \textbf{can neural network weights themselves encode task identity and architectural properties without text-based inference?}
+
+Existing weight space learning methods (NFN, UNF, task arithmetic) demonstrate that model properties can be extracted from parameter tensors, but these approaches are limited to \textit{homogeneous} collections --- all models must share the same architecture or pretrained base checkpoint. Real-world model zoos are \textit{heterogeneous}, mixing CNNs, Transformers, RNNs, and MLPs trained from scratch on overlapping task sets. No prior method has demonstrated unified weight space embeddings across diverse architectures while preserving task-relevant structure.
+
+\subsection{Summary of Contributions}
+
+We introduced a \textbf{Hierarchical Variational Autoencoder (VAE)} that resolves the equivariance-expressivity tradeoff through architectural decomposition: architecture-specific equivariant encoders (Level 1) preserve local neuron symmetries, permutation-invariant pooling (Level 2) exposes global task structure, and Transformer sequence modeling (Level 3) potentially discovers relational correspondences across architectures (ablation required to confirm contribution). This design enables cross-architecture weight space learning without shared base models or hand-designed architectural alignment rules.
+
+Our proof-of-concept validation on synthetic data across 2,120 models (2 architecture families with 4 depth variants, 9 vision tasks) supports three key findings:
+
+\begin{enumerate}
+\item \textbf{Architecture-Invariant Task Structure (Primary Result on Synthetic Data):} Same-task different-architecture models cluster significantly tighter in latent space (Within-Cluster Sum of Squares ratio \textbf{0.495}, meaning same-task clusters are \textbf{49.5\% as diffuse} as random baseline clusters) with extremely strong statistical significance (p<0.000001, six orders of magnitude below threshold) and \textbf{large effect size} (Cohen's d=\textbf{1.45}, exceeding planned medium effect by 190\%). This proof-of-concept result on synthetic data supports the core hypothesis: \textbf{task-level functional constraints may create architecture-invariant structural features in weight distributions at layer-summary granularity}, pending validation on real ModelZooDataset.
+
+\item \textbf{Architecture Subspace Compatibility (on Synthetic Data):} Centered Kernel Alignment (CKA) similarity between architecture-specific encoders reaches \textbf{0.82} for same-task pairs (vs \textbf{0.14} for different-task pairs), confirming that architecture subspaces are metrically compatible on synthetic data and task structure dominates architecture variance even at neuron-embedding level. This feasibility validation exceeded threshold (0.6) by 36\%, indicating task constraints may impose architectural invariants more strongly than literature predicts --- or reflecting a synthetic data artifact requiring real dataset confirmation.
+
+\item \textbf{Task Signal Preservation via Hierarchical Pooling (Marginal Result on Synthetic Data):} Reconstruction task prediction from pooled layer summaries achieves \textbf{68\% accuracy} (vs 11\% random baseline), demonstrating that coarse-grained layer statistics retain task-relevant information despite discarding neuron-level details. This marginal result (2 percentage points below target 70\%) validates hierarchical design feasibility for proof-of-concept purposes while identifying pooling information loss (approximately 30\% of task signal) as a boundary condition requiring improvement via full-scale training or Set Transformer pooling.
+\end{enumerate}
+
+These proof-of-concept findings on synthetic data challenge the prevailing assumption that weight space learning requires architecture-specific processing. We demonstrate feasibility that \textbf{task constraints (functional requirements like ImageNet 1000-way discrimination) may dominate computational primitive variance (convolution vs residual blocks) at layer-summary scale} --- a principle that generalizes across tested architecture pairs (CNN-ResNet) and all nine tasks (CIFAR-10 through EuroSAT) on synthetic data, pending real dataset validation to confirm external validity.
+
+\subsection{Implications for Model Zoo Curation and Transfer Learning}
+
+Our hierarchical VAE enables potential applications addressing real-world model zoo challenges (pending real dataset validation):
+
+\textbf{1. Metadata-Free Model Discovery:} Zero-shot task prediction from weights alone (without metadata access) demonstrated 68\% accuracy on synthetic data, suggesting weights may encode task identity inaccessible to text-based inference. This capability could enable \textbf{model zoo curation at Hugging Face scale} (1M+ checkpoints) --- detecting mislabeled models, identifying duplicate checkpoints (same task different architectures cluster together), and inferring missing metadata for orphaned models.
+
+\textbf{2. Cross-Architecture Transfer Learning:} Our method potentially enables task vectors that generalize across architectures (CNN-to-ResNet transfer without shared base model), which could unlock model soups and task arithmetic on heterogeneous collections. Prior work (Ilharco et al., 2022; Wortsman et al., 2022) limited to same-base or same-architecture models --- our hierarchical design may remove this constraint (requires invertible encoder extension for editing operations).
+
+\textbf{3. Model Property Inference on Unlabeled Collections:} Training dataset identification, architecture type classification, and generalization performance estimation from weights alone (demonstrated via task classification loss, Section 3.3.1) could enable auditing proprietary model checkpoints, detecting training data contamination, and verifying model provenance without access to training logs.
+
+\textbf{Callback to Opening Hook:} We opened with the problem of 1M+ Hugging Face models with unreliable metadata. Our proof-of-concept validation on synthetic data supports the hypothesis that \textbf{neural network weights encode task identity across architectures}, providing a potential principled alternative to text-based metadata inference pending real dataset confirmation. This finding could transform model zoo curation from a metadata annotation problem (requiring human labeling) to a weight space clustering problem (solvable via hierarchical VAE), scalable to millions of checkpoints.
+
+\subsection{Limitations and Future Validation}
+
+Our proof-of-concept validation establishes mechanism feasibility on synthetic data but requires three critical validations before publication:
+
+\textbf{1. Real Dataset Validation (Priority 1 --- CRITICAL):} PoC used synthetic data (27 .pt files mimicking ModelZooDataset distributions). \textbf{Real Zenodo ModelZooDataset downloads required} to rule out synthetic data artifact (CKA 0.82 may drop to 0.6-0.7 range on real checkpoints, effect size d=1.45 may shrink to d=0.8-1.2, but both should remain above thresholds if hypothesis holds). Timeline: 4 days dataset download + recomputation. Acceptance: CKA same-task >0.6 AND WCSS Cohen's d >0.5 on real data.
+
+\textbf{2. Full-Scale Training (Priority 2):} 10 epochs (PoC) vs 200 planned. Reconstruction accuracy 0.68 marginal (2pp below 0.70 target) likely due to early stopping --- training curves show no plateau at epoch 10. Full 200-epoch training expected to reach 0.70-0.75 accuracy. Timeline: 7 days GPU training (\$700). Fallback: Set Transformer pooling (learnable aggregation) if full training insufficient.
+
+\textbf{3. Architecture Token Ablation (Priority 3):} Transformer Level 3 contribution unverified (no ablation removing architecture-type tokens). Cannot claim ``Transformer discovers cross-architecture correspondences'' without measuring clustering degradation (expected $\geq$15pp if tokens critical, <5pp if redundant). Timeline: 2 days retraining.
+
+\textbf{Scope Boundaries (Principled Exclusions):} Our method applies to discriminative classifiers (CNNs, ResNets) on supervised tasks. Does NOT apply to generative models (GANs, Diffusion --- require task-space reformulation), fine-grained weight editing (task arithmetic, model merging --- require invertible encoders), or models <10 layers (insufficient sequential structure). These exclusions are principled, not technical limitations --- future work extends via architectural modifications.
+
+\subsection{Broader Impact and Research Directions}
+
+Our hierarchical design principle --- \textbf{trading local equivariance (neuron-level symmetries) for global expressivity (cross-architecture generalization)} --- extends beyond weight space learning to other multi-scale representation problems:
+
+\begin{itemize}
+\item \textbf{Multi-Modal Learning:} Text encoders (BERT) + vision encoders (ResNet) may exhibit task-invariant structure for aligned tasks (image captioning, VQA). Hierarchical pooling could unify text and vision representations without modality-specific alignment losses.
+
+\item \textbf{Meta-Learning:} Few-shot learning algorithms (MAML, Reptile) learn task-agnostic representations across diverse datasets. Our principle suggests task structure (classification vs regression vs generation) may dominate dataset-specific variance at coarse-grained scale --- potential meta-learning initialization strategy.
+
+\item \textbf{Neural Architecture Search:} Weight-sharing NAS methods (ENAS, DARTS) assume architecture performance predictable from supernet weights. Our finding (task constraints may dominate architecture variance) would validate this assumption --- architecture-invariant task structure implies supernet-to-subnet transfer feasible.
+\end{itemize}
+
+\textbf{Long-Term Research Directions (6-12 months):}
+
+\begin{enumerate}
+\item \textbf{Extend to Generative Models:} Task-space reformulation treating generation as inverse-classification (e.g., ``generate dog image'' $\approx$ ``classify as dog with probability 1.0''). Test on GAN/Diffusion model zoos (Stable Diffusion variants, DALL-E checkpoints).
+
+\item \textbf{Cross-Domain Transfer (Vision $\to$ NLP):} Extend hierarchical VAE to language model zoos (BERT, GPT variants). Hypothesis: task structure (sentiment analysis, translation, QA) creates architecture-invariant patterns in Transformer weights analogous to vision. Enables unified model zoo curation across modalities.
+
+\item \textbf{Fine-Grained Weight Editing:} Replace mean pooling with invertible normalizing flows (preserves neuron-level structure), enable task arithmetic and model merging on cross-architecture pairs. Integration with Hugging Face mergekit (7291 stars, production library).
+
+\item \textbf{Real-World Deployment:} Hugging Face Spaces demo for zero-shot task prediction on user-uploaded checkpoints. Applications: model zoo curation, duplicate detection, metadata verification. User testing on 1M+ checkpoints validates scalability claims.
+\end{enumerate}
+
+\subsection{Final Takeaway}
+
+We provide proof-of-concept evidence on synthetic data that \textbf{task-level functional constraints create architecture-invariant structural features in neural network weight distributions}, enabling cross-architecture model property inference on heterogeneous collections. This finding challenges the assumption that weight space learning requires architecture-specific processing, opening pathways for unified model zoo curation, cross-architecture transfer learning, and metadata-free model analysis at Hugging Face scale (1M+ checkpoints) --- pending confirmation on real ModelZooDataset.
+
+Our hierarchical VAE design --- trading local equivariance for global expressivity --- provides a principled resolution to the equivariance-expressivity tradeoff, demonstrating on synthetic data that task constraints (functional requirements) may dominate computational primitive variance (convolution vs residual blocks) at layer-summary granularity. This principle extends beyond weight space learning to multi-modal representation learning, meta-learning, and neural architecture search, establishing a foundational design pattern for multi-scale representation problems.
+
+\textbf{Core Message:} Neural network weights may encode task identity across architectures (pending real validation). Task constraints may dominate computational primitive variance at coarse-grained scale (synthetic data evidence, d=1.45). Hierarchical pooling exposes potential task-invariant structure while preserving 68\% task-relevant information (marginal, requires improvement). Cross-architecture clustering validated on synthetic data with large effect size (Cohen's d=1.45, p<0.000001) across 2,120 models, 2 architecture families (4 depth variants), and 9 vision tasks. \textbf{Real dataset validation required to confirm external validity.}

@@ -1,0 +1,109 @@
+{
+  "Experiment_description": "Multiple nodes independently implemented a baseline framework for studying Uncertainty Cascades in long-form LLM generation using synthetic biography-like documents. Each implementation generates atomic claims with ground-truth hallucination labels designed to exhibit cascade behavior, constructs dependency graphs over claims, propagates uncertainty scores forward through the graph, and evaluates cascade-aware versus independent uncertainty scoring. Methods compared include: (1) independent per-claim uncertainty scoring, (2) closed-form (CF) cascade propagation using weighted sums of self and upstream uncertainty, and (3) learned sequential models (GRU). The primary metrics are AUROC for hallucination detection and the Cascade Hallucination Amplification Rate (CHAR), which measures how much early uncertain claims amplify downstream hallucination rates.",
+  "Significance": "Validating the cascade hypothesis\u2014that uncertainty in early claims propagates and amplifies downstream hallucinations in long-form generation\u2014is central to developing targeted intervention strategies for LLM factuality. If cascade-aware uncertainty scoring outperforms independent scoring, it motivates early pivot detection and correction to prevent compounding errors. These experiments establish whether synthetic data can serve as a controlled testbed for this hypothesis and reveal an important tension: cascade-aware methods improve the cascade-specific CHAR metric but may not improve (and can hurt) standard per-claim AUROC, informing how future work should define objectives and metrics.",
+  "Description": "All nodes generate synthetic biography-like documents with atomic claims where some early claims are designated as uncertain/hallucinated, and this uncertainty propagates to downstream claims according to a dependency graph (typically sequential/chain structure). Uncertainty scores are assigned via heuristics combining position-based scoring and semantic variance. Cascade-aware uncertainty is computed by propagating upstream uncertainty forward using a weighted combination: cascade_score = alpha * self_uncertainty + (1-alpha) * upstream_uncertainty, where alpha controls the balance between local and context-dependent uncertainty. A GRU-based sequential model is also trained to learn the propagation function end-to-end. CHAR is computed as the ratio of downstream hallucination rates following high-uncertainty pivot claims versus low-uncertainty claims. Nodes differ in their propagation rules (exponential decay vs. weighted sum), alpha values, synthetic data generation parameters, and model architectures, leading to varying absolute performance levels. One node (9554) performs a hyperparameter sweep over alpha to find the optimal propagation weight. Another node (3eaf) additionally evaluates intervention effectiveness by simulating claim correction at high-uncertainty pivot points.",
+  "List_of_included_plots": [
+    {
+      "path": "experiments_sonnet46/2026-05-12_20-00-25_uncertainty_cascade_propagation_attempt_0/logs/0-run/experiment_results/experiment_3eaf08cc31cc4b37a3140e0194a9d5d5_proc_1132649/biography_auroc_comparison.png",
+      "description": "Hallucination detection AUROC by method: Independent 0.621, Cascade-Aware 0.664, GRU 0.676. The ordering is consistent with the hypothesis: incorporating dependency structure improves detection, and a learned sequential model improves further. The gains are modest but meaningful for a preliminary stage. To strengthen the claim, add error bars via bootstrap over documents and test significance; also report PR-AUC if hallucinations are imbalanced. Calibration metrics (ECE/Brier) would be useful since this is an uncertainty-focused paper.",
+      "analysis": "This plot, from one implementation variant, shows that cascade-aware scoring (+0.043 AUROC) and GRU modeling (+0.055 AUROC over independent) both improve hallucination detection. This is in contrast to another implementation group (nodes 15503/16b97/8c416) where cascade GRU hurt AUROC relative to independent, suggesting that the direction of effect on AUROC depends heavily on implementation details such as propagation rule and synthetic data generation parameters."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-12_20-00-25_uncertainty_cascade_propagation_attempt_0/logs/0-run/experiment_results/experiment_15503740483f45b2858b00645f605e7d_proc_1132649/biography_synthetic_test_metrics_bar.png",
+      "description": "Test set CHAR and AUROC comparison by method: CHAR again shows Independent 1.572 < Cascade CF 1.807 < Cascade GRU 1.829, indicating consistent gains from cascade-aware scoring. However, AUROC shows Independent 0.891 > Cascade GRU 0.870, meaning the cascade GRU improves the cascade-specific metric but slightly hurts standard hallucination discrimination. This suggests the GRU may be emphasizing sequential dependency patterns (useful for cascade detection) at the expense of per-claim separability, or that the independent score is already a strong direct signal for label prediction in this synthetic setup.",
+      "analysis": "This is the most scientifically revealing plot of the stage: it demonstrates a fundamental divergence between CHAR (cascade-specific, structural metric) and AUROC (per-claim discriminative metric). Cascade GRU improves CHAR by +0.257 over independent (1.829 vs 1.572) but reduces AUROC by -0.021 (0.870 vs 0.891). This divergence reveals that cascade-aware modeling captures a different aspect of hallucination structure than per-claim discrimination, and that optimizing for cascade detection may trade off against per-claim separability."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-12_20-00-25_uncertainty_cascade_propagation_attempt_0/logs/0-run/experiment_results/experiment_3eaf08cc31cc4b37a3140e0194a9d5d5_proc_1132649/biography_uncertainty_by_position.png",
+      "description": "Hallucination rate increases with claim position (roughly from ~0.35 at position 0 to ~0.55\u20130.57 by positions 9\u201311), consistent with compounding errors in long-form generation. Independent uncertainty stays relatively flat (~0.28\u20130.38) and does not track the late-position rise in hallucinations well. Cascade uncertainty rises sharply early (\u22480.31 \u2192 \u22480.54 by position 2) and remains high (~0.59\u20130.67 thereafter), better matching the overall upward/late-high pattern of hallucination rate. Notably, cascade uncertainty appears to saturate/plateau after mid-document while hallucination rate continues to fluctuate upward; this could indicate the propagation rule is overly aggressive or lacks calibration, producing high uncertainty even when hallucination rate dips (e.g., around position 8 where hallucination rate drops but cascade uncertainty stays high). Overall, the plot supports the core hypothesis that context-dependent propagation yields a position-dependent uncertainty signal that independent scoring misses, but it also suggests calibration/temperature scaling or a less saturating propagation function may be needed.",
+      "analysis": "This plot provides direct visual evidence for the cascade hypothesis: hallucination rate increases with document position (from ~0.35 to ~0.55-0.57), while independent uncertainty remains flat. Cascade uncertainty tracks the upward trend but saturates early (~position 2), suggesting the exponential decay propagation rule is too aggressive. This motivates more carefully calibrated propagation functions and confirms that position-dependent uncertainty modeling is necessary to capture the cascade phenomenon."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-12_20-00-25_uncertainty_cascade_propagation_attempt_0/logs/0-run/experiment_results/experiment_15503740483f45b2858b00645f605e7d_proc_1132649/biography_synthetic_CHAR_by_position.png",
+      "description": "CHAR by claim position buckets (early\u2192late): both Independent and Cascade CF are above baseline 1.0 in all buckets, implying detectable cascade structure throughout the document. Cascade CF is consistently higher than Independent, with the largest relative gain in the mid-early bucket (25\u201350%) where Cascade CF reaches ~2.0 vs Independent ~1.45. This pattern supports the cascade hypothesis: uncertainty in earlier/mid-early claims is particularly predictive of downstream errors, and propagation modeling amplifies that signal. The early bucket shows both methods high (~1.95\u20131.98), suggesting strong early influence; late bucket shows smaller gap, consistent with fewer downstream claims to be affected.",
+      "analysis": "CHAR by position reveals that cascade propagation modeling provides the largest benefit in the 25-50% document position range (Cascade CF ~2.0 vs Independent ~1.45), where upstream uncertainty has had time to propagate but there are still many downstream claims to affect. Both methods show high CHAR in the early bucket (~1.95-1.98), suggesting early claims have strong intrinsic cascade signal regardless of propagation modeling. This position-dependent analysis supports the cascade hypothesis and suggests intervention strategies should prioritize mid-document pivot claims."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-12_20-00-25_uncertainty_cascade_propagation_attempt_0/logs/0-run/experiment_results/experiment_9554d6e1e4fc440095ec79d5ea06c5ba_proc_1132663/biography_synthetic_char_vs_alpha.png",
+      "description": "CHAR vs propagation alpha shows a non-monotonic relationship: CHAR peaks around alpha ~0.3 (~1.189) and declines as alpha approaches 0.9 (~1.117), nearing the independent baseline. This suggests that giving more weight to propagated/context uncertainty (lower alpha) increases measured cascade amplification up to a point, but too much propagation may oversmooth or saturate. This is a useful hyperparameter sensitivity result: you can motivate alpha selection by optimizing a cascade-specific objective (CHAR, pivot prediction) while monitoring detection AUROC/calibration to avoid degrading discriminative performance.",
+      "analysis": "The non-monotonic CHAR vs alpha relationship (peak at alpha ~0.3, CHAR ~1.189; decline at alpha 0.9, CHAR ~1.117) is an important practical finding: moderate propagation weight (giving ~70% weight to upstream context) maximizes cascade amplification detection, while too much self-reliance (alpha=0.9) approaches the independent baseline. This motivates principled hyperparameter selection for propagation and suggests that the optimal uncertainty propagation is neither purely local nor purely context-dependent."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-12_20-00-25_uncertainty_cascade_propagation_attempt_0/logs/0-run/experiment_results/experiment_3eaf08cc31cc4b37a3140e0194a9d5d5_proc_1132649/biography_intervention_effectiveness.png",
+      "description": "Intervention effectiveness bar chart: baseline hallucination error rate 0.461. After intervention (correction_prob=0.7), error drops to 0.311 for independent and 0.321 for cascade-aware\u2014substantial improvement (~0.15 absolute). However, cascade-aware intervention is slightly worse than independent here, suggesting pivot selection/thresholding may be miscalibrated (cascade uncertainty saturation leading to suboptimal intervention points) or the simulated intervention model does not reflect the advantage of cascade-aware targeting. To demonstrate the paper's key claim (early pivot interventions outperform), you likely need: (1) intervention budget curves (error vs #interventions), (2) ablations on pivot selection (top-k by independent vs cascade vs random), and (3) analysis of where interventions occur (early vs late positions) and their downstream impact.",
+      "analysis": "Interventions at high-uncertainty pivot claims substantially reduce hallucination error rates (~0.15 absolute, ~33% relative reduction). However, cascade-aware intervention (0.321) is slightly worse than independent (0.311), likely due to saturation of cascade uncertainty scores leading to suboptimal pivot selection. This is a critical finding: while cascade-aware modeling improves CHAR, it does not yet translate to better intervention outcomes, pointing to the need for better-calibrated propagation rules and threshold selection strategies."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-12_20-00-25_uncertainty_cascade_propagation_attempt_0/logs/0-run/experiment_results/experiment_9554d6e1e4fc440095ec79d5ea06c5ba_proc_1132663/biography_synthetic_char_comparison.png",
+      "description": "CHAR bar chart: both methods have CHAR > 1 (above the no-cascade baseline), indicating measurable hallucination amplification consistent with cascades. Cascade-aware UQ shows higher CHAR (~1.163) than independent (~1.112), suggesting it better captures the cascade effect as defined by this metric. However, interpret carefully: higher CHAR here means 'stronger cascade effect captured,' not necessarily better hallucination detection. Ensure CHAR is not trivially increased by globally inflating uncertainty or by the propagation rule's smoothing; include a control where uncertainties are permuted across positions to verify CHAR drops toward 1.",
+      "analysis": "Both methods show CHAR > 1.0, confirming measurable cascade amplification in the synthetic data. The cascade-aware method captures a stronger cascade signal (CHAR 1.163 vs 1.112), consistent with the cascade hypothesis. The recommendation to use position-permuted controls to verify CHAR validity is scientifically important\u2014ensuring the metric reflects genuine sequential structure rather than global uncertainty inflation."
+    },
+    {
+      "path": "experiments_sonnet46/2026-05-12_20-00-25_uncertainty_cascade_propagation_attempt_0/logs/0-run/experiment_results/experiment_15503740483f45b2858b00645f605e7d_proc_1132649/biography_synthetic_auroc_curves.png",
+      "description": "AUROC over epochs (Independent vs Cascade GRU): the independent baseline is a flat dashed line at ~0.89. The cascade GRU starts near chance/poor (~0.27), rises gradually, then sharply improves around epochs ~13\u201318 to ~0.83\u20130.85, and plateaus with a slight late uptick to ~0.88 by epoch 30\u2014still just below independent. This indicates the GRU needs substantial training to learn useful propagation features; early epochs are not usable. The late plateau suggests either capacity/regularization limits or that the GRU is converging to a solution that optimizes BCE but doesn't surpass independent AUROC on this dataset.",
+      "analysis": "The GRU's training trajectory (starting at AUROC ~0.27, eventually reaching ~0.88 but not surpassing the independent baseline of ~0.89) reveals that learning cascade propagation is non-trivial and requires substantial training. The sharp improvement around epochs 13-18 suggests a phase transition in learning. The failure to exceed independent AUROC indicates that in this synthetic setup, the local uncertainty signal is already near-optimal for per-claim discrimination, and the GRU's sequential modeling adds cascade structure awareness at the cost of some per-claim discriminability."
+    }
+  ],
+  "Key_numerical_results": [
+    {
+      "result": 0.8905,
+      "description": "Test AUROC for Independent scoring (nodes 15503/16b97/8c416)",
+      "analysis": "The independent per-claim uncertainty scoring achieves high AUROC (0.891) on this synthetic dataset, suggesting the local uncertainty signal is already a strong discriminator in the controlled synthetic setting. This high baseline makes it difficult for cascade-aware methods to improve AUROC further."
+    },
+    {
+      "result": 0.8702,
+      "description": "Test AUROC for Cascade GRU (nodes 15503/16b97/8c416)",
+      "analysis": "The cascade GRU model achieves lower AUROC (-0.021) than independent scoring despite improving CHAR, revealing a fundamental trade-off: cascade-aware modeling captures sequential structure at the expense of per-claim discriminative performance. This is a key negative result that must be addressed in future work."
+    },
+    {
+      "result": 0.6762,
+      "description": "Test AUROC for GRU model (node 3eaf)",
+      "analysis": "In a different implementation variant, the GRU achieves the highest AUROC among all methods (+0.055 over independent 0.621), showing that the direction of the AUROC effect is implementation-dependent. The large discrepancy in absolute values (0.676 vs 0.870) across implementations highlights sensitivity to synthetic data generation and model design choices."
+    },
+    {
+      "result": 1.8287,
+      "description": "Test CHAR for Cascade GRU (nodes 15503/16b97/8c416)",
+      "analysis": "The cascade GRU achieves the highest CHAR (1.829), substantially above the independent baseline (1.572, +0.257). This is the strongest evidence that cascade-aware modeling captures the sequential amplification structure of hallucinations, even when it does not improve per-claim AUROC."
+    },
+    {
+      "result": 1.5718,
+      "description": "Test CHAR for Independent scoring (nodes 15503/16b97/8c416)",
+      "analysis": "Even independent scoring yields CHAR > 1.0 (1.572), confirming that the synthetic data exhibits genuine cascade amplification structure that is detectable even without explicit propagation modeling."
+    },
+    {
+      "result": 1.8071,
+      "description": "Test CHAR for Cascade CF (closed-form propagation, nodes 15503/16b97/8c416)",
+      "analysis": "The simple closed-form propagation rule achieves CHAR 1.807, capturing most of the cascade signal without a learned model (vs GRU 1.829). This suggests that even a simple weighted propagation rule is effective for cascade detection, with the GRU providing only marginal additional gain (+0.022)."
+    },
+    {
+      "result": 1.1908,
+      "description": "CHAR for Cascade-Aware scoring (node 3eaf)",
+      "analysis": "In another implementation, cascade-aware scoring achieves CHAR 1.191 vs independent 1.047, a +0.144 improvement. All implementations consistently show cascade-aware methods improve CHAR, making this the most robust finding across implementations."
+    },
+    {
+      "result": 0.0063,
+      "description": "AUROC improvement of cascade-aware over independent (node 9554)",
+      "analysis": "Node 9554 shows only a marginal AUROC improvement (+0.006) from cascade-aware scoring (0.7303 vs 0.7240), suggesting that in this implementation the discriminative benefit of cascade propagation is very small. Combined with node 3eaf's +0.043 and nodes 15503/16b97's -0.021, the AUROC effect is highly variable and implementation-dependent."
+    },
+    {
+      "result": 1.189,
+      "description": "Peak CHAR at optimal alpha (~0.3) in propagation sensitivity analysis (node 9554)",
+      "analysis": "The non-monotonic relationship between propagation weight alpha and CHAR peaks at alpha ~0.3 (CHAR ~1.189), declining to ~1.117 at alpha=0.9. This identifies an optimal operating point: giving ~70% weight to upstream context and ~30% to self-uncertainty maximizes cascade detection. Too much self-reliance approaches the independent baseline."
+    },
+    {
+      "result": 0.311,
+      "description": "Post-intervention hallucination error rate using independent scoring (node 3eaf)",
+      "analysis": "Intervention at high-uncertainty pivot claims reduces the baseline error rate from 0.461 to 0.311 (absolute reduction ~0.15, ~33% relative). This demonstrates that uncertainty-guided interventions have practical value for reducing hallucinations in long-form generation."
+    },
+    {
+      "result": 0.321,
+      "description": "Post-intervention hallucination error rate using cascade-aware scoring (node 3eaf)",
+      "analysis": "Cascade-aware intervention achieves slightly worse post-intervention error rate (0.321) than independent (0.311), despite cascade-aware scoring having higher CHAR. This suggests that uncertainty saturation in cascade propagation leads to suboptimal pivot selection, and better-calibrated propagation or threshold selection is needed to realize the practical benefit of cascade-aware interventions."
+    },
+    {
+      "result": 2.0,
+      "description": "CHAR for Cascade CF in the 25-50% document position bucket (node 15503/16b97)",
+      "analysis": "The 25-50% document position bucket shows the largest CHAR for cascade CF (~2.0 vs independent ~1.45), indicating that mid-document claims benefit most from propagation modeling. This finding suggests that intervention strategies should prioritize mid-document pivot claims where cascade effects are strongest."
+    }
+  ]
+}

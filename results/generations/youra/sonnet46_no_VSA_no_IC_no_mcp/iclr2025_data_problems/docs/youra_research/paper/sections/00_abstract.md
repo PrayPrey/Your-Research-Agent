@@ -1,0 +1,18 @@
+# Abstract
+
+Training data deduplication is widely believed to improve language model quality,
+yet when we compare Pythia models trained on the Pile versus its deduplicated variant
+at token-count-matched checkpoints, deduplication makes MMLU accuracy *significantly
+worse* while improving HellaSwag and ARC-Challenge. We show this divergence is not
+paradoxical — it is a contamination-correction signature: the direction and magnitude
+of each benchmark's accuracy change under deduplication correlates positively with the
+benchmark's estimated n-gram overlap with the Pile training corpus
+(Pearson $r = 0.632$, $p = 0.0086$ across 16 observations spanning 4 benchmarks and
+4 model sizes 160M--6.9B). Benchmarks most contaminated in the original corpus show
+the largest accuracy reductions under deduplication, while low-contamination benchmarks
+are unaffected or improved. We additionally demonstrate that token-count matching —
+not step-matching — is the correct confound-control methodology for such comparisons,
+recovering a $\Delta r = 0.093$ stronger contamination signal than step-matched analyses.
+Our findings reframe deduplication's benchmark effects from a uniform quality improvement
+to a selective contamination correction, with direct implications for how practitioners
+should interpret benchmark regressions after corpus deduplication.

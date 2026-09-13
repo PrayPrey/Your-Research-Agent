@@ -1,0 +1,301 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-05-04T00:00:00"
+  phase: "Phase 3"
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 8
+  subtasks: 11
+  failsafe: 1
+  total: 21
+  within_budget: true
+
+tasks:
+  # ── Environment Setup (priority 94) ──────────────────────────────────────
+  - id: "ENV-1"
+    title: "Environment Setup and Dependency Verification"
+    type: "setup"
+    priority: 94
+    description: >
+      Verify Python 3.9+ environment with required packages: scipy>=1.9.0,
+      pandas>=1.5.0, numpy>=1.23.0, matplotlib>=3.5.0, seaborn>=0.12.0.
+      Create output directories: code/, results/, figures/.
+      Verify h-m1/experiment_results.json is accessible and valid JSON.
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "h-m1/experiment_results.json loads with 59 subtasks and 3 corpus keys"
+      - "results/ and figures/ directories created"
+    reference_files:
+      - file: "03_prd.md"
+        section: "7. Dependencies"
+      - file: "03_config.md"
+        section: "YAML Schema"
+
+  # ── Epic Tasks (priority 93 → 50) ────────────────────────────────────────
+  - id: "A-1"
+    title: "Project Setup (config.py)"
+    type: "setup"
+    priority: 90
+    complexity: 5
+    description: >
+      Implement code/config.py with Config dataclass and load_config() function.
+      Fields: h_m1_results_path, alpha=0.05, seed=1,
+      min_corpora_directional_confirmed=2, top_n=5,
+      corpora=["pile","c4","redpajama"], directional_predictions dict,
+      results_dir, figures_dir, figure_dpi=150, figure_format="png".
+      Support optional YAML override via H_M2_CONFIG_PATH env var.
+    acceptance_criteria:
+      - "Config dataclass instantiates with correct defaults"
+      - "load_config() returns Config instance"
+      - "YAML override path works when env var set"
+    reference_files:
+      - file: "03_config.md"
+        section: "Configuration (Python Dataclass)"
+      - file: "03_architecture.md"
+        section: "Config (code/config.py)"
+
+  - id: "A-2"
+    title: "Domain Classifier (domain_classifier.py)"
+    type: "implementation"
+    priority: 88
+    complexity: 9
+    description: >
+      Implement code/domain_classifier.py with DomainClassifier class.
+      COMMONSENSE_TASKS frozenset with hellaswag + 23 bbh_ subtask names.
+      Methods: classify(), build_domain_map(), get_groups().
+      All 57 MMLU subtasks map to 'academic'; HellaSwag + BBH → 'commonsense'.
+      Fallback: any subtask starting with 'bbh_' → commonsense.
+    acceptance_criteria:
+      - "classify() returns 'academic' or 'commonsense' for all 59 subtasks"
+      - "build_domain_map() returns dict covering all subtask names in matrix"
+      - "get_groups() returns two lists summing to 59 rates for each corpus"
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-2: Domain Classifier"
+      - file: "03_architecture.md"
+        section: "DomainClassifier (code/domain_classifier.py)"
+    subtasks:
+      - id: "L-2-1"
+        title: "classify + build_domain_map implementation"
+        description: "Implement COMMONSENSE_TASKS frozenset, classify(), build_domain_map() with full 59-subtask coverage"
+        reference_files:
+          - file: "03_logic.md"
+            section: "A-2: Domain Classifier — Subtasks L-2-1"
+      - id: "L-2-2"
+        title: "get_groups implementation"
+        description: "Implement get_groups() extracting academic/commonsense rate lists from 59×3 matrix for a given corpus"
+        reference_files:
+          - file: "03_logic.md"
+            section: "A-2: Domain Classifier — Subtasks L-2-2"
+
+  - id: "A-3"
+    title: "Matrix Loader (load_matrix in run_experiment.py)"
+    type: "data-pipeline"
+    priority: 86
+    complexity: 6
+    description: >
+      Implement load_matrix() in code/run_experiment.py.
+      Loads h-m1/experiment_results.json, validates structure:
+      expects dict with 59 subtask keys, each having 3 corpus keys
+      (pile, c4, redpajama). Raises explicit ValueError if malformed.
+    acceptance_criteria:
+      - "Loads valid JSON without error"
+      - "Raises ValueError with clear message if subtask count != 59"
+      - "Raises ValueError if any corpus key missing"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "RunExperiment (code/run_experiment.py)"
+      - file: "03_prd.md"
+        section: "FR-1: Data Loading"
+
+  - id: "A-4"
+    title: "Stratified Rate Computation (StatsAnalyzer.compute_domain_stratified_rates)"
+    type: "implementation"
+    priority: 84
+    complexity: 8
+    description: >
+      Implement StatsAnalyzer.compute_domain_stratified_rates() in code/stats_analyzer.py.
+      Computes mean contamination rate per (corpus, domain) cell for the 2×3 table.
+      Returns {corpus: {domain: mean_rate, domain+"_rates": list[float]}}.
+    acceptance_criteria:
+      - "Returns dict with 3 corpus keys, each with academic/commonsense means"
+      - "academic_rates and commonsense_rates lists present for each corpus"
+      - "Sum of len(academic_rates) + len(commonsense_rates) == 59 per corpus"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "StatsAnalyzer (code/stats_analyzer.py)"
+      - file: "03_prd.md"
+        section: "FR-3: Per-(Corpus, Domain) Statistics"
+
+  - id: "A-5"
+    title: "Directional Statistical Tests (StatsAnalyzer)"
+    type: "implementation"
+    priority: 82
+    complexity: 13
+    description: >
+      Implement directional statistical tests in code/stats_analyzer.py:
+      mann_whitney_directional(), cohens_d(), run_directional_tests(), assert_gate().
+      run_directional_tests() applies correct direction per corpus:
+        pile: academic > commonsense; c4: commonsense > academic (swap groups);
+        redpajama: academic > commonsense (exploratory).
+      assert_gate() returns True if >=2 corpora have direction_confirmed=True.
+    acceptance_criteria:
+      - "mann_whitney_directional() returns stat, p, effect_size_r, direction_confirmed"
+      - "run_directional_tests() produces 3 test results with correct direction per corpus"
+      - "assert_gate() returns True iff >=2 corpora confirmed"
+      - "effect_size_r = 1 - 2U/(n1*n2) computed correctly"
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: Directional Statistical Tests"
+      - file: "03_prd.md"
+        section: "FR-4: Directional Mann-Whitney U Tests"
+    subtasks:
+      - id: "L-5-1"
+        title: "mann_whitney_directional"
+        description: "scipy.stats.mannwhitneyu call, effect_size_r computation, direction_confirmed flag"
+        reference_files:
+          - file: "03_logic.md"
+            section: "A-5: Directional Statistical Tests — L-5-1"
+      - id: "L-5-2"
+        title: "run_directional_tests"
+        description: "Wire all 3 corpora with correct direction; C4 swaps group_a/group_b; attach cohens_d"
+        reference_files:
+          - file: "03_logic.md"
+            section: "A-5: Directional Statistical Tests — L-5-2"
+      - id: "L-5-3"
+        title: "cohens_d"
+        description: "Pooled std computation: sqrt(((n1-1)*var_a + (n2-1)*var_b) / (n1+n2-2))"
+        reference_files:
+          - file: "03_logic.md"
+            section: "A-5: Directional Statistical Tests — L-5-3"
+      - id: "L-5-4"
+        title: "assert_gate"
+        description: "Count direction_confirmed across tests dict, return bool (>=2 required)"
+        reference_files:
+          - file: "03_logic.md"
+            section: "A-5: Directional Statistical Tests — L-5-4"
+
+  - id: "A-6"
+    title: "Interaction & Top-N Analysis (StatsAnalyzer)"
+    type: "implementation"
+    priority: 80
+    complexity: 9
+    description: >
+      Implement kruskal_interaction() and top_n_per_corpus() in code/stats_analyzer.py.
+      kruskal_interaction(): Kruskal-Wallis across all 6 (corpus×domain) groups.
+      top_n_per_corpus(): returns top-N contaminated subtasks per corpus with domain annotation.
+    acceptance_criteria:
+      - "kruskal_interaction() returns H statistic and p-value"
+      - "top_n_per_corpus() returns dict with 3 corpus keys, each list of n dicts"
+      - "Each top-n dict has subtask, rate, domain keys"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "StatsAnalyzer (code/stats_analyzer.py)"
+      - file: "03_prd.md"
+        section: "FR-5: Overall Interaction Test"
+    subtasks:
+      - id: "C-6-1"
+        title: "Statistical parameters config"
+        description: "alpha, seed, min_corpora_directional_confirmed, directional_predictions dict encoding per-corpus direction"
+        reference_files:
+          - file: "03_config.md"
+            section: "A-6: Interaction & Top-N Analysis — C-6-1"
+      - id: "C-6-2"
+        title: "Output paths and figure settings"
+        description: "results_dir, figures_dir, figure_dpi, figure_format, top_n parameter"
+        reference_files:
+          - file: "03_config.md"
+            section: "A-6: Interaction & Top-N Analysis — C-6-2"
+
+  - id: "A-7"
+    title: "Visualization (visualizer.py)"
+    type: "implementation"
+    priority: 78
+    complexity: 11
+    description: >
+      Implement code/visualizer.py with Visualizer class and 4 figure generators:
+      plot_domain_corpus_heatmap() — 2×3 seaborn heatmap;
+      plot_domain_boxplots() — 3-panel academic vs commonsense boxplots with p-value annotations;
+      plot_top5_per_corpus() — domain-color-coded horizontal bar charts;
+      plot_directional_test_summary() — p-value bar chart with effect size labels.
+      All figures saved to figures/ directory at 150 DPI.
+    acceptance_criteria:
+      - "All 4 figure files created in figures/ directory"
+      - "Heatmap is 2 rows x 3 cols with rate annotations"
+      - "Boxplots have p-value annotation per panel"
+      - "Top-5 bars color-coded by domain (academic=blue, commonsense=orange)"
+      - "Test summary has alpha=0.05 dashed line and effect_size_r labels"
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-7: Visualization"
+      - file: "03_prd.md"
+        section: "FR-8: Figure Generation"
+    subtasks:
+      - id: "L-7-1"
+        title: "plot_domain_corpus_heatmap"
+        description: "seaborn heatmap 2×3 with mean rate annotations, save domain_corpus_heatmap.png"
+        reference_files:
+          - file: "03_logic.md"
+            section: "A-7: Visualization — L-7-1"
+      - id: "L-7-2"
+        title: "plot_domain_boxplots"
+        description: "3-panel boxplots academic vs commonsense per corpus with Mann-Whitney p-value annotation"
+        reference_files:
+          - file: "03_logic.md"
+            section: "A-7: Visualization — L-7-2"
+      - id: "L-7-3"
+        title: "plot_top5_per_corpus + plot_directional_test_summary"
+        description: "Domain-colored top-5 horizontal bar charts + p-value summary bar chart with effect_size_r labels"
+        reference_files:
+          - file: "03_logic.md"
+            section: "A-7: Visualization — L-7-3"
+
+  - id: "A-8"
+    title: "Orchestration + Results Persistence (run_experiment.py)"
+    type: "implementation"
+    priority: 60
+    complexity: 8
+    description: >
+      Implement main() in code/run_experiment.py and save_results().
+      Pipeline: load_config() → load_matrix() → build_domain_map() →
+      compute_domain_stratified_rates() → run_directional_tests() →
+      kruskal_interaction() → top_n_per_corpus() → visualize() →
+      save_results() → assert_gate() → log gate result.
+      save_results() writes results/domain_stratified_rates.json and
+      results/statistical_tests.json. Gate result saved to experiment_results.json.
+    acceptance_criteria:
+      - "main() runs end-to-end without error"
+      - "results/domain_stratified_rates.json written with 2×3 mean table"
+      - "results/statistical_tests.json written with all test results + gate_result"
+      - "experiment_results.json contains directional_patterns_confirmed count"
+      - "Gate result printed to stdout"
+    reference_files:
+      - file: "03_architecture.md"
+        section: "RunExperiment (code/run_experiment.py)"
+      - file: "03_prd.md"
+        section: "FR-7: Gate Evaluation"
+
+  # ── Failsafe (priority 1) ─────────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: >
+      Final checkpoint: verify experiment_results.json exists and contains
+      directional_patterns_confirmed field. Record gate result
+      (PASS/PARTIAL/FAIL) in verification_state.yaml.
+      This task ensures Phase 4 can hand off cleanly to Phase 5/6.
+    acceptance_criteria:
+      - "experiment_results.json exists with gate_result field"
+      - "verification_state.yaml updated with h-m2 validation status"
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-7: Gate Evaluation"
+      - file: "03_prd.md"
+        section: "8. Success Criteria"

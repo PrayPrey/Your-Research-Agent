@@ -1,0 +1,187 @@
+hypothesis_id: "h-lr1"
+version: 1
+title: "Empirical Validation of Simple Classification for Repository Maintenance Prediction"
+date_created: "2026-07-13"
+status: "ready_for_phase2b"
+
+core_hypothesis:
+  statement: "Logistic Regression trained on basic GitHub metadata (stars, forks, commits, contributors, last_commit_date, derived features) achieves ≥75% binary classification accuracy for repository maintenance status, demonstrating that simple methods suffice for moderate-accuracy maintenance prediction without complex ensemble or network analysis."
+
+  research_question: "Can simple classification methods predict benchmark maintenance status from GitHub metadata with ≥75% accuracy on real benchmark repositories?"
+
+  gap_addressed: "Gap 1 - Empirical Validation of Logistic Regression for Repository Maintenance Classification"
+
+  novelty:
+    - "First controlled comparison of CSI (aggregation) vs LR (simple classification) vs GB (complex ensemble) on same dataset"
+    - "First temporal validation of repository maintenance prediction (train 2020-2022, test 2023-2024)"
+    - "Tests linear separability hypothesis for repository maintenance classification"
+    - "Quantifies complexity-accuracy-compute trade-offs (30s LR vs 10min GB vs 1000hr HITS infrastructure)"
+
+predictions:
+  - id: "pred1_absolute"
+    claim: "LR achieves 75-80% accuracy on held-out test set (stratified 80/20 split)"
+    measurement: "Binary classification accuracy, precision, recall, F1"
+    pass_criterion: "Accuracy ≥75% AND F1 ≥0.73"
+    fail_criterion: "Accuracy <70% OR F1 <0.68"
+
+  - id: "pred2_relative"
+    claim: "LR outperforms majority-class baseline by ≥10% AND matches CSI within 3%"
+    measurement: "Δ(LR - Majority), Δ(LR - CSI) on same test set"
+    pass_criterion: "LR - Majority ≥10% AND |LR - CSI| ≤3%"
+    fail_criterion: "LR - Majority <8%"
+
+  - id: "pred3_temporal"
+    claim: "LR trained on 2020-2022 maintains ≥70% accuracy on 2023-2024 test set"
+    measurement: "Accuracy drop: (Test_IID - Test_Temporal) for LR vs GB"
+    pass_criterion: "LR_Temporal ≥70% AND |LR_drop| ≤ |GB_drop| + 5%"
+    fail_criterion: "LR_Temporal <65% OR LR_drop > GB_drop + 10%"
+
+experimental_design:
+  dataset:
+    size: 2000
+    source: "Papers with Code benchmark repositories + GitHub REST API"
+    date_range: "2020-2024"
+    selection_criteria: "min_stars=32, non-fork, benchmark status"
+
+  features:
+    count: 8
+    list:
+      - "stars_log (log1p transform)"
+      - "forks_log (log1p transform)"
+      - "contributors_log (log1p transform)"
+      - "total_commits_log (log1p transform)"
+      - "open_issues_log (log1p transform)"
+      - "days_since_last_commit (raw)"
+      - "commit_frequency_median_weekly (derived, per Adejumo & Johnson 2025)"
+      - "issue_resolution_rate (derived, closed/(open+closed+1))"
+
+  labels:
+    definition: "Binary from days_since_last_commit < 180 (maintained=1, abandoned=0)"
+    validation: "High-confidence subset: last_commit <90 days & recent activity OR archived/keywords"
+
+  models:
+    baseline_majority:
+      method: "sklearn.dummy.DummyClassifier"
+      strategy: "most_frequent"
+
+    baseline_csi:
+      method: "Composite Stability Index replication"
+      reference: "Adejumo & Johnson 2025"
+      weights: [0.30, 0.25, 0.25, 0.20]
+      threshold: 0.6
+
+    model_lr:
+      method: "sklearn.linear_model.LogisticRegression"
+      parameters:
+        max_iter: 1000
+        class_weight: "balanced"
+        solver: "lbfgs"
+        random_state: 42
+      training_time_estimate: "30 seconds on single CPU"
+
+    model_gb:
+      method: "xgboost.XGBClassifier"
+      parameters:
+        n_estimators: 50
+        max_depth: 6
+        scale_pos_weight: "n_abandoned / n_maintained"
+        random_state: 42
+      training_time_estimate: "10 minutes on multi-core"
+      reference: "He et al. 2024 replication"
+
+  evaluation:
+    splits:
+      - name: "iid"
+        method: "stratified_split"
+        train: 0.8
+        test: 0.2
+        random_state: 42
+      - name: "temporal"
+        method: "time_split"
+        train_period: "2020-01-01 to 2022-12-31"
+        test_period: "2023-01-01 to 2024-12-31"
+
+    metrics:
+      - "accuracy"
+      - "precision"
+      - "recall"
+      - "f1"
+
+    validation_checks:
+      - name: "temporal_stability"
+        method: "scipy.stats.ks_2samp"
+        purpose: "Check feature distribution shifts 2020-2022 vs 2023-2024"
+        threshold: "p < 0.05 indicates significant shift"
+
+      - name: "label_noise"
+        method: "high_confidence_subset"
+        purpose: "Validate accuracy on unambiguous labels"
+        subset_criteria: "last_commit <90 days OR archived/keywords"
+
+feasibility:
+  data_collection: "feasible"
+  data_collection_details:
+    - "GitHub REST API provides all required metadata"
+    - "Li et al. 2026 demonstrated 116K-scale extraction feasibility"
+    - "Papers with Code API lists benchmark repositories (no scraping)"
+
+  automatic_labeling: "sound"
+  automatic_labeling_details:
+    - "Timestamp proxy (last_commit < 180 days) validated by He et al. 2024"
+    - "High-confidence subset addresses label noise concerns"
+
+  compute_requirements: "trivial"
+  compute_details:
+    - "LR training: 30s on single CPU"
+    - "CSI computation: 5s (numpy operations)"
+    - "GB training: 10min on multi-core"
+    - "No Spark/TiDB infrastructure needed (vs He et al. 2024 1000 core-hours)"
+
+  fundamental_barriers: "none"
+
+related_work:
+  - id: "he2024"
+    title: "Repository Centrality in lifespan prediction"
+    method: "Gradient Boosting + HITS centrality"
+    result: "C-Index 0.810"
+    dataset_size: 103354
+    gap: "No simple baseline comparison"
+
+  - id: "adejumo2025"
+    title: "Repository Stability Metrics validation"
+    method: "Composite Stability Index (weighted sum)"
+    result: "F1 0.80"
+    dataset_size: 100
+    gap: "No classifier comparison (aggregation only)"
+
+  - id: "li2026"
+    title: "AIDev: AI Coding Agents on GitHub"
+    method: "Large-scale GitHub metadata extraction"
+    dataset_size: 116211
+    contribution: "Infrastructure validation for our data collection"
+
+contribution:
+  methodological: "First controlled CSI vs LR vs GB comparison with temporal validation"
+  theoretical: "Tests linear separability hypothesis for repository maintenance"
+  practical: "Quantifies when simple methods suffice vs complex methods necessary"
+
+impact_positioning: "Every future repository maintenance prediction paper will reference our LR vs GB baseline comparison as 'the simplicity threshold study'"
+
+serena_memory_lessons_applied:
+  - "Single dimension (maintained yes/no) not multi-dimensional (h-m1 lesson)"
+  - "75% realistic target not 85% aspirational (h-m1 lesson)"
+  - "Simple method (LR) not ensemble (h-e1 lesson)"
+  - "Real data (GitHub API) not synthetic (h-e1 lesson)"
+  - "Automated labeling (timestamp) not human evaluation (feasibility constraint)"
+
+phase2a_metadata:
+  discussion_exchanges: 15
+  convergence_round: 1
+  personas_participated: 6
+  convergence_criteria_met:
+    specific: true
+    mechanism: true
+    predictions: true
+    novelty: true
+    feasibility: true
+    objections: true

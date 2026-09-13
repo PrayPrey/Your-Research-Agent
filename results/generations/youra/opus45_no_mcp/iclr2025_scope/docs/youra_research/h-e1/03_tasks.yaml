@@ -1,0 +1,201 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: H-E1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  generated_at: "2026-08-19"
+  source_documents:
+    - 03_prd.md
+    - 03_architecture.md
+    - 03_logic.md
+    - 03_config.md
+
+tasks:
+  # Priority 100-95: Data Preparation
+  - id: D-1
+    title: "Environment Setup"
+    type: setup
+    priority: 100
+    description: "Install dependencies: torch>=2.0, transformers>=4.36, peft>=0.7, datasets>=2.16, evaluate>=0.4, mamba-ssm>=1.2, accelerate>=0.25, scipy"
+    reference_files:
+      - file: 03_prd.md
+        section: "## 7. Dependencies"
+    acceptance_criteria:
+      - All packages installed without conflicts
+      - CUDA available and verified
+
+  - id: D-2
+    title: "Download Datasets"
+    type: data-preparation
+    priority: 99
+    description: "Download 4 HuggingFace datasets: openai/gsm8k, google-research-datasets/natural_questions, cais/mmlu, hotpot_qa"
+    reference_files:
+      - file: 03_prd.md
+        section: "## 4. Data Specification"
+      - file: 03_config.md
+        section: "## A-1: Setup & Data Loading"
+    acceptance_criteria:
+      - GSM8K test: 1,319 samples
+      - NQ validation: 3,610 samples
+      - MMLU test: 14,042 samples
+      - HotpotQA validation: 7,405 samples
+
+  # Priority 93-50: Epic Implementation Tasks
+  - id: A-1
+    title: "Data Loading Module"
+    type: data-pipeline
+    priority: 93
+    complexity: 8
+    description: "Implement data.py with load_benchmark() and format_for_causal_lm() functions"
+    reference_files:
+      - file: 03_architecture.md
+        section: "### data.py"
+      - file: 03_config.md
+        section: "## A-1: Setup & Data Loading"
+    acceptance_criteria:
+      - load_benchmark returns DatasetDict
+      - format_for_causal_lm returns tokenized Dataset with input_ids, attention_mask, labels
+
+  - id: A-2
+    title: "Baseline Model Setup"
+    type: model
+    priority: 92
+    complexity: 7
+    description: "Implement load_baseline_model() for Llama-2-7B + LoRA"
+    reference_files:
+      - file: 03_architecture.md
+        section: "### model.py"
+      - file: 03_config.md
+        section: "## A-2: Baseline Model + LoRA"
+    acceptance_criteria:
+      - Llama-2-7B loaded with LoRA on q/k/v/o_proj
+      - Forward pass produces (B, L, 32000) logits
+
+  - id: A-3
+    title: "Proposed Model (MambaWithLoRA)"
+    type: model
+    priority: 91
+    complexity: 12
+    description: "Implement MambaWithLoRA class with SSM layers + LoRA on in/out_proj"
+    reference_files:
+      - file: 03_architecture.md
+        section: "### model.py"
+      - file: 03_logic.md
+        section: "## A-3: MambaWithLoRA"
+    subtasks:
+      - id: L-3-1
+        title: "MambaWithLoRA Module"
+        description: "Embedding + Mamba block stack + LM head"
+      - id: L-3-2
+        title: "load_proposed_model"
+        description: "Instantiate + peft.get_peft_model wrap on in_proj/out_proj"
+      - id: L-3-3
+        title: "verify_mechanism_active"
+        description: "Assert A_log/D present, check output shape"
+    acceptance_criteria:
+      - MambaWithLoRA produces (B, L, vocab_size) logits
+      - verify_mechanism_active() returns True
+      - LoRA applied to in_proj/out_proj
+
+  - id: A-4
+    title: "Training Loop"
+    type: training
+    priority: 90
+    complexity: 10
+    description: "Implement train_one_benchmark() and run_all_training() with AdamW + cosine warmup"
+    reference_files:
+      - file: 03_architecture.md
+        section: "### train.py"
+      - file: 03_logic.md
+        section: "## A-4: Training loop"
+    subtasks:
+      - id: L-4-1
+        title: "Training Functions"
+        description: "AdamW + cosine warmup, grad accum loop, checkpoint save"
+    acceptance_criteria:
+      - 3 epochs per benchmark
+      - Loss curves saved
+      - Checkpoints saved per benchmark
+
+  - id: A-5
+    title: "Evaluation Suite"
+    type: evaluation
+    priority: 89
+    complexity: 8
+    description: "Implement evaluate_benchmark(), compute_deltas(), spearman_correlation(), check_gate_conditions()"
+    reference_files:
+      - file: 03_architecture.md
+        section: "### evaluate.py"
+      - file: 03_logic.md
+        section: "## A-5: Evaluation suite"
+    subtasks:
+      - id: L-5-1
+        title: "Evaluation Functions"
+        description: "Metric computation, delta calc, correlation, gate check"
+    acceptance_criteria:
+      - exact_match for GSM8K
+      - F1 for NQ and HotpotQA
+      - accuracy for MMLU
+      - Spearman correlation computed
+      - Gate conditions checked
+
+  - id: A-6
+    title: "Visualization"
+    type: visualization
+    priority: 88
+    complexity: 5
+    description: "Implement 3 required figures: gate comparison bar chart, delta-vs-density scatter, loss curves"
+    reference_files:
+      - file: 03_architecture.md
+        section: "### visualize.py"
+      - file: 03_prd.md
+        section: "### FR-6: Visualization Generation"
+    acceptance_criteria:
+      - Gate metrics comparison bar chart saved
+      - Delta vs density scatter plot with correlation
+      - Loss curves for both models
+
+  - id: A-7
+    title: "End-to-End Integration"
+    type: integration
+    priority: 87
+    complexity: 6
+    description: "Wire config→data→model→train→evaluate→visualize, produce final gate report"
+    reference_files:
+      - file: 03_architecture.md
+        section: "## Epic Tasks"
+    acceptance_criteria:
+      - Full pipeline runs without error
+      - Gate report generated with pass/fail status
+
+  # Priority 1: Failsafe/Completion Checkpoint
+  - id: F-1
+    title: "Pipeline Completion Checkpoint"
+    type: checkpoint
+    priority: 1
+    description: "Mark H-E1 implementation complete, update verification_state.yaml"
+    acceptance_criteria:
+      - All tasks completed
+      - 04_validation.md ready for Phase 4
+
+budget_summary:
+  data_preparation: 2
+  epic_tasks: 7
+  subtasks: 5
+  checkpoint: 1
+  total: 15
+  within_budget: true
+
+execution_order:
+  - D-1  # Environment setup
+  - D-2  # Data download
+  - A-1  # Data loading module
+  - A-2  # Baseline model
+  - A-3  # Proposed model (with subtasks L-3-1, L-3-2, L-3-3)
+  - A-4  # Training loop (with subtask L-4-1)
+  - A-5  # Evaluation (with subtask L-5-1)
+  - A-6  # Visualization
+  - A-7  # Integration
+  - F-1  # Completion checkpoint

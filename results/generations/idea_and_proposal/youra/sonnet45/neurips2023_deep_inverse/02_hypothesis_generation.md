@@ -1,0 +1,294 @@
+# Phase 2A Extended: Hypothesis Clarification - Summary
+
+**Date:** 2026-02-06
+**Author:** Pray
+**Source Round:** Round 1 - Adaptive Operator Learning for Diffusion-Based Inverse Problems
+**Hypothesis ID:** H-neurips2023-deep-inverse-001
+**Status:** ✅ Ready for Phase 2B Verification Planning
+
+---
+
+## Executive Summary
+
+We have refined the broad Phase 2A hypothesis "Adaptive Operator Learning for Diffusion-Based Inverse Problems Under Partial Forward Model Information" into a precise, testable scientific hypothesis with clear scope, mechanisms, and verification criteria.
+
+**Core Scientific Claim:**
+
+In diffusion-based inverse problems where the forward operator A is partially known (10-30% parameter uncertainty), a bi-level meta-learning framework (MOD - Meta-Operator-Diffusion) that jointly optimizes operator parameters θ and reconstruction x through alternating diffusion sampling and gradient-based operator adaptation will achieve superior reconstruction quality (≥3dB PSNR improvement) compared to fixed approximate operator baselines.
+
+**Confidence Level:** 75%
+
+---
+
+## 1. Hypothesis Specification
+
+### Main Hypothesis (H-001)
+
+**If** the forward operator has 10-30% parameter error from approximate calibration (ε = ||A_true - A_approx||_F / ||A_true||_F),
+
+**Then** MOD reconstruction will achieve ≥3dB PSNR improvement over fixed A_approx baseline at ε=20% (p<0.01, N=100 test images),
+
+**Because** joint optimization via alternating diffusion-operator updates with meta-learned adaptation network and manifold constraints corrects systematic operator errors while maintaining strong reconstruction priors.
+
+### Causal Mechanism
+
+```
+Approximate Operator A_approx (ε=20% error)
+    ↓
+Initial Reconstruction x₀ (systematic errors)
+    ↓
+Operator Adaptation Network h_ψ (meta-learned)
+    ↓
+Updated Operator θ₁ (measurement-consistent)
+    ↓
+Improved Reconstruction x₁ (via diffusion)
+    ↓
+[Alternating Loop: T/K iterations with manifold projection]
+    ↓
+Final (x*, θ*) with ≥3dB PSNR improvement
+```
+
+### Key Variables
+
+| Type | Variable | Measurement | Range/Control |
+|------|----------|-------------|---------------|
+| **Independent** | Operator error ε | ||A_true - A_approx||_F / ||A_true||_F | {10%, 20%, 30%} |
+| **Independent** | Update frequency K | Diffusion steps between operator updates | {5, 10, 20, 50} |
+| **Independent** | Regularization λ | ||θ - θ_approx||² penalty weight | {0.01, 0.1, 1.0, 10.0} |
+| **Dependent (Primary)** | Reconstruction PSNR | 20·log₁₀(255/RMSE) | Measured in dB |
+| **Dependent** | Operator error | ||θ_final - θ_true||₂ / ||θ_true||₂ | Measured as % |
+| **Dependent** | Epistemic uncertainty | Var[θ] from posterior samples | Param units |
+
+### Critical Assumptions
+
+1. **Operator family parameterizability:** A_true ∈ {A_θ | θ ∈ ℝ^d} (finite-dimensional)
+2. **Approximate operator availability:** ||A_true - A_approx|| ≤ 0.3·||A_true|| (10-30% error)
+3. **Meta-training coverage:** Test operators within training distribution
+4. **Gaussian noise:** y = Ax + n, n ~ N(0, σ²I)
+5. **Static operator:** No temporal variation during acquisition
+6. **Sufficient measurements:** M ≥ c·(N_pixels + d_params) for identifiability
+7. **Operator-invariant manifold:** Data manifold preserved across operator family
+8. **Local convergence:** Alternating optimization converges with good initialization
+
+### Scope
+
+**Applies to:**
+- Linear/differentiable operators with known family structure
+- Moderate operator error (10-30%) with approximate calibration available
+- Medical imaging (MRI, CT), computational photography
+- Offline computation budget: minutes to tens of minutes
+
+**Does NOT apply to:**
+- Completely unknown operators (ε ≥ 50%)
+- Real-time applications (<1 second reconstruction)
+- Non-Gaussian noise models (Poisson, multiplicative)
+- Time-varying operators (patient motion during scan)
+
+---
+
+## 2. Testable Predictions
+
+### Primary Prediction (P1)
+
+**Reconstruction Quality vs. Operator Error:**
+- ε=10%: Δ PSNR ≥ 1.5dB (p<0.05)
+- ε=20%: Δ PSNR ≥ 3.0dB (p<0.01) ← **PRIMARY TARGET**
+- ε=30%: Δ PSNR ≥ 4.0dB (p<0.001)
+
+### Secondary Predictions
+
+**P2:** Operator estimation error <5% on in-distribution operators (90% of cases)
+
+**P3:** Out-of-distribution uncertainty Var[θ]_OOD ≥ 2× Var[θ]_in-dist (OOD detection)
+
+**P4:** Optimal update frequency K* ∈ [10, 20] (PSNR drops ≥0.5dB at extremes)
+
+**P5:** Optimal regularization λ* ∈ [0.1, 1.0] (PSNR drops ≥1dB at extremes)
+
+**P6:** Method ranking: Oracle > MOD > Fixed > Blind (all gaps significant, p<0.01)
+
+### Falsification Criteria
+
+**Hypothesis FALSIFIED if:**
+1. Δ PSNR < 0.5dB vs. fixed baseline at ε=20% (no improvement)
+2. Δ PSNR < -0.5dB (performs worse than baseline)
+3. Convergence failure rate >20% (divergence/oscillation)
+4. Operator error >30% (no learning)
+5. PSNR variance >3dB across reasonable hyperparameters (instability)
+6. MOD >5dB worse than fixed baseline on OOD operators (catastrophic failure)
+
+---
+
+## 3. Key Contributions
+
+### Theoretical (3)
+
+1. **Joint Posterior Formulation:** First formalization of p(x, θ | y, A_approx) for partial operator knowledge
+2. **Uncertainty Decomposition:** Epistemic Var[θ] + Aleatoric E_θ[Var[x|θ]] separation
+3. **Meta-Learning Generalization Bounds:** Sample complexity for operator adaptation across families
+
+### Methodological (4)
+
+1. **Bi-Level Meta-Learning Algorithm:** Operator-invariant diffusion prior (upper) + adaptation network (lower)
+2. **Alternating Diffusion-Operator Update:** Novel inference with manifold projection and regularization
+3. **Adversarial Operator Augmentation:** Robustness training for OOD generalization
+4. **Modular Architecture:** Reuse pre-trained diffusion models with lightweight operator adapter
+
+### Practical (4)
+
+1. **Medical Imaging Calibration Reduction:** 20-40% faster MRI scans by eliminating/reducing ACS
+2. **InverseBench-PartialOp Benchmark:** First standardized dataset for partial operator scenarios
+3. **Open-Source Framework:** Production-quality PyTorch implementation with pre-trained models
+4. **Clinical Decision Support:** Uncertainty-aware quality flags and adaptive scanning protocols
+
+---
+
+## 4. Statistical Verification Design
+
+**Design Type:** Factorial repeated measures with 3×4×4×4 factors
+
+**Factors:**
+- Operator error ε: {10%, 20%, 30%}
+- Update frequency K: {5, 10, 20, 50}
+- Regularization λ: {0.01, 0.1, 1.0, 10.0}
+- Method: {Oracle, MOD, Fixed, Blind}
+
+**Sample Size:** N=100 images per condition (power >99% for Δ PSNR ≥ 1dB, α=0.05)
+
+**Primary Test:** Paired t-test, PSNR(MOD) vs. PSNR(Fixed) at ε=20%
+- H0: μ_MOD - μ_Fixed = 0
+- H1: μ_MOD - μ_Fixed > 0
+- Significance: α=0.017 (Bonferroni correction for 3 ε levels)
+
+**Datasets:**
+1. ImageNet (natural images, synthetic operators)
+2. fastMRI (MRI brain, k-space operators)
+3. InverseBench (standardized benchmark)
+
+---
+
+## 5. Sub-Hypothesis Decomposition (Phase 2B Preview)
+
+### SH1: Meta-Learned Operator Adaptation Works
+**Claim:** Operator adaptation network achieves ≤5% estimation error on in-distribution operators
+**Test:** Measure ||θ_final - θ_true|| / ||θ_true|| on 100 test cases
+**Success:** <5% error on 90% of cases
+
+### SH2: Alternating Optimization Converges
+**Claim:** Alternating updates converge to improved (x*, θ*) without divergence
+**Test:** Track joint energy E(x,θ) and PSNR over diffusion steps
+**Success:** <5% divergence rate, monotonic convergence after initial 10 steps
+
+### SH3: MOD Outperforms Baselines
+**Claim:** MOD beats fixed baseline and blind methods, approaches oracle
+**Test:** Friedman test ranking {Oracle, MOD, Fixed, Blind}
+**Success:** Oracle > MOD (+3dB) > Fixed (+5dB) > Blind (all p<0.01)
+
+**Dependency:** SH1 → SH2 → SH3 → H-001 (sequential validation)
+
+---
+
+## 6. Related Work Positioning
+
+| Method | Operator Knowledge | Prior | Adaptation | UQ | Domain |
+|--------|-------------------|-------|------------|-----|---------|
+| Pseudoinverse-Guided (Song 2023) | Exact A | Diffusion | ✗ | Recon only | General |
+| Manifold-Constrained (Chung 2022) | Exact A | Diffusion | ✗ | ✗ | Medical |
+| Blind Deblurring (Hirsch 2010) | None | TV | ✓ Alternating | ✗ | Deblur |
+| FNO (Li 2021) | Supervised | Neural Op | ✓ Forward | ✗ | PDEs |
+| **MOD (Ours)** | **Approximate** | **Diffusion** | **✓ Meta** | **✓ Full** | **General** |
+
+**Key Differentiators:**
+1. First to combine approximate operator + diffusion priors + meta-learned adaptation
+2. Targets 10-30% error regime (between exact and blind)
+3. Comprehensive UQ (epistemic + aleatoric)
+
+---
+
+## 7. Implementation Roadmap
+
+**Difficulty:** MEDIUM-HIGH (4-6 months)
+
+**Component Breakdown:**
+1. Diffusion model: 2-4 weeks (reuse pre-trained, add measurement consistency)
+2. Operator network: 3-4 weeks (design parameterization, implement h_ψ)
+3. Meta-training: 6-8 weeks (bi-level optimization, adversarial augmentation)
+4. UQ: 2-3 weeks (posterior sampling, variance decomposition)
+5. Evaluation: 3-4 weeks (InverseBench extension, baselines, statistical tests)
+
+**Risk Factors:**
+- Meta-training instability (bi-level optimization complexity)
+- Hyperparameter sensitivity (7+ parameters to tune)
+- Computational resources (GPU cluster for meta-training)
+
+**Mitigations:**
+- Start simple (Gaussian blur) before complex operators (k-space)
+- Leverage existing libraries (score_sde_pytorch, learn2learn)
+- Use pre-trained diffusion models (Stable Diffusion)
+- Collaborate with medical imaging domain experts
+
+---
+
+## 8. Open Questions for Phase 2B
+
+**Critical (Must Resolve):**
+1. Optimal operator parameterization dimension d per family
+2. Meta-training dataset diversity (N_operators required per family)
+3. Convergence conditions (formal theoretical guarantees)
+4. Real-world operator distribution vs. meta-training distribution
+
+**Important (Should Address):**
+5. Uncertainty calibration validation (ECE, reliability diagrams)
+6. Computational scalability to 3D volumes and high-resolution 2D
+7. Hyperparameter robustness (universal defaults vs. per-family tuning)
+
+**Future Work (Flag for Extensions):**
+8. Non-Gaussian noise models (Poisson, multiplicative)
+9. Time-varying operators (motion correction)
+10. Clinical user acceptance (radiologist trust study)
+
+---
+
+## 9. Phase 2B Readiness
+
+**Readiness Score: 10/10 - FULLY READY**
+
+✅ **Hypothesis Clarity:** Core statement, variables, mechanism, assumptions all precisely defined
+
+✅ **Testability:** 6 quantitative predictions with falsification criteria, power analysis complete
+
+✅ **Decomposability:** 3 sub-hypotheses (SH1-SH3) with clear dependency graph
+
+✅ **Contribution Clarity:** 11 contributions across theoretical, methodological, practical domains
+
+✅ **Related Work:** 15+ key papers mapped with clear differentiation
+
+✅ **Baseline Comparisons:** 4 SOTA baselines with performance targets
+
+✅ **Implementation Feasibility:** Effort estimated, risks identified, mitigations proposed
+
+**Next Step:** Execute `/phase2b-planning` to decompose into verification experiments
+
+---
+
+## Full Document
+
+Complete hypothesis specification with detailed sections (1.1-1.8 Clarified Hypothesis, 2. Contributions, 3. Related Work, 4. Phase 2B Preview) available in:
+
+`02a_extended_hypothesis_full.md`
+
+---
+
+**Phase 2A-Extended Workflow Status:** ✅ COMPLETE
+
+**Output Files:**
+1. ✅ `02a_extended_hypothesis.md` (this summary - Phase 2B input)
+2. ✅ `02a_extended_hypothesis_full.md` (complete documentation)
+
+**Ready for:** Phase 2B - Verification Planning (`/phase2b-planning`)
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (YOLO Mode - Fully Automated)*
+*Execution Date: 2026-02-06*
+*Processing Time: ~45 minutes (automated clarification and scientific refinement)*

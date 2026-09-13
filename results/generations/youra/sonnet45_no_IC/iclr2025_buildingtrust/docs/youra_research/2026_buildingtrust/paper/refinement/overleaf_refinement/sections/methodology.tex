@@ -1,0 +1,54 @@
+
+\subsubsection{Synchronized Evaluation Framework}
+
+Synchronized evaluation measures trustworthiness dimensions on identical model outputs to ensure correlations reflect genuine dimensional coupling rather than evaluation artifacts. Three constraints operationalize synchronization:
+
+\begin{enumerate}
+\item \textbf{Same model checkpoint:} All dimensions evaluated on a single frozen model (Llama-2-7b-chat-hf) without parameter changes between measurements.
+\item \textbf{Same prompts:} All dimensions measured on identical input prompts from TruthfulQA (817 questions). For fairness measurement requiring demographic variants, prompts are augmented deterministically but maintain base question content.
+\item \textbf{Same generation parameters:} All outputs generated with fixed temperature=0.7, top\_p=0.9, max\_tokens=256, and seed fixed per prompt for deterministic generation.
+\end{enumerate}
+
+These constraints eliminate sampling variability and input differences as confounds, isolating dimensional relationships.
+
+\subsubsection{Dimension Operationalization}
+
+Three trustworthiness dimensions are operationalized using metrics that enable automated scoring at scale.
+
+\textbf{Reliability} measures factual correctness. Each output is scored against TruthfulQA ground-truth labels using GPT-4-as-judge (gpt-4-0613), following standard practice in LLM evaluation. For prompts where GPT-4 confidence is low, exact-match heuristics against reference answers are used as fallback. Output is binary {0, 1}, where 1 indicates correct output. GPT-4-as-judge is assumed to achieve $\geq 90$\% correlation with human judgments (assumption A1), following cited standard practice, but this assumption was not empirically validated in this study.
+
+\textbf{Robustness} measures paraphrase consistency. For each prompt, three paraphrases are generated. Sentence-BERT semantic embeddings (all-MiniLM-L6-v2) compute cosine similarity between original and paraphrased outputs. Output is continuous [0, 1], with average cosine similarity across paraphrases. High scores indicate consistent retrieval; low scores indicate sensitivity to input phrasing. Embedding-based measurement avoids semantic drift concerns from back-translation approaches.
+
+\textbf{Fairness} measures demographic bias. The HONEST lexical bias metric \citep{nozza2021honest} is adapted to TruthfulQA by augmenting each prompt with four demographic descriptors (Black, Asian, White, Hispanic). Example: ''What happens if you crack your knuckles?'' becomes ''A Black doctor asks: What happens if you crack your knuckles?'' (repeated for each demographic group). Each variant is scored for demographic bias using HONEST's lexical approach, then fairness is computed as 1.0 - normalized\_bias\_variance. Output is continuous [0, 1], where 1 indicates no demographic bias variance. TruthfulQA prompts are not inherently fairness-sensitive, requiring demographic augmentation to create fairness signal. Variance $\sigma$>0.2 was validated empirically (see Results h-e1).
+
+\subsubsection{Statistical Testing Protocol}
+
+\textbf{Existence hypothesis (h-e1)} tests whether synchronized evaluation produces sufficient variance ($\sigma$>0.2) across reliability, robustness, and fairness dimensions for correlation analysis. Standard deviation $\sigma$ is computed for each dimension across all 817 prompts on Llama-2-7b. Success requires all three $\sigma$ > 0.2. Gate: MUST\_WORK.
+
+\textbf{Memorization hypothesis (h-m1)} tests whether reliability-robustness correlation exceeds r>0.3 (p<0.05) on factual prompts, consistent with shared memorization mechanism. Pearson r is computed with 95\% confidence intervals via Fisher z-transform on factual stratum (Science, Law, History, Geography prompts; n=343). Success requires primary criterion r>0.3 with p<0.05 (two-tailed) and secondary criterion 95\% CI lower bound >0.2. Gate: MUST\_WORK.
+
+\textbf{Alignment tax hypothesis (h-m2)} tests whether fairness-reliability correlation is more negative than r<-0.2 (p<0.05) overall, consistent with RLHF safety-accuracy trade-off. Pearson r is computed on full dataset (n=817). Success requires primary criterion r<-0.2 with p<0.05 and secondary criterion 95\% CI upper bound <-0.1. Gate: SHOULD\_WORK.
+
+\textbf{Moderation hypothesis (h-m3)} tests whether correlation magnitudes differ between factual versus misinformation prompt strata (Fisher z-test p<0.05), testing whether memorization mechanism moderates by prompt type. Pearson r is computed separately on factual stratum (n sampled) and misinformation stratum (n sampled), then compared using Fisher z-test for independent correlations. Success requires Fisher p<0.05. Gate: SHOULD\_WORK.
+
+All correlation tests use Pearson r assuming linear relationship and normality (validated via Q-Q plots), two-tailed p-values ($\alpha =0.05)$, and 95\% confidence intervals via Fisher z-transform.
+
+\subsubsection{Model and Dataset}
+
+\textbf{Model:} Llama-2-7b-chat-hf (meta-llama/Llama-2-7b-chat-hf) from HuggingFace. Architecture is decoder-only transformer with RLHF fine-tuning. Generation parameters: temperature=0.7, top\_p=0.9, max\_tokens=256, seed fixed per prompt.
+
+\textbf{Dataset:} TruthfulQA generation split (817 prompts) from HuggingFace (truthful\_qa/generation). Categories include Science (n=94), Law (n=76), History (n=95), Geography (n=78), Myths (n=147), Misconceptions (n=189), Superstitions (n=138). Stratification: factual stratum (Science, Law, History, Geography: n=343) versus misinformation stratum (Myths, Misconceptions, Superstitions: n=474). Ground truth binary correct/incorrect labels enable reliability evaluation.
+
+\subsubsection{Assumptions and Limitations}
+
+Five key assumptions underlie the methodology:
+
+\begin{itemize}
+\item \textbf{A1 (GPT-4-as-judge agreement):} Assumed $\geq 90$\% correlation with human ground truth but not empirically validated in this study. Violation would introduce $\geq 10$\% noise in reliability scores, potentially attenuating observed correlations.
+\item \textbf{A2 (Back-translation):} Not applicable---Sentence-BERT embeddings were used for robustness measurement, avoiding semantic drift concerns.
+\item \textbf{A3 (Demographic augmentation variance):} Tested empirically in h-e1; fairness variance $\sigma =0.215$ validates assumption.
+\item \textbf{A4 (Statistical power):} Sample sizes n=343 (h-m1 factual stratum), n=817 (h-m2 overall) provide >95\% power to detect $r\geq 0.3$ and $r\leq -0.2$ respectively. H-m3 pilot (n=10 per stratum) is underpowered.
+\item \textbf{A5 (Scale generalization):} Only 7B tested; assumption of cross-scale invariance unverified.
+\end{itemize}
+
+Limitations include Llama-2-only scope (architectural generalization unknown), single generation configuration (hyperparameter sensitivity unknown), and GPT-4-as-judge dependency (external model bias).

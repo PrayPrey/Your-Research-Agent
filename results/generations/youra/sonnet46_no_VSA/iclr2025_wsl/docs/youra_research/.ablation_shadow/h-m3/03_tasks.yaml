@@ -1,0 +1,364 @@
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 11
+  failsafe: 1
+  subtasks: 10
+  tier_max: 30
+  total: 23
+  within_budget: true
+metadata:
+  generated_at: '2026-08-03T20:20:00Z'
+  hypothesis_id: h-m3
+  hypothesis_type: MECHANISM
+  source_documents:
+  - docs/youra_research/h-m3/03_prd.md
+  - docs/youra_research/h-m3/03_architecture.md
+  - docs/youra_research/h-m3/03_logic.md
+  - docs/youra_research/h-m3/03_config.md
+  tier: FULL
+  total_budget: 30
+tasks:
+- acceptance_criteria:
+  - python -c 'from nfn import layers' exits 0
+  - python -c 'from nfn.common import state_dict_to_tensors' exits 0
+  - requirements.txt written to h-m3/code/
+  - ExperimentConfig importable from config.py
+  - experiment_config.yaml loads without error
+  description: 'Install git+https://github.com/AllanYangZhou/nfn.git plus lightgbm,
+    torch, scikit-learn, scipy, matplotlib. Write requirements.txt. Implement ExperimentConfig
+    master dataclass and experiment_config.yaml.
+
+    '
+  id: T-ENV-1
+  priority: 94
+  reference_files:
+  - 03_prd.md#71-python-packages-environment-setup-required
+  - 03_config.md#c-env-1-environment--experiment-config
+  subtasks:
+  - description: 'Implement master ExperimentConfig composing DatasetConfig, EncoderConfig,
+      NFNConfig, CVConfig, RidgeConfig, LGBMConfig, ClosureConfig, VizConfig. Write
+      experiment_config.yaml with all verified defaults (LGBM from lgbm_trainer.py,
+      encoder from encoder_c2.py).
+
+      '
+    id: C-ENV-1
+    reference_files:
+    - 03_config.md#c-env-1-environment--experiment-config-complexity-1-budget-1
+    title: ExperimentConfig dataclass + experiment_config.yaml
+  title: Environment Setup — install NFN and all dependencies
+  type: setup
+- acceptance_criteria:
+  - len(state_dicts) == 100
+  - labels.shape == (100,)
+  - labels.min() >= 0.0 and labels.max() <= 1.0
+  - c1_ref['mse_perm'] == pytest.approx(0.006137, rel=1e-3)
+  - c1_ref['r2'] == pytest.approx(0.8511, rel=1e-3)
+  complexity: 6
+  description: 'load_zoo(): torch.load("data/dataset_cifar_small_hyp_rand.pt"), extract
+    state_dicts (list[dict], len=100) and labels (np.ndarray (100,)). load_c1_reference():
+    read h-m2/experiment_results.json, extract mse_total=0.001834, mse_perm=0.006137,
+    r2=0.8511, tau=0.7205.
+
+    '
+  id: A-1
+  priority: 93
+  reference_files:
+  - 03_prd.md#fr-1-dataset-loading
+  - 03_prd.md#fr-3-c1-baseline-cise--reference-load
+  - 03_architecture.md#dataloader-data_loaderpy
+  - 03_architecture.md#results-resultspy
+  title: Data & Reference Load
+  type: data-pipeline
+- acceptance_criteria:
+  - 'X_c0.shape == (100, 21)  # 7 stats × 3 conv layers'
+  - R²(C0) printed and stored in results dict
+  - MSE_total(C0) stored
+  complexity: 7
+  description: 'extract_c0_features(): reuse compute_c0_features from h-m2/code/evaluate.py
+    (sys.path injection). Returns X_c0 (N, 7*n_conv). run_cv_lgbm(X_c0, y, n_splits=5,
+    random_state=42, params=LGBM_PARAMS) → fold_preds_c0, model_c0. compute_metrics(y,
+    fold_preds_c0) → R²(C0), τ(C0), MSE_total(C0).
+
+    '
+  id: A-2
+  priority: 92
+  reference_files:
+  - 03_prd.md#fr-2-c0-baseline-w_l-per-layer-statistics
+  - 03_architecture.md#c0encoder-encoder_c0py
+  - 03_logic.md#external-dependencies-api
+  - 03_config.md#master-experimentconfig-dataclass
+  title: C0 Baseline (Ŵ_L per-layer statistics)
+  type: model
+- acceptance_criteria:
+  - X_c2.shape == (100, 128)
+  - orbitvar_c2 < 1e-4
+  - 'print: ''[C2] X_c2.shape=(100, 128), orbitvar=X.XXe-YY'''
+  complexity: 10
+  description: 'sys.path.insert(0, ''docs/youra_research/h-e1/code''). build_c2_encoder(embed_dim=128,
+    hidden_dim=64).eval(). Loop N=100 models: encoder.forward(state_dict) → (128,)
+    tensor. Stack → X_c2 (100, 128). Verify orbitvar < 1e-4.
+
+    '
+  id: A-3
+  priority: 91
+  reference_files:
+  - 03_prd.md#fr-4-c2-encoder-deepsets--primary-proposed
+  - 03_architecture.md#c2encoder-encoder_c2py
+  - 03_logic.md#a-3-c2-deepsets-encoder-complexity-10-budget-2-subtasks
+  subtasks:
+  - description: 'Implement extract_c2_embeddings(state_dicts, embed_dim=128, hidden_dim=64)
+      -> np.ndarray. encoder.forward(state_dict: dict) returns Tensor(128,). Stack
+      to (N, 128). Assert shape. Run quick orbitvar check (K=10, 5 models) before
+      returning.
+
+      '
+    id: L-3-1
+    reference_files:
+    - 03_logic.md#l-3-1-extract_c2_embeddings
+    title: extract_c2_embeddings — encode 100 models → (100, 128)
+  - description: 'compute_c2_orbitvar(encoder, state_dicts, perm_fn, K=50, seed=1).
+      C_outs = [sd[k].shape[0] for k in CONV_WEIGHT_KEYS] at runtime. sample_functional_permutations(channels_per_layer=C_outs,
+      K=K, seed=seed). apply_permutation(sd, spec) per orbit. Mean variance over (K,
+      embed_dim). Assert < 1e-4.
+
+      '
+    id: L-3-2
+    reference_files:
+    - 03_logic.md#l-3-2-compute_c2_orbitvar
+    title: compute_c2_orbitvar — mean embedding variance over K orbits
+  title: C2 DeepSets Encoder — extract embeddings
+  type: model
+- acceptance_criteria:
+  - fold_preds_c2.shape == (100,)
+  - R²(C2) stored in results dict
+  - MSE_total(C2) stored
+  - full_model_c2 retained for A-7
+  complexity: 8
+  description: 'run_cv_lgbm(X_c2, y, n_splits=5, random_state=42, params=LGBM_PARAMS)
+    → (fold_preds_c2, full_model_c2). compute_metrics(y, fold_preds_c2) → R²(C2),
+    τ(C2), MSE_total(C2). Store full_model_c2 for permutation test (A-7).
+
+    '
+  id: A-4
+  priority: 90
+  reference_files:
+  - 03_prd.md#fr-4-c2-encoder-deepsets--primary-proposed
+  - 03_architecture.md#epic-tasks
+  - 03_config.md#master-experimentconfig-dataclass
+  - 03_logic.md#external-dependencies-api
+  title: C2 LightGBM Training
+  type: training
+- acceptance_criteria:
+  - X_c3.shape[0] == 100
+  - NFN path logged as OK or FALLBACK
+  - R²(C3) stored in results dict
+  complexity: 14
+  description: 'verify_c3_compatibility(state_dicts) → bool. If True: build_nfn_encoder(network_spec,
+    nfn_channels=32), extract_c3_embeddings_with_fallback(state_dicts) → X_c3 (N,
+    embed_c3). If False: fall back to C2 DeepSets variant; log warning. Fit LightGBM
+    on X_c3: run_cv_lgbm → R²(C3), MSE_total(C3).
+
+    '
+  id: A-5
+  priority: 89
+  reference_files:
+  - 03_prd.md#fr-5-c3-encoder-nfn--secondary-proposed
+  - 03_architecture.md#c3encoder-encoder_c3py
+  - 03_logic.md#a-5-c3-nfn-encoder-complexity-14-budget-4-subtasks
+  - 03_config.md#nfnconfig
+  subtasks:
+  - description: 'state_dict_to_nfn_features(state_dicts[0]) — returns None on RuntimeError.
+      Log OK/FAILED. Return bool.
+
+      '
+    id: L-5-4
+    reference_files:
+    - 03_logic.md#l-5-4-verify_c3_compatibility
+    title: verify_c3_compatibility — probe NFN on first model
+  - description: 'state_dict_to_tensors(state_dict) → WeightSpaceFeatures. Catch RuntimeError
+      → return None (triggers fallback). Conv shapes: (C_out, C_in, kH, kW) per layer.
+
+      '
+    id: L-5-2
+    reference_files:
+    - 03_logic.md#l-5-2-state_dict_to_nfn_features
+    title: state_dict_to_nfn_features — state_dict → WeightSpaceFeatures
+  - description: 'nn.Sequential(NPLinear(network_spec, 1, 32, io_embed=True), TupleOp(ReLU()),
+      NPLinear(32, 32, io_embed=True), TupleOp(ReLU()), HNPPool(network_spec), Flatten()).
+      Output dim: 32 * HNPPool.get_num_outs(network_spec).
+
+      '
+    id: L-5-1
+    reference_files:
+    - 03_logic.md#l-5-1-build_nfn_encoder
+    title: build_nfn_encoder — NPLinear→HNPPool→Flatten
+  - description: 'Loop N models: state_dict_to_nfn_features → encoder forward → stack.
+      On None: return extract_c2_embeddings() fallback. Assert X_c3.shape[0] == N.
+
+      '
+    id: L-5-3
+    reference_files:
+    - 03_logic.md#l-5-3-extract_c3_embeddings_with_fallback
+    title: extract_c3_embeddings_with_fallback — full pipeline
+  title: C3 NFN Encoder — extract embeddings with fallback
+  type: model
+- acceptance_criteria:
+  - R²(C2-Ridge) computed and stored
+  - R²(C3-Ridge) computed and stored
+  - expressivity_gap = R²(C3-Ridge) - R²(C2-Ridge) stored
+  complexity: 8
+  description: 'RidgeCV(alphas=[0.01, 0.1, 1.0, 10.0], cv=5) on frozen X_c2 → cross_val_predict
+    → R²(C2-Ridge). Same on frozen X_c3 → R²(C3-Ridge). Compute expressivity gap =
+    R²(C3-Ridge) - R²(C2-Ridge).
+
+    '
+  id: A-6
+  priority: 88
+  reference_files:
+  - 03_prd.md#fr-6-linear-head-ablation
+  - 03_architecture.md#linearhead-linear_headpy
+  - 03_config.md#ridgeconfig
+  title: Linear Head Ablation (RidgeCV on C2 and C3)
+  type: evaluation
+- acceptance_criteria:
+  - orbit_preds.shape == (100, 50)
+  - mse_perm_c2 stored (expected << 0.006137)
+  - 'print: ''[C2 MSE_perm] mse_perm_c2=X.XXXXXX'''
+  complexity: 11
+  description: 'Build permuted_X (100, 50, 128): for each of N=100 models × K=50 permutations,
+    apply_permutation(sd, spec) → encoder.forward → embed. compute_orbit_preds(full_model_c2,
+    permuted_X) → orbit_preds (100, 50). MSE_perm(C2) = mean(var(orbit_preds, axis=1)).
+
+    '
+  id: A-7
+  priority: 87
+  reference_files:
+  - 03_architecture.md#permutationtest-permutation_testpy
+  - 03_logic.md#a-7-mse-permutation-test-c2-complexity-11-budget-1-subtask
+  subtasks:
+  - description: 'C_outs from state_dicts[0] at runtime. sample_functional_permutations(C_outs,
+      K=50, seed=1). Build permuted_X np.zeros((100, 50, 128)). compute_orbit_preds(full_model_c2,
+      permuted_X.astype(float64)) → orbit_preds (100, 50). mse_perm_c2 = mean(var(orbit_preds,
+      axis=1, ddof=0)).
+
+      '
+    id: L-7-1
+    reference_files:
+    - 03_logic.md#l-7-1-compute_mse_perm_c2
+    title: compute_mse_perm_c2 — permuted_X(100,50,128)→orbit_preds(100,50)→scalar
+  title: MSE Permutation Test (C2)
+  type: evaluation
+- acceptance_criteria:
+  - delta_mse computed and stored
+  - closure stored
+  - mechanism_activated bool stored
+  - all 4 indicator values stored in results['indicators']
+  complexity: 9
+  description: 'delta_mse = MSE_total(C1) - MSE_total(C2) = 0.001834 - MSE_total(C2).
+    closure = |delta_mse - 0.006137| / 0.006137. verify_mechanism_activated(results):
+    check 4 indicators (orbitvar_c2<1e-4, mse_perm_c2<0.0001, r2_c2>r2_c1, closure<=0.10);
+    pass if ≥3/4.
+
+    '
+  id: A-8
+  priority: 86
+  reference_files:
+  - 03_prd.md#fr-7-mechanism-closure-computation
+  - 03_architecture.md#closure-closurepy
+  - 03_config.md#c-8-1-closure-config-complexity-1-budget-1
+  subtasks:
+  - description: '@dataclass ClosureConfig with mse_perm_c1_reference=0.006137, tolerance_fraction=0.10,
+      mechanism_indicators_required=3, r2_c0_threshold=0.984, r2_c1_reference=0.8511,
+      mse_total_c1_reference=0.001834.
+
+      '
+    id: C-8-1
+    reference_files:
+    - 03_config.md#c-8-1-closure-config-complexity-1-budget-1
+    title: ClosureConfig — thresholds and H-M2 reference values dataclass
+  title: Mechanism Closure Computation
+  type: evaluation
+- acceptance_criteria:
+  - gate_status in ['PASS', 'EXPLORE', 'PIVOT']
+  - all threshold comparisons printed to experiment.log
+  - τ(C2) reported when EXPLORE branch taken
+  complexity: 7
+  description: 'gate_check(results) → status in [''PASS'',''EXPLORE'',''PIVOT''].
+    PASS: R²(C2)≥0.984 AND closure≤0.10. EXPLORE: R²(C2)∈(0.851, 0.984) → report τ(C2)
+    as primary metric. PIVOT: closure>2.0 → representation geometry dominates. Log
+    all values with explicit threshold comparisons.
+
+    '
+  id: A-9
+  priority: 85
+  reference_files:
+  - 03_prd.md#fr-8-gate-evaluation
+  - 03_architecture.md#evaluate-evaluatepy
+  - 02c_experiment_brief.md#gate-condition
+  title: Gate Evaluation
+  type: evaluation
+- acceptance_criteria:
+  - docs/youra_research/h-m3/figures/ directory created
+  - figures/r2_comparison.png saved (mandatory)
+  - at least 1 additional optional figure attempted
+  complexity: 10
+  description: 'MANDATORY: plot_r2_comparison — bar chart R²(C0,C1,C2,C3) with horizontal
+    dashed line at 0.984 threshold; save to figures/r2_comparison.png. OPTIONAL (autonomous):
+    plot_mse_decomposition (stacked bar MSE_total/perm/res for C1,C2,C3), plot_closure_scatter
+    (ΔMSE vs MSE_perm diagonal), plot_linear_head_ablation (grouped bar C2/C3 LGB
+    vs Ridge), plot_tau_comparison (τ bar across C0-C3). All figures saved to docs/youra_research/h-m3/figures/.
+
+    '
+  id: A-10
+  priority: 84
+  reference_files:
+  - 03_prd.md#fr-10-visualization
+  - 03_architecture.md#visualize-visualizepy
+  - 03_config.md#c-10-1-visualization-config-complexity-1-budget-1
+  subtasks:
+  - description: '@dataclass VizConfig: figures_dir=''figures'', figure_format=''png'',
+      dpi=150, bar_colors=[''#4C72B0'',''#DD8452'',''#55A868'',''#C44E52''], threshold_color=''#333333'',
+      threshold_linestyle=''--'', bar_chart_size=(8,5), stacked_chart_size=(10,6),
+      scatter_size=(6,6).
+
+      '
+    id: C-10-1
+    reference_files:
+    - 03_config.md#c-10-1-visualization-config-complexity-1-budget-1
+    title: VizConfig — figure dirs, DPI, bar colors, figure sizes
+  title: Visualization
+  type: evaluation
+- acceptance_criteria:
+  - docs/youra_research/h-m3/experiment_results.json exists
+  - json contains gate_status key
+  - json contains closure key
+  - experiment.log contains gate_status line
+  complexity: 6
+  description: 'save_results(results): write docs/youra_research/h-m3/experiment_results.json
+    with all metrics: R²/τ/MSE for C0,C2,C3; R²-Ridge for C2,C3; delta_mse, closure,
+    mse_perm_c2, mechanism_activated, gate_status, indicator values. Write experiment.log
+    via logging with same content.
+
+    '
+  id: A-11
+  priority: 83
+  reference_files:
+  - 03_prd.md#fr-11-results-persistence
+  - 03_architecture.md#results-resultspy
+  title: Results Persistence
+  type: evaluation
+- acceptance_criteria:
+  - 'on exception: experiment_results.json written with error field'
+  - experiment.log records the failure point
+  description: 'Wrap run_experiment.main() in try/except. On any unhandled exception:
+    save whatever results have been computed to experiment_results.json with fields
+    error=str(e), gate_status=''ERROR'', traceback=traceback_str. Write failure point
+    to experiment.log. Enables Phase 4.5 synthesis to proceed with partial data.
+
+    '
+  id: T-FAILSAFE
+  priority: 1
+  reference_files: []
+  title: Failsafe — partial results checkpoint on error
+  type: failsafe
+version: '1.0'

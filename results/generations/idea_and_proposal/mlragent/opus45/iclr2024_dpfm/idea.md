@@ -1,0 +1,9 @@
+﻿# Title: Data Provenance Tracking for Interpretable and Accountable Foundation Model Outputs
+
+## Motivation
+Foundation models are trained on massive, heterogeneous datasets, making it nearly impossible to understand which training data influences specific model behaviors or outputs. This "black box" data problem creates critical challenges: when models generate harmful, biased, or copyrighted content, we cannot trace responsibility back to source data. Additionally, users and regulators increasingly demand transparency about how training data shapes model decisions. Current attribution methods focus on model internals but neglect the data-centric perspective, leaving a significant gap in interpretability and accountability.
+
+## Main Idea
+I propose developing a **Data Influence Graph (DIG)** framework that efficiently tracks and quantifies how subsets of training data contribute to foundation model outputs at inference time. The methodology involves: (1) clustering training data into semantically meaningful partitions during preprocessing, (2) training lightweight "influence probes" alongside the foundation model that learn to predict data cluster contributions, and (3) deploying a retrieval-augmented attribution system that provides real-time provenance scores for generated outputs.
+
+Expected outcomes include: interpretable explanations linking outputs to training data sources, automated detection of outputs heavily influenced by problematic data subsets, and a practical framework for addressing data copyright disputes. This data-centric approach to interpretability could significantly impact AI governance, enabling model developers to audit training data influence and comply with emerging data transparency regulations.

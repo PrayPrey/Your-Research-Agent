@@ -1,0 +1,8 @@
+# Title
+Scaling Cultural AI Evaluation to 100+ Cultures via Knowledge Graph-Driven Automated Test Generation
+
+# Motivation
+Current AI evaluation frameworks assess cultural competence across only 3-22 cultures due to manual annotation bottlenecks, risking deployment of culturally inappropriate AI systems globally. Existing methods (CRaFT, CultDiff, CARB) require expert annotation for each culture, creating O(n) scaling costs that prevent comprehensive cross-cultural testing. This gap is critical as AI systems increasingly serve diverse global populations, yet lack systematic evaluation of cultural representation, quality, and appropriateness across underrepresented cultures. Without scalable evaluation, we risk universalizing Western-centric AI and creating unforeseen impacts on global cultural production.
+
+# Main Idea
+We hypothesize that knowledge graph-driven automated test case generation achieves O(log n) annotation effort versus O(n) manual approaches by leveraging structured cultural metadata in Wikidata/ConceptNet. The causal mechanism operates through three steps: (1) SPARQL queries extract culture-specific entities (food, architecture, symbols) from knowledge graphs, (2) template instantiation generates AI prompts automatically, and (3) unified multi-metric evaluation (synthesizing CRaFT's 4 metrics, CultDiff's disparity analysis, CARB's coverage) produces Cultural Competence Scores. We validate through a 20-culture pilot measuring: 80% annotation effort reduction versus manual baselines, >90% expert-validated cultural appropriateness, and r>0.8 correlation between aggregate and individual metrics. Success enables scaling from current 10-culture limits to 100+ cultures, providing actionable cultural performance reports for AI developers.

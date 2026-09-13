@@ -1,0 +1,10 @@
+# Title
+Bio-Inspired Modular Architecture Taxonomy (BIMAT) for Cross-Domain Neural Field Transfer
+
+# Motivation
+Neural fields have revolutionized computer vision, but their application to other scientific domains (robotics, physics, biology, climate science) remains ad-hoc and expertise-intensive. While surveys catalog 200+ domain-specific adaptations, no systematic framework exists to guide practitioners in transferring vision-designed architectures to new domains. This creates a critical barrier: each new application requires extensive trial-and-error or deep domain expertise, limiting neural fields' broader scientific impact. We need principled transfer guidelines that democratize cross-domain deployment while maintaining performance.
+
+# Main Idea
+We propose BIMAT, a systematic framework decomposing neural field architectures into five modules (encoding, backbone, conditioning, decoder, loss) with explicit domain-invariant versus domain-specific classification. The core innovation is mapping domain properties—input structure, symmetries, data characteristics, and constraints—to module-specific adaptation rules with confidence scores. For example, rotational symmetry triggers SE(3)-equivariant encoding, while standard SIREN backbones transfer unchanged across domains. 
+
+We validate through: (1) retrospective analysis of 200+ papers confirming ≥80% rule accuracy, and (2) prospective experiments across five domains (robotics manipulation, physics PDE solving, cryo-EM reconstruction, climate forecasting, vision control) demonstrating BIMAT-designed architectures achieve ≥95% of custom-solution performance while reducing development iterations by ≥50%. This transforms cross-domain transfer from expert art into systematic science, accelerating neural field adoption across scientific disciplines.

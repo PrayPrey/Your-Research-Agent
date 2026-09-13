@@ -1,0 +1,58 @@
+
+\subsubsection{3.1 Sparsity Measurement}
+
+Layer-wise MLP activation sparsity is defined as the fraction of gate projection activations below a threshold epsilon:
+
+$$s_\ell(\varepsilon) = \frac{1}{|S|} \sum_{x \in S} \frac{1}{d_{\text{ffn}}} \sum_{j=1}^{d_{\text{ffn}}} \mathbf{1}\left[|\text{gate\_proj}_\ell(x)_j| < \varepsilon\right]$$
+
+where S is the set of 512 calibration samples, and d\_ffn = 14336 for LLaMA-3.1-8B. Sparsity is measured using PyTorch forward hooks registered on the \texttt{gate\textbackslash \_proj} layer of each of 32 MLP blocks. The measurement requires a single forward pass with no gradient computation (torch.no\_grad()). The primary threshold is epsilon = 0.01.
+
+Implementation follows the hook registration pattern from the SparseGPT and TEAL codebases: a closure factory creates per-layer hook functions that accumulate per-batch sparsity fractions, which are averaged after all calibration samples are processed. Hooks are removed after each experiment run.
+
+\subsubsection{3.2 Cross-Distribution Stability (RQ2)}
+
+Four calibration distributions are used: Alpaca (instruction following; tatsu-lab/alpaca, first 512 training samples), WikiText-103 (general web text; wikitext-103-raw-v1 test split, first 512 chunks of 512 tokens), SST-2 validation (sentiment classification; SetFit/sst2, 512 samples), and MNLI validation (natural language inference; nyu-mll/multi\_nli validation\_matched, first 512 samples). For each distribution, all 32 layer sparsity values are measured, producing four sparsity vectors of length 32.
+
+The following statistics are computed:
+
+\begin{itemize}
+\item \textbf{ICC(3,k)} \citep{shrout1979intraclass}: intraclass correlation across all four distributions, computed using pingouin 0.6.1 (type ''ICC(C,k)'', 95\% CI from column ''CI95''). Gate threshold: ICC > 0.75.
+\item \textbf{All 6 pairwise Kendall's tau} (scipy.stats.kendalltau, variant='b' with tie correction): rank concordance between all pairs of distributions. Gate threshold: all tau >= 0.6.
+\end{itemize}
+
+\subsubsection{3.3 Threshold Invariance (RQ3)}
+
+Sparsity profiles are measured at epsilon in {0.001, 0.01, 0.05, 0.1} using Alpaca and WikiText-103. All six cross-epsilon pairwise Kendall's tau values are computed. Gate: the maximum adjacent-pair tau must be >= 0.7; additionally, CV must exceed 0.3 for at least 3 of 4 epsilon values.
+
+\subsubsection{3.4 Model and Infrastructure}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+Parameter & Value \\
+\midrule
+Model & meta-llama/Llama-3.1-8B (float16, device\_map=auto) \\
+Note & Llama-3.1-8B used due to local cache availability; Llama-3-8B was specified in the original protocol \\
+GPU & NVIDIA H100 NVL (100 GB VRAM) \\
+VRAM used & ~18.4 GB \\
+Calibration size & 512 samples per distribution \\
+Target layer & gate\_proj of each of 32 MLP blocks \\
+Batch size & 8 samples per forward pass \\
+Primary epsilon & 0.01 \\
+Epsilon sweep & {0.001, 0.01, 0.05, 0.1} \\
+Statistics library & scipy 1.x (kendalltau), pingouin 0.6.1 (ICC), numpy (CV) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\subsubsection{3.5 Proposed Rank Allocation Formula (Not Validated in This Work)}
+
+The intended downstream application of the fingerprint is an inverse-sparsity rank allocation rule under a parameter budget B = 0.60 $\times$ sum\_ell $r\_ell^uniform$:
+
+$$r_\ell^{\text{sparse}} = \text{round}\left(r_{\max} \cdot \frac{1 - s_\ell}{\max_k (1 - s_k)}\right)$$
+
+This formula allocates higher rank to layers with lower sparsity (more active dimensions). Whether this allocation achieves >= 95\% of oracle performance at 60\% parameter budget is the subject of H-M3 and H-M4, neither of which was executed in this study.
+

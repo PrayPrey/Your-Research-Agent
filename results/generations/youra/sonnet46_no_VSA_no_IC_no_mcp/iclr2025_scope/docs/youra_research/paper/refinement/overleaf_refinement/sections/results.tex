@@ -1,0 +1,113 @@
+
+\subsubsection{5.1 H-E1: Within-Group Cosine Similarity}
+
+\textbf{Table 1: H-E1 Results --- Fraction of Layers Below Cosine Similarity 0.9}
+
+\begin{table*}[htbp]
+\centering
+\resizebox{\dimexpr 2\columnwidth+\columnsep\relax}{!}{%
+\begin{tabular}{lllll}
+\toprule
+Model & Global Mean Cosine Sim & Fraction Layers < 0.9 & Gate Threshold & Gate Result \\
+\midrule
+LLaMA-3-8B & 0.9006 & 0.406 (13/32 layers) & $\geq$ 0.50 & FAIL \\
+Mistral-7B & 0.8604 & 0.625 (20/32 layers) & $\geq$ 0.50 & PASS \\
+Phi-3-mini & 0.8352 & 0.781 (25/32 layers) & $\geq$ 0.50 & PASS \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+The primary model gate (LLaMA-3-8B) was not met. 13 of 32 layers showed median cosine similarity below 0.9, compared to the 16-layer threshold. The global mean cosine similarity for LLaMA-3-8B was 0.9006, indicating that on average, query-head attention distributions within groups are highly similar. However, heterogeneity exists across layers: early layers (layer 0, global mean 0.644) and late layers (layer 31, global mean 0.800) show substantially lower similarity than middle layers (layers 2--5, means 0.983--0.938), indicating a U-shaped profile.
+
+For Mistral-7B, 62.5\% of layers are below 0.9 (global mean 0.860), and for Phi-3-mini, 78.1\% (global mean 0.835). Both secondary models show greater within-group diversity than LLaMA-3-8B.
+
+\textbf{Table 2: H-E1 LLaMA-3-8B Per-Layer Median Cosine Similarity (Selected Layers)}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Layer & Median Cosine Sim & Below 0.9? \\
+\midrule
+0 & 0.645 & Yes \\
+1 & 0.939 & No \\
+2 & 0.986 & No \\
+7 & 0.903 & No \\
+8 & 0.874 & Yes \\
+13 & 0.839 & Yes \\
+15 & 0.817 & Yes \\
+18 & 0.931 & No \\
+23 & 0.967 & No \\
+31 & 0.802 & Yes \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The mechanism verification tests passed: determinism, sensitivity, and smoothness checks all confirmed. Smoke test (2-token forward pass) verified hooks fired on all 32 LLaMA-3-8B layers with correct tensor shapes.
+
+\subsubsection{5.2 H-M1: Spearman Rank Correlation Between GroupMax and GroupMean}
+
+\textbf{Table 3: H-M1 Results --- Spearman Rank Correlation (LLaMA-3-8B, 99 samples)}
+
+\begin{table*}[htbp]
+\centering
+\resizebox{\dimexpr 2\columnwidth+\columnsep\relax}{!}{%
+\begin{tabular}{llllll}
+\toprule
+Metric & Value & Gate Threshold & Gate Result &  &  \\
+\midrule
+Global Median Spearman $\rho$ & 0.9622 & < 0.95 & FAIL &  &  \\
+Global Mean Spearman $\rho$ & 0.9599 & --- & --- &  &  \\
+Score Divergence (p50 of \ & GroupMax $-$ GroupMean\ & ) & 7.2 $\times 10^{-5}$ & > 0 & PASS \\
+Score Divergence (p95) & 4.1 $\times 10^{-4}$ & --- & --- &  &  \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+The global median Spearman $\rho$ of 0.962 exceeded the 0.95 threshold by 0.012. This is a quantitative near-miss: the two aggregation methods produce highly correlated but not identical eviction rankings.
+
+\textbf{Per-layer results (selected):} 7 of 32 layers (22\%) showed median $\rho$ < 0.95. The layer with the greatest divergence was layer 31 ($\rho$ = 0.916). The layer with the highest correlation was layer 24 ($\rho$ = 0.981). No systematic pattern (early vs. late) was immediately apparent from the selected per-layer values; the full layer heatmap is available in the figure files.
+
+The mechanism activation check confirmed that the experimental setup was operationally correct: GroupMax and GroupMean hooks fired on all 32 layers, produced tensors of shape (1, 8, T\_kv), and the maximum absolute difference between GroupMax and GroupMean scores was > 1e-4 for every layer and sample. The gate failure is quantitative, not mechanistic.
+
+\textbf{Table 4: H-M1 Per-Layer Median Spearman $\rho$ (Selected Layers)}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Layer & Median $\rho$ & Below 0.95? \\
+\midrule
+1 & 0.936 & Yes \\
+4 & 0.948 & Yes \\
+6 & 0.945 & Yes \\
+15 & 0.945 & Yes \\
+16 & 0.947 & Yes \\
+24 & 0.981 & No \\
+31 & 0.916 & Yes \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\subsubsection{5.3 Summary of Gate Results}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Experiment & Gate Criterion & Result & Primary Model Status \\
+\midrule
+H-E1 & Fraction layers with cosine sim < 0.9 $\geq$ 0.5 (LLaMA-3-8B) & 0.406 & FAIL \\
+H-M1 & Global median Spearman $\rho$ < 0.95 (LLaMA-3-8B) & 0.962 & FAIL \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+

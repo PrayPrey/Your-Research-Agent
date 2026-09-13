@@ -1,0 +1,52 @@
+
+\subsubsection{3.1 The Three-Zone Phase Diagram}
+
+The proposed framework assigns each benchmark item to one of three zones based on corpus-side geometry features:
+
+\begin{itemize}
+\item \textbf{Lexical stratum}: high max 13-gram overlap count, any SBERT cosine similarity. N-gram detectors expected to be most effective.
+\item \textbf{Semantic stratum}: low max 13-gram overlap count, high max SBERT cosine similarity. Embedding-based and MIA detectors expected to be most effective.
+\item \textbf{Indeterminate zone}: neither lexical nor semantic signal is strong. Items where no detector may be reliable.
+\end{itemize}
+
+\subsubsection{3.2 Corpus-Side Geometry Features}
+
+Two geometry features are defined per benchmark item $x$:
+
+\textbf{Max 13-gram overlap count} $g_{\text{lex}}(x, \mathcal{C})$: the maximum number of consecutive 13-gram tokens from $x$ that appear in any document in corpus $\mathcal{C}$. Computed using an inverted index over sorted 13-gram files, following the EleutherAI pipeline \citep{Gaoetal2021}.
+
+\textbf{Max SBERT cosine similarity} $g_{\text{sem}}(x, \mathcal{C})$: the maximum cosine similarity between the SBERT embedding of $x$ and any document embedding in $\mathcal{C}$, using all-MiniLM-L6-v2 [Reimers and Gurevych, 2019].
+
+\textbf{Design requirement.} $g_{\text{sem}}$ requires top-k nearest-neighbor retrieval: for each $x$, the $k$ most similar documents in $\mathcal{C}$ are found using a FAISS index \citep{Johnsonetal2021} and the maximum cosine over those $k$ neighbors is taken. In the executed experiment, this requirement was violated: SBERT cosine was computed against randomly-streamed documents rather than top-k retrieved documents. This deviation is the root cause of stratum collapse (Section 5.1).
+
+\textbf{Proposition (Stratum Collapse).} Let $\mathcal{C}_n$ be a random sample of $n$ documents from corpus $\mathcal{C}$. For non-contaminated benchmark items, in expectation across a benchmark set, as $n \to \infty$ under random sampling, the 75th percentile of $\{g_{\text{sem}}(x, \mathcal{C}_n) : x \in \mathcal{B}\}$ converges to the base rate of random document similarity. All items then vacuously exceed the threshold, and all are assigned to the lexical stratum. Top-k retrieval avoids this by construction.
+
+\subsubsection{3.3 Stratum Assignment}
+
+Stratum boundaries are set at the 75th percentile of each feature distribution pooled across all benchmark items and corpora:
+
+$$\text{stratum}(x) = \begin{cases} \text{lexical} & \text{if } g_{\text{lex}}(x) \geq \tau_{\text{lex}} \\ \text{semantic} & \text{if } g_{\text{sem}}(x) \geq \tau_{\text{sem}} \\ \text{indeterminate} & \text{otherwise} \end{cases}$$
+
+\subsubsection{3.4 Detector Families}
+
+Five detector families are evaluated per stratum:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{llll}
+\toprule
+Family & Method & Signal Type & Reference \\
+\midrule
+F1: N-gram & 13-gram exact match & Lexical & EleutherAI/lm-evaluation-harness [Gao et al., 2021] \\
+F2: Embedding & SBERT cosine threshold & Semantic & ntunlp/LLMSanitize [Singh et al., 2024] \\
+F3: Min-K\%++ & Conditional categorical mode & MIA & zjysteven/mink-plus-plus [Zhang et al., 2024a] \\
+F4: DC-PDD & Log-likelihood ratio divergence & MIA & Zhang et al. [2024b] \\
+F5: ConStat & Performance-based significance & Statistical & Dekoninck et al. [2024] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{3.5 Routing Classifier}
+
+The routing objective: given geometry features from a source corpus, predict which detector family achieves the highest F1 for each item on a target corpus. The routing classifier is logistic regression, trained on The Pile and evaluated on C4 and FineWeb. Routing is considered confirmed if top-1 accuracy > 40\% and Kendall's τ exceeds a simulation-calibrated threshold on determinate items with F1 margin ≥ 0.05 under bootstrap. Due to stratum collapse, the routing classifier was never reached in the executed experiment.
+

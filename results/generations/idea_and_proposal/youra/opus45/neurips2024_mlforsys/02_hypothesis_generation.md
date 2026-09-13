@@ -1,0 +1,223 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-13
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-StigmergyPart-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under dynamic heterogeneous DL training at 1000+ accelerator scale, if decentralized PPO agents coordinate operator placement through stigmergic pheromone signals (historical performance + LSTM-predicted bottlenecks), then fault recovery will occur in <10s and throughput will scale sub-linearly with O(A·K) communication, because local pheromone propagation eliminates central coordination bottlenecks while predictive signals enable proactive load redistribution before failures manifest.
+
+**Alternative Hypothesis (H0):**
+Stigmergic coordination provides no statistically significant advantage over centralized solvers (SPPO) or manual DAG construction (FusionLLM) for heterogeneous DL training partitioning. Specifically, fault recovery time will not differ significantly from centralized approaches (>60s), and communication overhead will scale with O(A²) similar to global coordination methods.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Accelerator heterogeneity | Independent | Mix ratio of GPU/TPU/NPU types, measured as entropy of accelerator type distribution | 0.0 (homogeneous) to 2.0 (highly heterogeneous) |
+| Pheromone parameters (α, β, γ, K, F) | Independent | α=history weight, β=prediction weight, γ=evaporation rate, K=neighbor count, F=update frequency | α∈[0.3,0.7], β∈[0.2,0.5], γ∈[0.1,0.3], K∈[4,32], F∈[1,10]Hz |
+| Failure rate | Independent | Accelerator failures per hour via controlled fault injection | 0, 1, 5, 10 failures/hour |
+| Cluster size | Independent | Number of accelerators in training cluster | 64, 256, 512, 1024, 2048 |
+| Training throughput | Dependent | Samples processed per second via PyTorch profiler | >80% of homogeneous optimal |
+| Fault recovery time | Dependent | Time from failure detection to stable throughput restoration | Target: <10s |
+| Communication overhead | Dependent | Pheromone update bandwidth as % of total network traffic | Target: <1% with K≤16 |
+| Convergence time | Dependent | Epochs to reach within 5% of optimal partition | Target: <2 epochs |
+| Model architecture | Controlled | Fixed transformer model | GPT-2 (1.5B) or LLaMA-7B |
+| Batch size | Controlled | Fixed global batch size | 2048 tokens × 512 sequences |
+| Dataset | Controlled | Fixed training dataset | OpenWebText or C4 |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=4 steps):**
+
+```
+Step 1: Performance → Pheromone
+    Accelerator executes operator → Performance metrics deposited as pheromone
+    P[op, accel] = α·historical_perf + β·predicted_bottleneck + γ·evaporation
+                           ↓
+Step 2: Pheromone → Agent Decision
+    PPO agents read local pheromone matrix + capability vectors
+    → Compute placement probability distribution
+                           ↓
+Step 3: Decision → Placement
+    Operators migrate to accelerators with highest pheromone-weighted capability match
+    → Load redistributed across heterogeneous hardware
+                           ↓
+Step 4: Placement → Outcome
+    Load redistribution → Throughput stabilizes
+    Failed accelerators (zero pheromone) → Operators repel to healthy alternatives
+    → Fault recovery in <10s
+```
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step 1 → Step 2 | Dual-Signaling ACO (2025) | Proactive pheromone injection accelerates load redistribution | Strong |
+| Step 2 → Step 3 | NoSync PSO-DNN (2018) | Decentralized coordination achieves linear speedup without synchronization | Strong |
+| Step 3 → Step 4 | SplitQuant (2025) | Capability-aware partitioning achieves 2.34x throughput on heterogeneous GPUs | Strong |
+| Overall | ACO Theory (Dorigo) | Stigmergic coordination converges to near-optimal with local communication | Strong |
+
+**Key Tension:**
+- **Tension:** FusionLLM (2024) achieves 1.45-9.39x speedup with manual DAG construction, suggesting centralized design may suffice, while ACO literature claims decentralized approaches scale better
+- **Resolution:** This verification plan tests the crossover point: at what cluster size (hypothesized >256 accelerators) and failure rate (hypothesized >1/hour) does stigmergic coordination outperform centralized approaches
+
+### 1.4 Key Assumptions
+
+1. **Local pheromone propagation to K neighbors suffices for global convergence**
+   - Evidence: ACO convergence theory (Dorigo et al.)
+   - Consequence if violated: Partitioning converges to local optima, requiring larger K or global broadcast
+
+2. **LSTM can predict bottlenecks 10-30s ahead with >70% precision**
+   - Evidence: Dual-Signaling ACO (2025)
+   - Consequence if violated: Proactive advantage reduced to <2x instead of target >6x
+
+3. **Meta-learning on 15 simulated scenarios generalizes to novel clusters**
+   - Evidence: Meta-RL generalization in SplitQuant (2025)
+   - Consequence if violated: Cold-start requires online fine-tuning adding 10-50 epochs overhead
+
+4. **Capability vectors adequately capture accelerator heterogeneity**
+   - Evidence: Cephalo (2024) hardware profiling
+   - Consequence if violated: Throughput limited to <70% of homogeneous optimal
+
+5. **Operators execute frequently enough (>1/min) for signal accumulation**
+   - Evidence: Transformer iterations every few seconds
+   - Consequence if violated: Sparse signals require synthetic generation
+
+### 1.5 Scope & Boundaries
+
+**Applies To:**
+- Large-scale transformer/LLM training (>10B parameters)
+- Heterogeneous cloud infrastructure (GPU/TPU/NPU mixes)
+- Dynamic environments with failures, preemptions, spot instances
+- Cluster sizes from 64 to 4096 accelerators
+
+**Does NOT Apply To:**
+- Very small clusters (<10 accelerators)
+- Stateful operators requiring strict placement
+- WAN geo-distributed training with >100ms latency
+- Inference workloads
+
+**Known Limitations:**
+- Meta-learning corpus limited to 15 scenarios
+- Requires low-latency networking (<10ms)
+- LSTM trained on simulation data
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Fault Recovery Time):**
+Under single accelerator failure, StigmergyPart achieves recovery <10s vs >60s for SPPO.
+
+*Measurement*: Recovery time < 10s with p < 0.05, Mann-Whitney U test, n ≥ 20 trials
+*Falsification*: Recovery time > 30s triggers rejection
+
+**Secondary Predictions:**
+
+**P2 (Throughput Scaling):** At 1000+ accelerators, throughput ≥90% of homogeneous optimal with O(A·K) communication
+
+**P3 (Cold-Start):** Converge to within 20% of optimal by epoch 2 with heuristic initialization
+
+**P4 (Heterogeneity):** On GPU+TPU mix, achieve throughput ≥90% of GPU-only optimal
+
+**P5 (Overhead):** With K≤16, F≤10Hz, pheromone overhead <1% of computation
+
+**Falsification Criteria:**
+
+1. **Primary Failure**: Recovery time > 30s
+2. **Mechanism Failure**: Any causal link fails ablation (SNR<2, K=32 insufficient, no capability effect, migration cost > benefit)
+3. **Comparative Failure**: No advantage on any dimension vs SPPO
+
+### 1.7 SOTA Baseline
+
+**Mode:** Absolute Performance
+
+| Method | Fault Recovery | Throughput | Scale |
+|--------|---------------|------------|-------|
+| SPPO (2025) | >60s | 3.38x over Megatron | 128 A100s |
+| FusionLLM (2024) | Not reported | 1.45-9.39x | 48 GPUs |
+| PyTorch FSDP | Restart required | Baseline | 1000+ |
+
+**Target:** <10s recovery, ≥90% throughput, 1000+ accelerators
+
+### 1.8 Statistical Verification Design
+
+**Sample Size:** n ≥ 20 per condition (Cohen's d = 2.0, power = 0.95)
+**Tests:** Mann-Whitney U (recovery), paired t-test (throughput)
+**Significance:** α = 0.05, Bonferroni correction α' = 0.01
+**Report:** Mean difference, 95% CI, effect size, p-value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does stigmergic coordination achieve fault recovery <10s under controlled failure injection?"
+- Maps to: P1
+- Verification: Empirical (fault injection)
+- Critical: MUST PASS
+
+**SH2 (Mechanism):**
+"Is the 4-step causal mechanism the actual cause of improvements?"
+- Maps to: 4 sub-hypotheses (H-M1 to H-M4)
+  - H-M1: Pheromone encoding accuracy (SNR > 2.0)
+  - H-M2: PPO decision quality with pheromone (ablation)
+  - H-M3: Placement improves load balance (Gini < 0.3)
+  - H-M4: Load balance → throughput/recovery (correlation > 0.7)
+- Verification: Ablation studies
+
+**SH3 (Comparison):**
+"Does StigmergyPart outperform baselines on at least one dimension?"
+- Maps to: P2-P5
+- Verification: Comparative A/B testing
+
+**Total:** 6 sub-hypotheses (1 + 4 + 1)
+
+### Readiness Checklist
+
+- [x] Hypothesis in scientific format
+- [x] ID: H-StigmergyPart-v1
+- [x] Confidence: 0.82
+- [x] H0 defined
+- [x] Variables operationalized (9)
+- [x] Causal mechanism with evidence (4 steps)
+- [x] N=4 determined
+- [x] Key tension + resolution
+- [x] Assumptions with consequences (5)
+- [x] Predictions with primary (5)
+- [x] Falsification criteria (3)
+- [x] Baselines identified
+- [x] SH1/SH2/SH3 ready
+
+### Open Questions
+
+1. **Data:** Heterogeneous cluster traces availability (SimuLLM, Borg, TorchX)?
+2. **Baselines:** Reimplement SPPO/FusionLLM or use Megatron-LM proxy?
+3. **Priority:** SH1 first (viability) or SH2 (mechanism validation)?
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-13*

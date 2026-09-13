@@ -1,0 +1,136 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-21T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent-Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-2-token-aggregation"
+
+hypothesis_draft:
+  title: "Hallucination-Type-Dependent Token Aggregation (HDTA): Optimal Token Log-Prob Aggregation Function Is Determined by Hallucination Type on Existing Factual QA Benchmarks"
+  hypothesis_id: "H-TokenAgg-v1"
+  core_claim: |
+    Among token-level log-probability aggregation functions (min, mean, raw-sum) computed from
+    a single forward pass on frozen open-weight LLMs, the aggregation function that maximizes
+    AUROC for hallucination detection is benchmark-type-dependent: min log-prob dominates on
+    factual recall benchmarks (TriviaQA, NQ) and mean log-prob dominates on imitative-falsehood
+    benchmarks (TruthfulQA). This is because hallucination type determines token probability
+    distribution shape: recall failures produce peaked uncertainty (single uncertain fact-token),
+    which min captures; imitative falsehoods produce flat high-probability wrong answers, which
+    mean captures.
+  mechanism: |
+    Step 1: Hallucination type → distribution shape.
+    Recall-failure hallucinations (TriviaQA/NQ): model uncertain about specific entity/fact-token;
+    produces peaked uncertainty distribution (one low log-prob token amid high log-prob function words).
+    Imitative-falsehood hallucinations (TruthfulQA): model confidently recites learned misconception;
+    produces flat high-probability distribution (all tokens uniformly high probability but wrong).
+
+    Step 2: Distribution shape → aggregation function sensitivity.
+    Min log-prob captures the single most uncertain token — optimal signal for peaked distributions.
+    Mean log-prob averages over all tokens — optimal signal for elevated-mean flat distributions.
+    Raw-sum log-prob is length-confounded — inferior to both min and mean for ranking tasks.
+
+    Step 3: Aggregation-distribution alignment → AUROC differential.
+    AUROC measures ranking ability; better alignment between aggregation function and hallucination
+    signal distribution → higher AUROC. Therefore AUROC follows the benchmark-type pattern.
+  predictions:
+    - P1: "min log-prob AUROC ≥ mean log-prob AUROC + 0.02 on TriviaQA and NQ (Farquhar 2023 splits) for LLaMA-2-7B and Mistral-7B-v0.1"
+    - P2: "mean log-prob AUROC ≥ min log-prob AUROC + 0.02 on TruthfulQA generation subset for LLaMA-2-7B and Mistral-7B-v0.1"
+    - P3: "raw-sum log-prob AUROC < both min and mean AUROC across TriviaQA, NQ, and TruthfulQA for both models"
+
+variables_summary:
+  independent: "Token-level log-probability aggregation function (min, mean, raw-sum) × Benchmark type (TriviaQA, NQ, TruthfulQA, SciQ)"
+  dependent_primary: "AUROC for hallucination detection (aggregation function score vs. binary correctness label)"
+  controlled: "Frozen LLM weights; Farquhar 2023 exact benchmark splits; greedy decoding; exact-match correctness labels"
+
+null_hypothesis:
+  h0_statement: |
+    All token-level log-probability aggregation functions (min, mean, raw-sum) produce
+    statistically equivalent AUROC distributions across TriviaQA, NQ, and TruthfulQA benchmark
+    splits; observed differences are within bootstrap 95% confidence intervals and do not exceed
+    0.02 in absolute terms for either model.
+  statistical_test: "Bootstrap confidence intervals (n=1000) on pairwise AUROC differences; Friedman test for global equivalence across all aggregation functions within each benchmark"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First systematic ablation of token log-prob aggregation as sole variable; first mechanistic prediction connecting hallucination type to optimal aggregation function; establishes Type A (imitative) vs. Type B (recall failure) hallucination taxonomy with measurement implications"
+  differentiation_summary: |
+    Fadeeva 2024 (CCP): uses mean implicitly, proposes CCP as improvement — never ablates min vs. mean.
+    Farquhar 2023 (SE): uses sum within NLI clusters, multi-sample — never ablates single-pass functions.
+    Manakul 2023 (SelfCheckGPT): includes ad-hoc probability baselines — not a controlled ablation study.
+    Liu 2025 (Survey): identifies the gap as open — our study fills it with theoretical grounding.
+    Vipulanandan 2026 (closest): tests 8 LLMs on multiple benchmarks but uses SE (multi-sample), not single-pass aggregation ablation.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "meta-llama/Llama-2-7b-hf (primary)"
+    - "mistralai/Mistral-7B-v0.1 (primary)"
+    - "gpt2 (lightweight sanity check, optional)"
+  datasets:
+    - "TriviaQA — Farquhar 2023 splits (jlko/semantic_uncertainty)"
+    - "Natural Questions — Farquhar 2023 splits (jlko/semantic_uncertainty)"
+    - "TruthfulQA generation subset — HuggingFace truthful_qa"
+    - "SciQ — HuggingFace sciq (exploratory)"
+  baselines:
+    - "Semantic Entropy (Farquhar 2023) — multi-sample upper bound"
+    - "SelfCheckGPT NLI (Manakul 2023) — consistency upper bound"
+    - "CCP mean aggregation (Fadeeva 2024) — white-box single-pass upper bound"
+    - "Random baseline (AUROC = 0.5)"
+
+measurement_plan:
+  data_collection:
+    - source: "jlko/semantic_uncertainty: TriviaQA/NQ question-answer pairs with Farquhar 2023 splits and correctness labels"
+    - source: "HuggingFace datasets: truthful_qa (generation config), sciq"
+    - source: "LLaMA-2-7B and Mistral-7B-v0.1 token log-probabilities via HuggingFace transformers (forward pass, greedy decoding)"
+  procedure:
+    - step: "Load frozen model (LLaMA-2-7B or Mistral-7B-v0.1) in eval mode; no gradient computation"
+    - step: "For each benchmark question, generate greedy response; collect token log-probability sequence from the model's logits"
+    - step: "Compute 3 aggregation functions on the token log-prob sequence: min (most uncertain token), mean (length-normalized sum), raw-sum (unnormalized)"
+    - step: "Retrieve binary correctness label (exact match or F1 ≥ threshold against reference answers, per Farquhar 2023 methodology)"
+    - step: "Compute AUROC using aggregation function score (negated, since higher uncertainty = more likely hallucinated) vs. binary label; bootstrap 95% CI (n=1000)"
+    - step: "Compute AURAC using lm-polygraph evaluation pipeline for secondary metric"
+    - step: "Run baseline comparisons: SE (jlko/semantic_uncertainty), SelfCheckGPT (potsawee/selfcheckgpt), CCP mean (lm-polygraph)"
+  success_criteria:
+    - "P1 confirmed: AUROC(min) - AUROC(mean) ≥ 0.02 with bootstrap 95% CI lower bound > 0 on TriviaQA and NQ for both models"
+    - "P2 confirmed: AUROC(mean) - AUROC(min) ≥ 0.02 with bootstrap 95% CI lower bound > 0 on TruthfulQA for both models"
+    - "P3 confirmed: AUROC(sum) < AUROC(min) and AUROC(sum) < AUROC(mean) directionally on all three benchmarks"
+
+validation:
+  internal_validity:
+    - "Exact same benchmark splits (Farquhar 2023) as prior work — eliminates split-selection confound"
+    - "Same correctness label methodology as Farquhar 2023 — eliminates label confound"
+    - "Frozen models, greedy decoding — eliminates sampling variability for the primary comparison"
+    - "Within-model primary analysis — eliminates tokenization confound"
+    - "Bootstrap CI for AUROC differences — appropriate for bounded metric, no distributional assumptions"
+  external_validity:
+    - "Two model families (LLaMA-2, Mistral) — tests within-benchmark replication across architectures"
+    - "Four benchmarks (3 confirmatory + 1 exploratory) — tests claim across multiple factual QA types"
+    - "Farquhar 2023 splits are standard in the UQ literature — results directly comparable to SE, SE-probes, etc."
+
+discussion_synthesis:
+  key_insights:
+    - "Hallucination type (Type A: imitative/uniform vs. Type B: recall-failure/peaked) is a new taxonomy that predicts optimal uncertainty measure — this emerged from signal geometry analysis in Exchange 1 and was refined through Exchanges 3-7"
+    - "Min log-prob as a hallucination signal is theoretically motivated for recall-failure tasks but has never been systematically tested against mean — this gap is the core contribution"
+    - "Geometric mean of log-probs is a monotone transform of mean for AUROC purposes (same ranking) — reduces the ablation to 3 genuinely distinct functions (min, mean, raw-sum)"
+    - "lm-polygraph already implements all needed estimators; this is an execution task, not an implementation task"
+    - "The null result is also meaningful: if min ≈ mean ≈ sum, practitioners can use any aggregation function interchangeably — also a useful finding for deployment"
+  breakthrough_moments:
+    - "Exchange 6 (Prof. Rex): identified that TruthfulQA hallucination may be UNIFORM high confidence (mean wins), not single-token spike (max/min wins) — reversed the initial naive prediction"
+    - "Exchange 7 (Dr. Nova): synthesized hallucination type taxonomy from Prof. Rex's insight; clarified that geometric mean = monotone transform of mean → reduces to 3 functions"
+    - "Exchange 2 (Prof. Vera): established AUROC as primary metric and H0 formulation; introduced bootstrap CI methodology — gave the study a rigorous statistical framework"
+  resolved_tensions:
+    - "Tension: cross-model comparison vs. tokenization confound → Resolved: primary analysis within-model; cross-model as secondary replication with normalization caveat"
+    - "Tension: mean vs. length-normalized sum → Resolved: they are the same function; explicitly noted to prevent reviewer confusion"
+    - "Tension: how many aggregation functions to include → Resolved: 3 genuinely distinct (min, mean, raw-sum); geometric mean dropped as redundant with mean for AUROC"
+    - "Tension: TruthfulQA directional prediction → Resolved: Prof. Rex's reversal is theoretically grounded; mean > min on TruthfulQA is the correct prediction"

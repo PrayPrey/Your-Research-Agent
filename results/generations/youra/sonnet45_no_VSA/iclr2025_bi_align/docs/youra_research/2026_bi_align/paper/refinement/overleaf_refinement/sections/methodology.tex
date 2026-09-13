@@ -1,0 +1,59 @@
+
+Our methodology stems from the insight that optimizer workspace allocations---not forward activations alone---determine peak memory, and that post-\texttt{optimizer.step()} sampling is the precise timing window to capture them. This section explains the protocol design, justifies critical design decisions, and provides intuition for why post-optimizer timing resolves prior limitations.
+
+\subsubsection{Protocol Design}
+
+The post-optimizer 3-iteration sampling protocol consists of two measurement points designed to capture distinct memory allocation phases.
+
+\textbf{Iteration 1: Forward-Only Pass.} The first measurement runs a forward pass without backward propagation or optimization. This captures baseline memory consisting of model parameters and forward activation buffers. For ResNet-18 and ResNet-34 architectures validated in our experiments, this measurement ranges from 130-175 MB depending on batch size and model depth. This establishes the floor: the minimum memory required to evaluate the model on a single batch.
+
+\textbf{Post-Optimizer Measurement.} The second measurement occurs after completing one full training iteration: forward pass, backward pass, and \texttt{optimizer.step()}. Timing this measurement after the optimizer update completes ensures we capture workspace allocations. For Adam and AdamW optimizers, \texttt{optimizer.step()} allocates first-order moment (m\_t) and second-order moment (v\_t) exponential moving average buffers, each matching parameter tensor sizes. These buffers persist across training iterations, maintained in GPU memory to enable momentum-based gradient updates. For ResNet-18 with Adam, this measurement reaches 280 MB---a 150 MB increase over the forward-only baseline, representing approximately $2\times$ parameter memory in Adam workspace.
+
+\textbf{Prediction Formula.} The final prediction combines measurements via max operation: \texttt{max(iter1\textbackslash \_forward\textbackslash \_peak, post\textbackslash \_optim\textbackslash \_peak)}. This formula handles cases where forward activation memory exceeds optimizer workspace or where workspace dominates. Taking the maximum ensures we capture whichever component determines peak allocation.
+
+\subsubsection{Key Design Decisions}
+
+\#\#\#\# Decision 1: Post-Optimizer Sampling Timing
+
+\textbf{Choice:} Sample memory immediately after \texttt{optimizer.step()} completes, not after backward propagation but before optimization.
+
+\textbf{Rationale:} Adam and AdamW allocate m\_t and v\_t momentum buffers during \texttt{optimizer.step()}, representing approximately $2\times$ parameter memory. The backward pass computes gradients but does not allocate optimizer workspace. Sampling after backward but before \texttt{optimizer.step()} captures gradients but misses the larger workspace allocation. For ResNet-18 with Adam, memory increases from 175 MB (post-backward) to 280 MB (post-optimizer)---a 105 MB difference representing Adam's workspace. This allocation moment is the true memory peak.
+
+\textbf{Alternative Considered: Pre-Optimizer Sampling.} Sampling memory after the backward pass but before calling \texttt{optimizer.step()} would miss the workspace allocation window entirely. For SGD with momentum, the difference is smaller, but for Adam-family optimizers, this represents the dominant allocation. Our experiments show this timing difference explains the 52\% error reduction: 2.6\% (post-optimizer) versus 5.46\% (pre-optimizer) median error.
+
+\#\#\#\# Decision 2: 3-Iteration Count
+
+\textbf{Choice:} Use 2 measurement points (iteration 1 forward, post-optimizer).
+
+\textbf{Rationale:} Iteration 1 captures base model and activation memory. Post-optimizer captures workspace allocations. This minimal sampling reduces profiling overhead while capturing the two distinct memory phases that determine peak allocation.
+
+\textbf{Alternative Considered: 2-Iteration Sampling.} While 2 full training iterations establish state stabilization, measurement timing matters more than state convergence. Measuring post-optimizer in iteration 1 captures workspace allocations immediately; state values stabilize over iterations, but allocation sizes are determined by architecture and batch size, not training dynamics.
+
+\#\#\#\# Decision 3: Max Aggregation Formula
+
+\textbf{Choice:} Predict peak memory as \texttt{max(iter1\textbackslash \_forward, post\textbackslash \_optim\textbackslash \_peak)}.
+
+\textbf{Rationale:} Different architectures exhibit different memory bottlenecks. CNNs with large batch sizes often peak during forward pass. CNNs with small batch sizes but many parameters often peak during optimization. The max operation adapts to whichever component determines peak allocation for a given configuration.
+
+\textbf{Alternative Considered: Sum Formula.} Summing measurements would double-count allocations that persist across phases. This systematically overestimates memory. For ResNet-18, summing yields 130 MB + 280 MB = 410 MB, while actual peak is 280 MB.
+
+\subsubsection{Implementation via Allocator Simulation}
+
+We implement memory measurement using PyTorch's \texttt{torch.cuda.memory\textbackslash \_stats()} API, which exposes segment-level allocator metrics. This captures actual GPU memory reserved by PyTorch's BFC allocator, including fragmentation overhead and cached segments. We measure \texttt{reserved\textbackslash \_bytes.all.current} immediately after \texttt{optimizer.step()} completes, ensuring workspace allocations are included. Memory is reset via \texttt{torch.cuda.reset\textbackslash \_peak\textbackslash \_memory\textbackslash \_stats()} before iteration 1 to isolate profiling from prior allocations.
+
+The protocol avoids invasive instrumentation. No profiling hooks, no operator-level tracing, no allocator modifications. Measurements occur at two explicit points using standard PyTorch APIs available in any training script.
+
+\subsubsection{Validation Scope}
+
+The current methodology validation is limited to CNN architectures (ResNet-18, ResNet-34) with fixed-length inputs. We validate using synthetic data generated via \texttt{torch.randn(batch\textbackslash \_size, 3, 32, 32)}, not real CIFAR-10 images. Synthetic data eliminates data loading overhead that could confound memory measurements. The protocol measures GPU memory allocations for tensors and optimizer states, which are identical whether images are real or synthetic. This design choice prioritizes fast validation at the cost of not capturing DataLoader-related allocations.
+
+Transformers with variable-length sequences, attention mechanisms, and stratified sampling protocols remain unvalidated. The methodology extends naturally but empirical validation on BERT, GPT-2, or T5 architectures is excluded from current scope.
+
+\subsubsection{Statistical Validation}
+
+Prediction accuracy is evaluated via relative error: \texttt{|predicted\textbackslash \_memory - ground\textbackslash \_truth\textbackslash \_memory| / ground\textbackslash \_truth\textbackslash \_memory}. Ground truth is established by running 10 full training iterations and recording peak memory at iteration 10, when optimizer states have stabilized. Median relative error across configurations measures central tendency; 95th percentile error captures worst-case performance.
+
+Success criteria are inherited from established thresholds: median error $\leq 10$\% for CNNs. The 10\% threshold represents acceptable accuracy for production use---predictions within 10\% enable reliable batch size tuning and OOM avoidance.
+
+Statistical significance is assessed via Wilcoxon signed-rank test comparing post-optimizer errors against baseline errors. Significance threshold is p<0.05. The reduced validation scale (4 configurations) provides directional evidence of mechanism validity but insufficient statistical power for formal significance claims.
+

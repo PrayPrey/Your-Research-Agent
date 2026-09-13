@@ -1,0 +1,8 @@
+# Title
+Unified Interpretability Evaluation Framework: Standardizing AI Transparency Assessment Across Model Scales and Paradigms
+
+# Motivation
+As AI systems scale from tabular models to foundation models and deploy across high-stakes domains (healthcare, criminal justice), interpretability evaluation remains fragmented and inconsistent. Different model scales (tabular vs. neural vs. transformers) and paradigms (rule-based vs. attribution-based vs. mechanistic interpretability) lack standardized assessment methods, making it impossible to reliably compare interpretability approaches or ensure regulatory compliance. This evaluation gap undermines trust in AI systems where transparency is critical for safety and accountability.
+
+# Main Idea
+We propose the Unified Interpretability Evaluation Framework (UIEF), applying multidimensional item response theory (MIRT) from psychometrics to enable "model-free interpretability measurement." The framework operates through a five-stage mechanism: (1) computing paradigm-specific atomic metrics, (2) adaptively calibrating model complexity and metric difficulty via MIRT, (3) translating metrics across scales using semantic-preserving functions that maintain properties like locality and faithfulness, (4) hierarchically aggregating metrics from atomic to holistic scores, and (5) applying domain-specific weighting for healthcare, autonomous systems, etc. We will validate through five studies testing cross-scale consistency (ρ>0.6), MIRT calibration accuracy (ρ>0.7), and practical utility (>15% improvement in method selection). This enables automated, reproducible interpretability assessment and regulatory compliance checking.

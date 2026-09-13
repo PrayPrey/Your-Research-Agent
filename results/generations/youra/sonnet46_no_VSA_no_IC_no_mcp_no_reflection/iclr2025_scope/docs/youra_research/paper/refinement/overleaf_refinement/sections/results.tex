@@ -1,0 +1,177 @@
+
+The central finding is unambiguous: projection-only LoRA on Mamba-130m does not produce meaningful classification learning on any of the four GLUE tasks evaluated.
+
+\subsubsection{5.1 Zero-Shot GLUE Baselines}
+
+\textbf{Table 1: Zero-Shot Mamba-130m Baselines on GLUE}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Task & Zero-Shot Accuracy & Random Baseline (approx.) & Interpretation \\
+\midrule
+SST-2 & 0.4908 & 0.50 & Near random; no classification prior \\
+MNLI & 0.3463 & 0.33 & Marginally above chance; no NLI prior \\
+QNLI & 0.5046 & 0.50 & Near random \\
+QQP & 0.0000 & 0.50 & Systematic minority-class prediction \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The SST-2 (0.4908) and MNLI (0.3463) results confirm the expected behavior for a causal language model with no classification instruction tuning: performance is near the random baseline for each task. The QQP result (0.0000) reflects a systematic evaluation artifact: the model predicts the ''not paraphrase'' class for every QQP sample under the lm-evaluation-harness prompt format. The GLUE zero-shot average across all four tasks is 0.3354.
+
+These zero-shot baselines are confirmed across two independent evaluations in the experimental environment (once each from v8 and v9 startup).
+
+\subsubsection{5.2 Primary Result: SST-2 Fine-Tuning}
+
+\textbf{Table 2: SST-2 Accuracy Across Three Fine-Tuning Epochs}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Evaluation Point & Accuracy & vs. Zero-Shot & vs. Gate (0.70) \\
+\midrule
+Zero-shot baseline & 0.4908 & --- & $-0.2092$ \\
+After Epoch 1 & 0.5092 & +0.0184 & $-0.1908$ \\
+After Epoch 2 & 0.5092 & +0.0184 & $-0.1908$ \\
+After Epoch 3 & 0.5092 & +0.0184 & $-0.1908$ \\
+**Gate result** & --- & --- & **FAIL** \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Three consecutive identical accuracy values of 0.5092 are the clearest possible indicator of zero learning. The net improvement over zero-shot is +1.84 percentage points. On n=872 validation samples with a baseline proportion near p=0.5092, the binomial standard error is SE = sqrt(p($1-p)/n) \approx$ 0.017 (1.7pp). The observed gain of 1.84pp is within approximately one standard error of the zero-shot baseline, confirming that the gain is within statistical noise.
+
+The 19.1 percentage-point gap between the observed 0.5092 and the gate criterion of 0.70 represents the distance between majority-class prediction and meaningful classification ability.
+
+\subsubsection{5.3 Secondary Result: MNLI Fine-Tuning and Negative Transfer}
+
+\textbf{Table 3: MNLI Accuracy Across Three Fine-Tuning Epochs}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Evaluation Point & Accuracy & vs. Zero-Shot \\
+\midrule
+Zero-shot baseline & 0.3463 & --- \\
+After Epoch 1 & 0.3326 & $-0.0137$ ($-1.4pp)$ \\
+After Epoch 2 & 0.3234 & $-0.0229$ ($-2.3pp)$ \\
+After Epoch 3 & 0.3234 & $-0.0229$ ($-2.3pp)$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+MNLI accuracy falls below the zero-shot baseline at every epoch and stabilizes below baseline by epoch 2. This is negative transfer: LoRA updates move the model into a worse prediction state rather than improving it. The stabilization at 0.3234 in epochs 2 and 3 is consistent with convergence toward a degenerate single-class prediction regime --- the model's MNLI predictions have collapsed to a near-constant distribution, producing accuracy below the uniform random baseline of 0.33.
+
+The cross-task consistency of the failure --- flat SST-2, degrading MNLI --- argues against task-specific explanations. The gradient problem is present regardless of task structure.
+
+\subsubsection{5.4 Tertiary Results: QNLI and QQP Fine-Tuning}
+
+\textbf{Table 4: QNLI Accuracy Across Three Fine-Tuning Epochs}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Evaluation Point & Accuracy & vs. Zero-Shot \\
+\midrule
+Zero-shot baseline & 0.5046 & --- \\
+After Epoch 1 & 0.5011 & $-0.0035$ \\
+After Epoch 2 & 0.5149 & +0.0103 \\
+After Epoch 3 & 0.5126 & +0.0080 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+QNLI shows minor oscillation near the zero-shot baseline. Epoch 2 shows a small positive gain (+1.0pp) and epoch 3 a slightly smaller gain (+0.8pp), but neither reaches the level of demonstrable learning. The pattern is consistent with the model oscillating near majority-class prediction accuracy for a binary task.
+
+\textbf{Table 5: QQP Accuracy Across Three Fine-Tuning Epochs}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Evaluation Point & Accuracy & vs. Zero-Shot \\
+\midrule
+Zero-shot baseline & 0.0000 & --- \\
+After Epoch 1 & 0.0000 & 0.0000 \\
+After Epoch 2 & 0.0000 & 0.0000 \\
+After Epoch 3 & 0.0000 & 0.0000 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+QQP accuracy is 0.0000 across all three training epochs, identical to the zero-shot result. The model predicts the minority class for every validation sample under this evaluation setup, and LoRA fine-tuning does not change this. The loss on QQP oscillates between approximately 0.58 and 0.78 across training batches without convergence, consistent with the SST-2 pattern.
+
+\textbf{Overall GLUE Summary:}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Task & Zero-Shot & LoRA (best/final epoch) & Change \\
+\midrule
+SST-2 & 0.4908 & 0.5092 & +0.0184 \\
+MNLI & 0.3463 & 0.3234 & $-0.0229$ \\
+QNLI & 0.5046 & 0.5126 & +0.0080 \\
+QQP & 0.0000 & 0.0000 & 0.0000 \\
+**GLUE avg** & **0.3354** & **0.3363** & **+0.0009** \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The GLUE average improves by less than 0.1pp across all four tasks --- well within noise and not indicative of any meaningful learning.
+
+\subsubsection{5.5 LoRA Installation Verification}
+
+\textbf{Table 6: LoRA Installation Verification}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Check & Expected & Observed & Status \\
+\midrule
+`lora\_A` keys in state\_dict & Present at all target module paths & Present & PASS \\
+`lora\_B` keys in state\_dict & Present at all target module paths & Present & PASS \\
+Trainable parameter count & ~1.14\% of 130M & 1.14\% (1,489,920 trainable) & PASS \\
+LoRA weights non-zero post-training & Non-zero (updated by gradient) & Non-zero (confirmed) & PASS \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+LoRA is installed correctly. The adapters receive gradients and their weights are updated. The combination of Table 2 (zero classification learning) and Table 6 (correct LoRA installation) is the core finding: API compatibility does not imply gradient compatibility.
+
+\subsubsection{5.6 Loss Oscillation Pattern}
+
+Cross-entropy loss on SST-2 training batches oscillates between approximately 0.63 and 0.73 across all three training epochs (individual step losses range from 0.6240 to 0.7334 as logged in experiment8.log). There is no monotonic decrease trend. The loss trajectory centers near ln(2) $\approx$ 0.693, consistent with a model whose prediction distribution does not depart from near-uniform probability over two classes.
+
+The QQP loss shows a wider oscillation range (approximately 0.56 to 0.78), consistent with a binary task where the model predicts one class entirely. The QNLI loss shows similar oscillation (approximately 0.65 to 0.77).
+
+The absence of any downward trend across 375 total gradient steps (125 steps/epoch $\times$ 3 epochs) indicates that the optimization procedure is not finding a consistently better solution for any task.
+
+\subsubsection{5.7 Comparison to MambaPEFT Literature}
+
+Our SST-2 result (0.5092) contrasts with the reported performance in alxndrTL/mamba-peft (2024), which claims 90--92\% SST-2 accuracy on Mamba with LoRA r=8. The gap is approximately 40 percentage points.
+
+We do not interpret this as a contradiction. Our result and the MambaPEFT result can both be accurate if they reflect different training setups. The MambaPEFT repository does not fully document the checkpoint used (base vs. instruction-tuned), classification head design, number of training samples, epoch count, tokenization, or prompt format. Additionally, we cannot confirm whether MambaPEFT experiments used the CUDA kernel or the sequential fallback implementation, which may affect the gradient dynamics.
+
+We commit to a ranked hypothesis about the most likely source of the discrepancy: the checkpoint type (base \texttt{mamba-130m-hf} vs. any instruction-tuned derivative) is our top candidate, as instruction tuning can establish task-relevant gradient pathways or a prediction bias that projection-layer LoRA then amplifies. The second-most-likely candidate is the classification head design (pooling strategy, initialization). Exact replication of alxndrTL/mamba-peft with systematic ablation over these variables, in the priority order listed, is the highest-priority future work.
+

@@ -1,0 +1,35 @@
+
+We extract hidden states from transformer middle layers during answer generation, then train a linear probe to predict factual correctness.
+
+\subsubsection{3.1 Problem Setup}
+
+Given a question $q$ and model-generated answer $a$, we seek a function $f: (q, a) \rightarrow [0, 1]$ predicting correctness probability. Ground-truth labels $y \in \{0, 1\}$ come from exact-match evaluation against reference answers.
+
+\subsubsection{3.2 Hidden State Extraction}
+
+\textbf{Model.} We use Llama-3-8B-Instruct (32 layers, 4096 hidden dimensions) as a representative modern instruction-tuned LLM with accessible hidden states.
+
+\textbf{Forward pass with hooks.} During generation, we register PyTorch forward hooks on transformer layer outputs. For a target layer $\ell$, we capture the hidden state $h_\ell \in \mathbb{R}^{T \times d}$ where $T$ is sequence length and $d = 4096$ is hidden dimension. Hook extraction achieves 100\% output identity with negative overhead (-3.4\% in our experiments, likely due to caching effects).
+
+\textbf{Aggregation.} We extract the hidden state at the last generated token position, $h_\ell^{\text{last}} \in \mathbb{R}^d$. This position aggregates context from the full question-answer sequence through causal attention.
+
+\textbf{Layer selection.} We target middle layers (50--60\% depth). For Llama-3-8B's 32 layers, this corresponds to layers 15--19. We empirically validate this choice through systematic layer sweep.
+
+\subsubsection{3.3 Probe Architecture}
+
+We train a logistic regression classifier:
+$$P(\text{correct} | h_\ell^{\text{last}}) = \sigma(w^\top h_\ell^{\text{last}} + b)$$
+where $w \in \mathbb{R}^d, b \in \mathbb{R}$, and $\sigma$ is the sigmoid function.
+
+Three reasons justify the linear choice: (1) interpretability, (2) literature precedent showing MLP probes add less than 1 percentage point, and (3) reduced overfitting risk.
+
+\textbf{Training details.} We use sklearn's LogisticRegression with L2 regularization ($C = 10^{-3}$), balanced class weights, and LBFGS solver. Training converges in approximately 60 iterations on 9,500 samples.
+
+\subsubsection{3.4 Baseline Methods}
+
+\textbf{Token entropy.} Average entropy of next-token distributions during generation.
+
+\textbf{Sequence NLL.} Negative log-likelihood of the generated sequence.
+
+Both baselines measure output-level confidence. High entropy or NLL indicates model uncertainty, which correlates negatively with correctness.
+

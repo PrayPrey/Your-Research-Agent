@@ -1,0 +1,40 @@
+\section{Introduction}
+
+A model's gradient direction during training encodes which samples it finds surprising --- yet we show that measuring this surprise relative to a mini-batch average produces a signal that is \emph{anti-predictive} of spurious-minority group membership on Waterbirds: ROC-AUC = 0.15 at epoch~1, well below chance.
+The per-sample loss achieves 0.93 on the same samples, at the same epoch.
+This inversion is not a quirk of implementation: it reveals a previously uncharacterized failure mode in gradient-based minority detection, and its diagnosis points directly to a viable corrected method.
+
+The motivation for gradient-based debiasing is compelling.
+Models trained with empirical risk minimization (ERM) on spuriously-correlated data learn shortcuts: they exploit simple, spurious statistical patterns rather than the true causal features.
+On standard benchmarks, ERM achieves 97\% average accuracy on Waterbirds while dropping to 72\% worst-group accuracy --- failing catastrophically for the minority group (landbirds photographed on water) that cannot rely on the spurious background correlation \citep{Sagawa2020Distributionally}.
+Existing debiasing methods either require group annotations (GroupDRO~\citep{Sagawa2020Distributionally}) or resort to two-stage training using magnitude-based proxies for minority membership (JTT~\citep{Liu2021Just}; LfF~\citep{Nam2020Learning}).
+Magnitude-based proxies --- high loss, misclassification --- conflate hard-majority samples with spurious-minority samples: both cause high loss, but for different reasons.
+
+Gradient \emph{direction} offers a theoretically cleaner proxy.
+If spurious-minority samples have gradients that consistently conflict with the majority-dominated batch direction, the cosine similarity between a sample's gradient and the batch mean gradient should be a low score for minority samples --- distinguishing them from hard-majority samples whose gradients \emph{align} with the batch mean despite high loss.
+This proxy requires no group labels, operates online during training, and is now computationally tractable via per-sample gradient APIs (PyTorch \texttt{vmap/grad}).
+A recent concurrent work \citep{BiasTrail2025Bias} independently demonstrates that gradient probes can identify biased samples without labels, reinforcing the theoretical basis for the directional approach.
+
+We directly test this claim.
+We compute per-sample last-layer gradient cosine similarity with the within-batch mean gradient for all training samples at epochs $\{1, 5, 10, 25, 50\}$ on Waterbirds and CelebA under standard ERM training (ResNet-50, SGD).
+The result falsifies the directional hypothesis: alignment ROC-AUC never exceeds loss ROC-AUC at any epoch on either dataset, and on Waterbirds the signal is actively inverted (0.15 at epoch~1).
+
+\textbf{The inversion reveals a batch contamination effect.}
+With batch size $B = 32$ and ${\sim}5\%$ minority prevalence, 1--2 minority samples per batch carry disproportionately large gradient magnitudes (due to high training loss).
+These high-magnitude samples pull the within-batch mean gradient toward their own direction, paradoxically increasing the measured cosine similarity of minority samples with the batch mean.
+The batch mean is thus not a stable representation of the majority gradient direction --- it is contaminated by the exact samples it was meant to distinguish.
+
+This diagnosis is actionable.
+A two-pass global mean gradient --- computed over the full training set and averaged across thousands of batches --- is stable, majority-dominated, and not subject to per-batch contamination spikes.
+It preserves the annotation-free property and is expected to address the root cause.
+
+\textbf{Our contributions are:}
+\begin{enumerate}
+  \item \textbf{Empirical characterization:} First direct measurement of per-sample last-layer gradient alignment ROC-AUC as a spurious-minority detector on Waterbirds and CelebA. We establish that within-batch cosine similarity alignment fails (ROC-AUC $\leq$ 0.35 on Waterbirds; $\leq$ 0.63 on CelebA across epochs 1--50), while per-sample loss remains an effective proxy (0.77--0.97).
+
+  \item \textbf{Novel failure mode:} Documentation of the ``alignment inversion effect'' --- within-batch gradient alignment is anti-predictive on Waterbirds at epoch~1, with minority samples appearing \emph{more} aligned with the batch mean than majority samples. This is a new empirical finding about gradient-based minority detection methods.
+
+  \item \textbf{Design principle:} An empirically grounded rationale for why two-pass global mean gradient reference direction (not within-batch mean) is expected to be necessary for gradient cosine similarity to retain discriminative power in the spurious-minority detection setting.
+\end{enumerate}
+
+The remainder of the paper is organized as follows: Section~\ref{sec:related} reviews related work. Section~\ref{sec:methodology} presents the methodology and experimental design. Section~\ref{sec:experiments} describes our experiments. Section~\ref{sec:results} presents results. Section~\ref{sec:discussion} discusses the batch contamination diagnosis and limitations. Section~\ref{sec:conclusion} concludes.

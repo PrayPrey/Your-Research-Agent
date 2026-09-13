@@ -1,0 +1,42 @@
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Overview}
+
+Building on the observation that CCNet's per-language KenLM models produce structurally incomparable perplexity scales across language families, we design a measurement methodology to quantify the language-group retention disparity produced by the practitioner-common operation: applying a single global $k$-th percentile threshold to pre-computed \texttt{ccnet\_perplexity} scores across all languages simultaneously.
+
+Our approach simulates the filtering operation directly on the pre-computed quality signal metadata from RedPajama-V2, without requiring access to the original text, LM retraining, or GPU infrastructure. This design choice ensures the measurement captures exactly what practitioners experience when applying this filter.
+
+\subsection{Dataset and Quality Signal}
+
+\textbf{RedPajama-V2 Quality Signal Sample.} We analyze the \texttt{ccnet\_perplexity} field from the RedPajama-V2 quality signal metadata for a stratified subsample of 208,262 documents spanning five languages: English (en), German (de), French (fr), Spanish (es), and Italian (it). The \texttt{ccnet\_perplexity} field contains perplexity scores computed using CCNet's pipeline: per-language KenLM $n$-gram models trained on language-specific Wikipedia, applied to CommonCrawl web documents after language identification.
+
+The perplexity distributions across languages show structurally divergent shapes (Figure~\ref{fig:perplexity_kde}). Germanic languages cluster at lower absolute perplexity values than Romance languages, consistent with the hypothesis that larger, more formal Germanic Wikipedias produce KenLM models that assign lower perplexity to Germanic web text.
+
+\subsection{Global \texorpdfstring{$k$}{k}-th Percentile Thresholding}
+
+For each threshold level $k \in \{10, 20, 30, 40, 50\}$, we apply the following filtering rule:
+
+\begin{equation}
+\text{retain document } d \iff \texttt{ccnet\_perplexity}(d) < P_k(\text{all documents})
+\end{equation}
+
+where $P_k$ denotes the $k$-th percentile of the \texttt{ccnet\_perplexity} distribution computed across all documents in the sample, regardless of language.
+
+\subsection{Measuring Language-Group Retention Disparity}
+
+For each threshold level $k$, we construct a $5 \times 2$ contingency table (5 languages $\times$ 2 outcomes: retained/removed) and measure disparity using Cram{\'e}r's $V$:
+
+\begin{equation}
+V = \sqrt{\frac{\chi^2}{n \cdot (\min(r, c) - 1)}}
+\end{equation}
+
+where $\chi^2$ is the Pearson chi-square statistic, $n$ is the total document count, $r = 5$ (languages, the row dimension), $c = 2$ (retained/removed, the column dimension). $V$ ranges from 0 (no association) to 1 (perfect association), with $V > 0.5$ classified as ``large'' by Cohen's criteria.
+
+\subsection{Multiple Testing Correction}
+
+We apply Holm-Bonferroni correction across the five threshold levels, controlling the familywise error rate at $\alpha = 0.05$.
+
+\subsection{Implementation}
+
+The pipeline is implemented in Python using \texttt{pandas}, \texttt{scipy.stats}, and \texttt{statsmodels}. Total runtime: approximately 35 seconds on standard CPU hardware. No GPU, model inference, or network access required. We validate reproducibility through three independent runs, confirming identical $V$ values across runs.

@@ -1,0 +1,99 @@
+\section{Introduction}
+
+A neural network encoder trained exclusively on small MLP and CNN checkpoints ---
+without ever seeing a transformer during training ---
+can predict ViT model accuracy three times better than the state-of-the-art
+weight-space self-supervised learning method.
+The key is not the symmetry group. It is the coordinate system.
+
+This result emerges from a question at the intersection of two research agendas:
+\emph{how do we represent the weights of a neural network in a way that is useful?}
+and \emph{can representations learned from one family of architectures transfer to another?}
+These questions matter because model zoo analysis --- predicting properties of arbitrary trained
+networks without retraining --- is increasingly important for model selection,
+architecture search, and continual learning at scale.
+Yet existing methods silently assume that the test models come from the same architecture
+family as the training models.
+When that assumption breaks, they fail.
+
+We find that it breaks in a specific, diagnosable way.
+The SANE method~\cite{Schurholt2024Towards} ---
+which achieves strong performance ($R^2 = 0.72$) in its intended within-architecture setting ---
+represents each neural network as a flattened sequence of weight scalars,
+agnostic to network topology.
+When presented with ViT checkpoints after training on MLP/CNN checkpoints,
+SANE maps all inputs to near-identical latent codes ($\text{std} \approx 0.0014$).
+The representation has collapsed: every ViT model looks the same to the encoder,
+regardless of its accuracy.
+This is not a degradation in quality; it is a fundamental failure of the representation
+substrate under cross-architecture distribution shift.
+
+The failure mode reveals the solution.
+What flat tokenization discards is the \emph{relational structure} of a neural network ---
+the computational graph of neurons connected by scalar weights.
+This structure is architecture-agnostic: a ViT attention projection layer,
+a CNN convolutional filter, and an MLP linear layer are all, at bottom,
+directed graphs of neurons and edges.
+If we encode weights \emph{in terms of their graph structure} rather than as flat sequences,
+the encoder sees a consistent vocabulary across architectures.
+A permutation-equivariant graph neural network trained on this representation
+can process ViT weight graphs even though it was trained only on CNN weight graphs,
+because the graph schema is the same.
+
+Our key insight:
+\textbf{the directed computational graph schema (node=neuron, edge=weight)
+provides a universal weight-space coordinate system that enables SSL representations
+trained on MLP/CNN model zoos to generalize directly to ViT model zoo property prediction
+without any ViT training data.}
+The specific symmetry group --- whether to enforce scale equivariance in addition to
+permutation equivariance --- turns out to be secondary.
+Counter to predictions from supervised same-architecture
+settings~\cite{Kalogeropoulos2024Scale},
+scale+permutation equivariance (EquiSSL) achieves $R^2 = 0.185$ on held-out ViT models
+while permutation-only equivariance (EquiSSL-perm) achieves $R^2 = 0.231$ ---
+a reversal of the expected ordering.
+We hypothesize that LayerNorm in ViT architectures eliminates the scale degree of freedom
+that scale equivariance targets, making scale invariance an incorrect inductive bias for
+ViT weight encoding (see Section~\ref{sec:layernorm}).
+This LayerNorm gauge-fixing hypothesis is empirically motivated;
+independent theoretical treatment, if verified, would provide additional support.
+
+This paper makes the following contributions:
+
+\textbf{(1)} We identify and characterize the latent collapse failure mode of flat tokenization
+under cross-architecture SSL.
+On 53 real ViT-S/16 ImageNet checkpoints, SANE achieves $R^2 = 0.072$ --- near-chance
+for regression --- with latent variance $\text{std} \approx 0.0014$ indicating collapsed
+representations.
+Note that SANE is not a generally poor method --- it achieves $R^2 = 0.72$ in its intended
+within-architecture setting; the $R^2 = 0.072$ reflects the cross-architecture distribution
+shift failure mode specifically.
+
+\textbf{(2)} We demonstrate that graph-based SSL with permutation equivariance achieves meaningful
+cross-architecture transfer without target-domain training data.
+EquiSSL-perm achieves $R^2 = 0.231$ on 53 held-out ViT-S/16 models ---
+a ${\sim}220\%$ improvement over SANE, providing initial proof-of-concept evidence for
+cross-architecture SSL transfer.
+
+\textbf{(3)} We discover that scale equivariance does not improve over permutation-only equivariance
+for ViT cross-architecture transfer, providing empirical support for the LayerNorm
+gauge-fixing hypothesis.
+EquiSSL achieves $R^2 = 0.185$ (ablation evaluation, Table~\ref{tab:ablation}),
+underperforming EquiSSL-perm ($R^2 = 0.327$ in the same ablation evaluation;
+$R^2 = 0.231$ in the main experiment, Table~\ref{tab:main}).
+The directional ordering (EquiSSL-perm $>$ EquiSSL $>$ SANE) is consistent across both
+evaluations, though absolute magnitudes differ due to training duration differences.
+
+\textbf{(4)} We diagnose why graph-based latent interpolation fails as a model editing primitive.
+Latent interpolation achieves $\text{acc} = 0.100$ = exactly random chance ($1/10$ for CIFAR-10),
+while weight-space averaging achieves $\text{acc} = 0.125$ ($p \approx 0$, Cohen's $d = -1.10$).
+Property prediction and model generation are separable capabilities requiring architecturally
+distinct decoders.
+
+We organize the paper as follows.
+Section~\ref{sec:related} surveys related work.
+Section~\ref{sec:method} describes our methodology.
+Section~\ref{sec:setup} details our experimental setup.
+Section~\ref{sec:results} presents results.
+Section~\ref{sec:discussion} discusses surprising findings, limitations, and broader implications.
+Section~\ref{sec:conclusion} concludes.

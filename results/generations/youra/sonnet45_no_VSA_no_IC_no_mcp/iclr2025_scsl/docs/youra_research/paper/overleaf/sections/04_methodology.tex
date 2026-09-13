@@ -1,0 +1,151 @@
+\section{Methodology}
+
+Building on our hypothesis that Batch Normalization's batch-level statistics amplify spurious correlation learning while Layer Normalization's instance-level normalization does not, we design experiments to (1) quantify the worst-group gap difference between these architectures at matched training progress, and (2) measure the underlying gradient mechanism. This section describes our accuracy-matched temporal comparison methodology and gradient instrumentation approach.
+
+\subsection{Overview}
+
+Our approach consists of three components:
+
+\begin{enumerate}
+\item \textbf{Accuracy-matched comparison}: Compare ResNet-18-BN and ResNet-18-LN at the epoch where each architecture first reaches 90\% average accuracy, eliminating training-speed confounds.
+
+\item \textbf{Gradient asymmetry measurement}: Instrument the first convolutional layer with gradient hooks to measure gradient magnitude toward spurious-aligned versus spurious-misaligned samples during early training (epochs 0--19).
+
+\item \textbf{Statistical validation}: Use 10 random seeds for statistical power, paired \emph{t}-tests for significance, and Cohen's \emph{d} for effect size.
+\end{enumerate}
+
+\textbf{Rationale}: Comparing architectures at fixed epochs confounds training speed with spurious learning mechanisms (Batch Normalization trains faster due to loss landscape smoothing). Comparing at matched average accuracy isolates the architectural effect. Gradient measurement during early training (when spurious features are preferentially learned) reveals the mechanistic driver.
+
+\subsection{Architectures}
+
+\subsubsection{ResNet-18 with Batch Normalization (ResNet-18-BN)}
+
+Standard torchvision ResNet-18 architecture with 17 Batch Normalization layers (1 after initial conv1 + 16 in residual blocks). Batch Normalization normalizes activations per channel using batch statistics:
+
+\begin{equation}
+\hat{x}_i = \frac{x_i - \mu_B}{\sqrt{\sigma_B^2 + \epsilon}}, \quad y_i = \gamma \hat{x}_i + \beta
+\end{equation}
+
+where $\mu_B$ and $\sigma_B^2$ are mean and variance computed over the batch dimension, and $\gamma$, $\beta$ are learned affine parameters. During training, batch statistics are computed from the current batch; during inference, running averages are used.
+
+\textbf{Rationale}: Batch Normalization is the default choice in modern convolutional architectures, making it the natural baseline. Its batch-level statistics are hypothesized to amplify spurious batch-level correlations.
+
+\subsubsection{ResNet-18 with Layer Normalization (ResNet-18-LN)}
+
+ResNet-18 with all Batch Normalization layers replaced by Layer Normalization. Layer Normalization normalizes activations per-instance over all feature dimensions:
+
+\begin{equation}
+\hat{x}_i = \frac{x_i - \mu_L}{\sqrt{\sigma_L^2 + \epsilon}}, \quad y_i = \gamma \hat{x}_i + \beta
+\end{equation}
+
+where $\mu_L$ and $\sigma_L^2$ are mean and variance computed over feature dimensions (channels, height, width) for each individual example. Layer Normalization processes each example independently, eliminating batch-level information aggregation.
+
+\textbf{Implementation}: Layer Normalization's \texttt{normalized\_shape} parameter is set to \texttt{[C, H, W]} for each residual block, where \texttt{C} is the number of channels and $\texttt{H} \times \texttt{W}$ is the spatial resolution. For example, \texttt{conv2\_x} blocks use \texttt{[64, 56, 56]}, \texttt{conv3\_x} uses \texttt{[128, 28, 28]}, \texttt{conv4\_x} uses \texttt{[256, 14, 14]}, and \texttt{conv5\_x} uses \texttt{[512, 7, 7]}. This ensures normalization over all feature dimensions per instance.
+
+\textbf{Rationale}: Layer Normalization provides a controlled ablation of Batch Normalization's batch-level statistics while preserving the same architecture depth, parameter count (within 1\%), and activation normalization principle. If the hypothesis is correct, Layer Normalization should exhibit lower worst-group gaps due to the absence of batch-level spurious signal amplification.
+
+\subsection{Accuracy-Matched Comparison}
+
+\subsubsection{Motivation}
+
+Batch Normalization is known to accelerate training convergence \cite{santurkar2018does}. Comparing ResNet-18-BN and ResNet-18-LN at a fixed epoch (e.g., epoch 50) confounds two effects:
+\begin{enumerate}
+\item Architectural effect on spurious learning (what we want to measure)
+\item Training speed difference (nuisance variable)
+\end{enumerate}
+
+For example, if ResNet-18-BN reaches 95\% average accuracy by epoch 50 while ResNet-18-LN reaches only 88\%, comparing worst-group accuracy at epoch 50 mixes learning dynamics with convergence speed.
+
+\subsubsection{Design}
+
+We eliminate this confound by comparing architectures at matched average accuracy checkpoints. Specifically, for each random seed:
+
+\begin{enumerate}
+\item Train ResNet-18-BN for up to 100 epochs, logging average accuracy and worst-group accuracy every epoch.
+\item Train ResNet-18-LN for up to 100 epochs with identical logging.
+\item Identify the epoch where ResNet-18-BN first reaches 90\% average accuracy (denote $e_{\text{BN}}$).
+\item Identify the epoch where ResNet-18-LN first reaches 90\% average accuracy (denote $e_{\text{LN}}$).
+\item Record worst-group accuracy at these epochs: $\text{WGA}_{\text{BN}}(e_{\text{BN}})$ and $\text{WGA}_{\text{LN}}(e_{\text{LN}})$.
+\item Compute worst-group gap: $\text{Gap}_{\text{BN}} = 90\% - \text{WGA}_{\text{BN}}(e_{\text{BN}})$, $\text{Gap}_{\text{LN}} = 90\% - \text{WGA}_{\text{LN}}(e_{\text{LN}})$.
+\end{enumerate}
+
+We then perform a paired \emph{t}-test across 10 seeds to test whether $\text{Gap}_{\text{BN}} - \text{Gap}_{\text{LN}} \geq 5.0$ percentage points (\emph{p} $<$ 0.05, Cohen's \emph{d} $\geq$ 0.8).
+
+\textbf{Rationale}: By comparing at matched average accuracy (90\%), we control for training progress. The worst-group gap at this checkpoint reflects architectural effects on spurious learning, independent of convergence speed.
+
+\subsection{Gradient Asymmetry Measurement}
+
+\subsubsection{Motivation}
+
+To establish a mechanistic explanation beyond correlation, we measure gradient flow to spurious-aligned versus spurious-misaligned samples during early training. If Batch Normalization amplifies spurious learning via batch-level statistics, we expect higher gradient magnitude toward majority-group (spurious-aligned) samples in ResNet-18-BN compared to ResNet-18-LN.
+
+\subsubsection{Design}
+
+For each architecture and random seed, we instrument the first convolutional layer (\texttt{conv1.weight}) with gradient hooks during epochs 0--19:
+
+\begin{enumerate}
+\item \textbf{Group stratification}: Partition training samples into majority groups (spurious-aligned: label and spurious feature co-occur) and minority groups (spurious-misaligned: label and spurious feature conflict).
+
+\item \textbf{Gradient accumulation}: For each batch, compute gradients $\nabla_{\theta} \mathcal{L}$ with respect to \texttt{conv1.weight}. Separate gradients by group:
+   \begin{itemize}
+   \item $g_{\text{maj}}$: gradient contributions from majority-group samples
+   \item $g_{\text{min}}$: gradient contributions from minority-group samples
+   \end{itemize}
+
+\item \textbf{Gradient ratio}: Compute the ratio of gradient norms:
+\begin{equation}
+r = \frac{\|g_{\text{maj}}\|_2}{\|g_{\text{min}}\|_2}
+\end{equation}
+
+\item \textbf{Temporal aggregation}: Average gradient ratio over epochs 0--19 for each seed.
+
+\item \textbf{Statistical test}: Compare $r_{\text{BN}}$ vs. $r_{\text{LN}}$ across 10 seeds using paired \emph{t}-test. Success criterion: $r_{\text{BN}} - r_{\text{LN}} \geq 20\%$, \emph{p} $<$ 0.05, Cohen's \emph{d} $\geq$ 0.5.
+\end{enumerate}
+
+\textbf{Rationale}: Early training (epochs 0--19) is when simplicity bias dominates and spurious features are preferentially learned \cite{toneva2018empirical}. Measuring gradients at the first convolutional layer captures early feature extraction, where spurious vs. core feature competition is most acute. A higher gradient ratio in Batch Normalization indicates stronger gradient flow toward spurious-aligned samples, providing mechanistic evidence for the amplification hypothesis.
+
+\subsection{Training Configuration}
+
+All experiments use identical hyperparameters to isolate architectural effects:
+
+\begin{itemize}
+\item \textbf{Optimizer}: SGD with learning rate 0.01, momentum 0.9, weight decay $10^{-4}$
+\item \textbf{Learning rate schedule}: Constant (no warmup, no decay) to eliminate optimizer-induced temporal dynamics
+\item \textbf{Batch size}: 64 for both architectures
+\item \textbf{Initialization}: He normal (Kaiming initialization) for all convolutional and fully connected layers
+\item \textbf{Epochs}: 20 (proof-of-concept; planned 100 epochs for production)
+\item \textbf{Random seeds}: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] for reproducibility
+\item \textbf{Determinism}: \texttt{torch.manual\_seed()}, \texttt{torch.backends.cudnn.deterministic = True}, \texttt{torch.backends.cudnn.benchmark = False}
+\end{itemize}
+
+\textbf{Rationale}: Constant learning rate eliminates confounds from learning rate schedules (warmup can delay spurious learning; decay can enable late correction). Identical batch size, initialization, and weight decay ensure controlled comparison. 10 seeds provide statistical power to detect a 2 percentage point gap difference with 80\% power at $\alpha = 0.05$.
+
+\subsection{Dataset}
+
+\textbf{Planned}: Waterbirds dataset \cite{sagawa2020distributionally}, a spurious correlation benchmark with 4795 training images (landbirds/waterbirds on land/water backgrounds, 95\% spurious correlation) and 1199 test images. Group labels are available for worst-group accuracy evaluation.
+
+\textbf{Fallback (used in this study)}: Synthetic spurious correlation dataset with 5000 training samples and 1000 test samples, binary classification, 90\% spurious correlation strength. Generated due to WILDS Waterbirds server unavailability (HTTP 500 error during dataset download).
+
+\textbf{Rationale}: Waterbirds is the standard benchmark for spurious correlation research, with established group annotations and baselines. Synthetic data demonstrates workflow validity but requires real dataset validation for scientific generalization (see Limitations).
+
+\subsection{Evaluation Metrics}
+
+\begin{itemize}
+\item \textbf{Average accuracy}: Accuracy over all test samples (standard metric)
+\item \textbf{Worst-group accuracy (WGA)}: Minimum accuracy across all four groups (label $\times$ spurious feature)
+\item \textbf{Worst-group gap}: $\text{Gap} = \text{Average Accuracy} - \text{WGA}$
+\end{itemize}
+
+\textbf{Rationale}: Worst-group accuracy reveals spurious reliance better than average accuracy \cite{sagawa2020distributionally}. A model with 97\% average accuracy but 72\% worst-group accuracy has a 25 percentage point gap, indicating strong spurious reliance.
+
+\subsection{Statistical Analysis}
+
+All hypothesis tests use paired \emph{t}-tests (each seed is a matched pair for BN vs. LN) with significance threshold $\alpha = 0.05$. Effect sizes are reported as Cohen's \emph{d}:
+
+\begin{equation}
+d = \frac{\bar{x}_{\text{BN}} - \bar{x}_{\text{LN}}}{s_{\text{pooled}}}
+\end{equation}
+
+where $s_{\text{pooled}}$ is the pooled standard deviation. We interpret $d \geq 0.8$ as a large effect (Cohen, 1988).
+
+\textbf{Rationale}: Paired tests exploit the matched structure (same seed, different architectures) for higher statistical power. Cohen's \emph{d} quantifies practical significance beyond \emph{p}-values.

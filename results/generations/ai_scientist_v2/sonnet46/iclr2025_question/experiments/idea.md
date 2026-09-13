@@ -1,0 +1,36 @@
+## Name
+
+uncertainty_cascade_propagation
+
+## Title
+
+Uncertainty Cascades: Modeling and Intervening on Uncertainty Propagation Across Claims in Long-Form LLM Generation
+
+## Short Hypothesis
+
+In autoregressive long-form generation, LLMs condition each new sentence/claim on previously generated (potentially hallucinated) text, creating a causal chain where early uncertain claims corrupt the context for later claims — a phenomenon we call 'uncertainty cascades.' Current UQ methods score claims independently, ignoring this propagation structure. We hypothesize that (1) claim-level uncertainty is significantly influenced by the uncertainty of upstream claims in the generation context, and (2) modeling this propagation explicitly — via a directed dependency graph over atomic claims — yields better uncertainty estimates and enables targeted early interventions that prevent downstream hallucination cascades. This is best studied in long-form generation (biographies, scientific explanations) where multi-claim dependencies are natural and measurable, and where independent claim scoring provably fails to capture compounding errors.
+
+## Related Work
+
+Token-level UQ (Fadeeva et al., CCP, 2024) scores tokens/claims post-hoc but treats each independently. Graph Uncertainty (Jiang et al., 2024) uses bipartite graphs between multiple sampled generations and claims to measure consistency via graph centrality — this is a consistency-based cross-generation method, not a within-generation causal propagation model. Long-form UQ work (LoGU, SeSE, Bouchard et al.) focuses on decompose-then-score pipelines with independent claim scoring and aggregation. Selective Abstraction (Goren et al.) reduces specificity of uncertain atoms but does not model how uncertainty flows between claims. SDLG and semantic entropy methods operate at the generation level. None of these works model the causal/contextual dependency between claims within a single generation and how uncertainty propagates forward through the autoregressive context — our key contribution.
+
+## Abstract
+
+Large language models (LLMs) generate long-form text autoregressively, conditioning each new claim on all previously generated content. When an early claim is uncertain or hallucinated, it corrupts the generative context for subsequent claims, potentially triggering a cascade of downstream hallucinations. Yet existing uncertainty quantification (UQ) methods score atomic claims independently, ignoring this causal dependency structure. We introduce the concept of Uncertainty Cascades and propose a framework to model and intervene on uncertainty propagation in long-form LLM generation. Our approach proceeds in three steps: (1) decompose generated text into atomic claims and construct a directed dependency graph by identifying which claims serve as context for subsequent claims (via NLI-based and co-reference-based edge detection); (2) propagate uncertainty scores forward through this graph using a learned or closed-form uncertainty propagation rule, yielding cascade-aware uncertainty estimates for each claim; and (3) apply cascade-aware interventions — at high-uncertainty 'pivot' claims, we trigger targeted regeneration or abstention before continuing generation, preventing downstream corruption. We evaluate on biography generation and long-form scientific QA benchmarks, measuring claim-level factuality (FactScore), AUROC for hallucination detection, and the degree to which early uncertain claims predict downstream hallucination rates. We demonstrate that cascade-aware UQ significantly outperforms independent claim scoring in both detection accuracy and factuality of generated outputs, and that early intervention at pivot claims yields larger factuality improvements than post-hoc claim removal.
+
+## Experiments
+
+1. **Cascade Effect Validation**: Generate long-form biographies and scientific explanations with 3-5 open-source LLMs (LLaMA-3, Mistral, Phi-3). For each generation, score all atomic claims for factuality (using FactScore with Wikipedia) and uncertainty (using CCP and semantic entropy via multiple samples). Fit a regression predicting claim k's uncertainty/factuality from claims 1..k-1's uncertainty scores. Test whether upstream uncertainty is a statistically significant predictor of downstream uncertainty/factuality — this validates the cascade hypothesis. Metric: Pearson correlation and predictive R^2.
+
+2. **Dependency Graph Construction**: Implement two methods for constructing directed claim dependency edges: (a) sequential (each claim depends on all prior claims) and (b) semantic dependency (use NLI entailment + co-reference resolution to identify which specific prior claims a new claim directly builds upon). Compare these graph structures in terms of their predictive power for downstream uncertainty propagation.
+
+3. **Cascade-Aware UQ**: Implement uncertainty propagation over the dependency graph using a simple weighted sum rule: U_cascade(k) = alpha * U_independent(k) + (1-alpha) * mean(U_cascade(j) for j in parents(k)), where alpha is tuned on a validation set. Compare cascade-aware UQ vs. independent claim UQ for hallucination detection (AUROC, AUPRC) on TriviaQA-long, biography generation, and LongFact benchmarks across 4 LLMs.
+
+4. **Cascade-Aware Intervention**: Implement an online generation procedure: generate claims sequentially; when cascade-aware uncertainty of claim k exceeds a threshold, (a) regenerate that claim with higher temperature + majority vote before continuing, or (b) replace with a more abstract/hedged version. Compare factuality (FactScore) and informativeness (BERTScore) against baselines: no intervention, post-hoc claim removal, and selective abstraction. Measure the tradeoff between factuality improvement and information retention.
+
+5. **Ablation**: Vary graph structure (sequential vs. semantic), propagation rule (weighted sum vs. max), and intervention strategy (regenerate vs. abstract vs. abstain) to understand which components drive gains.
+
+## Risk Factors And Limitations
+
+1. **Cascade effect may be weak**: If LLMs are sufficiently robust to their own uncertain context, the cascade effect may be small, making the propagation model add little over independent scoring. Mitigation: we validate this empirically first (Experiment 1) and the finding itself would be a valuable null result. 2. **Dependency graph construction is noisy**: NLI/co-reference methods for identifying which prior claims influence a new claim may be inaccurate, leading to incorrect graph structure. Mitigation: we compare sequential (trivial) vs. semantic graphs and show that even the sequential graph captures useful signal. 3. **Computational cost**: Multiple sampling for uncertainty estimation in long-form settings is expensive. Mitigation: we use efficient methods (CCP for white-box models, 5-10 samples max) and focus on models accessible to academic labs (7B-13B parameter open-source models). 4. **Benchmark limitations**: FactScore requires Wikipedia lookups and may not cover all domains. Mitigation: we use multiple benchmarks and also evaluate with LLM-as-judge for factuality. 5. **Intervention may degrade fluency**: Regenerating mid-generation claims may create incoherence. Mitigation: we measure fluency/coherence explicitly and compare against baselines.
+

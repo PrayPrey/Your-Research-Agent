@@ -1,0 +1,23 @@
+# Introduction
+
+When state-of-the-art language models achieve high scores on one trustworthiness benchmark, they systematically excel on others—even those measuring seemingly unrelated capabilities like mathematical reasoning and instruction following. Across the Open LLM Leaderboard's 4,561 models, benchmark scores correlate at ρ = 0.80–0.87, a pattern too strong and too consistent to be coincidental. This observation challenges a foundational assumption in LLM evaluation: that trustworthiness dimensions like truthfulness, robustness, and reliability are independent constructs requiring separate measurement.
+
+The standard approach treats each trustworthiness dimension as a distinct target. Specialized benchmarks—TruthfulQA for factual accuracy, MMLU for knowledge, AdvGLUE for robustness—are developed, validated, and deployed independently. Practitioners evaluate models dimension-by-dimension, constructing scorecards that imply orthogonal capabilities. Yet the high cross-correlation suggests this framing may fundamentally mischaracterize how trustworthiness manifests in language models.
+
+We identify a deeper problem: the correlation structure itself has been treated as a nuisance confound rather than an informative signal. Prior work attributes shared variance to model scale—larger models score higher on everything—and dismisses the residual as noise. But what if the residual is the signal? What if, after controlling for scale and training recency, a dominant latent factor persists that reflects something meaningful about model behavior?
+
+This gap—the absence of a systematic factor-analytic framework for understanding cross-benchmark correlation in LLM trustworthiness—motivates our work. We draw on psychometric methodology, where similar "positive manifold" patterns led to the discovery of general intelligence (g-factor), to investigate whether an analogous latent construct underlies trustworthy LLM behavior.
+
+Our key insight is that cross-benchmark correlation reflects a shared latent factor arising from *representation stability*. Models with more stable internal representations produce consistent outputs across semantically equivalent inputs, simultaneously boosting performance on benchmarks measuring different surface-level capabilities. We term this latent factor **Generalized Representational Coherence (GRC)**.
+
+Building on this insight, we make the following contributions:
+
+1. **Existence of residual factor:** Through large-scale meta-analysis (N = 4,561 models), we demonstrate that a dominant principal component (PC1, λ₁ = 2.277, explaining 60% of residual variance) persists after controlling for log(parameters) and release date, significantly exceeding permutation null thresholds (p = 0.001).
+
+2. **Mechanistic evidence:** We show that PC1 correlates positively with a Behavioral Stability Index (BSI), a proxy for representation consistency (ρ = 0.405, p < 10⁻¹⁷⁹), supporting the interpretation that GRC reflects stability rather than general capability.
+
+3. **Quasi-intervention evidence:** Instruction-tuning increases both BSI (Cohen's d = 1.87) and PC1 scores (d = 1.99) within matched base/instruct model pairs, providing evidence consistent with a causal pathway from stability-enhancing training to improved GRC.
+
+4. **Prospective validity:** The frozen PC1 weights generalize to 5 of 6 holdout trustworthiness benchmarks (loadings ≥ 0.3), demonstrating that GRC captures a genuine latent dimension rather than benchmark-specific artifacts.
+
+These findings suggest that evaluating trustworthiness as a single, latent factor—rather than a collection of independent dimensions—may better reflect the underlying structure of model capabilities. We discuss implications for evaluation practice, training objectives, and the broader question of what makes language models trustworthy.

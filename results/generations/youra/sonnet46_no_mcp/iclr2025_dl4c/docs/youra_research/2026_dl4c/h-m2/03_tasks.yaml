@@ -1,0 +1,402 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-05-03T12:00:00+00:00"
+  phase: "Phase 3"
+  description: "Reward Entropy & Predictive Correlation — log analysis experiment (no new training)"
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 9
+  subtasks: 10
+  failsafe: 1
+  total: 21
+
+tasks:
+
+  # ── Environment Setup ─────────────────────────────────────────────────────
+
+  - id: ENV-1
+    type: setup
+    title: "Environment setup and dependency verification"
+    description: >
+      Verify Python environment has all required packages: pandas, numpy, scipy,
+      matplotlib, seaborn. No GPU required. Verify h-e1/logs/ and h-e1/results/
+      directories are accessible. Create h-m2/results/ and h-m2/figures/ output dirs.
+    priority: 94
+    complexity: 3
+    reference_files:
+      - "h-m2/03_prd.md#7-dependencies"
+      - "h-m2/03_config.md#analysisrunconfig"
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "h-e1/logs/ accessible with at least reward_density_curriculum.csv present"
+      - "h-m2/results/ and h-m2/figures/ directories created"
+
+  # ── Epic Tasks ────────────────────────────────────────────────────────────
+
+  - id: A-1
+    type: implementation
+    title: "Setup & data audit"
+    description: >
+      Create h-m2/code/ directory structure (analysis/, visualization/).
+      Audit h-e1/logs/ for CSV existence and row counts for all 4 conditions.
+      Audit h-e1/results/ for eval_results JSON files.
+      Document findings: which files exist, row counts, whether aggregation needed.
+    priority: 93
+    complexity: 7
+    reference_files:
+      - "h-m2/03_prd.md#41-input-data-existing--no-download-required"
+      - "h-m2/03_architecture.md#file-structure"
+    acceptance_criteria:
+      - "h-m2/code/analysis/ and h-m2/code/visualization/ directories created"
+      - "Audit report printed: which CSVs exist and row counts"
+      - "Decision logged: whether density CSVs need window aggregation"
+
+  - id: A-2
+    type: implementation
+    title: "Implement DataLoader"
+    description: >
+      Implement analysis/load_data.py with load_reward_density(), load_pass1_checkpoints(),
+      and load_all_conditions(). Handle binary density aggregation (500-step windows if nrows>50).
+      Implement 4-strategy JSON fallback for pass@1 data.
+    priority: 92
+    complexity: 11
+    reference_files:
+      - "h-m2/03_logic.md#a-2-dataloader-complexity-11-budget-3-subtasks"
+      - "h-m2/03_config.md#datadiscoveryconfig"
+      - "h-m2/03_prd.md#fr-1-data-loading-infrastructure"
+    acceptance_criteria:
+      - "load_reward_density() returns DataFrame(step, reward_density) with ~10 rows after aggregation"
+      - "load_pass1_checkpoints() returns DataFrame(step, pass1) with >=5 rows via CSV or JSON fallback"
+      - "load_all_conditions() returns dict for all 4 conditions"
+
+  - id: A-3
+    type: implementation
+    title: "Implement EntropyComputer"
+    description: >
+      Implement analysis/compute_entropy.py with compute_entropy_from_density(),
+      add_entropy_column(), compute_early_mean_entropy(), and compare_entropy_direction().
+      Binary entropy H(p) = -p*log2(p) - (1-p)*log2(1-p) with 0*log(0)=0 convention.
+    priority: 91
+    complexity: 8
+    reference_files:
+      - "h-m2/03_architecture.md#entropycomputer-analysiscompute_entropypy"
+      - "h-m2/03_prd.md#fr-2-reward-entropy-computation"
+    acceptance_criteria:
+      - "compute_entropy_from_density(0.5) == 1.0 (maximum entropy)"
+      - "compute_entropy_from_density(0.0) == 0.0 (edge case)"
+      - "compare_entropy_direction() returns delta_entropy = mean_curriculum - mean_uniform for steps<=2500"
+
+  - id: A-4
+    type: implementation
+    title: "Implement GainsComputer"
+    description: >
+      Implement analysis/compute_gains.py with compute_pass1_gains() and
+      build_pooled_observations(). Pool 36 observations (9 intervals x 4 conditions).
+      Use min(n_ckpts-1, 9) intervals to handle partial data gracefully.
+    priority: 90
+    complexity: 9
+    reference_files:
+      - "h-m2/03_logic.md#a-4-gainscomputer-complexity-9-budget-1-subtask"
+      - "h-m2/03_prd.md#fr-3-pass1-gain-computation"
+    acceptance_criteria:
+      - "compute_pass1_gains() returns shape (9,) from 10-row DataFrame"
+      - "build_pooled_observations() returns arrays of length 36 (warns if fewer)"
+      - "all_densities[i] corresponds to reward_density at step T, all_gains[i] = pass1(T+500)-pass1(T)"
+
+  - id: A-5
+    type: implementation
+    title: "Implement CorrelationAnalyzer"
+    description: >
+      Implement analysis/pearson_correlation.py with pearson_with_ci() (Fisher z CI),
+      per_condition_correlations(), wilcoxon_entropy_test(), evaluate_gate(), and save_results().
+      Gate: r > 0.5 AND p_onetailed < 0.05.
+    priority: 89
+    complexity: 12
+    reference_files:
+      - "h-m2/03_logic.md#a-5-correlationanalyzer-complexity-12-budget-2-subtasks"
+      - "h-m2/03_config.md#gatethresholdconfig"
+      - "h-m2/03_prd.md#fr-4-pearson-correlation-analysis"
+    acceptance_criteria:
+      - "pearson_with_ci() returns dict with r, p_twotailed, p_onetailed, ci_low, ci_high, n"
+      - "evaluate_gate() returns True iff r>0.5 AND p_onetailed<0.05"
+      - "save_results() writes results_summary.json with all required fields"
+
+  - id: A-6
+    type: implementation
+    title: "Implement FigureGenerator"
+    description: >
+      Implement visualization/generate_figures.py with all 5 required figures at 200 DPI.
+      Consistent color scheme: curriculum=blue, uniform=orange, easy_only=green, hard_only=red.
+      Figures: scatter_density_vs_gain, entropy_timeseries, entropy_density_comparison,
+      per_condition_scatter, pass1_gain_timeseries.
+    priority: 88
+    complexity: 13
+    reference_files:
+      - "h-m2/03_architecture.md#figuregenerator-visualizationgenerate_figurespy"
+      - "h-m2/03_config.md#figureconfig"
+      - "h-m2/03_prd.md#fr-7-visualization-mandatory"
+    acceptance_criteria:
+      - "All 5 figure files saved to h-m2/figures/ at 200 DPI"
+      - "Scatter plot includes regression line and Pearson r annotation"
+      - "Entropy time-series has vertical line at step 2500"
+      - "All figures use consistent color scheme"
+
+  - id: A-7
+    type: implementation
+    title: "Implement RunAnalysis entry point"
+    description: >
+      Implement run_analysis.py orchestrating the full pipeline: load data → compute entropy
+      → build pooled obs → Pearson r → per-condition r → Wilcoxon → save results →
+      save CSVs → generate figures → print gate result.
+    priority: 87
+    complexity: 8
+    reference_files:
+      - "h-m2/03_architecture.md#runanalysis-run_analysispy"
+      - "h-m2/03_prd.md#fr-6-results-output"
+    acceptance_criteria:
+      - "python run_analysis.py completes without error"
+      - "results/results_summary.json written with gate_passed field"
+      - "results/entropy_timeseries.csv and results/correlation_data.csv written"
+      - "Gate result printed: 'GATE: PASSED/FAILED — Pearson r=X.XXXX, p=X.XXXX'"
+
+  - id: A-8
+    type: implementation
+    title: "Handle pass@1 fallback from eval JSON"
+    description: >
+      If pass1_checkpoint_{condition}.csv is absent, scan h-e1/results/eval_results_{condition}.json
+      and build pass@1 checkpoint DataFrame. Handle 4 JSON structures: list, dict with
+      'checkpoints'/'results'/'checkpoint_results' key, or step-keyed dict. Verify >=5 checkpoints.
+    priority: 86
+    complexity: 11
+    reference_files:
+      - "h-m2/03_logic.md#pseudo-code-load_pass1_checkpoints-with-json-fallback"
+      - "h-m2/03_prd.md#fr-1-data-loading-infrastructure"
+    acceptance_criteria:
+      - "Fallback correctly parses eval_results_{condition}.json for all 4 JSON structures"
+      - "Warning printed if fewer than 10 checkpoints available"
+      - "RuntimeError raised if fewer than 5 checkpoints available"
+
+  - id: A-9
+    type: implementation
+    title: "Integration test & gate evaluation"
+    description: >
+      Run verify_mechanism_activated() end-to-end: load all 4 conditions, pool 36 observations,
+      compute Pearson r, evaluate gate (r>0.5 AND p_onetailed<0.05), print result.
+      Verify output files exist and contain expected fields.
+    priority: 85
+    complexity: 10
+    reference_files:
+      - "h-m2/03_logic.md#a-9-integration-test--gate-eval-complexity-10-budget-1-subtask"
+      - "h-m2/03_prd.md#6-success-criteria"
+    acceptance_criteria:
+      - "verify_mechanism_activated() runs end-to-end without error"
+      - "pearson_r and p_value_onetailed present in results_summary.json"
+      - "gate_passed field set correctly based on r>0.5 AND p<0.05"
+      - "All 5 figure files confirmed present"
+
+  # ── Subtasks: Logic ───────────────────────────────────────────────────────
+
+  - id: L-2-1
+    type: subtask
+    parent: A-2
+    title: "load_reward_density: 500-step window aggregation"
+    description: >
+      Implement window aggregation: if nrows > 50, group by window=(step-1)//500,
+      aggregate mean(reward_density) per window. Use window-end step as representative step.
+      Assert >=10 rows after aggregation.
+    priority: 49
+    complexity: 5
+    reference_files:
+      - "h-m2/03_logic.md#pseudo-code-load_reward_density"
+    acceptance_criteria:
+      - "5000-row binary CSV aggregated to 10-row fraction CSV"
+      - "Output step values: 500, 1000, 1500, ..., 5000"
+      - "reward_density values in [0.0, 1.0] after aggregation"
+
+  - id: L-2-2
+    type: subtask
+    parent: A-2
+    title: "load_pass1_checkpoints: JSON fallback with 4-strategy parsing"
+    description: >
+      Implement 4-strategy JSON parsing: list → direct; dict with 'checkpoints'/'results' key
+      → extract list; step-keyed dict → iterate int keys. Assert >=5 rows minimum.
+    priority: 48
+    complexity: 6
+    reference_files:
+      - "h-m2/03_logic.md#pseudo-code-load_pass1_checkpoints-with-json-fallback"
+    acceptance_criteria:
+      - "Handles JSON list format correctly"
+      - "Handles JSON dict with 'checkpoints' key correctly"
+      - "Handles step-keyed dict (e.g., {'500': {'pass@1': 0.1}}) correctly"
+      - "RuntimeError raised if <5 checkpoints after all strategies"
+
+  - id: L-2-3
+    type: subtask
+    parent: A-2
+    title: "load_all_conditions: wrapper with error reporting"
+    description: >
+      Implement load_all_conditions() that calls both loaders for all 4 conditions,
+      collects per-condition errors, and reports which conditions failed.
+    priority: 47
+    complexity: 3
+    reference_files:
+      - "h-m2/03_logic.md#a-2-dataloader-complexity-11-budget-3-subtasks"
+    acceptance_criteria:
+      - "Returns dict for all 4 conditions when data available"
+      - "Raises informative error listing which conditions failed and why"
+
+  - id: L-4-1
+    type: subtask
+    parent: A-4
+    title: "build_pooled_observations: exact density/gain alignment"
+    description: >
+      Implement exact alignment: density[i] = reward_density at step T,
+      gain[i] = pass1(T+500) - pass1(T). Use n_intervals = min(n_ckpts-1, 9).
+      Validate and warn if total pooled observations != 36.
+    priority: 46
+    complexity: 5
+    reference_files:
+      - "h-m2/03_logic.md#pseudo-code-build_pooled_observations"
+    acceptance_criteria:
+      - "all_densities[i] and all_gains[i] correspond to same checkpoint interval"
+      - "len(all_densities) == 36 for full 10-checkpoint data"
+      - "Warning printed if n != 36 (partial data)"
+
+  - id: L-5-1
+    type: subtask
+    parent: A-5
+    title: "pearson_with_ci: Fisher z-transformation 95% CI"
+    description: >
+      Implement Fisher z CI: z=arctanh(r), se=1/sqrt(n-3), ci=[tanh(z-1.96*se), tanh(z+1.96*se)].
+      p_onetailed = p_twotailed / 2. Return full stats dict.
+    priority: 45
+    complexity: 5
+    reference_files:
+      - "h-m2/03_logic.md#pseudo-code-pearson_with_ci-fisher-z-ci"
+    acceptance_criteria:
+      - "CI correctly computed via Fisher z-transformation"
+      - "p_onetailed = p_twotailed / 2"
+      - "Returns dict with all 6 keys: r, p_twotailed, p_onetailed, ci_low, ci_high, n"
+
+  - id: L-5-2
+    type: subtask
+    parent: A-5
+    title: "per_condition_correlations + wilcoxon_entropy_test"
+    description: >
+      Implement per_condition_correlations() returning {cond: {r, p_onetailed, n}} for each
+      of 4 conditions. Implement wilcoxon_entropy_test() for one-tailed test curriculum>uniform
+      on early-phase (steps<=2500) entropy values (n=5 pairs).
+    priority: 44
+    complexity: 5
+    reference_files:
+      - "h-m2/03_logic.md#a-5-correlationanalyzer-complexity-12-budget-2-subtasks"
+      - "h-m2/03_prd.md#fr-5-statistical-tests-secondary"
+    acceptance_criteria:
+      - "per_condition_correlations() returns 4 condition results"
+      - "wilcoxon_entropy_test() returns statistic, p_value, direction_correct"
+      - "direction_correct = True if mean_entropy_curriculum > mean_entropy_uniform"
+
+  - id: C-6-1
+    type: subtask
+    parent: A-6
+    title: "FigureConfig: plot parameters, colors, output filenames"
+    description: >
+      Implement FigureConfig dataclass: dpi=200, size=(10,7), colors dict per condition,
+      5 output filenames matching PRD FR-7. Import and use in generate_figures.py.
+    priority: 43
+    complexity: 3
+    reference_files:
+      - "h-m2/03_config.md#c-6-figuregenerator-config-complexity-2-budget-2"
+    acceptance_criteria:
+      - "FigureConfig() instantiates with correct defaults"
+      - "All 5 figure filenames defined and match FR-7 names"
+      - "Colors: curriculum=blue, uniform=orange, easy_only=green, hard_only=red"
+
+  - id: C-6-2
+    type: subtask
+    parent: A-6
+    title: "AnalysisRunConfig: paths and checkpoint window params"
+    description: >
+      Implement AnalysisRunConfig dataclass with H-E1 path references, conditions list,
+      early_phase_max_step=2500, checkpoint_interval=500, n_checkpoints=10.
+      Match values to h-e1/code/config.py verified constants.
+    priority: 42
+    complexity: 3
+    reference_files:
+      - "h-m2/03_config.md#c-6-figuregenerator-config-complexity-2-budget-2"
+    acceptance_criteria:
+      - "AnalysisRunConfig() instantiates with correct H-E1-derived defaults"
+      - "early_phase_max_step=2500 matches h-e1 curriculum_step"
+      - "checkpoint_interval=500 matches h-e1 save_steps"
+
+  - id: C-8-1
+    type: subtask
+    parent: A-8
+    title: "DataDiscoveryConfig: file templates and window params"
+    description: >
+      Implement DataDiscoveryConfig dataclass with csv_filename_template,
+      json_fallback_template, density_csv_template, max_steps=5000, window_size=500.
+    priority: 41
+    complexity: 2
+    reference_files:
+      - "h-m2/03_config.md#c-8-pass1-fallback-config-complexity-2-budget-2"
+    acceptance_criteria:
+      - "DataDiscoveryConfig() instantiates with correct defaults"
+      - "Templates include {condition} placeholder"
+
+  - id: C-8-2
+    type: subtask
+    parent: A-8
+    title: "GateThresholdConfig: Pearson r and p-value thresholds"
+    description: >
+      Implement GateThresholdConfig dataclass: pearson_r_threshold=0.5,
+      p_value_threshold=0.05, n_pooled_observations=36, entropy_direction_check=True.
+      Use in evaluate_gate() and save_results().
+    priority: 40
+    complexity: 2
+    reference_files:
+      - "h-m2/03_config.md#c-8-pass1-fallback-config-complexity-2-budget-2"
+    acceptance_criteria:
+      - "GateThresholdConfig() instantiates with correct defaults"
+      - "evaluate_gate() uses pearson_r_threshold and p_value_threshold from config"
+
+  - id: L-9-1
+    type: subtask
+    parent: A-9
+    title: "verify_mechanism_activated: end-to-end gate check"
+    description: >
+      Implement verify_mechanism_activated(log_dir, results_dir) that loads all 4 conditions,
+      pools 36 observations, computes Pearson r, and returns (gate_passed, indicators_dict).
+      Print gate result to stdout.
+    priority: 39
+    complexity: 5
+    reference_files:
+      - "h-m2/03_logic.md#pseudo-code-verify_mechanism_activated"
+    acceptance_criteria:
+      - "Returns (bool, dict) with gate_passed, pearson_r, p_value_onetailed, n_observations"
+      - "Prints: 'GATE: PASSED/FAILED — Pearson r=X.XXXX, p=X.XXXX'"
+      - "Works with partial data (warns if n<36)"
+
+  # ── Failsafe ──────────────────────────────────────────────────────────────
+
+  - id: FAILSAFE-1
+    type: failsafe
+    title: "Pipeline continuation checkpoint"
+    description: >
+      Final checkpoint: verify all output files exist (results_summary.json, 5 figures,
+      entropy_timeseries.csv, correlation_data.csv). Print gate result summary.
+      Prepare output for Phase 4 validation report.
+    priority: 1
+    complexity: 2
+    reference_files:
+      - "h-m2/03_prd.md#6-success-criteria"
+    acceptance_criteria:
+      - "results/results_summary.json exists with gate_passed field"
+      - "All 5 figures exist in h-m2/figures/"
+      - "Gate result (PASSED or FAILED with r and p values) printed to stdout"

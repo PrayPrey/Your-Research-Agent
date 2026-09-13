@@ -1,0 +1,56 @@
+
+\subsubsection{3.1 Overview}
+
+All neural networks in our work are represented as directed computation graphs before encoding. The graph schema --- node=neuron, edge=weight --- is architecture-agnostic in a way that flat tokenization is not. We combine this representation with a permutation-equivariant GNN encoder and a contrastive autoencoder SSL objective, trained on MLP/CNN model zoos and evaluated zero-shot on ViT model zoos.
+
+\subsubsection{3.2 Problem Setup}
+
+Let $Z_\text{train} = \{\theta_1, \ldots, \theta_N\}$ be a collection of trained neural network checkpoints from architecture families $A_\text{train}$ (MLPs and CNNs). Let $Z_\text{test} = \{\phi_1, \ldots, \phi_M\}$ be checkpoints from a held-out family $A_\text{test}$ (ViT-S/16), where $A_\text{test} \cap A_\text{train} = \emptyset$. The goal is to learn an encoder $f_\theta$ via SSL on $Z_\text{train}$ such that $f_\theta(\phi)$ is useful for predicting properties of $\phi \in Z_\text{test}$ without any supervised signal from $Z_\text{test}$. We evaluate with a RidgeCV linear probe on extracted embeddings, predicting ViT-S/16 ImageNet top-1 accuracy.
+
+\subsubsection{3.3 Graph Encoding Schema}
+
+Each checkpoint is converted to a directed attributed graph $G = (V, E, x_v, x_e)$:
+
+\begin{itemize}
+\item \textbf{Nodes} $v \in V$ correspond to neurons. Node features: $x_v = [\text{bias\_mean}, \text{bias\_std}, \text{bias\_min}, \text{bias\_max}]$ (4-dimensional).
+\item \textbf{Directed edges} $(u, v) \in E$ represent scalar weights from neuron $u$ to neuron $v$. Edge features: $x_e = [\text{weight\_mean}, \text{weight\_std}, \text{weight\_min}, \text{weight\_max}]$ (4-dimensional).
+\end{itemize}
+
+All architecture families considered --- MLP linear layers, CNN convolutional filters, and ViT attention projections (Q, K, V, output projections, and MLP sublayers) --- consist of linear maps between neuron sets and map directly onto this schema. A ViT attention weight matrix $W_Q \in \mathbb{R}^{d_k \times d}$ defines the same edge structure as an MLP linear layer $W \in \mathbb{R}^{d_\text{out} \times d_\text{in}}$. The graph schema preserves this shared structure across architecture families, whereas flat tokenization does not.
+
+\subsubsection{3.4 Permutation-Equivariant SSL (EquiSSL-perm)}
+
+\textbf{Encoder.} We use the neural-graphs architecture [Kofinas2024Graph] with 4 message-passing layers, hidden dimension 256, and latent dimension 128. The encoder is permutation-equivariant: for any permutation $\pi$ of neurons within a layer, $f_\theta(\pi(G)) = \pi(f_\theta(G))$.
+
+\textbf{SSL objective.} Training minimizes:
+
+$\mathcal{L} = \mathcal{L}_\text{NT-Xent}(z, z^+) + \lambda \cdot \mathcal{L}_\text{MSE}(\hat{e}, e)$
+
+where $z$ and $z^+$ are embeddings of two augmented views of the same network graph, $\mathcal{L}_\text{NT-Xent}$ is the normalized temperature-scaled cross-entropy contrastive loss [Chen2020Simple] with temperature $\tau=0.07$, and $\mathcal{L}_\text{MSE}$ is a reconstruction loss on edge attributes with $\lambda=0.1$.
+
+\textbf{Augmentation.} Positive pairs are constructed by applying random neuron permutations to the same graph. Scale augmentation is not applied (see Section 3.5 for rationale).
+
+\textbf{Training.} Adam optimizer ($\text{lr}=1\times 10^{-3}$, $\text{weight\_decay}=1\times 10^{-4}$), batch size 64, 100 epochs, CosineAnnealingLR ($T_\text{max}=100$, $\eta_{\min}=1\times 10^{-5}$).
+
+\subsubsection{3.5 The LayerNorm Gauge-Fixing Hypothesis}
+
+The initial formulation of this project followed Kalogeropoulos et al. [Kalogeropoulos2024Scale] in using scale+permutation equivariance --- the monomial matrix group. Scale equivariance encodes the equivalence $\theta \sim c\theta$ for scalar $c > 0$: two networks related by neuron-wise scaling of incoming and outgoing weights are functionally equivalent for ReLU-like (scale-homogeneous) activations.
+
+We hypothesize this equivalence breaks in the presence of LayerNorm. LayerNorm normalizes each neuron's activations to zero mean and unit variance at inference time, which fixes the scale of weight tensors: two ViT weight tensors that differ by scalar factor c are NOT functionally equivalent, because LayerNorm normalizes both to the same activation distribution regardless of c. Scale equivariance would then be an incorrect inductive bias: it maps weight tensors that differ only in scale to the same latent code, discarding information that may discriminate functionally distinct ViT models.
+
+This \textbf{LayerNorm gauge-fixing hypothesis} is empirically motivated, not proven. The empirical evidence --- EquiSSL underperforms EquiSSL-perm on ViT transfer in all evaluations (Section 5.2) --- is consistent with the hypothesis, but the causal mechanism has not been directly isolated. Confirmation would require evaluating scale vs. permutation-only equivariance on non-LayerNorm target architectures (e.g., ReLU MLP, BatchNorm CNN), which we defer to future work. An unverified preprint [Anonymous2025LayerNorm; arXiv:2510.08300, citation unverified at time of submission] appears to argue for a related theoretical claim; readers should verify this citation independently.
+
+Our primary method (EquiSSL-perm) uses permutation-only equivariance. EquiSSL (scale+permutation, ScaleGMN backbone [Kalogeropoulos2024Scale]) is included as an ablation.
+
+\subsubsection{3.6 SANE Baseline with VICReg Fix}
+
+As the primary baseline, we use SANE [Schurholt2024Towards] augmented with a VICReg variance regularization term [Bardes2021VICReg]:
+
+$\mathcal{L}_\text{VICReg} = 0.1 \cdot \max(0, 1 - \sigma(z))$
+
+Without this regularization, SANE's flat tokenizer maps all cross-architecture inputs to near-constant codes ($std\approx 0.0014)$. We treat SANE + VICReg as the strongest achievable flat tokenization baseline. SANE achieves $R^{2}=0.72$ in its intended within-architecture setting [Schurholt2024Towards]; the low cross-architecture performance ($R^{2}=0.072)$ reflects the distribution shift failure mode.
+
+\subsubsection{3.7 Evaluation Protocol}
+
+After SSL training on $Z_\text{train}$ (CNN checkpoints only), we extract embeddings $f_\theta(\phi)$ for all $\phi \in Z_\text{test}$ (ViT-S/16 checkpoints). A RidgeCV regressor ($\alpha \in \{0.1, 1.0, 10.0, 100.0\}$, 80/20 train/test split) predicts ViT-S/16 ImageNet top-1 accuracy from these embeddings. The primary metric is $R^2$ (coefficient of determination). The encoder receives zero supervision from the target architecture during training.
+

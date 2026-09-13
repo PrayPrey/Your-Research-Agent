@@ -1,0 +1,99 @@
+
+To measure the oracle gap from task-specific adapter rank selection, we systematically train all rank-task configurations across a multi-domain benchmark. This section describes our experimental design and oracle gap computation.
+
+\subsubsection{Research Questions}
+
+We address three research questions:
+
+\textbf{RQ1: Does an oracle gap G_o ≥ 10\% exist between per-task optimal adapter rank selection and the best fixed-rank baseline?}
+
+This is our primary research question. If the gap is negligible (< 10\%), task-aware routing adds complexity for marginal benefit. If the gap exceeds 10\%, it validates that multi-domain benchmarks exhibit sufficient heterogeneity to justify adaptive configuration strategies.
+
+\textbf{RQ2: Do different tasks genuinely prefer different adapter ranks, or does one rank dominate?}
+
+Even if an oracle gap exists, it could reflect noise rather than systematic heterogeneity. If oracle selections cluster on a single rank (e.g., 15 of 17 tasks prefer rank-8), the gap might be artifact rather than genuine task diversity. We analyze oracle selection distribution to test whether heterogeneity is real.
+
+\textbf{RQ3: Does rank-32 overfit on small datasets despite having the highest capacity?}
+
+Literature consensus suggests rank 4-16 is sufficient for most tasks. We test rank-32 to verify whether higher capacity improves performance or causes overfitting when adapter parameters exceed data complexity.
+
+\subsubsection{Oracle Gap Definition and Computation}
+
+For each task t, we define the oracle rank r*_t as the rank achieving highest validation accuracy:
+
+```
+r*_t = argmax_{r ∈ {4,8,16,32}} Accuracy_t(r)
+```
+
+The oracle average across all tasks is:
+
+```
+Oracle_avg = (1/|T|) Σ_{t ∈ T} Accuracy_t(r*_t)
+```
+
+where |T| = 17 tasks.
+
+For each fixed rank r, we compute the average accuracy across all tasks:
+
+```
+Fixed_avg(r) = (1/|T|) Σ_{t ∈ T} Accuracy_t(r)
+```
+
+The best fixed-rank baseline is:
+
+```
+Best_fixed = max_{r ∈ {4,8,16,32}} Fixed_avg(r)
+```
+
+We report both absolute and relative gap:
+
+Absolute gap (percentage points): Gap_abs = Oracle_avg - Best_fixed
+
+Relative gap (percentage improvement): Gap_rel = (Oracle_avg - Best_fixed) / Best_fixed × 100\%
+
+The relative gap quantifies how much performance fixed configurations leave on the table as a fraction of baseline performance. Throughout this paper, "15.09\% gap" refers to a 15.09\% relative improvement over the baseline, which corresponds to 11.62 percentage points in absolute terms.
+
+The oracle gap represents an upper bound under perfect hindsight selection. Practical routing mechanisms will achieve lower performance due to classifier errors and computational overhead.
+
+Beyond gap magnitude, we analyze the distribution of oracle selections across ranks. If optimal ranks cluster on a single value (e.g., 15 of 17 tasks prefer rank-8), the gap might reflect noise. If selections distribute across the configuration space, it indicates genuine task diversity in capacity requirements.
+
+\subsubsection{Multi-Domain Benchmark Selection}
+
+We select tasks from GLUE (Wang et al., 2018) and XTREME (Hu et al., 2020) to span diverse domains, dataset sizes, and linguistic phenomena. This diversity is critical for testing the heterogeneity hypothesis—if all tasks were similar, optimal ranks would cluster.
+
+GLUE provides 9 standard NLP understanding tasks spanning grammatical acceptability (CoLA), sentiment (SST-2), paraphrase (MRPC, QQP), similarity (STS-B), and natural language inference (MNLI, QNLI, RTE, WNLI). Dataset sizes range from 635 samples (WNLI) to 392,702 samples (MNLI)—over two orders of magnitude variation.
+
+XTREME subset incorporates cross-lingual diversity with XNLI (Cross-lingual NLI) and PAWS-X (Cross-lingual Paraphrase) across 4 languages (English, Spanish, German, Chinese), training on English only with zero-shot transfer to other languages.
+
+Total: 17 tasks (9 GLUE + 8 XTREME cross-lingual evaluations).
+
+\subsubsection{Adapter Configuration Space}
+
+We test four LoRA ranks: {4, 8, 16, 32}.
+
+Rank 4-16 represents literature consensus sweet spot (Hu et al., 2021). Most practitioners use this range. Rank 32 tests overfitting hypothesis. If rank-32 performs poorly on small datasets despite having highest capacity (262,144 parameters vs rank-4's 32,768), it demonstrates capacity-data mismatch.
+
+LoRA adds two matrices A ∈ R^(d×r) and B ∈ R^(r×d) per target module, where d=4096 (LLaMA-2-7B hidden dimension) and r=rank. With two target modules (q_proj, v_proj) across 32 layers:
+
+\begin{itemize}
+\item Rank 4: 32,768 parameters
+\item Rank 8: 65,536 parameters
+\item Rank 16: 131,072 parameters
+\item Rank 32: 262,144 parameters
+\end{itemize}
+
+This O(d·r) scaling creates discrete capacity-efficiency trade-off points spanning an 8× parameter range.
+
+\subsubsection{Training Protocol}
+
+We use identical hyperparameters (learning rate, weight decay, batch size, epochs) for all 68 configurations (17 tasks × 4 ranks) to ensure performance differences reflect genuine capacity-data interactions rather than confounded tuning. This design choice ensures fair comparison but creates ambiguity for rank-32 performance. If rank-32 performs poorly, we cannot definitively distinguish whether this reflects fundamental overfitting or hyperparameter mismatch. We acknowledge this limitation explicitly.
+
+Base model: LLaMA-2-7B (Touvron et al., 2023), a decoder-only transformer with 7 billion parameters.
+
+\subsubsection{Evaluation Protocol}
+
+Primary metric: Task accuracy (or Pearson correlation for STS-B regression task, Matthew's correlation for CoLA).
+
+Oracle gap success criterion: Gap_rel ≥ 10\%.
+
+This is a proof-of-concept using single-seed (42) directional validation. Multi-seed statistical testing with confidence intervals is deferred to future work. Large effect sizes (>10 percentage points) with systematic patterns (distributed oracle selections, language-specific correlations) provide directional evidence.

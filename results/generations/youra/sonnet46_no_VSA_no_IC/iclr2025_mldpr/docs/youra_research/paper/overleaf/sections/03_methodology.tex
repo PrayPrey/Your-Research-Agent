@@ -1,0 +1,74 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Overview}
+
+Our methodology follows directly from the key insight: benchmark saturation is a structural break, not a monotonic trend. This guides a three-stage pipeline: (1) remove the global trend, (2) detect the structural break in the residuals, (3) validate the break with independent tests. Figure~\ref{fig:regime} shows the regime separation; Figure~\ref{fig:penalty} shows the PELT penalty sensitivity confirming a single robust breakpoint.
+
+The full pipeline:
+\begin{enumerate}
+\item[\textbf{(i)}] \textbf{Data ingestion:} PwC leaderboard $\to$ $N=115$ benchmarks with CoV and paper\_count
+\item[\textbf{(ii)}] \textbf{OLS detrending:} $\text{residual\_CoV} = \text{CoV} - (\hat{\beta}_1 \cdot \text{paper\_count} + \hat{\beta}_0)$
+\item[\textbf{(iii)}] \textbf{PELT detection:} structural break at $\text{paper\_count}^*$ from residual CoV series
+\item[\textbf{(iv)}] \textbf{Validation:} permutation test ($p < 0.05$) + piecewise $F$-test (model comparison)
+\item[\textbf{(v)}] \textbf{Regime characterization:} $F$-test (pre vs.\ global) + Brown-Forsythe (pre vs.\ post)
+\end{enumerate}
+
+\textbf{Rationale:} Without detrending, PELT would detect the global CoV-paper\_count correlation as a spurious change-point. Detrending isolates the structural break component, making detection robust to the global trend's direction and magnitude.
+
+\subsection{Data}
+
+We use the PwC benchmark archive (HuggingFace \texttt{paperswithcode/paperswithcode-data}, August 2026 snapshot), loaded via Arrow IPC. For each benchmark, $\text{CoV} = \sigma_b / \mu_b$ over all reported metric values. Benchmarks with fewer than 38 papers are excluded ($\text{min\_papers}=38$), yielding $\mathbf{N=115}$ \textbf{benchmarks} with $\text{paper\_count} \in [38, 352]$.
+
+\subsection{OLS Detrending}
+
+\textbf{Rationale:} The global CoV-paper\_count relationship confounds change-point detection. We remove it via OLS:
+
+\begin{equation}
+\text{residual\_CoV}_b = \text{CoV}_b - (\hat{\beta}_0 + \hat{\beta}_1 \cdot \text{paper\_count}_b)
+\end{equation}
+
+This removes whatever linear trend exists (positive or negative) without assuming its direction, ensuring trend-agnostic structural break detection.
+
+\subsection{PELT Change-Point Detection}
+
+We use PELT~\cite{Killick2012} with an $L_2$ cost function (mean-shift detection). The BIC-based penalty $\sigma^2 \cdot \log(N)$ selects the number of breakpoints. We sweep penalties across $[1, 50]$ on a log scale (20 values) confirming a single breakpoint across the relevant range (Figure~\ref{fig:penalty}).
+
+\textbf{Key parameters:}
+
+\begin{table}[h]
+\centering
+\caption{PELT hyperparameters and rationale.}
+\label{tab:params}
+\begin{tabular}{lll}
+\toprule
+Parameter & Value & Rationale \\
+\midrule
+model & $L_2$ & Mean-shift in 1D continuous signal \\
+min\_size & 3 & Per VPWBS theoretical recommendation~\cite{Wang2019} \\
+jump & 1 & Exact search for $N=115$ \\
+BIC penalty & $\sigma^2 \cdot \log(N) \approx 4.32$ & Automatic; consistent with PELT theory \\
+$N_{\text{permutations}}$ & 1000 & Standard for permutation test power \\
+$N_{\text{bootstrap}}$ & 1000 & Standard for CI estimation \\
+seed & 42 & Fixed for reproducibility \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Statistical Validation}
+
+\textbf{Permutation test (primary):} paper\_count labels shuffled 1000 times; PELT rerun on each permuted series. Permutation $p$-value = fraction of permutations with detected breakpoint index $\leq$ observed index. Gate: $p < 0.05$. This formulation tests whether the detected break position is statistically earlier than chance --- a meaningful test given that early breaks are most likely to reflect genuine exploration-to-saturation transitions rather than boundary artifacts. The complementary piecewise $F$-test ($p=0.0021$) provides position-agnostic model comparison evidence.
+
+\textbf{Piecewise $F$-test (corroboration):} Compare two-segment linear model (fitted separately on pre/post segments) to single linear model. Significant $F$-test confirms the two-segment model explains substantially more variance.
+
+\subsection{Regime Characterization}
+
+\textbf{H-M1 (exploration regime):} $F$-test comparing pre-breakpoint variance ($n_{\text{pre}}=8$) to global variance. Gate: variance\_ratio $> 1.0$ AND $F$-test one-tailed $p < 0.10$.
+
+\textbf{H-M2 (saturation regime):} Brown-Forsythe test comparing pre-breakpoint variance to post-breakpoint variance. Gate: ratio $< 1.0$ AND BF $p < 0.05$.
+
+\textbf{H-M3 (directional concentration):} Four directional metrics. Gate: $\geq$ 2/4 pass at $p < 0.10$ (SHOULD\_WORK).
+
+\subsection{Implementation}
+
+Python 3.10+, \texttt{ruptures} (PELT), \texttt{scipy} (permutation/BF tests), \texttt{statsmodels} (OLS). Data loading via Arrow IPC. Full pipeline automated in \texttt{run\_experiment.py}; hyperparameters centralized in \texttt{config.py}.

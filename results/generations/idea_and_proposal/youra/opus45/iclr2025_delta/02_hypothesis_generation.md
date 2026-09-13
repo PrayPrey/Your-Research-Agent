@@ -1,0 +1,215 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-DiscretizationBounds-v1
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Under standard score matching training conditions (C), if discrete diffusion samplers (DDPM, DDIM, DPM-Solver) are applied with T sampling steps and discretization scheme Δ (X), then the generalization gap scales as O(1/√n · R_n(F) · Σ_t σ_t²) (Y) because PAC-Bayesian trajectory analysis combined with SDE discretization error bounds captures the algorithm-dependent learning dynamics where score network capacity determines per-step variance, discretization scheme determines error accumulation rate, and accumulated trajectory error bounds the generalization gap (Z).
+
+**Alternative Hypothesis (H0):**
+The generalization gap of discrete diffusion samplers is independent of the discretization scheme and sampling steps, depending only on training data distribution characteristics (data-dependent bounds only).
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Number of sampling steps T | Independent | Integer count of denoising steps | 10-1000 steps |
+| Discretization scheme Δ | Independent | Categorical: DDPM (stochastic), DDIM (deterministic ODE), DPM-Solver (high-order ODE) | {DDPM, DDIM, DPM-Solver} |
+| Score network Rademacher complexity R_n(F) | Independent | R_n(F) ≤ O(√(p·log(n)/n)) where p = network parameters | 0.01-0.5 (normalized) |
+| Generalization gap | Dependent | \|FID_train - FID_test\| computed on held-out test set | 0-50 FID units |
+| Training data | Controlled | Fixed dataset with train/test split | CIFAR-10 (50k/10k), ImageNet-64 |
+| Noise schedule | Controlled | Standard linear or cosine schedule | Linear β_t ∈ [0.0001, 0.02] |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+Score Network Capacity (R_n)
+        ↓ [Link 1]
+Per-Step Sampling Variance
+        ↓ [Link 2]
+Accumulated Trajectory Error
+        ↓ [Link 3]
+Generalization Gap
+```
+
+**Step 1 → Step 2:** Score network capacity (characterized by Rademacher complexity R_n(F)) determines the variance in score estimates at each sampling step. Higher capacity networks can memorize training data, leading to larger per-step variance when applied to test data.
+
+**Step 2 → Step 3:** Per-step variance accumulates across T sampling steps according to the discretization scheme:
+- DDPM (stochastic): Accumulates O(T·√h) variance due to injected Gaussian noise
+- DDIM (ODE): Accumulates O(T·h²) truncation error (deterministic)
+- DPM-Solver: Accumulates O(T·h^k) for k-th order solver
+
+**Step 3 → Outcome:** Accumulated trajectory error translates to generalization gap via PAC-Bayesian framework. The KL divergence between training and test trajectory distributions bounds the generalization gap, with larger accumulated error implying larger gap.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | Viallard 2024 (PAC-Bayes Gibbs) | PAC-Bayes bounds can incorporate arbitrary complexity measures including Rademacher complexity | Strong |
+| Step2 → Step3 | NeurIPS 2023 (Generalization Properties) | Diffusion models achieve O(n^{-2/5}+m^{-4/5}) generalization bound with early stopping | Strong |
+| Step3 → Outcome | Probability Flow Distance (Zhang 2025) | PFD metric connects trajectory divergence to distributional generalization | Medium |
+
+**Key Tension:**
+- **Tension:** Existing continuous-time bounds (Dupuis 2025) suggest algorithm-independent rates, but empirical observations show DDIM generalizes differently than DDPM at the same step count
+- **Resolution:** This verification plan tests whether discretization scheme characteristic Δ is a significant factor in the generalization bound, distinguishing algorithm-dependent from algorithm-independent contributions
+
+### 1.4 Key Assumptions
+
+1. **Score function Lipschitz continuity:** s_θ(x,t) is L-Lipschitz continuous with bounded constant L < ∞
+   - Evidence: Standard in score-based modeling (Song et al. 2020)
+   - **If violated:** Bounds become vacuous; need bounded score norm assumption instead
+
+2. **Noise schedule regularity:** Variance schedule σ_t satisfies bounded variance and continuity
+   - Evidence: All practical schedules (linear, cosine) satisfy this
+   - **If violated:** Discretization error analysis breaks down; need piecewise analysis
+
+3. **Bounded Rademacher complexity:** R_n(F) < ∞ for the score network class
+   - Evidence: Neural networks with bounded weights have finite Rademacher complexity
+   - **If violated:** Cannot apply PAC-Bayesian framework; need alternative complexity measure
+
+4. **Standard score matching objective:** Training uses denoising score matching loss
+   - Evidence: This is the standard training procedure for diffusion models
+   - **If violated:** Bounds may not apply to alternative training objectives (e.g., flow matching)
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- All discrete diffusion samplers: DDPM, DDIM, DPM-Solver, PNDM, etc.
+- Standard diffusion model architectures: U-Net, DiT, etc.
+- Standard datasets: CIFAR-10, ImageNet, CelebA, LSUN
+- Finite sampling steps: T ∈ [10, 1000]
+
+**Where It Does NOT Apply:**
+- Continuous-time diffusion (covered by existing theory - Dupuis 2025)
+- Non-score-based generative models (GANs, VAEs, flows)
+- Distilled/consistency models (different training objective)
+- Infinite sampling limit (T → ∞)
+
+**Known Limitations:**
+- Bounds may not be numerically tight (common in generalization theory)
+- Rademacher complexity hard to compute exactly for large networks; use architectural upper bounds
+- FID as generalization metric has known biases (see Rethinking FID, 2025)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Generalization Gap vs Step Count):**
+If step count T increases while holding other factors constant, then the generalization gap decreases following O(1/T^α) scaling where α depends on discretization scheme.
+
+*Measurement:*
+- Compute |FID_train - FID_test| for T ∈ {10, 25, 50, 100, 250, 500, 1000}
+- Fit power law: gap ∝ T^{-α}
+- Statistical test: Linear regression on log-log scale, p < 0.05
+
+*Success Criteria for Phase 2B:*
+- Primary: Negative correlation between T and gap with R² > 0.7, p < 0.05
+- Falsification: No significant correlation (p > 0.1) or positive correlation
+
+**Secondary Predictions:**
+
+**P2 (DDIM vs DDPM Comparison):**
+For equal step count T, DDIM achieves smaller generalization gap than DDPM because ODE discretization (O(h²) local error) accumulates less variance than SDE discretization (O(√h) per-step variance).
+
+**P3 (Capacity Effect):**
+If score network Rademacher complexity R increases (larger/deeper network without regularization), then generalization gap increases, controlling for T and scheme.
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any occur:
+
+1. **Primary Failure:** No significant correlation between T and generalization gap (p > 0.1)
+2. **Mechanism Failure:** DDIM shows equal or larger gap than DDPM at same step count
+3. **Bound Structure Failure:** Generalization gap does not scale with any combination of T, Δ, and R_n(F)
+
+### 1.7 SOTA Baseline (Optional)
+
+*Not applicable - theoretical work establishing new bounds.*
+
+### 1.8 Statistical Verification Design
+
+**Sample Size:** n ≥ 20 runs per configuration
+**Statistical Test:** Correlation analysis (Pearson/Spearman), paired t-test
+**Significance:** α = 0.05
+**Report Format:** Mean ± Std Dev, 95% CI, effect size, p-value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does the generalization gap (|FID_train - FID_test|) measurably depend on sampling step count T under controlled conditions?"
+- Maps to: Primary prediction P1
+- Verification type: Empirical correlation analysis
+- Critical: MUST PASS for Phase 2B to proceed
+
+**SH2 (Mechanism):**
+"Is the proposed 3-step causal mechanism (R_n → per-step variance → accumulated error → gap) the actual cause of observed generalization behavior?"
+- Maps to: Causal mechanism (3 steps)
+- Will decompose into:
+  - **H-M1:** Score network capacity affects per-step sampling variance
+  - **H-M2:** Discretization scheme determines error accumulation rate
+  - **H-M3:** Accumulated trajectory error bounds generalization gap
+- Verification type: Causal analysis with ablations
+- Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does our bound structure O(1/√n · R_n(F) · Σ_t σ_t²) better explain empirical gaps than existing continuous-time bounds?"
+- Maps to: Secondary predictions P2, P3
+- Verification type: Comparative empirical analysis
+- Critical: Determines practical value
+
+**Total sub-hypotheses in Phase 2B:** 2 + 3 = 5 (SH1, H-M1, H-M2, H-M3, SH3)
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-DiscretizationBounds-v1
+- [x] Confidence level specified: 0.85
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence
+- [x] Causal mechanism has evidence at each step (N=3 steps, evidence_for_links table)
+- [x] Causal chain length (N=3) determined and stored
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] At least 2 testable predictions exist (3 predictions with primary marked)
+- [x] Falsification criteria are defined (3 conditions)
+- [x] Baselines are identified for comparison (Dupuis 2025, data-dependent bounds)
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Computational Resources:** How many GPU-hours needed for full validation across all T values and samplers? Estimate: ~100-200 GPU-hours for CIFAR-10, ~500-1000 for ImageNet-64.
+
+2. **Rademacher Complexity Estimation:** What proxy should be used for R_n(F) in practice? Options: spectral norm product, weight matrix norms, or empirical Rademacher via sampling.
+
+3. **FID Metric Limitations:** Given known biases in FID (Rethinking FID, 2025), should we also measure with alternative metrics (PFD, KID, CMMD)? Recommend: Primary FID with PFD as secondary validation.
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

@@ -1,0 +1,8 @@
+# Title
+Hierarchical Priority-Based Data Loading with Adaptive Thresholds for Eliminating CPU Preprocessing Bottlenecks in Neural Network Training
+
+# Motivation
+Modern deep learning training often suffers from CPU preprocessing bottlenecks that leave GPUs underutilized (typically 46%), wasting expensive computational resources. This problem intensifies with heterogeneous datasets where sample preprocessing times vary significantly (CV > 0.2). Existing solutions either require specialized hardware (DALI), lack production-readiness (MinatoLoader), or ignore preprocessing heterogeneity entirely. A practical, software-only solution that intelligently schedules data loading could democratize efficient training for research teams without extensive infrastructure.
+
+# Main Idea
+We propose HPrefetch, a hierarchical three-tier priority queueing system that applies queueing theory (M/G/1 model) to ML data loading. During warmup, samples are profiled and categorized into fast/medium/slow queues based on P25/P75 preprocessing time thresholds. Shortest Processing Time First (SPT) scheduling prioritizes fast samples, minimizing GPU starvation, while aging mechanisms prevent slow sample starvation. Adaptive threshold recalibration every K batches handles non-stationary distributions. We predict ≥7.5× training speedup and ≥90% GPU utilization on heterogeneous datasets, with automatic fallback (<5% overhead) when CV < 0.2. The approach requires zero manual tuning and extends to multi-GPU training through shared priority models, offering a production-ready pip package for immediate deployment.

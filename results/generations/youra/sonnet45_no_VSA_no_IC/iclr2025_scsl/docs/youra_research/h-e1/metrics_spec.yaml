@@ -1,0 +1,220 @@
+metrics:
+  primary:
+    gaia_z_divergence:
+      definition: mean(GAIA-Z_minority) - mean(GAIA-Z_majority)
+      success_threshold: ">=0.2"
+      unit: unitless
+      range: [-1.0, 1.0]
+      higher_is_better: true
+      description: Difference in gradient abnormality between minority and majority groups
+
+    statistical_significance:
+      test: two-sample t-test (Welch's)
+      null_hypothesis: μ(GAIA-Z_minority) = μ(GAIA-Z_majority)
+      alternative_hypothesis: μ(GAIA-Z_minority) > μ(GAIA-Z_majority)
+      success_threshold: p < 0.01
+      test_type: two-tailed
+      equal_variance: false
+      library: scipy.stats.ttest_ind
+
+    effect_size:
+      metric: Cohen's d
+      formula: (μ_minority - μ_majority) / sqrt((σ²_minority + σ²_majority) / 2)
+      success_threshold: ">=0.8"
+      interpretation:
+        small: 0.2
+        medium: 0.5
+        large: 0.8
+      description: Standardized difference between groups
+
+  secondary:
+    worst_group_accuracy:
+      definition: min(accuracy_group_0, accuracy_group_1, accuracy_group_2, accuracy_group_3)
+      success_threshold: "<0.80"
+      unit: accuracy
+      range: [0.0, 1.0]
+      purpose: Verify spurious correlation learning
+
+    minority_group_accuracy:
+      definition: mean(accuracy_group_1, accuracy_group_2)
+      success_threshold: ">=0.60"
+      unit: accuracy
+      range: [0.0, 1.0]
+      purpose: Validate GradCAM assumption (A1)
+
+    average_accuracy:
+      definition: correct_predictions / total_predictions
+      success_threshold: ">0.95"
+      unit: accuracy
+      range: [0.0, 1.0]
+      purpose: Sanity check (model converged)
+
+  gaia_z_computation:
+    metric_name: GAIA-Z (zero-deflation ratio)
+    definition: |
+      GAIA-Z(G) = |{g_i ∈ G : |g_i| < ε}| / |G|
+      where:
+        G = gradient tensor (flattened)
+        ε = near-zero threshold
+        |·| = cardinality
+
+    parameters:
+      epsilon: 1.0e-6
+      gradient_source: GradCAM attribution gradients
+      target_layer: model.layer4
+      normalization: none
+
+    input:
+      shape: [batch, 2048, 7, 7]
+      source: GradCAM.activations_and_grads.gradients[0]
+      preprocessing: flatten to 1D array
+
+    output:
+      type: float
+      range: [0.0, 1.0]
+      interpretation:
+        high_score: Many near-zero gradients (abnormality/scattering)
+        low_score: Few near-zero gradients (normal flow)
+
+    implementation:
+      language: Python
+      libraries:
+        - numpy
+        - pytorch_grad_cam
+      code: |
+        def compute_gaia_z(gradient_tensor, epsilon=1e-6):
+            flat_grad = gradient_tensor.flatten()
+            near_zero_count = np.sum(np.abs(flat_grad) < epsilon)
+            total_elements = flat_grad.size
+            return near_zero_count / total_elements
+
+  group_statistics:
+    minority_groups: [1, 2]
+    majority_groups: [0, 3]
+
+    per_group_metrics:
+      - group_id
+      - sample_count
+      - gaia_z_mean
+      - gaia_z_std
+      - gaia_z_median
+      - gaia_z_min
+      - gaia_z_max
+      - classification_accuracy
+
+    aggregation:
+      minority_mean: mean(gaia_z[group_1], gaia_z[group_2])
+      majority_mean: mean(gaia_z[group_0], gaia_z[group_3])
+      overall_mean: mean(all gaia_z scores)
+
+  visualization:
+    required_plots:
+      - type: boxplot
+        x_axis: group_type (minority vs majority)
+        y_axis: GAIA-Z score
+        filename: gaia_z_boxplot_by_type.png
+
+      - type: boxplot
+        x_axis: group_id (0-3)
+        y_axis: GAIA-Z score
+        overlays:
+          - minority_mean (horizontal line, red)
+          - majority_mean (horizontal line, blue)
+        filename: gaia_z_boxplot_by_group.png
+
+      - type: histogram
+        x_axis: GAIA-Z score
+        colors:
+          minority: red (alpha=0.5)
+          majority: blue (alpha=0.5)
+        bins: 50
+        filename: gaia_z_histogram.png
+
+      - type: scatter
+        x_axis: sample_index
+        y_axis: GAIA-Z score
+        color: group_id
+        filename: gaia_z_scatter.png
+
+    statistical_table:
+      columns:
+        - Group
+        - N
+        - GAIA-Z Mean
+        - GAIA-Z Std
+        - Accuracy
+      rows:
+        - Majority (0)
+        - Minority (1)
+        - Minority (2)
+        - Majority (3)
+        - "---"
+        - Minority Avg
+        - Majority Avg
+        - Divergence
+      filename: statistical_summary.csv
+
+  success_criteria:
+    gate_type: MUST_WORK
+
+    primary_criteria:
+      - metric: gaia_z_divergence
+        threshold: ">=0.2"
+        required: true
+
+      - metric: p_value
+        threshold: "<0.01"
+        required: true
+
+    secondary_criteria:
+      - metric: cohens_d
+        threshold: ">=0.8"
+        required: true
+
+    quality_gates:
+      - metric: worst_group_accuracy
+        threshold: "<0.80"
+        purpose: Verify spurious learning
+
+      - metric: minority_accuracy
+        threshold: ">=0.60"
+        purpose: Validate assumption A1
+
+      - metric: average_accuracy
+        threshold: ">0.95"
+        purpose: Sanity check
+
+    failure_response:
+      if_primary_fail: ABANDON gradient abnormality approach
+      if_secondary_fail: ABANDON (weak effect size)
+      if_quality_fail:
+        wga_too_high: Retrain model
+        minority_acc_low: Flag A1 violation, pivot to global regularization
+        avg_acc_low: Debug training (underfitting)
+
+  output_format:
+    statistical_results:
+      filename: statistical_results.json
+      fields:
+        - minority_mean
+        - majority_mean
+        - divergence
+        - p_value
+        - t_statistic
+        - cohens_d
+        - n_minority
+        - n_majority
+        - pass_primary
+        - pass_secondary
+        - gate_pass
+
+    gaia_z_scores:
+      filename: gaia_z_scores.csv
+      columns:
+        - sample_id
+        - group_id
+        - is_minority
+        - gaia_z
+        - prediction
+        - ground_truth
+        - correct

@@ -1,0 +1,27 @@
+\section{Introduction}
+
+Selecting 7.8\% of training data for GRPO code generation yields a $4.24\times$ gradient signal advantage over random selection --- but that advantage is entirely invisible during training when the model never generates a single correct solution. This puzzle --- a method that works analytically but fails empirically for a precise, diagnosable reason --- is the story of this paper.
+
+Reinforcement Learning from Execution Feedback (RLEF) has emerged as a powerful approach for improving code generation \citep{Gehring2024RLEF}. In RLEF, a policy model receives binary execution rewards (pass/fail) and is updated via Group Relative Policy Optimization (GRPO) \citep{Shao2024DeepSeekMath}. But binary rewards impose a fundamental inefficiency: when a model either solves every completion or fails every completion, the within-group reward standard deviation equals zero, producing zero gradient. At group size $G=4$, this zero-gradient pathology affects 69.25\% of training groups \citep{Nie2026GradientStarvation} --- the vast majority of gradient steps are wasted.
+
+The natural fix is data selection: train only on problems where the model occasionally succeeds. Several recent methods achieve this via \textit{online} selection --- computing difficulty signals during training and adjusting the data distribution as the model learns \citep{Jiang2026VIGOR,Baroian2026PromptReplay,Sun2025DataEfficiency,Cui2026LZE}. These methods work well but face a practical limitation: they require an active training loop, coupling selection overhead to training cost and preventing reuse of the selection across runs.
+
+We propose \textit{offline} variance-guided selection: profile a frozen model once on all candidate problems, compute per-problem binary execution reward variance $p_i \cdot (1-p_i)$, and select problems with the highest variance before training begins. This ``profile once, train anywhere'' design separates a cheap profiling phase ($\sim$32 seconds for 374 problems with vLLM) from the expensive GRPO training phase, enabling data selection to be reused across hyperparameter sweeps or model variants.
+
+The gap this addresses is precise: no prior work has (1) characterized the per-problem binary execution reward variance distribution across MBPP for a code LLM systematically, (2) compared offline variance-guided selection to random selection under binary RLEF, or (3) identified the cold-start precondition that determines whether any selection method can operate in this regime.
+
+Our key insight, confirmed experimentally, is: \textbf{offline frozen-model variance profiling produces a statistically robust selection signal, but GRPO gradient concentration can only manifest this advantage when the model is already capable of generating some correct solutions}. Cold-start --- the model generating zero correct solutions across all training conditions --- renders data selection method irrelevant. When every problem yields $k=0$ correct completions in every group, $\sigma=\sqrt{k(G-k)}/G=0$ regardless of which problems were selected.
+
+\textbf{Why this negative result is worth reporting.} Our contribution is not a working method but a precisely characterized failure mode and its necessary precondition --- the kind of knowledge that prevents others from repeating 50,000 wasted computation attempts. We establish exactly where the offline variance profiling pipeline breaks down, why it breaks down, and what must be verified before deploying any RLEF data selection method. The analytical validity of the selection signal (confirmed, $4.24\times$ advantage) is separable from the training-phase failure (cold-start, parameter mismatch) --- and making that separation explicit is itself a contribution.
+
+This paper makes the following contributions:
+
+\begin{enumerate}
+\item \textbf{Variance distribution characterization} (new empirical finding): We provide, to our knowledge, the first systematic per-problem characterization of binary execution reward variance across MBPP training problems for DeepSeek-Coder-7B-Instruct under constrained generation. The distribution is severely right-skewed: 91.7\% of problems yield $p_i=0$ (all-fail), 7.8\% yield $p_i=0.25$, and 0.5\% yield $p_i=1.0$. While any GRPO-on-MBPP paper implicitly encounters this distribution, no prior work has reported it at per-problem granularity.
+
+\item \textbf{Offline variance profiling} (method, analytically validated): Top-50 selection by frozen-model variance achieves $4.24\times$ higher mean variance than random-50 selection (Mann-Whitney U $p=2.22\times10^{-6}$), with the variance-selected subset stochastically dominating random-50 on the full CDF. vLLM batch inference completes the 374-problem profiling in $\sim$32 seconds.
+
+\item \textbf{Cold-start diagnosis} (negative result, high confidence): We document 50,000+ GRPO generation attempts across 50--200 training steps --- all producing zero reward. We enumerate and rank candidate root causes (Section~\ref{sec:discussion}), identify generation parameter mismatch as the most likely, and provide a prescriptive resolution protocol that is proposed but not yet empirically validated.
+\end{enumerate}
+
+We organize the remainder as follows: Section~2 reviews related work. Section~3 describes methodology. Section~4 presents experimental setup. Section~5 reports results. Section~6 discusses limitations. Section~7 concludes.

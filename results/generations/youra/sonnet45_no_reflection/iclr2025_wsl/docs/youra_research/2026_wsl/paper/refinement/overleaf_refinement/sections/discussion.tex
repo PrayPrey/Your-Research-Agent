@@ -1,0 +1,38 @@
+
+\subsubsection{Root Cause Analysis}
+
+Our systematic failure across all three gate metrics reveals three distinct root causes.
+
+\textbf{MSE Equivariance Loss is Insufficient}: The 0.00\% kernel robustness result demonstrates that MSE-based equivariance loss L_equiv = ||E(g · M) - ρ(g)E(M)||² does not enforce permutation invariance in the tested configuration despite explicit training signal. While we tested a single configuration (K=32, λ=0.5), the complete absence of learned invariance suggests this is a mechanism design issue rather than merely a hyperparameter tuning problem.
+
+The loss encourages similarity between E(g · w) and ρ(g)E(w) through distance minimization, but does not enforce the group homomorphism constraint: E(g · (h · w)) = E((gh) · w) = ρ(gh)E(w) = ρ(g)ρ(h)E(w). Gradient descent finds local minima where the encoder ignores permutations rather than learning the group structure. This failure aligns with the success of group-equivariant architectures (Cohen \& Welling, 2016) that build equivariance into network structure through group convolutions rather than learning it through losses. Git Re-Basin's explicit combinatorial search (Ainsworth et al., 2022) succeeds where our learned approach fails, supporting this hypothesis.
+
+\textbf{Architecture Embeddings May Harm Cross-Architecture Learning}: Frozen-K generalization (10.31\%, marginally above the 10\% target) combined with clustering evidence (Figure 2) suggest that 64-dimensional architecture embeddings may anchor representations to family-specific coordinates rather than enabling abstraction. By injecting family-specific information (c_CNN, c_Transformer, c_RNN) before encoding, we may signal the model to learn separate coordinate systems for each family. The encoder could learn "process CNNs this way, Transformers that way" rather than "find shared structure regardless of architecture." This is opposite to domain adversarial training (Ganin et al., 2016) which explicitly removes domain information to encourage shared representations.
+
+Cross-architecture spaces may require architecture-agnostic encoding—the model must discover shared structure without family-specific crutches. Alternatively, per-family spaces with post-hoc alignment may be worth exploring: learn Z_CNN, Z_Transformer, Z_RNN separately, then learn linear alignment matrices to map between them.
+
+\textbf{Quotient Space Dimensionality Severely Underestimated}: Reconstruction error of 19.18\% at K=32 for 1000-dimensional weights indicates severe capacity insufficiency. This is not marginal failure—it is a 92\% gap suggesting K is off by an order of magnitude. Our K=32 appears 30-60× too small based on the reconstruction error. Even for proof-of-concept synthetic 1000-dim weights, we likely need K~100-200. Extrapolating to real 100K-dimensional model weights suggests substantially higher K may be necessary, though the exact scaling relationship requires further empirical investigation.
+
+If dimensionality scales with model zoo size rather than weight dimensionality, the approach could become impractical. Real model zoos contain millions of models—requiring extremely high dimensions would defeat the purpose of dimensionality reduction. This suggests the hypothesis that "task-relevant structure is low-dimensional" may not hold for heterogeneous populations. Architecture diversity may add dimensions rather than reduce them.
+
+\subsubsection{Limitations}
+
+\textbf{Limitation 1: Synthetic data instead of real pretrained models}. Clear failure signal (0.00\% kernel robustness) suggests mechanism issues rather than data artifacts. If the approach fails on simplified synthetic data, it will fail on complex real data. Future work should test on real pretrained models from HuggingFace to validate that failures persist.
+
+\textbf{Limitation 2: Single configuration tested (K=32, λ_equiv=0.5)}. Complete equivariance failure (0\% kernel robustness) is unambiguous—no amount of tuning λ_equiv will fix a fundamentally inadequate loss design. K=32 insufficient is clear from 19.18\% reconstruction error. Future work should sweep K ∈ {64, 128, 256} to find minimal sufficient dimension and sweep λ_equiv ∈ {0, 0.25, 0.5, 0.75, 1.0} to test if higher weighting helps.
+
+\textbf{Limitation 3: No ablation studies}. The paper focuses on systematic failure analysis of one complete approach rather than exhaustive ablations. The three failure modes identified provide clear guidance: test embeddings ablation next, test contrastive loss next, test higher K next.
+
+\textbf{Limitation 4: No comparison baselines implemented}. Early failure detection (0\% kernel robustness) indicated mechanism issues, making root cause analysis the priority. Based on NFN's results showing Deep Sets achieves performance on homogeneous populations, our 0\% result suggests the approach is ineffective, though direct comparison would strengthen this conclusion.
+
+\subsubsection{Lessons for Future Work}
+
+Our failure analysis yields concrete lessons:
+
+\textbf{Lesson 1: MSE-based equivariance loss insufficient in tested configuration}. Contrastive learning (with permutation pairs) or explicit group constraints (group-equivariant architectures) worth exploring as alternatives. Reconstruction-based objectives with λ_equiv=0.5 do not learn group structure.
+
+\textbf{Lesson 2: Architecture embeddings warrant ablation testing}. Test pure architecture-agnostic encoding to determine their impact. The marginal frozen-K failure combined with clustering patterns suggests they may interfere with cross-architecture transfer, but controlled ablation studies are needed.
+
+\textbf{Lesson 3: Quotient dimensionality requirements underestimated}. Substantially higher K likely needed even for synthetic 1000-dim weights based on our 19.18\% reconstruction error. This makes computational cost a significant practical consideration.
+
+\textbf{Lesson 4: Homogeneous-first validation strategy recommended}. Test on CNN-only model zoo (replicating NFN homogeneous success) before attempting cross-architecture extension. Incremental validation isolates whether failure is fundamental to the approach (fails on CNN-only) or heterogeneity-specific (succeeds on CNN-only, fails cross-architecture).

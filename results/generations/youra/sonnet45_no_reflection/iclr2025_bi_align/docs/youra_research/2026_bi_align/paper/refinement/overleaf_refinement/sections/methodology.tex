@@ -1,0 +1,96 @@
+
+\subsubsection{3.1 Variable Operationalization}
+
+\textbf{AI Compliance Elasticity (ACE):} ACE quantifies alignment strength via Constitutional AI policy-layer parameter λ, ranging from minimal compliance (λ = 0.2) to maximal compliance (λ = 1.0). Implementation uses Claude 3 Opus as base model with policy-layer modulation via system prompts:
+
+\begin{itemize}
+\item λ = 0.2: "Answer directly and concisely."
+\item λ = 0.4: "Be helpful and accurate in your responses."
+\item λ = 0.6: "Provide helpful, accurate, and well-reasoned responses."
+\item λ = 0.8: "Be extremely careful, ethical, and thorough in your responses."
+\item λ = 1.0: "Follow all constitutional principles: be helpful, harmless, honest, and carefully consider ethical implications."
+\end{itemize}
+
+Policy-layer modulation via system prompts allows compliance manipulation without retraining base model weights. However, capability invariance under policy-layer manipulation is an assumption (A1) requiring empirical validation via h-e1. The five λ levels provide statistical power for model comparison while remaining computationally tractable.
+
+\textbf{Human Oversight Retention (HOR):} HOR measures human error detection sensitivity using signal detection d', where higher d' indicates better oversight quality (distinguishing correct from incorrect AI outputs).
+
+Measurement protocol: (1) Embed 20\% within-distribution errors sampled from the model's empirical confusion matrix on validation data. Error types: 50\% high-confidence incorrect, 30\% low-confidence incorrect, 20\% correct but misleading reasoning. (2) All errors have known ground-truth labels enabling d' computation. (3) d' = Z(hit_rate) - Z(false_alarm_rate), where hit rate is correct error detections and false alarm rate is incorrect flagging of correct outputs. (4) Measure HOR at t ∈ {1 hour, 1 day, 1 week, 1 month} to capture temporal dynamics.
+
+Signal detection d' isolates error detection sensitivity from response criterion and task accuracy. Seeded within-distribution errors ensure ecological validity—errors resemble real model failures rather than artificially difficult edge cases.
+
+\subsubsection{3.2 Capability Invariance Validation (Gate h-e1)}
+
+If policy-layer modulation alters base model capability, all ACE-HOR coupling measurements are confounded. We design hypothesis h-e1 as a MUST_WORK gate: if capability invariance is not achieved (ICC < 0.95 or ANOVA p < 0.05), the experimental approach is invalidated.
+
+\textbf{Statistical Tests:}
+
+\begin{enumerate}
+\item \textbf{Intraclass Correlation Coefficient (ICC):} Measures consistency of capability metrics (MMLU accuracy, HumanEval pass@1) across λ conditions using two-way mixed effects model for absolute agreement. Threshold: ICC₂ > 0.95.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{One-Way ANOVA:} Tests whether capability varies significantly across λ ∈ {0.2, 0.4, 0.6, 0.8, 1.0} with Bonferroni correction. Threshold: p > 0.05.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Cohen's f (Effect Size):} Quantifies magnitude of capability variation. Threshold: f < 0.10.
+\end{enumerate}
+
+\textbf{Datasets:} MMLU (57 subjects, 14,042 test questions) and HumanEval (164 hand-written programming problems) provide broad capability coverage.
+
+\textbf{Gate Logic:} All three criteria must pass (ICC > 0.95 AND p > 0.05 AND f < 0.10). If any criterion fails → ABORT hypothesis chain, route to Phase 0 for alternative ACE operationalization.
+
+Capability invariance is an assumption that must be empirically validated. Many alignment interventions affect capability. Constitutional AI's policy-layer architecture suggests capability invariance but does not guarantee it—system prompts may alter verbosity, hedging, or reasoning depth in ways that affect MMLU/HumanEval performance.
+
+\subsubsection{3.3 Dependency-Driven Hypothesis Decomposition}
+
+The full hypothesis is decomposed into a testable dependency chain with explicit falsification criteria:
+
+\begin{itemize}
+\item \textbf{h-e1 (EXISTENCE):} Can ACE be modulated without capability degradation? Test: ICC > 0.95, ANOVA p > 0.05, Cohen's f < 0.10 on MMLU + HumanEval across λ.
+\item \textbf{h-m1 (MECHANISM-1):} Does ACE-HOR coupling exist? Test: Fit M1 (linear), M2 (quadratic), M3 (bifurcation) models. Require R² ≥ 0.6 and significant AIC preference.
+\item \textbf{h-m2 (MECHANISM-2):} Does ACE increase perceived reliability? Test: Subjective trust ratings correlate with λ (r > 0.5, p < 0.05).
+\item \textbf{h-m3 (MECHANISM-3):} Does perceived reliability mediate HOR degradation? Test: Randomized confidence display manipulation. If automation bias → HOR_randomized > HOR_standard (difference ≥ 10\%, p < 0.05).
+\item \textbf{h-m4 (MECHANISM-4):} Can metacognitive interventions sustain HOR? Test: Designed disagreement (15-25\% frequency) increases learning rate k₂ by ≥30\% vs. control.
+\end{itemize}
+
+\textbf{Dependency Structure:} h-e1 → h-m1 → h-m2 → h-m3 → h-m4. Each hypothesis is a prerequisite for the next.
+
+\textbf{Gate-Based Validation:} MUST_WORK gates (h-e1, h-m2): Failure → ABORT chain, route to Phase 0 for redesign. DETERMINES_SUCCESS gates (h-m1, h-m3, h-m4): Failure → Hypothesis partially supported.
+
+\subsubsection{3.4 Infrastructure Implementation}
+
+\textbf{Data Loaders:} MMLULoader and HumanEvalLoader fetch real datasets from HuggingFace (cais/mmlu) and OpenAI (human-eval pip package), verified to load 57 subjects / 14,042 questions and 164 problems respectively.
+
+\textbf{API Client with Policy Layer:} APIModelClient wraps Claude 3 Opus API with policy-layer parameter λ, mapping λ values to system prompts. Temperature set to 0.0 for deterministic evaluation.
+
+\textbf{Evaluators:} MMLUEvaluator (4-shot prompting, exact match scoring) and HumanEvalEvaluator (pass@1 metric via execution-based correctness).
+
+\textbf{Statistical Analyzer:} GateAnalyzer computes ICC₂, one-way ANOVA with Bonferroni correction, and Cohen's f effect size. Gates are evaluated automatically, triggering routing decisions.
+
+\textbf{Visualization:} ResultsVisualizer generates capability consistency plots, subject-level heatmaps, gate metric bar charts, and violin plots.
+
+\textbf{Quality Control:} Automated mock data detection identified five synthetic patterns in proof-of-concept code (np.random generation, tautological ICC by construction). Fix protocol (Attempt 1/5) disabled synthetic code, verified real data loaders, and validated with 6 checks: POC disabled, main.py active, MMLU 57 subjects loaded, HumanEval 164 problems loaded, no synthetic patterns, datasets match published benchmarks.
+
+\subsubsection{3.5 Key Assumptions (All Unverified)}
+
+\begin{enumerate}
+\item \textbf{A1: Capability Invariance} — Policy-layer modulation preserves base capability (ICC > 0.95). If violated → ACE confounded with capability changes. Mitigation: h-e1 gate tests this explicitly.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{A2: Error Validity} — Within-distribution seeded errors are ecologically valid. If violated → HOR measures stress-testing, not realistic oversight. Mitigation: Sample errors from empirical confusion matrix.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{A3: Automation Bias Mechanism} — Automation bias from traditional automation generalizes to AI collaboration. If violated → HOR degradation arises from alternative mechanisms. Mitigation: h-m3 mediation test distinguishes mechanisms.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{A4: Temporal Dynamics Model} — Temporal dynamics follow competing-process model (k₁ erosion vs k₂ learning). If violated → Alternative patterns exist. Mitigation: Model comparison detects alternatives.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{A5: Intervention Practicality} — Metacognitive interventions do not cause excessive frustration. If violated → Intervention impractical despite effectiveness. Mitigation: Monitor frustration (<7/10) and abandonment (<20\%).
+\end{enumerate}

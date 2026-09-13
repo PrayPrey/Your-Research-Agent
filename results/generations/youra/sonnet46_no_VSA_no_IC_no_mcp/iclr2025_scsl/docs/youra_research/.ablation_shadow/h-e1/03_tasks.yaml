@@ -1,0 +1,226 @@
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 6
+  subtasks: 8
+  total: 15
+metadata:
+  complexity_level: Simple/Moderate
+  complexity_score: 14
+  created_at: '2026-08-26T10:00:00+00:00'
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+tasks:
+- acceptance_criteria:
+  - pip install succeeds for all packages
+  - import wilds; wilds.get_dataset('waterbirds', download=True) runs without error
+  - import torch; torch.cuda.is_available() returns True
+  description: 'Install required Python packages: torch>=2.0, torchvision>=0.15, wilds>=2.0,
+    scikit-learn>=1.2, scipy>=1.10, numpy>=1.24, matplotlib>=3.7, pandas>=2.0'
+  id: ENV-1
+  priority: 94
+  reference_files:
+  - file: docs/youra_research/h-e1/03_prd.md
+    section: 7.1 Python Packages
+  title: Environment Setup
+  type: setup
+- acceptance_criteria:
+  - get_waterbirds_subsets() returns train/val/test WILDS subsets
+  - get_probe_train_loader(val_data, seed) returns balanced DataLoader (4 * min_group_count
+    samples)
+  - get_test_loader() returns full 5794-sample test DataLoader
+  - metadata_array[:, 0] yields background labels, [:, 1] yields bird labels
+  complexity: 7
+  description: Implement WILDS Waterbirds loading, ImageNet preprocessing transform,
+    group-balanced probe train loader from val split, full test loader. Implement
+    data_utils.py.
+  id: E1
+  priority: 93
+  reference_files:
+  - file: docs/youra_research/h-e1/03_prd.md
+    section: 4. Data Specification
+  - file: docs/youra_research/h-e1/03_architecture.md
+    section: data_utils
+  title: Data Pipeline
+  type: data-pipeline
+- acceptance_criteria:
+  - All 4 load_*() functions return frozen eval nn.Module
+  - 'Dummy forward: out.shape == (2, 2048) for all 4 models'
+  - extract_features() returns (N,2048), (N,), (N,) tensors
+  - assert features.shape[1] == 2048 passes
+  - Cache written to /tmp/h-e1-cache/{paradigm}_{split}.pt
+  complexity: 9
+  description: Implement 4 model loading functions (ERM torchvision, MoCo-v3/DINO/BarlowTwins
+    PyTorch Hub). Implement extract_features() and disk-cached get_or_extract_features().
+    All models frozen, eval mode, 2048-dim output. Implement model_utils.py.
+  id: E2
+  priority: 90
+  reference_files:
+  - file: docs/youra_research/h-e1/03_prd.md
+    section: 5. Functional Requirements FR-1 FR-2
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E2-1 L-E2-2 L-E2-3
+  title: Model Loading & Feature Extraction
+  type: model
+- description: Implement load_erm(), load_moco(), load_dino(), load_barlowtwins().
+    Apply fc=Identity where needed. Smoke test with dummy (2,3,224,224) forward.
+  id: L-E2-1
+  parent: E2
+  priority: 49
+  reference_files:
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E2-1
+  title: Hub loading with fc=Identity patch
+  type: subtask
+- description: Batched no_grad feature extraction, metadata parsing for task/spurious
+    labels, tensor cat, shape assert.
+  id: L-E2-2
+  parent: E2
+  priority: 48
+  reference_files:
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E2-2
+  title: extract_features() batched no_grad
+  type: subtask
+- description: get_or_extract_features() disk cache keyed {paradigm}_{split}.pt. Features
+    extracted once per paradigm, reused across 5 seeds.
+  id: L-E2-3
+  parent: E2
+  priority: 47
+  reference_files:
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E2-3
+  title: Feature caching strategy
+  type: subtask
+- acceptance_criteria:
+  - train_probe() fits LogisticRegression(C=1.0, max_iter=1000, solver='lbfgs')
+  - compute_ratio() returns dict with ratio, spurious_acc, task_acc
+  - assert task_acc > 0.5 and spurious_acc > 0.5 passes
+  - 'Per-run log line emitted: Paradigm=..., seed=..., spurious_acc=..., task_acc=...,
+    ratio=...'
+  - 40 probe fits total complete (4 * 2 * 5)
+  complexity: 8
+  description: 'Implement train_probe(), eval_probe(), compute_ratio(). Group-balanced
+    train split per seed. 2 probes per (paradigm, seed): task label + spurious label.
+    Compute ratio = spurious_acc / task_acc. Implement probe_utils.py.'
+  id: E3
+  priority: 85
+  reference_files:
+  - file: docs/youra_research/h-e1/03_prd.md
+    section: 5. Functional Requirements FR-3 FR-4 FR-5
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E3-1 L-E3-2
+  title: Linear Probe + Ratio
+  type: training
+- description: 'get_balanced_probe_indices(metadata_array, seed): 4 groups via task*2+spurious,
+    sample min_count per group with numpy RNG seeded.'
+  id: L-E3-1
+  parent: E3
+  priority: 39
+  reference_files:
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E3-1
+  title: Group-balanced probe split construction
+  type: subtask
+- description: compute_ratio() takes pre-cached feature tensors, runs get_balanced_probe_indices,
+    trains 2 probes, evaluates on test, asserts >0.5, returns ratio dict.
+  id: L-E3-2
+  parent: E3
+  priority: 38
+  reference_files:
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E3-2
+  title: compute_ratio() full pipeline
+  type: subtask
+- acceptance_criteria:
+  - run_anova() returns (f_stat, p_value) from scipy.stats.f_oneway
+  - pairwise_tests() returns 6 dicts with pair, t, p_raw, p_bonf, cohens_d, mean_diff
+  - check_gate() correctly evaluates p_bonf < 0.05 AND mean_diff >= 0.02
+  - Gate result logged (PASS or FAIL with Phase 0 routing note)
+  - h-e1_stats.json written with correct schema
+  complexity: 9
+  description: Implement run_anova(), pairwise_tests(), check_gate(), export_results().
+    ANOVA across 4 paradigms. 6 pairwise t-tests with Bonferroni correction. Cohen's
+    d. Gate check. JSON export. Implement stats_utils.py.
+  id: E4
+  priority: 80
+  reference_files:
+  - file: docs/youra_research/h-e1/03_prd.md
+    section: 5. Functional Requirements FR-6 FR-7
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E4-1 L-E4-2 L-E4-3
+  title: Statistical Analysis & Gate
+  type: evaluation
+- description: 6-pair loop with itertools.combinations, ttest_ind, Bonferroni = min(p_raw*6,1.0),
+    Cohen's d with pooled std zero-div guard.
+  id: L-E4-1
+  parent: E4
+  priority: 29
+  reference_files:
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E4-1
+  title: pairwise_tests() Bonferroni + Cohen's d
+  type: subtask
+- description: 'Gate criterion: p_bonf < 0.05 AND mean_diff >= 0.02. Log passing pairs
+    and GATE PASS/FAIL verdict.'
+  id: L-E4-2
+  parent: E4
+  priority: 28
+  reference_files:
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E4-2
+  title: check_gate() with logging
+  type: subtask
+- description: 'export_results() writes h-e1_stats.json: anova, pairwise list, per-paradigm
+    summary, gate verdict. Cast numpy scalars to float.'
+  id: L-E4-3
+  parent: E4
+  priority: 27
+  reference_files:
+  - file: docs/youra_research/h-e1/03_logic.md
+    section: L-E4-3
+  title: export_results() JSON stats
+  type: subtask
+- acceptance_criteria:
+  - figures/ directory created
+  - ratio_bar.png exists with 4 paradigm bars, error bars, p-value annotations
+  - At least mandatory figure generated without error
+  complexity: 7
+  description: 'Implement viz_utils.py. Mandatory: bar chart (ratio mean±std, p-value
+    annotations, threshold line). Optional: 2×4 acc heatmap, scatter spurious vs task
+    acc, 4×4 p-value matrix, violin plot. Save all to docs/youra_research/h-e1/figures/.'
+  id: E5
+  priority: 70
+  reference_files:
+  - file: docs/youra_research/h-e1/03_prd.md
+    section: 5. Functional Requirements FR-8
+  - file: docs/youra_research/h-e1/03_architecture.md
+    section: viz_utils
+  title: Visualization
+  type: evaluation
+- acceptance_criteria:
+  - python run_experiment.py runs end-to-end without error
+  - 'h-e1_ratios.csv written with columns: paradigm, seed, spurious_acc, task_acc,
+    ratio'
+  - h-e1_stats.json written
+  - Gate verdict printed and logged
+  - All 40 probe fits complete
+  - Figures generated
+  complexity: 8
+  description: 'Implement run_experiment.py main(). Full pipeline: load data once,
+    for each paradigm load model + extract+cache features, for each seed compute_ratio,
+    collect ratios dict, run stats, check gate, save CSV + JSON, generate figures.
+    Configure logging.'
+  id: E6
+  priority: 60
+  reference_files:
+  - file: docs/youra_research/h-e1/03_prd.md
+    section: 6. Non-Functional Requirements
+  - file: docs/youra_research/h-e1/03_architecture.md
+    section: run_experiment
+  - file: docs/youra_research/h-e1/03_config.md
+    section: config.py
+  title: Orchestration & Artifacts
+  type: training
+version: '1.0'

@@ -1,0 +1,8 @@
+# Title
+Sparse Bayesian Epistasis Networks for Sample-Efficient Black-Box Discrete Optimization
+
+# Motivation
+Discrete optimization problems with expensive black-box objectives (>$100/evaluation) and epistatic interactions—where variables interact non-additively—are critical in protein engineering, molecular design, and compiler optimization. Current methods face a fundamental trade-off: VAE-based approaches detect epistasis but require 2,000-5,000 evaluations, while GFlowNets achieve sample efficiency (hundreds of samples) but model interactions implicitly. This makes wet-lab applications ($1,000/sample) prohibitively expensive. A method that explicitly detects epistatic interactions with <500 evaluations would enable previously infeasible experimental campaigns.
+
+# Main Idea
+We propose Sparse Bayesian Epistasis Networks (SBEN), combining spike-and-slab priors for sparse structure learning, hierarchical expansion (pairwise→triplet interactions), and active learning. The causal mechanism operates through four steps: (1) sparse priors concentrate search on likely interactions, reducing complexity from O(n²) to O(cn); (2) hierarchical expansion adaptively discovers high-order interactions only when pairwise models fail (R²<0.7); (3) active learning selects uncertainty-reducing samples via variance-based acquisition; (4) combined mechanisms achieve epistasis detection with <500 evaluations—a 4-10× improvement over VAE-memetic baselines. We test on NK landscapes (k=3) and protein fitness benchmarks, with falsification if sample requirements exceed 500 evaluations or show no advantage over existing methods.

@@ -1,0 +1,429 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_title: "RLHF Representation Rigidity Reduces Adversarial Robustness"
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  created_at: "2026-08-04T00:00:00Z"
+  phase: "Phase 3 — Implementation Planning"
+  gate_type: SHOULD_WORK
+  base_hypothesis: h-m1
+  environment: youra-h-m1
+
+budget_summary:
+  setup_tasks: 1
+  epic_tasks: 8
+  subtasks_logic: 7
+  subtasks_config: 5
+  total: 21
+  remaining: 9
+  within_budget: true
+
+tasks:
+  # ── ENVIRONMENT SETUP (priority 94) ──────────────────────────────────────────
+
+  - id: S-1
+    title: "Environment and repository setup"
+    type: setup
+    priority: 94
+    description: >
+      Reuse youra-h-m1 conda environment (Python 3.10, scipy 1.11.0, sklearn, numpy,
+      pandas, matplotlib, seaborn). Install pingouin if not present (pip install pingouin).
+      Create h-m2/code/ and h-m2/figures/ directories. Verify h-e1/experiment_results_phase3.json
+      is accessible from h-m2/code/ via relative path ../h-e1/experiment_results_phase3.json.
+    acceptance_criteria:
+      - "conda activate youra-h-m1 succeeds"
+      - "import pingouin works"
+      - "h-m2/code/ and h-m2/figures/ directories exist"
+      - "json.load('../h-e1/experiment_results_phase3.json') succeeds from h-m2/code/"
+    reference_files:
+      - path: "h-m2/03_prd.md"
+        section: "7. Dependencies"
+      - path: "h-m2/03_config.md"
+        section: "Inherited Configuration"
+
+  # ── EPIC TASKS (priority 93→50) ──────────────────────────────────────────────
+
+  - id: A-1
+    title: "Config setup (h-m2/code/config.py)"
+    type: implementation
+    priority: 93
+    complexity: 5
+    complexity_breakdown: "1+1+1+2 (size+deps+algo+integration)"
+    description: >
+      Create h-m2/code/config.py by adapting h-m1/code/config.py. Key changes:
+      ROBUSTNESS_IDX=3 (replaces ETHICS_IDX=5), RHO_THRESHOLD=-0.4 (signed, was 0.5),
+      RESULTS_JSON='h-m2/experiment_results_h_m2.json', FIGURES_DIR='h-m2/figures/',
+      LOG_PATH='h-m2/experiment.log'. Inherit unchanged: DIMENSIONS, SAFETY_IDX=1,
+      SECONDARY_GATE_MIN=2, BONFERRONI_ALPHA=0.0033, LLAMA2_* lists. Add PYTHIA_SIZES,
+      ABLATION_MODES dict, PRIMARY_COVARIATES, MODEL_METADATA. Keep ETHICS_IDX=5
+      (needed for heatmap highlight).
+    acceptance_criteria:
+      - "from config import ROBUSTNESS_IDX; assert ROBUSTNESS_IDX == 3"
+      - "from config import RHO_THRESHOLD; assert RHO_THRESHOLD == -0.4"
+      - "from config import LLAMA2_BASE_NAMES; assert LLAMA2_BASE_NAMES[0] == 'LLaMA-2-7b-base'"
+      - "PYTHIA_SIZES has 8 entries"
+    reference_files:
+      - path: "h-m2/03_architecture.md"
+        section: "Module Definitions — Config"
+      - path: "h-m2/03_logic.md"
+        section: "Supporting Modules"
+      - path: "h-m2/03_config.md"
+        section: "A-6: Pythia Scale-Only Control"
+
+  - id: A-2
+    title: "Data loading (h-m2/code/analysis.py — load_he1_data)"
+    type: data-pipeline
+    priority: 92
+    complexity: 7
+    complexity_breakdown: "2+2+1+2"
+    description: >
+      Implement load_he1_data() in h-m2/code/analysis.py by copying from h-m1/code/analysis.py.
+      CRITICAL: JSON key is "rho_partial" (list-of-lists), NOT "rho_partial_matrix".
+      Model names are capitalized: "LLaMA-2-7b-base", not "llama_2_7b".
+      Function loads h-e1/code/data_loader.py via sys.path.insert (same pattern as H-M1).
+      Returns (scores_df [16,6], annotated_df [16,8], rho_partial [6,6 ndarray]).
+      Also implement extract_llama2_pairs() (copy verbatim from H-M1).
+    acceptance_criteria:
+      - "scores_df.shape == (16, 6)"
+      - "annotated_df.columns includes log_params and is_RLHF"
+      - "rho_partial.shape == (6, 6)"
+      - "'LLaMA-2-7b-base' in scores_df.index"
+    reference_files:
+      - path: "h-m2/03_architecture.md"
+        section: "External Dependencies"
+      - path: "h-m2/03_logic.md"
+        section: "External Dependencies API"
+
+  - id: A-3
+    title: "Primary gate — rho_partial(safety, robustness)"
+    type: model
+    priority: 91
+    complexity: 10
+    complexity_breakdown: "2+2+3+3"
+    description: >
+      Implement compute_partial_spearman() and verify_primary_gate() in analysis.py.
+      Primary gate: read rho_partial[SAFETY_IDX][ROBUSTNESS_IDX] = rho_partial[1][3] from
+      H-E1 matrix. Cross-validate with OLS recomputation; warn if |diff|>0.001, use
+      recomputed in that case. Gate condition: rho_sr < -0.4 (signed, NOT abs).
+      p-value: t-distribution with df=n-2-k=12 (NOT scipy spearmanr default).
+      SHOULD_WORK: never raises, always returns dict with gate_result string.
+      See subtasks L-3-1 through L-3-4 for implementation details.
+    acceptance_criteria:
+      - "gate_result in ('PASS', 'FAIL/EXPLORE')"
+      - "0 <= p_value <= 1"
+      - "function returns even if rho > -0.4 (EXPLORE path)"
+      - "EXPLORE path prints null finding message"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-3: Primary Gate"
+      - path: "h-m2/03_prd.md"
+        section: "FR-2"
+
+  - id: A-4
+    title: "Secondary gate — within-family Δ_robustness sign test"
+    type: model
+    priority: 90
+    complexity: 8
+    complexity_breakdown: "2+2+2+2"
+    description: >
+      Implement compute_deltas() and run_sign_test() in analysis.py.
+      For each LLaMA-2 pair (7B, 13B, 70B): delta_robustness = chat_score - base_score
+      for ROBUSTNESS_IDX=3. Sign test direction: nonpositive (delta <= 0) means RLHF
+      hurts robustness. Gate: n_nonpositive >= SECONDARY_GATE_MIN (>=2 of 3).
+      Also compute delta_safety for visualization (FR-5.2 grouped bar).
+      Change from H-M1: condition flipped from >0 (ethics) to <=0 (robustness).
+    acceptance_criteria:
+      - "delta_values is list of 3 floats"
+      - "n_nonpositive is int in range [0, 3]"
+      - "secondary_gate_pass is bool"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "analysis.py — full function list"
+      - path: "h-m2/03_prd.md"
+        section: "FR-3"
+
+  - id: A-5
+    title: "Ablation variants (uncontrolled, scale_only, rlhf_only)"
+    type: model
+    priority: 89
+    complexity: 9
+    complexity_breakdown: "2+2+3+2"
+    description: >
+      Implement ablation loop in analysis.py (or as separate run_ablations() function).
+      Three modes from ABLATION_MODES config: "uncontrolled" (no OLS), "scale_only"
+      (covar=[log_params]), "rlhf_only" (covar=[is_RLHF]). For uncontrolled: use
+      scipy.stats.spearmanr directly (no residualization). Save per-mode rho and p-value
+      under "ablations" key in results dict. See subtasks C-5-1, C-5-2.
+    acceptance_criteria:
+      - "results['ablations'] contains keys: uncontrolled, scale_only, rlhf_only"
+      - "each ablation has rho and p_value keys"
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "A-5: Ablation Configuration"
+      - path: "h-m2/03_prd.md"
+        section: "9. Ablation Variants"
+
+  - id: A-6
+    title: "Pythia scale-only control (optional, graceful skip)"
+    type: model
+    priority: 88
+    complexity: 10
+    complexity_breakdown: "2+3+3+2"
+    description: >
+      Implement run_pythia_control() in analysis.py.
+      Step 1: Check h-e1/experiment_results_phase3.json for "pythia_results" key (PYTHIA_CACHE_KEY).
+      Step 2: If cache hit, compute rho(robustness_proxy, log_scale) from cached data.
+      Step 3: If cache miss, attempt lm_eval CLI for each PYTHIA_SIZES checkpoint on "advglue" task.
+      Step 4: If lm_eval unavailable (ImportError/FileNotFoundError), return None and log limitation.
+      Expected result: near-zero rho (scale only, RLHF=False). Never raises.
+      See subtasks C-6-1, C-6-2, C-6-3.
+    acceptance_criteria:
+      - "returns None (no error) when Pythia data unavailable"
+      - "if returns dict: has 'pythia_rho_robustness_scale' key"
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "A-6: Pythia Scale-Only Control"
+      - path: "h-m2/03_prd.md"
+        section: "FR-4"
+
+  - id: A-7
+    title: "Visualization — 4 mandatory figures"
+    type: evaluation
+    priority: 87
+    complexity: 12
+    complexity_breakdown: "3+2+4+3"
+    description: >
+      Implement visualization.py with 4 mandatory figures saved to h-m2/figures/:
+      1. gate_metrics.png (FR-5.1): dual-panel — rho_sr bar vs -0.4 threshold;
+         Δ_robustness bars for 3 scales vs 0
+      2. delta_robustness.png (FR-5.2): grouped bar Δ_safety vs Δ_robustness side-by-side
+      3. rho_heatmap.png (FR-5.3): 6×6 seaborn heatmap; highlight cells (1,3),(3,1)
+         [safety-robustness] and (1,5),(5,1) [safety-ethics] with orange rectangles
+      4. safety_rob_scatter.png (FR-5.4): scatter 16 models colored by is_RLHF;
+         per-group linear trend lines (np.polyfit degree=1)
+      Use matplotlib.use("Agg") (non-interactive). All dpi=300. See subtasks L-7-1, L-7-2, L-7-3.
+    acceptance_criteria:
+      - "h-m2/figures/gate_metrics.png exists and file size > 10KB"
+      - "h-m2/figures/delta_robustness.png exists"
+      - "h-m2/figures/rho_heatmap.png exists"
+      - "h-m2/figures/safety_rob_scatter.png exists"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-7: Visualization"
+      - path: "h-m2/03_prd.md"
+        section: "FR-5"
+
+  - id: A-8
+    title: "Results persistence, gate check, main entrypoint"
+    type: evaluation
+    priority: 86
+    complexity: 8
+    complexity_breakdown: "2+2+2+2"
+    description: >
+      Implement main.py with run_experiment() entrypoint.
+      serialize_results(): convert numpy types (np.float64→float, np.bool_→bool).
+      check_gate(): PASS if both gates; PARTIAL_PASS if exactly one; FAIL/EXPLORE if neither.
+      Write results to RESULTS_JSON (FR-6.1 schema with exact key names from 03_logic.md).
+      Print gate verification messages per FR-6.2.
+      SHOULD_WORK compliance: wrap in try/except; on exception write minimal error JSON and return.
+      run_analysis() → generate_all_figures() → serialize → write RESULTS_JSON.
+      Failsafe: always write a checkpoint file h-m2/04_checkpoint.yaml with status for Phase 4.
+    acceptance_criteria:
+      - "h-m2/experiment_results_h_m2.json exists after run"
+      - "json keys match FR-6.1 schema: rho_partial_safety_robustness, p_value_safety_robustness, etc."
+      - "process exits 0 even if gate fails (SHOULD_WORK)"
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "main.py — SHOULD_WORK compliance"
+      - path: "h-m2/03_prd.md"
+        section: "FR-6, NFR-4"
+
+  # ── LOGIC SUBTASKS (priority 49→2) ───────────────────────────────────────────
+
+  - id: L-3-1
+    title: "compute_partial_spearman: OLS residualize + spearmanr"
+    type: subtask
+    priority: 49
+    parent_epic: A-3
+    description: >
+      x = annotated_df[dim_x].values (16,); y = annotated_df[dim_y].values (16,);
+      Z = annotated_df[covariates].values (16,2). Residualize both via
+      LinearRegression(fit_intercept=True).fit(Z,v).predict(Z). Then spearmanr(x_res, y_res).
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-3 Pseudo-code"
+
+  - id: L-3-2
+    title: "t-distribution p-value (df=n-2-k=12, NOT scipy default)"
+    type: subtask
+    priority: 48
+    parent_epic: A-3
+    description: >
+      After spearmanr: n=16, k=2 → df=12. t_stat = rho * sqrt(df/(1-rho**2)).
+      p_val = 2 * scipy.stats.t.sf(abs(t_stat), df=12). Do NOT use the p-value returned
+      by scipy.stats.spearmanr (only valid for n>500).
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-3 Pseudo-code"
+
+  - id: L-3-3
+    title: "verify_primary_gate: direct matrix read + cross-validate"
+    type: subtask
+    priority: 47
+    parent_epic: A-3
+    description: >
+      rho_sr = float(rho_partial[SAFETY_IDX][ROBUSTNESS_IDX]) = rho_partial[1][3].
+      Cross-validate vs compute_partial_spearman(). If |direct - recomputed| > 0.001:
+      log warning, use recomputed value. gate_pass = rho_sr < RHO_THRESHOLD (signed: < -0.4).
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-3 Pseudo-code"
+
+  - id: L-3-4
+    title: "SHOULD_WORK compliance — gate always returns, never raises"
+    type: subtask
+    priority: 46
+    parent_epic: A-3
+    description: >
+      verify_primary_gate must always return a dict with gate_result in ("PASS","FAIL/EXPLORE").
+      If rho >= -0.4: print EXPLORE message: "rho_partial(safety,robustness)={value:.4f}
+      — positive correlation; null finding for H-M2 mechanism". Never sys.exit or raise.
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "A-3 Pseudo-code"
+
+  - id: L-7-1
+    title: "plot_gate_metrics: dual-panel bar chart"
+    type: subtask
+    priority: 45
+    parent_epic: A-7
+    description: >
+      fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9,4)).
+      Panel 1: bar for rho_sr vs axhline at -0.4. Color green if rho_sr<-0.4, red otherwise.
+      y-axis range (-1, 0.2). Panel 2: bars for delta_values (3 scales) vs axhline at 0.
+      Each bar green if delta<=0, red if >0. dpi=300. Use matplotlib.use("Agg").
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "plot_gate_metrics pseudo-code"
+
+  - id: L-7-2
+    title: "plot_rho_heatmap + plot_within_family_deltas"
+    type: subtask
+    priority: 44
+    parent_epic: A-7
+    description: >
+      Heatmap: sns.heatmap(rho_partial, annot=True, fmt='.2f', cmap='RdBu_r', vmin=-1, vmax=1).
+      Add 4 orange Rectangle patches for cells (1,3),(3,1),(1,5),(5,1).
+      Grouped bar: for each scale, plot Δ_safety and Δ_robustness side-by-side.
+      x=scales, two bar groups per scale, legend labels "Δ_safety" / "Δ_robustness".
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "plot_rho_heatmap pseudo-code"
+
+  - id: L-7-3
+    title: "plot_safety_robustness_scatter + generate_all_figures"
+    type: subtask
+    priority: 43
+    parent_epic: A-7
+    description: >
+      Scatter: separate base (blue) and chat (red) models. Per-group np.polyfit degree=1
+      trend lines. generate_all_figures() calls all 4 plot functions; returns list of
+      saved absolute paths (gate_metrics, delta_robustness, rho_heatmap, safety_rob_scatter).
+    reference_files:
+      - path: "h-m2/03_logic.md"
+        section: "plot_safety_robustness_scatter pseudo-code"
+
+  # ── CONFIG SUBTASKS (priority 42→2) ──────────────────────────────────────────
+
+  - id: C-6-1
+    title: "Pythia: check h-e1 cache before running lm-eval"
+    type: subtask
+    priority: 42
+    parent_epic: A-6
+    description: >
+      In run_pythia_control(): first load h-e1/experiment_results_phase3.json and check
+      for key PYTHIA_CACHE_KEY ("pythia_results"). If present, use cached scores directly.
+      Only attempt lm-eval if cache miss. Log: "Pythia: using cached results" or "Pythia: cache miss".
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "A-6 Subtasks"
+
+  - id: C-6-2
+    title: "Pythia: lm-eval CLI config for each checkpoint"
+    type: subtask
+    priority: 41
+    parent_epic: A-6
+    description: >
+      If cache miss: for size in PYTHIA_SIZES, run:
+      lm_eval --model hf --model_args pretrained=EleutherAI/pythia-{size} --tasks advglue --device cpu
+      Parse results for accuracy metric. Store as {size: score} dict.
+      Compute rho(scores.values(), log10_params) via scipy.stats.spearmanr.
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "A-6 Subtasks"
+
+  - id: C-6-3
+    title: "Pythia: null result handling if unavailable"
+    type: subtask
+    priority: 40
+    parent_epic: A-6
+    description: >
+      Wrap lm-eval attempt in try/except (ImportError, FileNotFoundError, subprocess errors).
+      On failure: return None from run_pythia_control(). In results JSON:
+      pythia_rho_robustness_scale = null. Log: "Pythia control skipped — lm-eval unavailable".
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "A-6 Subtasks"
+
+  - id: C-5-1
+    title: "Ablation mode loop: iterate ABLATION_MODES"
+    type: subtask
+    priority: 39
+    parent_epic: A-5
+    description: >
+      for mode_name, mode_cfg in ABLATION_MODES.items():
+          covariates = mode_cfg["covariates"]
+          if len(covariates) == 0:
+              rho, p = scipy.stats.spearmanr(safety_scores, robustness_scores)
+          else:
+              rho, p = compute_partial_spearman(annotated_df, "safety", "robustness", covariates)
+          ablation_results[mode_name] = {"rho": rho, "p_value": p}
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "A-5: Ablation Configuration"
+
+  - id: C-5-2
+    title: "Ablation results: save under 'ablations' key in RESULTS_JSON"
+    type: subtask
+    priority: 38
+    parent_epic: A-5
+    description: >
+      Ensure results dict has "ablations" key with sub-keys: uncontrolled, scale_only, rlhf_only.
+      Each sub-key: {"rho": float, "p_value": float, "covariates": list[str]}.
+      These appear alongside primary gate results in experiment_results_h_m2.json.
+    reference_files:
+      - path: "h-m2/03_config.md"
+        section: "A-5 Subtasks"
+
+  # ── FAILSAFE (priority 1) ─────────────────────────────────────────────────────
+
+  - id: F-1
+    title: "Pipeline continuation checkpoint"
+    type: checkpoint
+    priority: 1
+    description: >
+      After run_experiment() completes (success or EXPLORE), write h-m2/04_checkpoint.yaml:
+        hypothesis_id: h-m2
+        phase4_ready: true
+        overall_gate: <PASS|PARTIAL_PASS|FAIL/EXPLORE>
+        results_file: h-m2/experiment_results_h_m2.json
+      This checkpoint signals Phase 4 can proceed regardless of gate outcome (SHOULD_WORK).
+    acceptance_criteria:
+      - "h-m2/04_checkpoint.yaml exists after experiment run"
+      - "phase4_ready: true in file"
+    reference_files:
+      - path: "h-m2/03_prd.md"
+        section: "NFR-4: SHOULD_WORK Gate Compliance"

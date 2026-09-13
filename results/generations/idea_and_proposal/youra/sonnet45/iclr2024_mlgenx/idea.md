@@ -1,0 +1,10 @@
+# Title
+Hierarchical Causal Mediation Framework for Genomics-Guided Drug Response Prediction
+
+# Motivation
+Drug discovery faces a critical bottleneck: we lack mechanistic understanding of why patients respond differently to treatments, causing costly clinical trial failures. While genomics and multi-omics data offer unprecedented insights, current approaches either provide correlational interpretability without causal guarantees (SHAP, GWAS) or establish causality without tracing biological mechanisms (standard Mendelian randomization). No existing framework connects genetic variants to drug responses through interpretable, causally-validated molecular pathways spanning multiple biological scales—a gap that limits personalized medicine and regulatory decision-making.
+
+# Main Idea
+We propose using genomic variants as instrumental variables in a hierarchical causal mediation framework that traces mechanistic pathways: genotype → transcriptome → proteome → pathway activity → drug response. The core innovation combines Mendelian randomization (leveraging random genetic inheritance to establish causality) with pathway-constrained graph neural networks and counterfactual reasoning. This enables both causal validity and biological interpretability across scales.
+
+We will validate on 1,000 cancer cell lines (GDSC) and 500,000 participants (UK Biobank), testing whether ≥30% of genetic effects are mediated through identifiable pathways, achieving drug response prediction AUC ≥0.75, and passing instrumental variable validity tests. Success delivers patient-specific pathway identification for treatment selection, mechanistic evidence for regulatory approval, and combination therapy design based on causal network synergies—advancing precision pharmacogenomics with rigorous causal foundations.

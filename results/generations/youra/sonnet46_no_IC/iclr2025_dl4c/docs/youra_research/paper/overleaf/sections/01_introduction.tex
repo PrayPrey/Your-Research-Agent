@@ -1,0 +1,88 @@
+\section{Introduction}
+
+We set out to filter Python training data for code large language models (LLMs) using
+doctest execution --- a seemingly natural signal of functional correctness. Before training
+a single model, we discovered that only 1 in 1,000 Python files in a curated corpus
+contains an independently-executable doctest. The \texttt{>>>} patterns that Python conventions
+encourage appear in 3.1\% of files, but 31$\times$ fewer survive subprocess execution in a clean
+environment. This gap is not a measurement artifact: it is a structural property of
+Python library code, which depends on third-party packages unavailable in clean execution environments.
+
+\subsection{Motivation}
+
+Code LLMs are supervised fine-tuned (SFT) on corpora of Python code drawn from platforms
+such as GitHub, producing models evaluated on benchmarks like HumanEval~\cite{Chen2021Evaluating}
+and MBPP~\cite{Austin2021Program}. These corpora are large but noisy: raw code repositories
+contain syntactically invalid files, functionally broken examples, and copy-paste debris.
+Training on such data exposes models to malformed patterns, potentially limiting benchmark
+performance relative to training on a cleaner, execution-validated subset.
+
+The field has responded to this challenge with heuristic filtering --- removing files based
+on line length, alphanumeric fraction, and encoding (as in The Stack~\cite{Kocetkov2022Stack}
+and StarCoder~\cite{Li2023StarCoder}). A more principled alternative is \emph{execution-based
+filtering}: retain only files that pass a syntax validity gate (\texttt{compile()}) or a
+functional correctness gate (doctest execution). The appeal of execution-based filtering is
+that it applies a ground-truth check --- code that does not compile is certainly wrong, and
+code whose doctests fail is likely inconsistent with intended behavior.
+
+However, execution-based filtering rests on an untested assumption: that the corpus contains
+sufficient executable examples to meet SFT token budget requirements. For the doctest-passing
+condition --- the strictest functional gate --- this assumption is precisely what we examine.
+
+\subsection{The Deeper Problem: Pattern $\neq$ Executability}
+
+Python's doctest convention was designed for installed environments. A docstring beginning
+with \texttt{>>> import numpy as np} is documentation intent, not a self-contained executable
+example: it requires \texttt{numpy} to be installed in the execution environment. Clean subprocess
+execution --- without pre-installed third-party packages --- will reject the vast majority of
+such examples at the import stage.
+
+Prior work did not measure this gap. The Stack paper estimated \texttt{compile()} validity rates
+on 10,000 sampled Python files~\cite{Kocetkov2022Stack} but did not characterize doctest
+executability. phi-1~\cite{Gunasekar2023Textbooks} demonstrated that quality-filtered SFT
+data outperforms equal-token-budget unfiltered data, but used GPT-4 curation rather than
+execution gates. EffiCoder~\cite{Zeng2024EffiCoder} applied execution-selected SFT samples
+for instruction tuning and achieved +13pp HumanEval improvement on Qwen2.5-Coder-7B,
+but operated on instruction-response pairs rather than raw corpus code. No prior work
+performed a controlled comparison of unfiltered vs.\ compile-only vs.\ doctest-passing SFT
+filtering on a raw Python corpus at equal token budget.
+
+\subsection{Key Insight}
+
+Execution filtering for code LLM data quality has two fundamentally different regimes:
+(1) \emph{compile-only} (syntax gate), which retains $\sim$60--80\% of files and scales to any
+corpus size; and (2) \emph{doctest-passing} (functional gate), which collapses to $\sim$0.1\%
+of files in library-heavy Python corpora --- a rate insufficient for SFT at 500M-token budgets.
+These are not points on a quality spectrum; they are categorically different strategies
+with different corpus-scale feasibility profiles.
+
+\subsection{Contributions}
+
+Building on this insight, we make the following contributions:
+
+\begin{enumerate}
+\item \textbf{First systematic measurement of the gap between \texttt{>>>} pattern prevalence
+and subprocess executability in a curated Python code corpus used for LLM training.}
+We conduct a systematic three-phase pilot scan of 10,000 randomly sampled Python files,
+measuring the prevalence of \texttt{>>>} patterns (Phase A: 3.1\%), AST-parseable doctest
+examples (Phase B: 2.0\%), and independently-executable doctests (Phase C: 0.1\%). The
+31$\times$ gap from Phase A to Phase C is the primary finding, with import errors as the
+dominant failure mode.
+
+\item \textbf{Validated multi-phase doctest filtering pipeline.}
+We implement and release the Phase A/B/C pipeline --- pattern check, AST extraction,
+and base64-isolated subprocess execution --- which processes 10,000 files in 129.8 seconds
+with 4-worker parallelism and passes 28/28 unit tests.
+
+\item \textbf{Practical recommendation for SFT corpus construction.}
+We establish that compile-only filtering is the practical execution-quality gate for
+raw Python SFT corpus construction at scale, and that doctest-passing filtering requires
+dependency-aware execution infrastructure to be viable. The equal-token-budget SFT
+comparison experiment is designed and pending execution.
+\end{enumerate}
+
+We organize the paper as follows: Section~\ref{sec:related} reviews related work.
+Section~\ref{sec:methodology} describes the three-phase methodology. Section~\ref{sec:setup}
+presents the experimental design. Section~\ref{sec:results} reports results.
+Section~\ref{sec:discussion} discusses findings and limitations. Section~\ref{sec:conclusion}
+concludes.

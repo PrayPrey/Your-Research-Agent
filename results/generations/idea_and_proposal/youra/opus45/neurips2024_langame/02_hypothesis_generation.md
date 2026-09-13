@@ -1,0 +1,219 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-13
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-CDELA-v1
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Under conditions of multi-agent interactive training with language games, if LLMs undergo contrastive differential assessment using probing classifiers, then measurable improvements in compositionality (CGS), grounding (GAI), displacement (DCM), and transmission (TES) will be detected, because interactive training induces representational changes that enhance these language properties beyond what supervised pretraining alone provides.
+
+**Alternative Hypothesis (H0):**
+Interactive multi-agent training produces no detectable changes in LLM language properties as measured by differential contrastive metrics; any observed differences fall within the calibrated noise floor and are attributable to measurement variance rather than genuine representational improvements.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Interactive Training Type | Independent | Type of language game (referential, cooperative, competitive), training duration (epochs), number of agents (2-8) | Referential game with 2-4 agents, 1-10 epochs |
+| Compositional Gain Score (CGS) | Dependent | Contrastive perturbation-calibrated topological similarity improvement: CGS = (TopSim_post - TopSim_pre) / CalibrationNoise | 0.0-1.0 normalized, >0.1 meaningful |
+| Grounding Alignment Index (GAI) | Dependent | RSA-based symbol-referent binding improvement via probing classifiers | 0.0-1.0, >0.15 improvement meaningful |
+| Displacement Capability Metric (DCM) | Dependent | Accuracy improvement on non-present entity reference tasks | 0-100%, >5% improvement meaningful |
+| Transmission Efficiency Score (TES) | Dependent | Language transfer success rate to architecturally-diverse receivers | 0-100%, >10% above random baseline |
+| LLM Architecture | Controlled | Fixed transformer architecture (LLaMA-7B or equivalent) | Frozen |
+| Pretraining Data | Controlled | Standard pretraining corpus | Fixed |
+| Evaluation Benchmark | Controlled | Standardized compositionality benchmarks (COGS, SCAN adaptations) | Fixed |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+Step 1: Interactive Training
+    ↓ [Functional pressures from language games]
+Step 2: Representational Change
+    ↓ [Altered internal activations]
+Step 3: Probing Signal Difference
+    ↓ [Calibrated measurement]
+Outcome: Quantified Language Property Improvement (CGS, GAI, DCM, TES)
+```
+
+**Step 1 → Step 2: Interactive Training → Representational Change**
+Language games create functional pressures (least effort principle, object constancy, referential success) that reshape how LLMs encode meaning. Rodriguez Luna et al. (2020) demonstrated that such pressures produce emergent languages with "less redundancy, more focus on high-level conceptual information, and better abilities of generalisation."
+
+**Step 2 → Step 3: Representational Change → Probing Signal Difference**
+Changed representations produce different activation patterns in intermediate layers. Probing classifiers trained on pre-training representations will show different accuracy/loss when applied to post-training representations, revealing the nature and extent of change.
+
+**Step 3 → Outcome: Probing Signal Difference → Quantified Metric**
+Calibrated metrics translate raw probing differences into interpretable language property scores. Contrastive perturbation establishes noise floor; improvements exceeding this threshold represent genuine language property gains.
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | Rodriguez Luna et al. 2020 (23 citations) | Functional pressures produce compositional language with better generalization | Strong |
+| Step1 → Step2 | Vithanage et al. 2023 | Sparse grounding pressures expedite structured language emergence | Medium |
+| Step2 → Step3 | BERTology probing literature | Internal representations encode linguistic features accessible via probing | Strong |
+| Step3 → Outcome | Chaabouni et al. 2020 | Compositionality metrics can quantify emergent language properties | Strong |
+
+**Key Tension:**
+Rodriguez Luna et al. (2020) found improvements in small-scale emergent communication agents, but Press et al. (2023) demonstrated a "compositionality gap" in LLMs where models fail to combine known concepts. This tension suggests that while functional pressures may work for small agents, LLMs may require additional interventions. The C-DELA framework tests whether interactive training can close this gap by measuring differential changes.
+
+### 1.4 Key Assumptions
+
+1. **LLM representations are probe-accessible**
+   - Evidence: Extensive BERTology literature demonstrates successful probing for syntax, semantics, and world knowledge
+   - Consequence if violated: Entire measurement framework becomes invalid; would require alternative measurement approach (behavioral only)
+
+2. **Interactive training produces representational (not just behavioral) changes**
+   - Evidence: SPIN (Chen et al. 2024, 473 citations) shows self-play alters internal distributions
+   - Consequence if violated: Framework would measure noise; need to verify via representation similarity analysis before metric application
+
+3. **Contrastive perturbation can establish reliable sensitivity bounds**
+   - Evidence: Perturbation-based methods successfully calibrate uncertainty in neural networks
+   - Consequence if violated: Cannot distinguish signal from noise; metrics become unreliable
+
+4. **Language properties are separable and independently measurable**
+   - Evidence: Hockett's design features are conceptually distinct; emergent communication literature measures them separately
+   - Consequence if violated: Metrics may conflate multiple properties; interpretation becomes ambiguous
+
+### 1.5 Scope & Boundaries
+
+**Where hypothesis applies:**
+- Transformer-based LLMs with accessible intermediate representations (open-source models)
+- Interactive training scenarios with discrete communication channels
+- Language games with clear success/failure signals (referential games, cooperative tasks)
+- Models with 1B-70B parameters (practical compute constraints)
+
+**Where it does NOT apply:**
+- Black-box API-only models (no representation access)
+- Continuous communication channels (different grounding dynamics)
+- Pure self-play without multi-agent interaction
+- Extremely small (<100M) or large (>70B) models (different training dynamics)
+
+**Known limitations:**
+- Metrics require baseline training on pre-interactive representations (compute overhead)
+- Results may be architecture-specific (not necessarily generalizable across model families)
+- Interactive training is expensive; may limit number of experimental conditions
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+**P1 (Existence of Measurable Change):**
+LLMs trained with multi-agent language games will show CGS > 0.1 (normalized gain exceeding calibrated noise floor), demonstrating that interactive training produces detectable compositional improvements.
+
+*Measurement*:
+- CGS computed as (TopSim_post - TopSim_pre) / CalibrationNoise
+- Threshold: CGS > 0.1 with p < 0.05 (one-tailed t-test)
+- Sample: n ≥ 20 training runs with different random seeds
+
+*Basis*:
+Domain standard for meaningful effect in representation learning. Chaabouni et al. (2020) demonstrated topological similarity can differentiate compositional from non-compositional languages.
+
+**Secondary Predictions:**
+
+**P2 (Mechanism - Grounding Improvement):**
+GAI will increase by >0.15 RSA correlation points, indicating improved symbol-referent binding through interactive grounding.
+
+**P3 (Practical Value - Transmission Efficiency):**
+TES will exceed random baseline by >10 percentage points, showing that improved language properties transfer to novel receiver architectures.
+
+**Falsification Criteria:**
+The hypothesis will be **REJECTED** if any occur:
+
+1. **Primary Failure**: CGS ≤ 0.1 across all training conditions
+   (No measurable compositional improvement exceeding noise)
+
+2. **Mechanism Failure**: All four metrics (CGS, GAI, DCM, TES) show null results
+   (Interactive training produces no detectable language property changes)
+
+3. **Calibration Failure**: Perturbation calibration cannot establish stable noise floor
+   (Metrics are fundamentally unreliable for this application)
+
+### 1.7 Statistical Verification Design
+
+**Sample Size Calculation:**
+- Effect size target: Cohen's d ≥ 0.5 (medium effect)
+- Statistical power: 0.8
+- Required runs: n ≥ 20 per condition
+- Significance level: α = 0.05 (one-tailed)
+
+**Test Specification:**
+- Method: Paired t-test (same model pre vs post training)
+- Multiple comparison correction: Bonferroni for 4 metrics (α_adj = 0.0125)
+- Report format: Mean ± Std Dev, 95% CI, Cohen's d, p-value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does interactive multi-agent training produce any measurable change in LLM language properties (CGS, GAI, DCM, or TES exceeding calibrated noise floor)?"
+- Maps to: Primary prediction P1
+- Verification type: Empirical existence test
+- Critical: MUST PASS for hypothesis to be viable
+
+**SH2 (Mechanism):**
+"Is the proposed 3-step causal mechanism (Interactive Training → Representational Change → Probing Signal → Quantified Metric) the actual pathway of detected improvements?"
+- Maps to: Causal mechanism (N=3 steps)
+- Will decompose to 3 sub-hypotheses in Phase 2B:
+  - H-M1: Interactive training produces representational change
+  - H-M2: Representational change produces probing signal difference
+  - H-M3: Probing signal translates to reliable metric scores
+- Verification type: Causal analysis with ablations
+- Critical: Determines explanatory power
+
+**SH3 (Comparison):**
+"Does C-DELA provide advantages over existing measurement approaches (behavioral metrics only, absolute property metrics)?"
+- Maps to: Secondary predictions P2, P3
+- Verification type: Comparative empirical
+- Critical: Determines practical value of the framework
+
+**Total Sub-Hypotheses in Phase 2B:** 2 + 3 = 5 (SH1, H-M1, H-M2, H-M3, SH3)
+
+### Readiness Checklist
+
+- [x] Hypothesis is in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-CDELA-v1
+- [x] Confidence level specified: 0.85
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables have operationalization from evidence (7 variables)
+- [x] Causal mechanism has evidence at each step (N=3 steps, evidence table provided)
+- [x] Causal chain length (N=3) determined and stored
+- [x] Key tension identified (small-scale vs LLM compositionality gap) and resolution proposed
+- [x] Key assumptions list consequences if violated (4 assumptions)
+- [x] At least 2 testable predictions exist (3 predictions, primary marked)
+- [x] Falsification criteria are defined (3 failure conditions)
+- [x] Baselines are identified for comparison (TopSim, BERTScore, task metrics)
+- [x] SH1, SH2, SH3 are clear starting points
+
+### Open Questions
+
+1. **Compute Requirements**: How many GPU-hours needed for interactive training + metric computation across 20+ runs?
+2. **Data Availability**: What language game environments are suitable? Can we adapt existing referential game implementations?
+3. **Priority Order**: Should we verify metric validity (calibration works) before testing interactive training effects?
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-13*

@@ -1,0 +1,9 @@
+﻿# Title: Compositional Skill Libraries with Symbolic Abstractions for Zero-Shot Policy Transfer
+
+## Motivation
+Current deep reinforcement learning agents struggle to generalize learned policies to novel tasks, often requiring extensive retraining even for minor environmental changes. While hierarchical RL and skill discovery methods show promise, learned skills typically lack the composability and interpretability needed for systematic transfer. The key insight is that human generalization relies on abstract, symbolic representations of skills that can be flexibly recombined. Bridging the gap between neural skill learning and symbolic planning could unlock robust zero-shot transfer to unseen problem configurations.
+
+## Main Idea
+We propose learning a library of reusable neural skills paired with automatically induced symbolic precondition-effect descriptions. The approach consists of three components: (1) a skill discovery module that extracts temporally extended behaviors from demonstration or exploration data using information-theoretic objectives, (2) a neuro-symbolic abstraction layer that learns PDDL-style symbolic representations for each skill through differentiable logic programming, capturing when skills are applicable and their expected state transitions, and (3) a symbolic planner that composes skills for novel goals by reasoning over the induced abstractions, with neural execution handling low-level control.
+
+We evaluate on procedurally generated environments (e.g., MiniGrid, BEHAVIOR) measuring zero-shot generalization to unseen goal configurations and domain variants. Expected outcomes include significantly improved transfer compared to flat policies and purely neural hierarchical methods, with the symbolic layer providing interpretable explanations of policy behavior. This bridges analytical planning's generalization strengths with deep RL's perceptual capabilities.

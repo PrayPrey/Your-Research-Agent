@@ -1,0 +1,377 @@
+version: "1.1"
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_id_upper: H-E1
+  tier: LIGHT
+  total_budget: 15
+  generated_at: "2026-05-04T03:36:00Z"
+  source_documents:
+    - 03_prd.md
+    - 03_architecture.md
+    - 03_logic.md
+    - 03_config.md
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  # ── Environment Setup (priority 100) ──────────────────────────────────────
+  - id: task-001
+    epic: Environment Setup
+    title: Setup development environment
+    description: |
+      Install required packages:
+        pip install "git+https://github.com/allenai/wimbd.git"
+        pip install datasets>=2.14.0 scipy>=1.10.0 numpy>=1.24.0 pandas>=2.0.0
+        pip install matplotlib>=3.7.0 seaborn>=0.12.0 datasketch>=1.6.0 tqdm>=4.65.0
+
+      Set environment variables:
+        export WIMBD_ES_HOST="<wimbd-endpoint>"
+        export CUDA_VISIBLE_DEVICES=""
+
+      Create output directories:
+        mkdir -p h-e1/code h-e1/results h-e1/figures
+
+      External repositories for reference:
+        - https://github.com/allenai/wimbd (primary Pile index tool)
+        - https://github.com/ekzhu/datasketch (MinHash LSH fallback)
+    feature_tag: setup
+    priority: 100
+    source_document: 03_prd.md
+    complexity: null
+    test_requirements: Environment setup does not require tests.
+    reference_files:
+      architecture: 03_architecture.md#A-1
+      logic: null
+      config: 03_config.md#A-1
+
+  # ── Epic Tasks (priority 99 → 93) ─────────────────────────────────────────
+  - id: task-002
+    epic: A-1
+    title: Project Setup
+    description: |
+      Implement code/config.py with single fixed Config dataclass.
+      Create project directory structure: code/, results/, figures/.
+      Implement load_config() returning Config() with no arguments.
+      Set up requirements.txt with all pinned dependencies.
+      Reference: 03_config.md for complete Config dataclass definition
+      with all 57 MMLU sub-tasks baked in as default_factory list.
+    feature_tag: setup
+    priority: 99
+    source_document: 03_architecture.md
+    complexity: 5
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_config.py
+      - Test load_config() returns Config instance
+      - Test mmlu_tasks list has exactly 57 items
+      - Test gate_p_threshold == 0.05
+    reference_files:
+      architecture: 03_architecture.md#A-1
+      logic: null
+      config: 03_config.md#A-1
+
+  - id: task-003
+    epic: A-2
+    title: Benchmark Data Loading
+    description: |
+      Implement code/data_loader.py: DataLoader class loading all 59 sub-tasks.
+      - load_mmlu(): 57 MMLU sub-tasks from cais/mmlu v1.0.0 split="test" (~14,042 items)
+      - load_hellaswag(): Rowan/hellaswag split="validation" (~10,042 items)
+      - load_bbh(): lukaemon/bbh split="test" — iterate 27 BBH sub-tasks, merge into single "bbh" key (~6,511 items)
+      - load_all(): merge all 59 sub-tasks into single dict
+      - format_text(): question+choices (primary) or question-only (sensitivity)
+      BBH field: "input" (no choices field — return input only for both formats)
+      HellaSwag fields: ctx + endings
+      MMLU fields: question + choices
+      See 03_logic.md#A-2 for complete API signatures.
+    feature_tag: data-pipeline
+    priority: 98
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_data_loader.py
+      - Test load_all() returns dict with exactly 59 keys
+      - Test format_text() for all 3 datasets in both text_format modes
+      - Test BBH merge produces single "bbh" key
+    reference_files:
+      architecture: 03_architecture.md#A-2
+      logic: 03_logic.md#A-2
+      config: 03_config.md#A-1
+
+  - id: task-004
+    epic: A-3
+    title: N-gram Extraction
+    description: |
+      Implement code/ngram_extractor.py: NgramExtractor class.
+      - extract(text): sliding-window 13-gram extraction over whitespace-tokenized text
+        tokens = text.split(); ngrams = [" ".join(tokens[i:i+13]) for i in range(len(tokens)-12)]
+        Returns [] if len(tokens) < min_token_length (13); log skipped count
+      - extract_batch(texts): batch extraction with skip logging
+      Case-sensitive, no lowercasing, no punctuation removal (WIMBD standard).
+    feature_tag: data-pipeline
+    priority: 97
+    source_document: 03_architecture.md
+    complexity: 6
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_ngram_extractor.py
+      - Test extract() produces correct 13-gram count for known text
+      - Test extract() returns [] for text with < 13 tokens
+      - Test case-sensitivity preserved
+    reference_files:
+      architecture: 03_architecture.md#A-3
+      logic: null
+      config: 03_config.md#A-1
+
+  - id: task-005
+    epic: A-4
+    title: Pile Index Query
+    description: |
+      Implement code/pile_query.py: PileQuery class with wimbd primary + MinHash LSH fallback.
+      - _use_wimbd(): check WIMBD_ES_HOST env var
+      - _query_wimbd_with_retry(ngram): has_ngram(ng, n=13, index="pile") with 3x exponential backoff (1s/2s/4s)
+      - _init_minhash_lsh(): lazy-init MinHashLSH(threshold=0.5, num_perm=128)
+      - _query_minhash(ngrams): Jaccard >= 0.5 check via LSH
+      - is_contaminated(text): returns 1 if any 13-gram matches, 0 otherwise
+      - query_subtask(name, texts): per-item labels with progress logging
+      - query_all(subtask_texts): full 59-sub-task query dict
+      See 03_logic.md#A-4 for complete API with retry pseudo-code.
+    feature_tag: data-pipeline
+    priority: 96
+    source_document: 03_architecture.md
+    complexity: 14
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_pile_query.py
+      - Test _use_wimbd() returns False when WIMBD_ES_HOST not set
+      - Test is_contaminated() returns 0/1 (mock wimbd)
+      - Test retry logic: 3 attempts on failure
+    reference_files:
+      architecture: 03_architecture.md#A-4
+      logic: 03_logic.md#A-4
+      config: 03_config.md#A-1
+
+  - id: task-006
+    epic: A-5
+    title: Statistical Analysis
+    description: |
+      Implement code/stats_analyzer.py: StatsAnalyzer class.
+      - compute_rates(labels): DataFrame[subtask, n_items, n_contaminated, rate]
+      - kruskal_wallis(labels): kruskal(*label_lists) -> {kruskal_stat, p_value, gate_pass, max_pair_diff}
+      - spearman_correlation(rates_a, rates_b): spearmanr -> (rho, p_value)
+      - sanity_check(rates_df, reference): compare vs WIMBD Table 2 within ±5pp
+      - assert_gate(p_value): assert p_value < 0.05 or raise AssertionError
+      See 03_logic.md#A-5 for complete API signatures.
+    feature_tag: evaluation
+    priority: 95
+    source_document: 03_architecture.md
+    complexity: 12
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_stats_analyzer.py
+      - Test kruskal_wallis() with known p < 0.05 input
+      - Test assert_gate() raises AssertionError when p >= 0.05
+      - Test compute_rates() produces correct rates for known labels
+    reference_files:
+      architecture: 03_architecture.md#A-5
+      logic: 03_logic.md#A-5
+      config: 03_config.md#A-1
+
+  - id: task-007
+    epic: A-6
+    title: Visualization + Output
+    description: |
+      Implement code/visualizer.py: Visualizer class with 6 figure generators.
+      - plot_contamination_rates_bar(rates_df, p_value): 59-bar sorted barplot with p-value annotation -> figures/contamination_rates_barplot.png
+      - plot_heatmap(rates_df): sub-task x rate heatmap sorted by academic domain -> figures/heatmap.png
+      - plot_distribution(rates_df): histogram/KDE -> figures/distribution.png
+      - plot_domain_boxplot(rates_df): MMLU academic vs commonsense -> figures/domain_boxplot.png
+      - plot_top_bottom(rates_df): top-10/bottom-10 horizontal bar -> figures/top_bottom.png
+      - plot_sensitivity_scatter(rates_primary, rates_sensitivity, rho): scatter + Spearman -> figures/sensitivity_scatter.png
+      - save_all(rates_df, stats): calls all plot methods in sequence
+      Also implement save_results() in run_experiment.py:
+        results/contamination_rates.csv and results/statistical_tests.json
+    feature_tag: evaluation
+    priority: 94
+    source_document: 03_architecture.md
+    complexity: 10
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_visualizer.py
+      - Test plot_contamination_rates_bar() creates file at expected path
+      - Test save_results() writes valid CSV and JSON
+    reference_files:
+      architecture: 03_architecture.md#A-6
+      logic: null
+      config: 03_config.md#A-1
+
+  - id: task-008
+    epic: A-7
+    title: Orchestration + Sensitivity Analysis
+    description: |
+      Implement code/run_experiment.py: full pipeline orchestration.
+      - run_primary(config): load -> query -> stats -> visualize -> assert_gate
+        Returns {"rates_df", "stats", "labels"}
+      - run_sensitivity(config, primary_rates): copy config with text_format="question_only",
+        rerun pipeline, compute Spearman rho vs primary rates on 59 shared sub-tasks
+        Returns {"sensitivity_rates_df", "rho", "p_value"}
+      - save_results(rates_df, stats, config): write CSV + JSON to results/
+      - main(): load_config -> run_primary -> run_sensitivity -> save_results
+      See 03_logic.md#A-7 for complete API with sensitivity Spearman alignment logic.
+    feature_tag: experiment
+    priority: 93
+    source_document: 03_architecture.md
+    complexity: 11
+    test_requirements: |
+      ## Test Requirements (MANDATORY)
+      - Create tests/test_run_experiment.py
+      - Test main() runs end-to-end with mocked PileQuery
+      - Test run_sensitivity() produces 59-key rates_df
+      - Test gate assertion is called after run_primary
+    reference_files:
+      architecture: 03_architecture.md#A-7
+      logic: 03_logic.md#A-7
+      config: 03_config.md#A-1
+
+  # ── Logic Subtasks (priority 92 → 87) ─────────────────────────────────────
+  - id: task-009
+    epic: A-4
+    title: L-4-1 wimbd integration
+    description: |
+      Implement _query_wimbd_with_retry() in PileQuery:
+      Call has_ngram(ngram, n=13, index="pile") from wimbd.es.
+      Verify import: from wimbd.es import has_ngram
+      Returns True if 13-gram found in The Pile v1 index.
+    feature_tag: data-pipeline
+    priority: 92
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Subtask — covered by parent task-005 tests.
+    reference_files:
+      architecture: 03_architecture.md#A-4
+      logic: 03_logic.md#L-4-1
+      config: null
+
+  - id: task-010
+    epic: A-4
+    title: L-4-2 MinHash fallback
+    description: |
+      Implement _init_minhash_lsh() and _query_minhash() in PileQuery:
+      MinHashLSH(threshold=0.5, num_perm=128) lazy initialization.
+      _query_minhash(ngrams): create MinHash for query ngrams, query LSH index.
+      Returns True if Jaccard similarity >= 0.5 with any indexed document.
+    feature_tag: data-pipeline
+    priority: 91
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Subtask — covered by parent task-005 tests.
+    reference_files:
+      architecture: 03_architecture.md#A-4
+      logic: 03_logic.md#L-4-2
+      config: null
+
+  - id: task-011
+    epic: A-4
+    title: L-4-3 retry + logging
+    description: |
+      Implement exponential backoff retry loop in _query_wimbd_with_retry():
+      3 attempts with sleep(2**attempt) → 1s, 2s, 4s.
+      On final failure: log warning and return False (don't crash).
+      Implement progress logging in query_subtask():
+      logging.info(f"Querying wimbd for sub-task {name}: {count}/{total} items contaminated ({rate:.3f})")
+    feature_tag: data-pipeline
+    priority: 90
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Subtask — covered by parent task-005 tests.
+    reference_files:
+      architecture: 03_architecture.md#A-4
+      logic: 03_logic.md#L-4-3
+      config: null
+
+  - id: task-012
+    epic: A-5
+    title: L-5-1 gate assertion + sanity check
+    description: |
+      Implement assert_gate() and sanity_check() in StatsAnalyzer:
+      assert_gate(p_value): assert p_value < config.gate_p_threshold, f"Gate FAILED: p={p_value:.4f} >= 0.05"
+      sanity_check(rates_df, reference): join our rates vs WIMBD Table 2 reference dict,
+      flag differences > 5pp (config.max_pair_diff_threshold).
+      Reference dict keys are MMLU sub-task names matching Elazar et al. 2023 Table 2.
+    feature_tag: evaluation
+    priority: 89
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Subtask — covered by parent task-006 tests.
+    reference_files:
+      architecture: 03_architecture.md#A-5
+      logic: 03_logic.md#L-5-1
+      config: null
+
+  - id: task-013
+    epic: A-7
+    title: L-7-1 sensitivity analysis Spearman
+    description: |
+      Implement sensitivity Spearman correlation in run_sensitivity():
+      1. Create sens_config with text_format="question_only" override
+      2. Run full pipeline to get sens_rates_df
+      3. Align primary and sensitivity rates on 59 subtask keys (inner join on subtask index)
+      4. Call analyzer.spearman_correlation(merged["rate_primary"], merged["rate_sens"])
+      5. Pass rho to viz.plot_sensitivity_scatter()
+      See 03_logic.md#A-7 for exact merge logic using pd.DataFrame.join().
+    feature_tag: evaluation
+    priority: 88
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Subtask — covered by parent task-008 tests.
+    reference_files:
+      architecture: 03_architecture.md#A-7
+      logic: 03_logic.md#L-7-1
+      config: null
+
+  - id: task-014
+    epic: A-2
+    title: L-2-1 BBH multi-subtask handling
+    description: |
+      Implement BBH loading in DataLoader.load_bbh():
+      Iterate all 27 BBH sub-task names from lukaemon/bbh.
+      For each: load_dataset("lukaemon/bbh", subtask_name, split="test")
+      Merge all items into single "bbh" key.
+      Handle missing sub-tasks gracefully: log warning and continue.
+      BBH items have "input" field only — no choices field.
+      format_text for BBH always returns item["input"] regardless of text_format setting.
+    feature_tag: data-pipeline
+    priority: 87
+    source_document: 03_logic.md
+    complexity: null
+    test_requirements: Subtask — covered by parent task-003 tests.
+    reference_files:
+      architecture: 03_architecture.md#A-2
+      logic: 03_logic.md#L-2-1
+      config: null
+
+  # ── Failsafe (priority 1) ──────────────────────────────────────────────────
+  - id: task-015
+    epic: Pipeline Management
+    title: Pipeline Continuation Checkpoint
+    description: /full-pipeline-unattended - FAILSAFE CONTINUATION TASK
+    feature_tag: pipeline-continue
+    priority: 1
+    source_document: system
+    complexity: null
+    test_requirements: Failsafe task does not require tests.
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 7
+  subtasks: 6
+  failsafe: 1
+  total: 15

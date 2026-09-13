@@ -1,0 +1,69 @@
+
+\subsubsection{3.1 Overview}
+
+The goal is to test whether uncertainty probes generalize across LLM families. If uncertainty encoding is architecture-invariant, a probe trained on one model's hidden states should maintain predictive power on another model's states. This is operationalized through a $3\times 3$ transfer matrix: three probes are trained (one per model family), each is evaluated on all three models' hidden states, and the AUROC gap between same-family and cross-family evaluation is measured.
+
+\subsubsection{3.2 Semantic Entropy Probe Architecture}
+
+Following Kossen et al. (2024), a linear classifier is trained on hidden states:
+
+\textbf{Hidden state extraction.} Given input tokens $x_1$:T, the hidden state h\_l $\in \mathbb{R}$ᵈ is extracted at layer l and the last token position. Layer l is selected at approximately 2/3 depth: layer 21 for 32-layer models (Llama-3, Mistral), layer 18 for the 28-layer model (Qwen-2).
+
+\textbf{Probe training.} A logistic regression classifier is trained:
+
+P(high-SE | h) = $\sigma (w$ᵀh + b)
+
+where w $\in \mathbb{R}$ᵈ and b $\in \mathbb{R}$ are learned parameters. Training labels are binarized semantic entropy: questions with SE above the median are labeled 1 (high uncertainty), others 0. Scikit-learn's LogisticRegression with L2 regularization (C=1.0) and LBFGS solver is used.
+
+\subsubsection{3.3 Cross-Family Transfer Protocol}
+
+To evaluate generalization, a transfer matrix is constructed:
+
+\begin{enumerate}
+\item \textbf{Extract hidden states.} For each of three models, hidden states are extracted from train and validation splits of TruthfulQA (80/20 split, 653/164 questions). States are cached to disk.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Train per-model probes.} Three SEPs are trained, each on its respective model's training hidden states.
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Evaluate all pairs.} For each (source model, target model) pair:
+\begin{itemize}
+\item If dimensions match: apply source probe directly to target hidden states
+\item If dimensions mismatch: apply affine alignment before evaluation
+\end{itemize}
+\end{enumerate}
+
+\begin{enumerate}
+\item \textbf{Compute transfer gaps.} The gap for pair (i, j) is:
+\end{enumerate}
+   $\text{gap}_{i\rightarrow j} = \text{AUROC}_{i\rightarrow i} - \text{AUROC}_{i\rightarrow j}$
+
+\textbf{Success criterion.} Transfer succeeds if all gaps are below 0.10 and mean gap is below 0.05.
+
+\subsubsection{3.4 Affine Alignment for Dimension Mismatch}
+
+Qwen-2-7B has hidden dimension 3584, while Llama-3-8B and Mistral-7B have dimension 4096. Direct probe application is not possible because the weight vector has the wrong size. This is addressed with affine alignment:
+
+Given paired hidden states from source model (dimension dₛ) and target model (dimension dₜ), a mapping is learned:
+
+ĥₛ = hₜW + b
+
+where W $\in \mathbb{R}$ᵈᵗˣᵈˢ and b $\in \mathbb{R}$ᵈˢ.
+
+The least-squares problem is solved on training data:
+
+(W\textit{, b}) = $argmin_{W,b}$ ||Hₛ - (HₜW + b)||$^{2}_F$
+
+where Hₛ $\in \mathbb{R}$ⁿˣᵈˢ and Hₜ $\in \mathbb{R}$ⁿˣᵈᵗ are matrices of paired hidden states.
+
+Aligners are fit on the training split and applied to the validation split to prevent overfitting.
+
+\subsubsection{3.5 Implementation Details}
+
+\textbf{Models.} Instruction-tuned models from HuggingFace are used: Meta-Llama-3-8B-Instruct, Mistral-7B-Instruct-v0.2, Qwen2-7B-Instruct. All models run in float16.
+
+\textbf{Layer selection.} Hidden states are extracted from layer ⌊frac $\times$ n\_layers⌋ with frac = 2/3. This gives layer 21 for Llama/Mistral (32 layers) and layer 18 for Qwen (28 layers).
+
+\textbf{Reproducibility.} All experiments use seed 42 for train/val splits.

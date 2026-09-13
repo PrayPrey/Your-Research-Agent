@@ -1,0 +1,202 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-FILIA-v1
+**Confidence Level:** 0.85
+
+**Main Hypothesis:**
+Under heterogeneous federated PEFT settings with non-IID data distributions, if Fisher Information-weighted parameter-wise aggregation is applied instead of uniform averaging, then convergence speed will improve by 1.5-2x (measured in communication rounds to target accuracy) because parameters with higher Fisher Information values encode more task-relevant information and should receive proportionally higher aggregation weights.
+
+**Alternative Hypothesis (H0):**
+Fisher Information-weighted aggregation provides no statistically significant improvement in convergence speed or personalization quality compared to uniform averaging (FedAvg) in federated PEFT settings, i.e., the communication round reduction is ≤10% or p ≥ 0.05.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Aggregation weighting scheme | Independent | Binary: Fisher-weighted (FILIA) vs uniform (FedAvg baseline). Fisher weights computed as diagonal approximation F_k[i] = (1/n) Σ (∂L/∂θ_i)² with 8-bit quantization and EMA smoothing (α=0.9). | {FILIA, FedAvg, FedProx, FedPIA} |
+| Convergence speed | Dependent | Communication rounds required to reach target accuracy (e.g., 80% test accuracy). Measured across 5 random seeds with standard deviation reported. | 30-150 rounds |
+| Personalization quality | Dependent | Per-client test accuracy averaged across all clients. Higher variance indicates better personalization to local distributions. | 70-95% accuracy |
+| Model architecture | Controlled | Fixed LoRA rank (r=8 or 16), fixed base model (LLaMA-7B or RoBERTa), fixed adapter placement. | r ∈ {8, 16}, LLaMA-7B/RoBERTa |
+| FL configuration | Controlled | Fixed number of clients (N=10-100), fixed local epochs (E=3), fixed participation rate. | N=10-100, E=3 |
+| Data heterogeneity level | Controlled | Dirichlet distribution parameter α (0.1=high heterogeneity, 1.0=moderate, 10.0=IID). | α ∈ {0.1, 0.5, 1.0, 10.0} |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+[Local Fisher Computation]
+    → [Parameter Importance Scores]
+    → [Heterogeneity-Aware Aggregation Weights]
+    → [Improved Convergence + Personalization]
+```
+
+**Step 1: Local Fisher Computation → Parameter Importance Scores**
+- After local training, each client k computes diagonal Fisher Information F_k for adapter parameters
+- F_k[i] = E[(∂L/∂θ_i)²] ≈ (1/n) Σ (∂L/∂θ_i)² over local data
+- For LoRA: Only compute for A and B matrices (low-rank), enabling O(r²n) complexity
+
+**Step 2: Parameter Importance Scores → Heterogeneity-Aware Aggregation Weights**
+- Clients with higher Fisher values for specific parameters have more "informative" gradients
+- Server normalizes Fisher weights per layer to prevent client dominance
+
+**Step 3: Heterogeneity-Aware Aggregation Weights → Improved Convergence**
+- Weighted averaging: θ_global[i] = Σ_k (F_k[i] / Σ_j F_j[i]) × θ_k[i]
+- Prioritizes updates from clients with more relevant local data
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | FIPA (Chang et al., 2026) | Fisher Information provides principled parameter importance | Strong |
+| Step2 → Step3 | FedPIA (Saha et al., 2024) | Heterogeneity adversely impacts uniform aggregation | Strong |
+| Step3 → Outcome | FederatedScope-LLM (2023) | PEFT-FL achieves efficiency with <1% parameters | Strong |
+
+**Key Tension:**
+- **Tension:** FedPIA proposes Wasserstein barycenter aggregation (O(n³)) vs FILIA's simpler Fisher weighting (O(r²n))
+- **Resolution:** This verification plan tests whether simpler Fisher weighting achieves comparable benefits with lower overhead
+
+### 1.4 Key Assumptions
+
+1. **Diagonal Fisher approximation captures sufficient parameter importance information**
+   - Consequence if violated: Fisher weights become noisy, potentially worse than uniform averaging
+
+2. **Low-rank LoRA structure enables efficient Fisher computation**
+   - Consequence if violated: Computational overhead exceeds convergence benefits
+
+3. **Fisher estimates are sufficiently stable with EMA smoothing (α=0.9)**
+   - Consequence if violated: Unstable weights cause oscillation in aggregation
+
+4. **Communication overhead from quantized Fisher transmission (~2% increase) is acceptable**
+   - Consequence if violated: Communication benefits of PEFT are negated
+
+5. **Parameter importance varies significantly across layers and clients in heterogeneous settings**
+   - Consequence if violated: Fisher weighting degenerates to uniform averaging
+
+### 1.5 Scope & Boundaries
+
+**Where Hypothesis Applies:**
+- Federated fine-tuning of foundation models using PEFT methods (LoRA, Adapters)
+- Non-IID data distributions across clients (Dirichlet α < 1.0)
+- Settings with 10-100 clients and limited local data per client
+
+**Where Hypothesis Does NOT Apply:**
+- Federated pre-training; Full fine-tuning without PEFT
+- IID settings (α ≥ 10.0) where uniform averaging is near-optimal
+- Extremely small local datasets (<50 samples)
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Convergence Speed vs FedAvg baseline ~100 rounds):**
+FILIA will achieve target accuracy (80%) in ≤67 communication rounds, representing ≥33% reduction compared to FedAvg.
+
+*Measurement*: Communication rounds to 80% accuracy, p < 0.05, n ≥ 15 runs
+*Falsification*: Rounds >120 triggers rejection
+
+**Secondary Predictions:**
+
+**P2 (Heterogeneity Sensitivity):**
+- At α=0.1 (high heterogeneity): ≥40% round reduction
+- At α=1.0 (moderate): ≥20% round reduction
+
+**P3 (Layer-wise Importance Variation):**
+Fisher weights vary significantly across LoRA layers (CV >0.3)
+
+**Falsification Criteria:**
+
+The hypothesis will be **REJECTED** if any occur:
+1. **Primary Failure**: Rounds >120 (20% worse than baseline)
+2. **Mechanism Failure**: Fisher weights show no layer/client variation
+3. **Overhead Failure**: Total training time exceeds FedAvg by >20%
+4. **Comparative Failure**: FedPIA achieves faster convergence with equivalent compute
+
+### 1.7 SOTA Baseline
+
+| Method | Rounds to 80% | Year | Source |
+|--------|---------------|------|--------|
+| FedAvg | ~100 | 2017 | McMahan et al. |
+| FedProx | ~90 | 2020 | Li et al. |
+| FIPA | ~70 | 2026 | Chang et al. |
+
+**Target**: ≤67 rounds (new SOTA for federated PEFT)
+
+### 1.8 Statistical Verification Design
+
+**Sample Size**: n ≥ 15 runs per condition
+**Effect Size**: Cohen's d ~1.0 (large)
+**Test**: Paired t-test, α = 0.05 (one-tailed)
+**Report**: Mean ± SD, 95% CI, Cohen's d, p-value
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Does Fisher Information-weighted aggregation achieve faster convergence than uniform averaging in federated PEFT settings?"
+- Maps to: Primary prediction (P1)
+- Verification type: Empirical
+- Critical: MUST PASS for Phase 2B to proceed
+
+**SH2 (Mechanism):**
+"Is Fisher Information weighting the actual cause of improved convergence?"
+- Maps to: Causal mechanism (N=3 steps)
+- Phase 2B will decompose into 3 sub-hypotheses:
+  - H-M1: Local Fisher computation produces meaningful importance scores
+  - H-M2: Importance scores translate to heterogeneity-aware aggregation weights
+  - H-M3: Weighted aggregation reduces gradient conflict and improves convergence
+- Verification type: Causal analysis (ablation studies)
+
+**SH3 (Comparison):**
+"Does FILIA outperform FedPIA and other SOTA federated PEFT methods?"
+- Maps to: Secondary predictions (P2, P3)
+- Verification type: Comparative empirical
+
+### Readiness Checklist
+
+- [x] Hypothesis in "Under [C], if [X], then [Y] because [Z]" format
+- [x] Hypothesis ID assigned: H-FILIA-v1
+- [x] Confidence level: 0.85
+- [x] Alternative hypothesis (H0) defined
+- [x] All variables operationalized
+- [x] Causal mechanism with evidence (N=3 steps)
+- [x] Key tension identified and resolution proposed
+- [x] Key assumptions list consequences if violated
+- [x] Testable predictions with primary marked
+- [x] Falsification criteria defined
+- [x] Baselines identified: FedAvg, FedProx, FedPIA, FIPA
+- [x] SH1, SH2, SH3 clear starting points
+
+### Open Questions
+
+1. **Resource Requirements:** LLaMA-7B fine-tuning requires significant GPU memory; 100-client experiments may need simulation
+2. **Dataset Selection:** Medical VQA (FedPIA benchmark) vs standard NLP (GLUE)?
+3. **Hyperparameter Sensitivity:** How sensitive is FILIA to EMA α and clipping bounds?
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work (7 sources with full citations)
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow*
+*2026-02-12*

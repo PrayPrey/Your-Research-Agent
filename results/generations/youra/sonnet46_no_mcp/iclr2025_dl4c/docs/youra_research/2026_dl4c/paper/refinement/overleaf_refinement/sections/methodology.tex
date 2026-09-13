@@ -1,0 +1,85 @@
+
+\subsubsection{3.1 Experimental Design}
+
+The core experiment holds constant all factors except task granularity: same model, same GRPO hyperparameters, same training duration. The function-level condition uses binary execution reward on competitive programming problems; the repository-level condition uses partial credit reward on software engineering tasks. Advantage variance is measured at every training step.
+
+This design isolates the effect of reward sparsity on GRPO advantage variance. The function-level condition is expected to produce near-zero positive reward rates; the repository-level condition provides non-zero reward even for incomplete solutions through file-path overlap scoring.
+
+\subsubsection{3.2 Model}
+
+Both conditions use \textbf{CodeLlama-7b-Instruct-hf} [Rozière et al., 2023] (HuggingFace Hub: \texttt{codellama/CodeLlama-7b-Instruct-hf}) with no additional fine-tuning. The instruction-tuned variant is used to ensure the model can follow task formatting requirements. This is a 7B-class model with known near-zero solve rates on competitive programming problems at APPS difficulty.
+
+Note: CodeLlama-7b-Instruct was used for the H-M1 advantage variance experiment. The intended model for the full curriculum GRPO experiment (H-E1) is DeepSeek-Coder-7B-base; the behavioral results from that model were not obtained.
+
+\subsubsection{3.3 Datasets}
+
+\textbf{Function-level condition:}
+\begin{itemize}
+\item \textbf{APPS} \citep{Hendrycksetal2021}: \texttt{codeparrot/apps}, train split, 5,000 problems with difficulty tiers 0–4. Problems require writing self-contained Python programs with stdin/stdout test cases.
+\item \textbf{CodeContests} \citep{Lietal2022}: \texttt{deepmind/code_contests}, train split, 13,328 problems. Codeforces problems with public test cases.
+\end{itemize}
+
+\textbf{Repository-level condition:}
+\begin{itemize}
+\item \textbf{SWE-bench Verified} \citep{Jimenezetal2024}: \texttt{princeton-nlp/SWE-bench_Verified}, test split, 500 GitHub issues. Each task requires generating a unified diff patch resolving a real software engineering issue.
+\end{itemize}
+
+APPS and CodeContests use incompatible test case schemas (\texttt{input_output} string vs. \texttt{public_tests} dict). The implementation unifies these to a common 4-column format.
+
+\subsubsection{3.4 GRPO Configuration}
+
+Both conditions use identical hyperparameters:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+Hyperparameter & Value \\
+\midrule
+Group size G & 8 \\
+Batch size B & 4 prompts/step \\
+Training steps & 120 \\
+Temperature & 0.8 \\
+Max new tokens & 512 \\
+Framework & TRL 1.3.0 GRPOTrainer \\
+Hardware & NVIDIA H100 NVL \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{3.5 Reward Functions}
+
+\textbf{Function-level:} Binary execution reward. Each of G=8 completions is executed against the problem's test cases via subprocess (3-second timeout per test case). Reward = 1.0 if all test cases pass, 0.0 otherwise.
+
+\textbf{Repository-level:} Partial credit based on file-path overlap. The generated unified diff is parsed for modified file paths. Reward = fraction of gold patch file paths appearing in the generated patch.
+
+\subsubsection{3.6 Advantage Variance Measurement}
+
+At each training step t, the per-step GRPO advantage variance is recorded:
+
+$$\text{adv\_var}(t) = \text{Var}\left(\left\{ A_i^{(j)} : i \in [G], j \in [B] \right\}\right)$$
+
+where A_i^(j) = (r_i^(j) − mean(r^(j))) / std(r^(j)). For degenerate groups where std(r^(j)) = 0, advantages are set to 0.0. This is logged by the \texttt{RewardDensityCallback} at every step, aggregating across all B×G = 32 advantage values per step.
+
+\subsubsection{3.7 Statistical Analysis}
+
+Per-step advantage variance between the two conditions is compared using Welch's two-sample t-test on log-transformed variance values. Log transformation is applied because advantage variance is right-skewed and bounded below at zero. Welch's t-test is used over Student's t-test because the two conditions are expected to have substantially different variances.
+
+\begin{itemize}
+\item Null hypothesis H₀: Mean advantage variance is equal between conditions.
+\item Alternative hypothesis H₁: Mean advantage variance differs (two-tailed).
+\end{itemize}
+
+Effect size is reported as Cohen's d from log-transformed means and pooled standard deviation.
+
+\subsubsection{3.8 Curriculum GRPO Infrastructure}
+
+In parallel with the advantage variance experiment, training infrastructure for a 4-condition curriculum GRPO experiment is implemented and smoke-tested:
+
+\begin{itemize}
+\item \textbf{CurriculumDataset}: Wraps APPS+CodeContests with a \texttt{set_step()} interface that changes difficulty tier sampling at configurable step thresholds.
+\item \textbf{CurriculumCallback}: Triggers difficulty tier transitions at pre-specified steps (easy tiers 0–2 for steps 0–2500, hard tiers 3–4 for steps 2501–5000 in the curriculum condition).
+\item \textbf{RewardDensityCallback}: Logs per-step reward density and advantage variance to CSV files.
+\end{itemize}
+
+A 10-step smoke test verifies that all four conditions (curriculum, uniform, easy_only, hard_only) run without errors. Full 5000-step training was not executed.

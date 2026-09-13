@@ -1,0 +1,65 @@
+\section{Methodology}
+
+Our methodology tests whether gradient subspace accumulation can distinguish spurious from core feature directions. We design a measurement apparatus and document its requirements for valid operation.
+
+\subsection{Problem Formulation}
+
+Let $f_\theta: \mathcal{X} \to \mathcal{Y}$ be a neural network with parameters $\theta \in \mathbb{R}^d$. During training, the gradient $\nabla_\theta \mathcal{L}$ provides a $d$-dimensional direction of parameter change.
+
+\textbf{Hypothesis:} Under simplicity bias, early training gradients point predominantly toward spurious feature directions. Accumulating these gradients into a subspace $S$ via SVD should yield high alignment with spurious directions and low alignment with core directions.
+
+\textbf{Measurement goal:} Quantify alignment between gradient subspace $S$ and spurious/core feature directions.
+
+\subsection{Gradient Subspace Accumulation}
+
+We accumulate gradients during early training epochs and compute a principal subspace via SVD.
+
+\begin{algorithm}[h]
+\caption{Gradient Subspace Computation}
+\begin{algorithmic}[1]
+\REQUIRE Model $\theta$, epochs $T_{\text{acc}}$, rank $k$
+\ENSURE Subspace $S \in \mathbb{R}^{d \times k}$
+\STATE $G \leftarrow$ empty matrix
+\FOR{epoch $t = 1$ to $T_{\text{acc}}$}
+    \FOR{batch in dataloader}
+        \STATE compute loss $\mathcal{L}(\theta)$
+        \STATE $g_t \leftarrow \text{flatten}(\nabla_\theta \mathcal{L})$
+        \STATE append $g_t$ to $G$
+    \ENDFOR
+\ENDFOR
+\STATE $U, \Sigma, V^T \leftarrow \text{SVD}(G)$
+\STATE $S \leftarrow V_{:k}^T$
+\RETURN $S$
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Design rationale:} SVD captures principal components of gradient variation. If simplicity bias holds, spurious feature gradients should dominate early principal components.
+
+\textbf{Critical requirement identified:} The matrix $G$ must have sufficient rows (gradient samples) relative to parameter dimensionality $d$. With $d = 25 \times 10^6$ parameters and only 10 gradients (one per epoch), $\text{rank}(G) \leq 10$. The resulting subspace captures negligible variance.
+
+\subsection{Direction Computation}
+
+We define spurious and core directions via gradient differences across group-varying samples.
+
+\textbf{Spurious direction:} Average gradient when background changes while bird type remains constant:
+\begin{equation}
+\mathbf{v}_{\text{spur}} = \mathbb{E}_{(x_a, x_b) \in \mathcal{P}_{\text{spur}}} \left[ \nabla_\theta \mathcal{L}(x_a) - \nabla_\theta \mathcal{L}(x_b) \right]
+\end{equation}
+
+\textbf{Core direction:} Average gradient when bird type changes while background remains constant:
+\begin{equation}
+\mathbf{v}_{\text{core}} = \mathbb{E}_{(x_a, x_b) \in \mathcal{P}_{\text{core}}} \left[ \nabla_\theta \mathcal{L}(x_a) - \nabla_\theta \mathcal{L}(x_b) \right]
+\end{equation}
+
+\subsection{Alignment Measurement}
+
+Alignment measures the fraction of a direction's variance explained by the subspace:
+\begin{equation}
+\text{align}(S, \mathbf{v}) = \frac{\| S S^T \mathbf{v} \|_2}{\| \mathbf{v} \|_2}
+\end{equation}
+
+\textbf{Success criteria:}
+\begin{itemize}
+    \item $\text{align}(S, \mathbf{v}_{\text{spur}}) > 0.70$
+    \item $\text{align}(S, \mathbf{v}_{\text{core}}) < 0.30$
+\end{itemize}

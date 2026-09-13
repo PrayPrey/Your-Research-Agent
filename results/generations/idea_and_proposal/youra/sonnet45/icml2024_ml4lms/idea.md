@@ -1,0 +1,9 @@
+# CrossScaleBench: A Unified Benchmarking Framework for Multi-Scale Biological Machine Learning
+
+## Motivation
+
+Biology and chemistry ML research faces a critical evaluation gap: existing benchmarks (PubChemQCR, ProteinGym) evaluate molecular and protein scales independently, making it impossible to objectively compare multi-scale versus single-scale approaches. This fragmentation hinders progress in drug discovery and materials design, where understanding molecular→protein transitions is essential. Unlike computer vision and NLP, which were transformed by unified benchmarks (ImageNet, GLUE), biological ML lacks standardized evaluation for cross-scale consistency—the ability of models to maintain predictive accuracy across biological scales.
+
+## Main Idea
+
+We propose CrossScaleBench, the first framework treating cross-scale consistency as a first-class evaluation dimension. Our core hypothesis: implementing unified benchmarking with novel scale-transition metrics—Centered Kernel Alignment (CKA) for embedding alignment, Predictive Transfer Score (PTS) for accuracy retention, and End-to-End Consistency Score (EECS)—will reveal that naive multi-scale models show 20-40% performance drops at scale boundaries, while architectures with explicit transition mechanisms (like HoloProt's hierarchical encoding) achieve 15-25% better consistency. Using ChEMBL's molecular→protein linkage data, we'll validate metrics on 10K curated pairs, then deploy a multi-dimensional leaderboard enabling objective comparison. Expected impact: accelerate research efficiency through standardized evaluation, facilitate industry adoption via clear performance indicators, and answer the previously unanswerable question: "Does multi-scale integration provide measurable benefits over single-scale specialists?"

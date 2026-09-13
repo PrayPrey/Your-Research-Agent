@@ -1,0 +1,8 @@
+# Title
+Observational Unsupervised Environment Design for Post-Deployment LLM Adaptation (O-UED-VIS)
+
+# Motivation
+Deployed large language models face an endless stream of novel user challenges but lack mechanisms to continuously improve from real-world interactions. Current approaches either require expensive human feedback (95%+ annotation costs) or suffer from noisy implicit signals that can degrade performance. This creates a critical gap: how can deployed LLMs sustain open-ended learning without simulation environments or prohibitive labeling costs? We address this by adapting Unsupervised Environment Design—previously limited to controlled RL simulations—to passive, observation-based settings where models learn from deployment interactions.
+
+# Main Idea
+We hypothesize that LLMs achieve sustained frontier performance improvement (+15-25%) while maintaining mastery stability (≤5% degradation) through three mechanisms: **(1) Validated Frontier Detection**: Calibrating implicit signals (user reformulations, abandonment, sentiment) with minimal explicit feedback (1-5%) to reliably identify capability frontiers (≥0.7 correlation); **(2) Transfer-Validated Synthetic Curricula**: Generating targeted training examples that transfer to real frontier tasks (≥10% held-out improvement); **(3) Continual Learning with Forgetting Prevention**: Mixed training (70% synthetic frontier, 30% replay buffer) with knowledge distillation regularization. We test against three baselines (all-logs training, explicit-only feedback, no adaptation) measuring cost-efficiency (4-5x improvement expected) across conversational AI, coding assistants, and customer service domains over 6-week deployments.

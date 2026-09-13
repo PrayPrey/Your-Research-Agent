@@ -1,0 +1,246 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  date: "2026-08-05"
+  phase3_source: docs/youra_research/h-e1/03_architecture.md
+
+budget_summary:
+  epic_tasks: 4
+  subtasks: 3
+  total: 7
+  max_allowed: 15
+  within_budget: true
+
+tasks:
+  # ── Priority 94: Environment Setup ───────────────────────────────────────
+  - id: "SETUP-1"
+    type: setup
+    title: "Install Python dependencies"
+    priority: 94
+    description: >
+      Create and install requirements.txt for the h-e1 experiment.
+      No data download needed — corpus CSV already cached.
+    acceptance_criteria:
+      - requirements.txt present at docs/youra_research/h-e1/code/requirements.txt
+      - All packages install without error (statsmodels, numpy, pandas, scipy, matplotlib, patsy, pyarrow)
+      - "python -c 'import statsmodels, pandas, numpy, scipy, matplotlib, patsy'" succeeds
+    reference_files:
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "9. Dependencies"
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "## Requirements"
+    dependencies: []
+
+  # ── Priority 93–80: Epic Implementation Tasks ────────────────────────────
+  - id: "E1"
+    type: data-pipeline
+    title: "Preprocessing Pipeline"
+    priority: 93
+    complexity: 7
+    complexity_level: Low
+    description: >
+      Implement 01_preprocess.py. Load corpus CSV (N=5,217), derive all
+      features (has_tags, tag_count, log_n_instances, log_n_features,
+      age_years, age_sq, decade), validate data quality, check
+      decade-has_tags correlation (RC-3 risk pre-check), save preprocessed.parquet.
+    acceptance_criteria:
+      - Loads h-e1/code/data/h_e1/openml_dataset_corpus.csv; asserts N=5,217
+      - All derived columns present (has_tags, tag_count, log_n_instances, log_n_features, age_years, age_sq, decade)
+      - No NaN in key columns; has_tags has both 0 and 1 values
+      - Decade-has_tags mean rates printed to stdout
+      - Output saved to docs/youra_research/h-e1/results/preprocessed.parquet
+    reference_files:
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### Script 01 — Preprocess"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "### FR-01: Data Loading from Cache"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "### FR-02: Feature Engineering"
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "## Path Configuration"
+    dependencies:
+      - SETUP-1
+
+  - id: "E2"
+    type: model
+    title: "Model Fitting Suite"
+    priority: 85
+    complexity: 12
+    complexity_level: Medium
+    description: >
+      Implement 02_fit_models.py. Cameron-Trivedi LR overdispersion test,
+      baseline NB-2 (controls-only), proposed NB-2 (has_tags + controls),
+      RC-4 winsorized, RC-5 tagged-only, RC-7 age vs decade comparison.
+      Serialize all results to model_results.json.
+    acceptance_criteria:
+      - CT LR test runs and reports NB-2 appropriateness (expect LR >> 3.84)
+      - Baseline NB-2 converges with BFGS maxiter=100
+      - Proposed NB-2 converges; IRR/CI/pval extracted for has_tags
+      - RC-4 winsorizes N_tasks at 99th pct; reports n_winsorized
+      - RC-5 restricts to tag_count>=1; reports n_subset
+      - RC-7 fits both with/without C(decade); computes attenuation_ratio
+      - model_results.json written with all expected keys
+    reference_files:
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### Script 02 — Fit Models"
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "## API Signatures"
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "## Pseudo-code"
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "## JSON Output Schema"
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "## Model Configuration"
+      - file: docs/youra_research/h-e1/02c_experiment_brief.md
+        section: "### Models"
+    dependencies:
+      - E1
+
+  - id: "E3"
+    type: evaluation
+    title: "Figure Generation"
+    priority: 75
+    complexity: 9
+    complexity_level: Medium
+    description: >
+      Implement 03_generate_figures.py. Generate all 5 required figures
+      saved as PNG at 300 DPI to docs/youra_research/h-e1/figures/.
+      Fig 1 (mandatory gate metrics), Fig 2 (forest plot), Fig 3 (decade
+      adoption), Fig 4 (RC comparison), Fig 5 (obs vs pred scatter).
+    acceptance_criteria:
+      - figures/ directory created if not exists
+      - Fig 1 (fig1_gate_metrics.png) — IRR bar + 95% CI error bars + threshold hline at 1.1
+      - Fig 2 (fig2_forest_plot.png) — all covariates IRR + CI from proposed model
+      - Fig 3 (fig3_decade_adoption.png) — mean has_tags rate per decade
+      - Fig 4 (fig4_rc_comparison.png) — IRR across primary/RC-4/RC-5/RC-7 + threshold
+      - Fig 5 (fig5_obs_vs_pred.png) — log-scale scatter observed vs predicted N_tasks
+      - All at 300 DPI PNG using shared config constants
+    reference_files:
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### Script 03 — Generate Figures"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "### FR-08: Figure Generation"
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "## Figure Configuration"
+      - file: docs/youra_research/h-e1/02c_experiment_brief.md
+        section: "### Visualization Requirements"
+    dependencies:
+      - E2
+
+  - id: "E4"
+    type: evaluation
+    title: "Gate Evaluation"
+    priority: 65
+    complexity: 5
+    complexity_level: Low
+    description: >
+      Implement 04_evaluate_gate.py. Load model_results.json, apply gate
+      logic (PASS/PARTIAL_PASS/FAIL), write primary_results.json, print
+      clear verdict to stdout.
+    acceptance_criteria:
+      - Loads model_results.json; extracts proposed model has_tags stats
+      - PASS if IRR>=1.1 AND CI_lower>=1.1 AND p<0.05
+      - PARTIAL_PASS if 1.05<=CI_lower<1.1 AND p<0.05
+      - FAIL otherwise
+      - primary_results.json contains gate_result, irr, ci_lower, ci_upper, pval
+      - Clear PASS/PARTIAL_PASS/FAIL printed to stdout with all key stats
+    reference_files:
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "### Script 04 — Evaluate Gate"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "### FR-09: Gate Evaluation and Results Export"
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "## Model Configuration"
+    dependencies:
+      - E2
+
+  # ── Priority 49–2: Subtasks ──────────────────────────────────────────────
+  - id: "L-E2-1"
+    type: subtask
+    title: "NB-2 Core Fitting Functions"
+    priority: 45
+    parent_epic: E2
+    parent_complexity: 12
+    description: >
+      Implement ct_lr_test, fit_nb2, extract_has_tags_stats in 02_fit_models.py.
+      Core functions used by all downstream RC variants.
+    acceptance_criteria:
+      - ct_lr_test returns dict with lr_stat, p_value, nb2_appropriate
+      - fit_nb2 handles BFGS failure with Nelder-Mead fallback
+      - extract_has_tags_stats applies np.exp() to log-scale params and conf_int correctly
+      - All functions return JSON-serializable dicts (no statsmodels objects)
+    reference_files:
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "### L-E2-1: NB-2 Core Fitting Functions"
+    dependencies:
+      - E1
+
+  - id: "L-E2-2"
+    type: subtask
+    title: "Robustness Check Functions"
+    priority: 40
+    parent_epic: E2
+    parent_complexity: 12
+    description: >
+      Implement rc4_winsorized, rc5_tagged_only, rc7_age_vs_decade, and main()
+      in 02_fit_models.py. RC functions reuse fit_nb2 and extract_has_tags_stats.
+    acceptance_criteria:
+      - RC-4 clips N_tasks at 99th pct; reports n_winsorized
+      - RC-5 restricts to tag_count>=1; reports n_subset
+      - RC-7 fits both with-decade and without-decade; computes attenuation_ratio
+      - main() runs all 7 model fits in correct order; serializes complete JSON
+      - model_results.json is valid JSON with all expected keys
+    reference_files:
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "### L-E2-2: Robustness Check Functions"
+    dependencies:
+      - L-E2-1
+
+  - id: "C-E3-1"
+    type: subtask
+    title: "Figure Configuration and Layout"
+    priority: 35
+    parent_epic: E3
+    parent_complexity: 9
+    description: >
+      Implement figure configuration constants at top of 03_generate_figures.py
+      and wire each figN function to save using shared constants. All 5 figure
+      functions use shared constants; no hardcoded values inside function bodies.
+    acceptance_criteria:
+      - FIGURES_DIR created with os.makedirs(exist_ok=True) before first save
+      - All 5 figures saved as PNG at 300 DPI using FIGURE_DPI constant
+      - Threshold lines in Fig 1 and Fig 4 use GATE_IRR_MIN=1.1 (not hardcoded)
+      - Color constants used consistently across all figures
+      - Script runs end-to-end from JSON + parquet to 5 PNG files
+    reference_files:
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "## Figure Configuration"
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "### Subtask C-E3-1"
+    dependencies:
+      - E2
+
+  # ── Priority 1: Failsafe ─────────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    type: checkpoint
+    title: "Pipeline continuation checkpoint"
+    priority: 1
+    description: >
+      Final checkpoint: verify all 4 scripts run end-to-end and
+      primary_results.json contains a gate_result field. This task
+      marks Phase 4 completion readiness.
+    acceptance_criteria:
+      - 01_preprocess.py runs without error; preprocessed.parquet exists
+      - 02_fit_models.py runs without error; model_results.json exists
+      - 03_generate_figures.py runs without error; all 5 PNGs exist in figures/
+      - 04_evaluate_gate.py runs without error; primary_results.json exists with gate_result field
+    reference_files:
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "8. Success Criteria"
+    dependencies:
+      - E3
+      - E4

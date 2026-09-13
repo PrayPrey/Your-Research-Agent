@@ -1,0 +1,92 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Building on our observation that curation parameters can be treated as continuous variables with measurable dose-response relationships, we design a controlled experimental framework that isolates individual parameters while holding all other factors constant.
+
+\subsection{Experimental Design Overview}
+
+Our core methodology follows the fixed-token experimental design: for each curation parameter under study, we train models on identical token budgets, architectures, and hyperparameters, varying only the parameter of interest. This controls for confounds that plague pipeline comparisons where multiple factors change simultaneously.
+
+\textbf{Rationale:} Without fixed-token design, observed performance differences could stem from training duration, model capacity, or optimization dynamics rather than data quality. By equalizing these factors, we isolate the curation signal.
+
+\paragraph{Independent Variables}
+We study two primary curation parameters:
+\begin{enumerate}
+    \item \textbf{Perplexity Threshold:} KenLM 5-gram perplexity percentile cutoff (trained on Wikipedia reference corpus). Levels: none (p0), p10, p20, p30, p40, p50, p60, p70, p80, p90.
+    \item \textbf{Deduplication Stringency:} MinHash/exact deduplication configuration. Levels: none, fuzzy\_0.7, fuzzy\_0.85, exact, exact\_plus\_fuzzy.
+\end{enumerate}
+
+\paragraph{Dependent Variables}
+\textbf{Primary:} Benchmark ensemble score computed as the first principal component (PC1) of accuracy scores across HellaSwag, ARC-Easy, PIQA, and WinoGrande. This ensemble reduces noise from individual benchmark variance.
+
+\textbf{Secondary:} Individual benchmark scores, training loss curves, convergence metrics.
+
+\paragraph{Controlled Variables}
+\begin{itemize}
+    \item Training token budget: 10B tokens per configuration (reduced to 5M--10M for PoC validation)
+    \item Model architecture: GPT-2 (125M, 350M, 1B variants)
+    \item Training hyperparameters: learning rate $6 \times 10^{-4}$, batch size 512, warmup 2000 steps
+    \item Evaluation protocol: lm-eval-harness with contamination verification
+    \item Random seeds: 3 seeds per configuration for variance estimation
+\end{itemize}
+
+\subsection{Dose-Response Analysis}
+
+\paragraph{Polynomial Regression}
+To characterize dose-response relationships, we fit polynomial models of increasing order and select using information criteria:
+\begin{equation}
+y = \beta_0 + \beta_1 x + \beta_2 x^2 + \cdots + \beta_k x^k + \epsilon
+\end{equation}
+
+Model selection uses AIC/BIC comparison:
+\begin{itemize}
+    \item If quadratic ($k=2$) significantly outperforms linear ($k=1$): evidence for non-monotonic relationship
+    \item If quadratic shows interior peak: optimal threshold exists within parameter range
+\end{itemize}
+
+\textbf{Rationale:} Linear models capture monotonic relationships (``stricter is always better'' or ``stricter is always worse''). Selection of higher-order models with interior extrema indicates the quality-diversity tradeoff we hypothesize.
+
+\paragraph{Peak Identification}
+For quadratic models $y = \beta_0 + \beta_1 x + \beta_2 x^2$, the optimal threshold is:
+\begin{equation}
+x^* = -\frac{\beta_1}{2\beta_2}
+\end{equation}
+
+We compute 95\% confidence intervals via bootstrap resampling (1000 iterations), reporting both point estimate and interval bounds.
+
+\subsection{Mechanism Verification}
+
+Beyond existence of dose-response relationships, we test the underlying mechanism: noise dilution at low thresholds versus diversity loss at high thresholds.
+
+\paragraph{Convergence Dynamics Analysis}
+We track training loss curves $L(t)$ across filtering levels and compute:
+\begin{enumerate}
+    \item \textbf{Convergence AUC:} Area under the loss curve, capturing total training cost. Higher AUC indicates slower/worse convergence.
+    \item \textbf{Steps to Threshold:} Number of steps to reach target loss value, measuring convergence speed.
+\end{enumerate}
+
+\textbf{Prediction:} If noise dilutes learning signal, unfiltered training (p0) should show higher AUC than moderate filtering (p50). If over-filtering removes useful diversity, strict filtering (p90) should converge quickly but plateau at higher final loss.
+
+\subsection{Scale Transfer Analysis}
+
+To test whether optimal parameters transfer across model scales, we:
+\begin{enumerate}
+    \item Identify optimal threshold at 125M scale from full sweep
+    \item Run targeted validation at 1B scale with optimal threshold $\pm$ neighboring levels
+    \item Compare relative improvement over RedPajama defaults at both scales
+    \item Compute transfer ratio: (improvement at 1B) / (improvement at 125M)
+\end{enumerate}
+
+\textbf{Success criterion:} Transfer ratio $> 0.80$ indicates optima are scale-stable within 20\%.
+
+\subsection{Implementation}
+
+All experiments use the following pipeline:
+\begin{enumerate}
+    \item \textbf{Data preparation:} RedPajama-v2 filtered at each threshold level using KenLM scoring
+    \item \textbf{Training:} HuggingFace Transformers with standard GPT-2 configuration
+    \item \textbf{Evaluation:} lm-eval-harness benchmark suite with Min-K\%++ contamination verification
+    \item \textbf{Analysis:} Custom polynomial regression and convergence analysis toolkit
+\end{enumerate}
+
+Figure~\ref{fig:loss_curves} shows representative loss curves across filtering levels, illustrating the convergence dynamics that enable mechanism verification.

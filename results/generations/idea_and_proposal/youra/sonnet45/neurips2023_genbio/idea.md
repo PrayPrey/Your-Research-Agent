@@ -1,0 +1,8 @@
+# Title
+BioFidelity: Multi-Fidelity Active Learning Framework for Constraint-Integrated Biological Design
+
+# Motivation
+Current generative AI models for biomolecule design suffer from 70-90% wet-lab failure rates when multiple biological constraints (stability, binding affinity, toxicity) must be simultaneously satisfied. Existing methods either apply post-hoc filtering after generation or optimize single constraints, failing to integrate multi-objective optimization during the generative process. This AI-to-experiment translation gap wastes resources and delays therapeutic discovery. By transferring aerospace multi-fidelity optimization and materials science active learning paradigms to biology, we can systematically reduce experimental failures while maintaining molecular novelty.
+
+# Main Idea
+BioFidelity integrates SE(3)-equivariant neural networks to predict biological constraints (stability ΔΔG, binding affinity Kd) with >85% accuracy, then uses differentiable Pareto-optimal gradient guidance to steer diffusion models toward constraint-satisfying molecules during generation—not after. The framework employs lightweight surrogate predictors (10-100× faster) during diffusion steps, reserving expensive full evaluations for final candidates. An uncertainty-aware active learning loop selects high-utility, high-uncertainty molecules for experimental validation (thermal shift assays, surface plasmon resonance), then retrains predictors with ground-truth data over 5-8 iterations. This closed-loop system targets >60% wet-lab success rates (versus 20-40% baselines) across 50-80 molecules, achieving 2× failure reduction and 3-5× therapeutic discovery acceleration while preserving >80% molecular novelty.

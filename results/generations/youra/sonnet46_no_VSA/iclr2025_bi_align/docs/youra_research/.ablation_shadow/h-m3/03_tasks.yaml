@@ -1,0 +1,271 @@
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 12
+  failsafe: 1
+  subtasks: 10
+  tier_max: 30
+  total: 24
+  within_budget: true
+metadata:
+  base_hypothesis: h-m2
+  generated_at: '2026-07-30T08:20:00Z'
+  hypothesis_id: h-m3
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+tasks:
+- acceptance_criteria:
+  - All packages importable without error
+  - pingouin.partial_corr callable
+  - scipy.stats.binomtest callable
+  description: 'Install/verify Python packages: pingouin>=0.5.0, scipy>=1.8.0, numpy>=1.21,
+    pandas>=1.3, matplotlib>=3.5, rapidfuzz>=2.0'
+  id: ENV-1
+  priority: 94
+  reference_files:
+  - h-m3/03_prd.md#71-python-packages
+  title: Environment Setup
+  type: setup
+- acceptance_criteria:
+  - ExperimentConfig instantiates with all defaults
+  - results/ and figures/h-m3/ created via makedirs
+  - load_config() returns ExperimentConfig instance
+  complexity: 5
+  description: Implement ExperimentConfig dataclass in config.py. Create results/
+    and figures/h-m3/ directories. Implement load_config().
+  id: A-1
+  priority: 93
+  reference_files:
+  - h-m3/03_architecture.md#config-codeconfigpy
+  - h-m3/03_config.md#full-experimentconfig-h-m3
+  title: Config + Scaffolding
+  type: implementation
+- acceptance_criteria:
+  - Raises RuntimeError with message if h_m2_results.json missing
+  - Raises RuntimeError if any required key absent
+  - Raises AssertionError if ci_partial[0] >= ci_partial[1]
+  - Returns validated dict on success
+  complexity: 6
+  description: 'Implement load_h_m2_results(cfg) in data_loader.py. Validate required
+    keys: partial_rho, ci_partial, raw_rho, ci_raw, N. Assert ci_partial[0] < ci_partial[1].'
+  id: A-2
+  priority: 92
+  reference_files:
+  - h-m3/03_architecture.md#dataloader-codedata_loaderpy
+  - h-m3/03_prd.md#41-primary-dataset-tier-1----auto-load-from-h-m2
+  title: Data Loader Tier 1
+  type: data-pipeline
+- acceptance_criteria:
+  - load_harmbench_data() returns dict of 33 model->harm_rate entries without file
+    I/O
+  - fuzzy_join returns inner-joined DataFrame using rapidfuzz token_sort_ratio
+  - load_tier3_delta_bbq returns np.ndarray of DELTA_BBQ values
+  - 'load_tier1_dataframe replicates H-M2 load_data column names: model_name, TruthfulQA_MC2,
+    bbq_accuracy, MMLU, family'
+  complexity: 8
+  description: Implement load_harmbench_data() (hardcoded dict, no I/O), load_tier3_delta_bbq(cfg),
+    load_tier1_dataframe(cfg), fuzzy_join(df, harmbench_df, threshold).
+  id: A-3
+  priority: 91
+  reference_files:
+  - h-m3/03_architecture.md#dataloader-codedata_loaderpy
+  - h-m3/03_config.md#a-3-dataloader-tier-23-complexity-8-budget-1
+  - h-m3/03_prd.md#42-secondary-dataset-tier-2----harmbench
+  subtasks:
+  - description: n_min_harmbench=20, fuzzy_threshold=75, h_m1_pairs_csv path in ExperimentConfig.
+      HarmBench dict is module-level constant.
+    id: C-3-1
+    title: DataLoader config
+  title: Data Loader Tier 2 + 3
+  type: data-pipeline
+- acceptance_criteria:
+  - assign_scenario returns scenario in {a, b, c, ambiguous}
+  - ambiguous returned when |partial_rho| in (-0.20, 0.40) or CI spans 0 and 0.40
+  - ValueError raised for invalid inputs (ci_lo >= ci_hi, rho out of range)
+  - verify_mechanism_activated returns (True, all-True dict) for valid results
+  complexity: 9
+  description: Core scenario classification function and mechanism verification. Grey-zone
+    check runs before named scenarios.
+  id: A-4
+  priority: 90
+  reference_files:
+  - h-m3/03_logic.md#a-4-assign_scenario--verify_mechanism_activated-complexity-9-budget-2
+  - h-m3/03_architecture.md#analyze-codeanalyzepy
+  subtasks:
+  - description: Ambiguity via grey_zone OR ci_spans_zero_and_b. Named scenarios (a/b/c)
+      only when not ambiguous. Fallback unreachable but present.
+    id: L-4-1
+    title: assign_scenario() full implementation
+  - description: '4-indicator dict: h_m2_loaded, scenario_assigned, ci_bounds_valid,
+      narrative_generated. Stdout logging. No exceptions raised.'
+    id: L-4-2
+    title: verify_mechanism_activated() + integration test
+  title: assign_scenario + verify_mechanism_activated
+  type: model
+- acceptance_criteria:
+  - 'Returns {tier2_status: SKIPPED, N_harmbench: int} when N < 20'
+  - Returns full dict with scenario_tqa_harm and scenario_bbq_harm when N >= 20
+  - Raises RuntimeError if df_tier1 missing required columns
+  - N_harm < 4 guard prevents pingouin NaN output
+  complexity: 10
+  description: 'tier2_analysis(): fuzzy join Tier1 with HarmBench, N-gate (< 20 →
+    SKIPPED), partial Spearman for TruthfulQA×HarmBench and BBQ×HarmBench via pingouin.'
+  id: A-5
+  priority: 89
+  reference_files:
+  - h-m3/03_logic.md#a-5-tier-2-analysis-complexity-10-budget-2
+  - h-m3/03_architecture.md#analyze-codeanalyzepy
+  subtasks:
+  - description: Column validation, fuzzy_join call, N_harm count, N-gate check, pingouin.partial_corr
+      for both pairs.
+    id: L-5-1
+    title: tier2_analysis() core
+  - description: assign_scenario() on rho_tqa and rho_bbq. Build and return full tier2
+      results dict with all keys.
+    id: L-5-2
+    title: Tier 2 scenario assignment + results packaging
+  title: Tier 2 Analysis
+  type: training
+- acceptance_criteria:
+  - Uses scipy.stats.binomtest(k=k_positive, n=len(delta_bbq), p=0.5, alternative='two-sided')
+  - direction is 'positive' / 'negative' / 'null' based on p<0.05 and k/n comparison
+  - Returns dict with k_positive, n, p_value, direction
+  complexity: 5
+  description: 'tier3_analysis(delta_bbq): scipy.stats.binomtest on sign(ΔBBQ > 0)
+    for 321 pairs. Return k_positive, n, p_value, direction.'
+  id: A-6
+  priority: 88
+  reference_files:
+  - h-m3/03_architecture.md#analyze-codeanalyzepy
+  - h-m3/03_prd.md#fr-5-tier-3-analysis-optional
+  title: Tier 3 Analysis
+  type: evaluation
+- acceptance_criteria:
+  - 'ablation_ci_method returns {scenario, matches_primary: bool}'
+  - 'ablation_boundary returns {tight: {scenario}, wide: {scenario}}'
+  - 'Boundary validation: tight_a < scenario_a_bound < wide_a holds'
+  complexity: 8
+  description: 'ablation_ci_method(): re-assign scenario using Fisher parametric CI
+    from pingouin. ablation_boundary(): tight and wide boundary variants.'
+  id: A-7
+  priority: 87
+  reference_files:
+  - h-m3/03_architecture.md#analyze-codeanalyzepy
+  - h-m3/03_config.md#a-7-ablation-studies-complexity-8-budget-1
+  subtasks:
+  - description: tight_a/b/c and wide_a/b/c fields in ExperimentConfig. CI method
+      switch at call-site (no config flag).
+    id: C-7-1
+    title: Ablation variant config
+  title: Ablation Studies
+  type: evaluation
+- acceptance_criteria:
+  - Returns absolute path to saved PNG
+  - CI band uses fill_betweenx (not arrow)
+  - Boundary lines at -0.20, +0.20, +0.40
+  - Annotation box color differs per scenario (a=blue, b=green, c=red, ambiguous=yellow)
+  complexity: 9
+  description: 'plot_scenario_panel(): horizontal number line with fill_betweenx CI
+    band, diamond marker, boundary vlines at ±0.20 and +0.40, scenario annotation
+    box.'
+  id: A-8
+  priority: 86
+  reference_files:
+  - h-m3/03_logic.md#a-8-fig1-scenario-panel-complexity-9-budget-2
+  - h-m3/03_prd.md#fr-7-visualization-mandatory
+  subtasks:
+  - description: ax setup xlim(-0.75,0.75), axhline, fill_betweenx CI band, diamond
+      marker at partial_rho, xticks at boundary values.
+    id: L-8-1
+    title: Number line + CI band rendering
+  - description: 3 boundary vlines with labels, region text for a/b/c, scenario annotation
+      box with color coding, savefig to figures_dir.
+    id: L-8-2
+    title: Boundary annotations + save
+  title: Fig1 Scenario Panel
+  type: evaluation
+- acceptance_criteria:
+  - Returns None (not raises) when tier2_status == SKIPPED
+  - Uses cfg.heatmap_cmap, vmin, vmax from ExperimentConfig
+  - Cell annotations show rho value formatted per cfg.heatmap_annot_fmt
+  - Saves to figures_dir/fig2_heatmap.png
+  complexity: 8
+  description: 'plot_partial_corr_heatmap(): heatmap of all {TruthfulQA, BBQ, HarmBench}
+    partial Spearman pairs. Returns None if Tier 2 SKIPPED.'
+  id: A-9
+  priority: 85
+  reference_files:
+  - h-m3/03_architecture.md#visualize-codevisualizepy
+  - h-m3/03_config.md#a-9-fig2-heatmap-complexity-8-budget-1
+  subtasks:
+  - description: heatmap_cmap=RdBu_r, vmin=-1, vmax=1, annot_fmt=.2f, fig_size=(6,5)
+      in ExperimentConfig.
+    id: C-9-1
+    title: Heatmap plot config
+  title: Fig2 Pairwise Partial Correlation Heatmap
+  type: evaluation
+- acceptance_criteria:
+  - 'Two bars: raw_rho and partial_rho with BCa CI error bars'
+  - Horizontal lines at scenario boundaries overlaid
+  - Saves to figures_dir/fig3_raw_vs_partial.png
+  complexity: 7
+  description: 'plot_raw_vs_partial(): bar chart of raw_rho vs partial_rho with BCa
+    CI error bars and scenario boundary overlay. Extends H-M2 Fig1 pattern.'
+  id: A-10
+  priority: 84
+  reference_files:
+  - h-m3/03_architecture.md#visualize-codevisualizepy
+  - h-m3/03_prd.md#fr-7-visualization-mandatory
+  title: Fig3 Raw vs Partial Comparison
+  type: evaluation
+- acceptance_criteria:
+  - Returns None when tier3 results absent
+  - Vertical dashed line at ΔBBQ=0
+  - 'Annotation: k_positive/n and p_value from binomtest'
+  - Saves to figures_dir/fig4_delta_bbq.png
+  complexity: 6
+  description: 'plot_delta_bbq_histogram(): histogram of 321 ΔBBQ values with vertical
+    line at 0, binomtest p-value annotation. Returns None if Tier 3 not executed.'
+  id: A-11
+  priority: 83
+  reference_files:
+  - h-m3/03_architecture.md#visualize-codevisualizepy
+  - h-m3/03_prd.md#fr-7-visualization-mandatory
+  title: Fig4 ΔBBQ Histogram
+  type: evaluation
+- acceptance_criteria:
+  - h_m3_results.json saved to cfg.results_dir with all REQUIRED_OUTPUT_KEYS
+  - RuntimeError raised if any required key missing from results dict
+  - gate_passed=True when scenario in {a,b,c,ambiguous} and no exception
+  - gate_passed=False only on code execution error
+  - main() prints gate status to stdout
+  complexity: 8
+  description: 'Implement run() and main(). Orchestrate: load H-M2 results → assign_scenario
+    → Tier2 → Tier3 → ablations → verify → plot x4 → save h_m3_results.json.'
+  id: A-12
+  priority: 82
+  reference_files:
+  - h-m3/03_architecture.md#main-codemapy
+  - h-m3/03_config.md#a-12-mainpy--serialization-complexity-8-budget-1
+  - h-m3/03_logic.md
+  subtasks:
+  - description: REQUIRED_OUTPUT_KEYS tuple as module constant. results_dir/figures_dir
+      created before write. All keys validated before JSON dump.
+    id: C-12-1
+    title: Output schema config
+  title: main.py + Serialization
+  type: implementation
+- acceptance_criteria:
+  - h_m3_results.json exists in results/
+  - results['scenario'] in {a, b, c, ambiguous}
+  - results['gate_passed'] is True
+  description: 'Verify h_m3_results.json exists and contains scenario key. Gate: SHOULD_WORK
+    — any scenario (including ambiguous) passes.'
+  id: FAILSAFE-1
+  priority: 1
+  reference_files:
+  - h-m3/03_prd.md#8-success-criteria
+  title: Pipeline Continuation Checkpoint
+  type: failsafe
+version: '1.0'

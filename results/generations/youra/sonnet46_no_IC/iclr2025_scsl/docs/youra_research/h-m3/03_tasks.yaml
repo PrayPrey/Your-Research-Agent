@@ -1,0 +1,362 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m3
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-08-05T18:45:00Z"
+  base_hypothesis: h-m2
+  checkpoint_path: /home/PrayPrey/YouRA_no_IC_sonnet46/TEST_scsl/docs/youra_research/_archive/20260805T130336_routing_recovery/h-e1/checkpoints
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 8
+  subtasks: 4
+  failsafe: 1
+  total: 14
+
+tasks:
+  # ── Environment Setup ────────────────────────────────────────────────────────
+  - id: S-0
+    type: setup
+    title: "Verify environment and dependencies"
+    description: |
+      Verify all required packages are installed: torch, torchvision, wilds, sklearn, scipy,
+      numpy, matplotlib. Verify checkpoint paths and WILDS cache exist. Create h-m3/code/ and
+      h-m3/figures/ directories.
+    priority: 94
+    complexity: null
+    reference_files:
+      - path: h-m3/03_prd.md
+        section: "8.1 Python Packages"
+      - path: h-m3/03_prd.md
+        section: "8.3 Pre-conditions"
+    acceptance_criteria:
+      - "python -c 'import torch, torchvision, wilds, sklearn, scipy, numpy, matplotlib' exits 0"
+      - "Checkpoint dir exists with erm_seed{1,2,3}.pt and groupdro_seed{1,2,3}.pt and sam_seed{1,2,3}.pt"
+      - "WILDS cache dir exists: /home/PrayPrey/.wilds_cache/waterbirds_v1.0"
+      - "h-m3/code/ and h-m3/figures/ directories created"
+
+  # ── Epic Implementation Tasks ────────────────────────────────────────────────
+  - id: A-1
+    type: implementation
+    title: "Write config.py with H-M3 constants"
+    description: |
+      Create h-m3/code/config.py with all experiment constants. Delta from H-M2:
+      - METHODS = ["erm", "groupdro", "sam"] (drop dfr)
+      - PRIMARY_METHODS = ["erm", "groupdro"] (paired t-test gate only)
+      - BATCH_SIZE = 100
+      - Remove FR-1/FR-2 fields (LAYER4_BLOCKS, WEIGHT_DIFF_EPSILON, PAIRED_METHODS,
+        N_GRAD_BATCHES, GRAD_BATCH_SIZE, GRAD_LOSS_TYPES, N_GROUPS)
+      - Add verdict threshold constants (VERDICT_CONFIRMED_P=0.05, VERDICT_CONFIRMED_D=0.0,
+        VERDICT_SUGGESTIVE_P=0.10, VERDICT_SUGGESTIVE_D=0.5)
+      Transform (Resize(256)+CenterCrop(224)) lives in run_experiment.py, not config.
+    priority: 93
+    complexity: 5
+    reference_files:
+      - path: h-m3/03_config.md
+        section: "config.py (Full Content)"
+      - path: h-m3/03_architecture.md
+        section: "Config (h-m3/code/config.py)"
+    acceptance_criteria:
+      - "config.py importable with no errors"
+      - "METHODS == ['erm', 'groupdro', 'sam']"
+      - "PROBE_C == 1e9, PROBE_SOLVER == 'lbfgs'"
+      - "PROBE_N_TEST_SAMPLES == 5794"
+
+  - id: A-2
+    type: implementation
+    title: "Implement data loading: get_transform and get_loader"
+    description: |
+      Implement get_transform() and get_loader() in run_experiment.py.
+      CRITICAL transform change from H-M2: use Resize(256) + CenterCrop(224),
+      NOT Resize((224,224)). get_loader uses wilds.get_dataset(download=False).
+      shuffle=False for reproducibility.
+    priority: 92
+    complexity: 6
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "get_transform"
+      - path: h-m3/03_logic.md
+        section: "get_loader"
+      - path: h-m3/03_prd.md
+        section: "Standard Preprocessing"
+    acceptance_criteria:
+      - "get_transform() returns Compose with Resize(256), CenterCrop(224), ToTensor, Normalize"
+      - "get_loader('test', 100) returns DataLoader without error"
+      - "DataLoader yields batches of shape (B, 3, 224, 224)"
+
+  - id: A-3
+    type: implementation
+    title: "Implement load_resnet50 and extract_layer4_features"
+    description: |
+      Copy-adapt from h-m2/code/run_experiment.py L26-40 and L168-188.
+      load_resnet50: handles dict keys (model_state_dict, model, state_dict).
+      extract_layer4_features: model.eval() + torch.no_grad(),
+      forward conv1→bn1→relu→maxpool→layer1→layer2→layer3→layer4→adaptive_avg_pool2d(1,1)→flatten,
+      background label = metadata[:, 0].numpy() % 2.
+      Returns (features [N, 2048], bg_labels [N]).
+      Log: print(f"[H-M3] Features extracted: {features.shape}")
+      Log: print(f"[H-M3] Background label distribution: {np.bincount(bg_labels.astype(int))}")
+    priority: 91
+    complexity: 7
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "load_resnet50"
+      - path: h-m3/03_logic.md
+        section: "extract_layer4_features"
+      - path: h-m3/03_architecture.md
+        section: "External Dependencies (Base Hypothesis)"
+    acceptance_criteria:
+      - "load_resnet50 loads erm_seed1.pt without error"
+      - "extract_layer4_features returns array of shape (5794, 2048)"
+      - "bg_labels are binary (0 or 1), bincount ~50/50"
+      - "[H-M3] log lines printed"
+
+  - id: A-4
+    type: implementation
+    title: "Implement run_probe and run_all_probes for 9 checkpoints"
+    description: |
+      run_probe(features, labels, method, seed): fit L-BFGS probe and score on SAME features
+      (measuring raw decodability). Convergence guard: catch ConvergenceWarning, retry max_iter=5000.
+      run_all_probes(test_loader, device): loop METHODS × SEEDS, load checkpoint sequentially
+      (load/extract/unload to avoid OOM), return dict {"erm_seed1": acc, ...}.
+      Log: print(f"[H-M3] Probe acc {method}_seed{seed}: {acc:.4f}") per checkpoint.
+    priority: 90
+    complexity: 7
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "run_probe"
+      - path: h-m3/03_logic.md
+        section: "run_all_probes"
+      - path: h-m3/03_prd.md
+        section: "FR-2: Background Probe (Primary Gate)"
+    acceptance_criteria:
+      - "run_probe returns float in [0.5, 1.0]"
+      - "run_all_probes returns dict with 9 keys (erm_seed{1,2,3}, groupdro_seed{1,2,3}, sam_seed{1,2,3})"
+      - "Convergence guard triggers retry if needed"
+      - "[H-M3] log lines printed for each checkpoint"
+
+  - id: A-5
+    type: implementation
+    title: "Implement statistical analysis: paired_ttest, gate_verdict, sanity checks"
+    description: |
+      paired_ttest(erm_accs, gdro_accs): scipy.stats.ttest_rel(erm, gdro, alternative='greater'),
+      Cohen's d = mean(diff) / std(diff, ddof=1). Returns (p_value, cohens_d).
+      gate_verdict(p_value, cohens_d, gdro_mean, erm_mean): direction check first (gdro >= erm → REJECTED),
+      then CONFIRMED (p<0.05, d>0), SUGGESTIVE (p<0.10, d>0.5), else REJECTED.
+      Sanity checks: assert erm_mean > 0.6, assert all accs in [0.5, 1.0].
+      Log all [H-M3] messages per experiment brief.
+    priority: 89
+    complexity: 8
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "paired_ttest"
+      - path: h-m3/03_logic.md
+        section: "gate_verdict"
+      - path: h-m3/03_prd.md
+        section: "FR-3: Statistical Test"
+      - path: h-m3/03_prd.md
+        section: "FR-4: Verdict Determination"
+    acceptance_criteria:
+      - "paired_ttest returns (p_value, cohens_d) tuple"
+      - "gate_verdict returns 'CONFIRMED', 'SUGGESTIVE', or 'REJECTED'"
+      - "Sanity assert raises RuntimeError if ERM mean <= 0.6"
+      - "[H-M3] Paired t-test and Cohen's d log lines printed"
+      - "[H-M3] Verdict log line printed"
+
+  - id: A-6
+    type: implementation
+    title: "Implement visualization: 4 required figures"
+    description: |
+      save_figures(probe_results, stat_results): generate 4 PNG files to h-m3/figures/.
+      Fig1 gate_metrics.png: grouped bar ERM vs GroupDRO (3 seeds) + inset paired differences + p-value annotation.
+      Fig2 all_probes.png: all 9 checkpoints bar chart grouped by method (ERM, GroupDRO, SAM).
+      Fig3 paired_diff.png: scatter (ERM_i - GroupDRO_i) i=1,2,3 + mean±std bar.
+      Fig4 probe_vs_wga.png: probe_acc vs WGA scatter for 9 checkpoints + Pearson r annotation.
+      WGA values from config.WGA_BY_METHOD_SEED (hardcoded from H-M1 results).
+      Use matplotlib Agg backend. os.makedirs(FIGURES_DIR, exist_ok=True).
+    priority: 88
+    complexity: 10
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "save_figures"
+      - path: h-m3/03_logic.md
+        section: "Subtask A-6-1: Figure 1 detailed spec"
+      - path: h-m3/03_logic.md
+        section: "Subtask A-6-2: Figure 4 detailed spec (probe_vs_wga)"
+      - path: h-m3/03_prd.md
+        section: "FR-7: Visualization (Required)"
+    acceptance_criteria:
+      - "h-m3/figures/gate_metrics.png created (grouped bar + inset)"
+      - "h-m3/figures/all_probes.png created (9 checkpoints)"
+      - "h-m3/figures/paired_diff.png created"
+      - "h-m3/figures/probe_vs_wga.png created (with Pearson r)"
+      - "No display errors (Agg backend)"
+
+  - id: A-7
+    type: implementation
+    title: "Implement save_results (JSON) and generate_validation_report (markdown)"
+    description: |
+      save_results(results): json.dump to h-m3/results.json with schema per PRD FR-8.
+      generate_validation_report(results): write h-m3/04_validation.md with sections:
+      - Gate verdict (CONFIRMED/SUGGESTIVE/REJECTED) with evidence
+      - Probe accuracy table (all 9 checkpoints)
+      - Statistical test: t, p, Cohen's d
+      - Sanity check confirmation (ERM mean > 0.6, all accs in range)
+      - Gate result: PASS (CONFIRMED/SUGGESTIVE) or FAIL (REJECTED)
+    priority: 87
+    complexity: 7
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "save_results"
+      - path: h-m3/03_logic.md
+        section: "generate_validation_report"
+      - path: h-m3/03_prd.md
+        section: "FR-8: Results Logging"
+      - path: h-m3/03_prd.md
+        section: "FR-9: Validation Report"
+    acceptance_criteria:
+      - "h-m3/results.json exists and is valid JSON"
+      - "results.json contains: hypothesis_id, verdict, erm_probe_accs, gdro_probe_accs, p_value, cohens_d, n_test_samples"
+      - "h-m3/04_validation.md exists with gate verdict section"
+      - "gate_result in results.json is 'PASS' or 'FAIL'"
+
+  - id: A-8
+    type: implementation
+    title: "Implement main() orchestration and end-to-end smoke test"
+    description: |
+      main(): wire all components in order:
+      1. device = 'cuda' if available else 'cpu'
+      2. test_loader = get_loader('test', BATCH_SIZE)
+      3. probe_results = run_all_probes(test_loader, device)
+      4. erm_accs, gdro_accs, sam_accs from probe_results
+      5. erm_mean, gdro_mean = np.mean(erm_accs), np.mean(gdro_accs)
+      6. Sanity checks (assert erm_mean > 0.6, all in [0.5,1.0])
+      7. p_value, cohens_d = paired_ttest(erm_accs, gdro_accs)
+      8. verdict = gate_verdict(p_value, cohens_d, gdro_mean, erm_mean)
+      9. SAM exploratory: sam_mean, sam_cohens_d
+      10. results = build results dict per FR-8 schema
+      11. save_figures, save_results, generate_validation_report
+      12. Print [H-M3] summary
+      if __name__ == '__main__': main()
+      Smoke test: verify script runs without import error.
+    priority: 86
+    complexity: 9
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "main (Subtask A-8-1: orchestration flow)"
+      - path: h-m3/03_logic.md
+        section: "Subtask A-8-2: error handling"
+      - path: h-m3/03_architecture.md
+        section: "RunExperiment (h-m3/code/run_experiment.py)"
+    acceptance_criteria:
+      - "python h-m3/code/run_experiment.py executes end-to-end without error"
+      - "All 9 probe accuracies computed and logged"
+      - "results.json, 04_validation.md, 4 figures all produced"
+      - "Verdict is CONFIRMED, SUGGESTIVE, or REJECTED (not crash)"
+      - "[H-M3] Verdict line printed"
+
+  # ── Subtasks ─────────────────────────────────────────────────────────────────
+  - id: A-8-1
+    type: subtask
+    parent: A-8
+    title: "Subtask: main() complete orchestration flow with SAM exploratory"
+    description: |
+      Implement complete main() including SAM exploratory analysis:
+      sam_mean = np.mean(sam_accs)
+      sam_diff = np.array(erm_accs) - np.array(sam_accs)  # for Cohen's d only
+      sam_cohens_d = sam_diff.mean() / sam_diff.std(ddof=1) if sam_diff.std(ddof=1) > 0 else 0.0
+      Include in results dict under exploratory_sam: {sam_mean, sam_vs_erm_cohens_d}.
+    priority: 49
+    complexity: null
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "main (Subtask A-8-1: orchestration flow)"
+    acceptance_criteria:
+      - "exploratory_sam key in results.json"
+      - "sam_mean printed to stdout"
+
+  - id: A-8-2
+    type: subtask
+    parent: A-8
+    title: "Subtask: error handling for missing checkpoints and sanity failures"
+    description: |
+      Add defensive error handling:
+      - FileNotFoundError if checkpoint .pt file missing (clear message with path)
+      - RuntimeError if erm_mean <= 0.6 (A2 sanity violated)
+      - RuntimeError if any probe acc outside [0.5, 1.0]
+      All errors print [H-M3] ABORT prefix before raising.
+    priority: 48
+    complexity: null
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "Subtask A-8-2: error handling"
+    acceptance_criteria:
+      - "FileNotFoundError raised with checkpoint path in message if .pt missing"
+      - "RuntimeError raised with [H-M3] ABORT prefix if sanity check fails"
+
+  - id: A-6-1
+    type: subtask
+    parent: A-6
+    title: "Subtask: Figure 1 gate_metrics.png detailed implementation"
+    description: |
+      Implement gate_metrics.png with two subplots:
+      ax_main: grouped bar (ERM blue, GroupDRO coral) for 3 seeds, ylim(0.8,1.0),
+               p-value annotation as text.
+      ax_inset: paired differences bar chart (ERM_i - GroupDRO_i) with mean dashed line.
+      figsize=(10,5), tight_layout, dpi=150.
+    priority: 47
+    complexity: null
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "Subtask A-6-1: Figure 1 detailed spec"
+    acceptance_criteria:
+      - "gate_metrics.png has 2 subplots"
+      - "p-value annotated on plot"
+      - "file size > 10KB (non-empty)"
+
+  - id: A-6-2
+    type: subtask
+    parent: A-6
+    title: "Subtask: Figure 4 probe_vs_wga.png with Pearson r"
+    description: |
+      Implement probe_vs_wga.png scatter plot:
+      - 9 points (ERM×3, GroupDRO×3, SAM×3) colored by method
+      - X-axis: probe accuracy, Y-axis: WGA
+      - WGA from config.WGA_BY_METHOD_SEED (hardcoded)
+      - Compute Pearson r via scipy.stats.pearsonr
+      - Annotate r and p-value on plot
+      - Deduplicate legend entries
+    priority: 46
+    complexity: null
+    reference_files:
+      - path: h-m3/03_logic.md
+        section: "Subtask A-6-2: Figure 4 detailed spec (probe_vs_wga)"
+    acceptance_criteria:
+      - "probe_vs_wga.png has 9 scatter points"
+      - "Pearson r annotated on plot"
+      - "file size > 10KB (non-empty)"
+
+  # ── Failsafe ─────────────────────────────────────────────────────────────────
+  - id: F-1
+    type: failsafe
+    title: "Failsafe: pipeline continuation checkpoint"
+    description: |
+      After all experiments complete, verify:
+      - h-m3/results.json exists and contains verdict
+      - h-m3/04_validation.md exists
+      - h-m3/figures/ contains at least 3 PNG files
+      If any missing, log error and set gate_result='FAIL' in results.json.
+      Update verification_state.yaml validation.status field for h-m3.
+    priority: 1
+    complexity: null
+    reference_files:
+      - path: h-m3/03_prd.md
+        section: "3. Objectives and Success Criteria"
+    acceptance_criteria:
+      - "results.json exists with gate_result field"
+      - "04_validation.md exists"
+      - "At least 3 figures in h-m3/figures/"

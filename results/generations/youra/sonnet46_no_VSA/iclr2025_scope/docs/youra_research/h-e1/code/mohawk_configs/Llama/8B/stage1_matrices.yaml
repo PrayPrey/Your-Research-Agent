@@ -1,0 +1,84 @@
+# Stage 1: Matrix Orientation — 26M tokens, LR=1e-3
+LOAD:
+- MOHAWK_REPO/configs/Llama/8B/bases/teacher.yaml
+- MOHAWK_REPO/configs/Llama/8B/bases/llama_mamba2.yaml
+- MOHAWK_REPO/configs/Llama/8B/bases/optimizer.yaml
+- MOHAWK_REPO/configs/Llama/8B/bases/train.yaml
+- MOHAWK_REPO/configs/management.yaml
+
+DistillConfig:
+  name: h-e1-stage1
+  type: matrices
+
+ComponentsConfig:
+  MixerModel:
+    input: {d_model: 4096, n_layer: 32, lm_head_prenorm: rms, norm_epsilon: !!float 1e-5}
+
+TeacherConfig:
+  dir: meta-llama/Llama-3.1-8B
+  model_dtype: bfloat16
+  mixed_precision: true
+
+TrainConfig:
+  seed: 42
+  n_tokens: !!float 2.6e7
+  effective_batch_size: 64
+  mixed_precision: true
+  model_dtype: bfloat16
+  tokenizer: meta-llama/Llama-3.1-8B
+
+TrainDataConfig:
+  loaders: [HFDataset, Tokenize, PackingDataLoader, TorchDataLoader]
+  HFDataset:
+    path: monology/pile-uncopyrighted
+    
+    streaming: true
+    split: train
+  Tokenize:
+    tokenizer: meta-llama/Llama-3.1-8B
+    collate_type: text
+  PackingDataLoader:
+    max_seq_len: 2048
+  TorchDataLoader:
+    num_workers: 4
+    batch_size: 8
+
+OptimizerConfig:
+  optimizer: AdamW
+  lr: 1.0e-03
+  betas: [0.9, 0.999]
+  weight_decay: 0.1
+
+ManagementConfig:
+  wandb:
+    project: "youra-h-e1"
+    entity: "anonymous"
+  paths:
+    base_dir: H_E1_CHECKPOINT_DIR/mohawk
+    save_dir: H_E1_CHECKPOINT_DIR/mohawk/stage1
+    tmp_dir: H_E1_CHECKPOINT_DIR/mohawk/tmp_stage1
+  env_vars:
+    WANDB_MODE: "disabled"
+    HF_TOKEN: ""
+    LOGURU_LEVEL: "INFO"
+    NCCL_DEBUG: "WARN"
+
+LoadConfig:
+  model:
+    - path: meta-llama/Llama-3.1-8B
+      strict: false
+      allow_missing_keys: true
+      allow_unexpected_keys: true
+      rename:
+        'model.': 'backbone.'
+        'self_attn.': 'mixer.self_attn.'
+        'module.': ''
+        'embed_tokens.': 'embedding.'
+        '.norm.': '.final_layernorm.'
+      white_list:
+        - lm_head
+        - embedding
+        - mlp
+        - input_layernorm
+        - post_attention_layernorm
+        - final_layernorm

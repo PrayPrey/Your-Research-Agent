@@ -1,0 +1,9 @@
+﻿# Title: Selective Unlearning via Influence-Guided Low-Rank Adaptation for Detoxifying Large Language Models
+
+## Motivation
+Large language models (LLMs) inevitably absorb toxic, biased, and privacy-sensitive content during pre-training on web-scale corpora. Current approaches to mitigate these issues—such as RLHF or full fine-tuning—are computationally expensive and may degrade general model capabilities. Machine unlearning offers a promising alternative, but existing methods struggle to precisely target harmful knowledge without catastrophic forgetting of benign capabilities. There is a critical need for efficient, surgical unlearning techniques that can selectively remove undesirable behaviors while preserving model utility.
+
+## Main Idea
+We propose **Influence-Guided Low-Rank Unlearning (IGLU)**, a parameter-efficient framework for targeted removal of toxic and biased content from LLMs. Our approach consists of three stages: (1) **Influence Mapping**: Using gradient-based influence functions, we identify which parameters and attention heads are most responsible for generating specific harmful outputs; (2) **Low-Rank Intervention**: We apply targeted LoRA adapters only to the identified problematic layers, training them to "forget" harmful associations using a contrastive objective that maximizes divergence from toxic outputs while anchoring to benign responses; (3) **Utility Preservation**: A knowledge distillation regularizer ensures retained capabilities on standard benchmarks.
+
+Expected outcomes include 10x computational savings compared to full fine-tuning, measurable toxicity reduction on RealToxicityPrompts, and minimal performance degradation on downstream tasks. This enables practical, on-demand detoxification for deployed LLMs.

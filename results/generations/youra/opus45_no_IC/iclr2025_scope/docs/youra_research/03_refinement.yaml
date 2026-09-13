@@ -1,0 +1,297 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-10T23:00:00"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap1-eviction-vs-compression"
+  gap_title: "Systematic Comparison of Eviction vs Compression Trade-offs"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 17
+  convergence_reason: "All 6 criteria met at Exchange 17; all personas participated"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Heavy-hitter eviction (H2O) achieves <2% accuracy drop at 20% retention"
+      status: "BUILD_ON"
+      evidence: "Zhang et al., 2023 - arXiv:2306.14048, 864 citations"
+    - claim: "Attention sinks require initial token retention for window attention"
+      status: "BUILD_ON"
+      evidence: "Xiao et al., 2023 - arXiv:2309.17453, 2239 citations"
+    - claim: "LongBench provides standardized 6-category task taxonomy"
+      status: "BUILD_ON"
+      evidence: "Bai et al., 2023 - arXiv:2308.14508, 1538 citations"
+    - claim: "Quantization (INT4/INT8) achieves 4-8x memory reduction"
+      status: "BUILD_ON"
+      evidence: "BitsAndBytes integration, HuggingFace docs"
+    - claim: "Task-dependent optimal compression strategies exist"
+      status: "PROVE_NEW"
+      evidence: "Gap in literature; EvolKV hints but no systematic study"
+    - claim: "Attention features predict compression preference"
+      status: "PROVE_NEW"
+      evidence: "Novel hypothesis from discussion"
+  scope_reduction_percentage: 40
+  phase2b_4_instructions: |
+    Build on established eviction/quantization methods. Focus verification on:
+    (1) Task-dependent Pareto frontiers exist, (2) Attention probe predicts optimal strategy.
+    Do not re-verify H2O accuracy claims or quantization compression ratios.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-AttnProbeRouter-v1"
+  confidence_level: 0.75
+  core_hypothesis_statement: |
+    Under the constraint of fixed memory budget and LongBench benchmark,
+    if we characterize KV compression response profiles across eviction and quantization strategies per task,
+    then an attention-probe-based router will select task-appropriate configurations achieving ≥5% AUPC improvement over best single strategy,
+    because early attention patterns encode task structure that correlates with compression tolerance.
+  alternative_hypothesis_h0: |
+    There is no task-dependent structure in compression response (k* = 1) OR
+    attention features do not predict optimal compression (AUPC(router) ≤ AUPC(best-single)).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "compression_strategy"
+      type: "categorical"
+      operationalization: "Combination of eviction ratio and quantization level"
+      levels:
+        - "evict_40_fp16"
+        - "evict_40_int8"
+        - "evict_40_int4"
+        - "evict_80_fp16"
+        - "evict_80_int8"
+        - "evict_80_int4"
+  dependent:
+    - name: "accuracy_retention"
+      type: "continuous"
+      operationalization: "Task accuracy with compression / baseline accuracy, range [0,1]"
+      primary: true
+    - name: "memory_usage_ratio"
+      type: "continuous"
+      operationalization: "KV cache memory / full cache memory, range [0,1]"
+      primary: false
+    - name: "aupc"
+      type: "continuous"
+      operationalization: "Area Under Pareto Curve for (memory, accuracy) space"
+      primary: false
+  controlled:
+    - name: "model_architecture"
+      operationalization: "Llama-2-7B, frozen weights, same inference code"
+    - name: "benchmark"
+      operationalization: "LongBench 21 tasks, fixed evaluation scripts"
+    - name: "hardware"
+      operationalization: "Single A100 GPU, consistent batch size"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 4
+  steps:
+    - step: 1
+      description: "Early attention entropy reflects task structure"
+      evidence: "Attention patterns in first 100 tokens encode whether task requires broad integration (low entropy) or precise retrieval (high entropy)"
+      falsifier: "Attention entropy shows no variance across tasks or no correlation with task type"
+    - step: 2
+      description: "High-entropy tasks tolerate eviction better"
+      evidence: "When many tokens contribute equally (high entropy), removing some doesn't lose critical information"
+      falsifier: "High-entropy tasks show worse accuracy under eviction than low-entropy tasks"
+    - step: 3
+      description: "Low-entropy tasks tolerate quantization better"
+      evidence: "When few tokens are critical, preserving their precision matters more than keeping all tokens"
+      falsifier: "Low-entropy tasks show no quantization advantage over high-entropy tasks"
+    - step: 4
+      description: "Router uses attention features to select optimal config"
+      evidence: "Lightweight classifier (logistic regression) maps attention features to predicted cluster/config"
+      falsifier: "Router AUPC ≤ best-single AUPC (routing adds no value)"
+  key_tension: "Whether attention patterns stabilize within first 100 tokens for all task types"
+  evidence_summary: |
+    Mechanism links task structure (visible in attention) to compression tolerance (eviction vs quantization).
+    Heavy-hitter literature (H2O) shows attention scores predict token importance; we extend this to
+    predict task-level compression preference rather than token-level eviction decision.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Attention patterns stabilize within first 100 tokens"
+    supporting_evidence: "StreamingLLM shows initial tokens have special role; attention structure forms early"
+    consequence_if_violated: "Probe may capture incomplete task representation; need longer probe window"
+  - id: "A2"
+    assumption: "LongBench tasks adequately represent deployment workloads"
+    supporting_evidence: "21 datasets across 6 categories; widely used in long-context literature"
+    consequence_if_violated: "Findings may not generalize to production tasks"
+  - id: "A3"
+    assumption: "Compression effects are model-dependent but probe features generalize within architecture family"
+    supporting_evidence: "Llama-2 family shares attention patterns; LoRA shows transfer within families"
+    consequence_if_violated: "Need per-model router training"
+  - id: "A4"
+    assumption: "AUPC captures deployment-relevant trade-offs"
+    supporting_evidence: "Standard metric in multi-objective optimization; covers full Pareto frontier"
+    consequence_if_violated: "May miss specific operating points important for certain deployments"
+  - id: "A5"
+    assumption: "Lightweight router (logistic regression) is sufficient"
+    supporting_evidence: "If clusters are well-separated, simple classifier suffices"
+    consequence_if_violated: "Need more complex classifier; adds inference latency"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    - Transformer-based LLMs with standard self-attention (Llama-2 family)
+    - Autoregressive generation with KV cache
+    - Text-only tasks (QA, summarization, code, few-shot)
+    - Memory-constrained deployment scenarios
+  does_not_apply_to: |
+    - Non-attention architectures (Mamba, RWKV)
+    - Vision-language models (requires separate multimodal study)
+    - Training-time optimization (inference-only)
+    - Real-time latency-critical applications (probe adds ~10ms)
+  known_limitations: |
+    - Single model architecture (Llama-2-7B); cross-model generalization is future work
+    - English-primary benchmark; multilingual generalization untested
+    - Static strategy selection at inference start; no mid-generation switching
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Gap statistic identifies k* > 1 clusters in task compression response profiles"
+    test_method: "Compute gap statistic on 21 × 6 response matrix; compare to null distribution"
+    success_criterion: "k* > 1 with gap > standard error"
+    falsification: "k* = 1 (all tasks respond identically to compression)"
+  - id: "P2"
+    primary: true
+    statement: "Attention-probe router achieves ≥5% AUPC improvement over best single strategy"
+    test_method: "3-fold CV on LongBench; compare AUPC(router) vs AUPC(best-single) on held-out tasks"
+    success_criterion: "Mean AUPC(router) > 1.05 × AUPC(best-single)"
+    falsification: "AUPC(router) ≤ AUPC(best-single) on held-out data"
+  - id: "P3"
+    primary: false
+    statement: "Attention entropy correlates with cluster membership"
+    test_method: "Compute Spearman correlation between first-100-token entropy and discovered cluster labels"
+    success_criterion: "ρ > 0.5"
+    falsification: "ρ ≤ 0.3 (weak or no correlation)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "LongBench"
+    type: "standard"
+    source: "https://github.com/THUDM/LongBench"
+    path: "huggingface: THUDM/LongBench"
+    hypothesis_fit: "21 tasks across 6 categories; standard long-context evaluation; enables task-dependent analysis"
+  model:
+    name: "Llama-2-7B"
+    type: "decoder-only transformer"
+    source: "meta-llama/Llama-2-7b-hf"
+    hypothesis_fit: "Standard benchmark model; KV cache is significant memory consumer at 7B scale"
+  baselines:
+    - name: "Best-Single-Strategy"
+      method: "Select single best compression config (task-agnostic) based on average AUPC across all tasks"
+    - name: "H2O-Default"
+      method: "H2O eviction with 20% heavy-hitter retention + recent tokens"
+    - name: "StreamingLLM-Default"
+      method: "Window attention with 4 attention sink tokens"
+    - name: "Full-KV"
+      method: "No compression (upper bound)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "Task-conditioned compression selection based on empirically-derived Pareto characterization"
+  key_innovation: "Attention-probe router: using first-100-token attention features to predict optimal compression strategy"
+  differentiation:
+    - prior_work: "H2O [Zhang 2023]"
+      difference: "H2O makes per-token eviction decisions; we make per-task strategy selection"
+    - prior_work: "Ada-KV [Feng 2024]"
+      difference: "Ada-KV adapts per-head; we adapt per-task based on attention probe"
+    - prior_work: "RocketKV [Behnam 2025]"
+      difference: "RocketKV is fixed two-stage; we select strategy dynamically based on task"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "H2O"
+      performance: "<2% accuracy drop at 20% retention"
+      dataset: "WikiText, PG-19"
+      why_insufficient: "Task-agnostic; same strategy for all tasks"
+    - method: "StreamingLLM"
+      performance: "Infinite streaming with sink tokens"
+      dataset: "Streaming perplexity"
+      why_insufficient: "Fixed window; no quantization"
+    - method: "Ada-KV"
+      performance: "Adaptive per-head budgets"
+      dataset: "LongBench"
+      why_insufficient: "Still single strategy paradigm"
+  best_baseline_performance: "H2O with 40% retention on LongBench averages 95% accuracy retention"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Task-dependent compression frontiers exist and are measurable (testable via gap statistic)"
+  sh2_mechanism: "Attention entropy correlates with eviction tolerance (testable via correlation analysis)"
+  sh3_comparison: "Router outperforms best-single by ≥5% AUPC (testable via 3-fold CV)"
+  open_questions:
+    - "Does probe generalize across Llama model sizes (7B → 13B → 70B)?"
+    - "Do discovered clusters align with LongBench categories or reveal new taxonomy?"
+    - "Is 5% AUPC improvement achievable, or is effect size smaller?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "17 exchanges; all 6 criteria met; all personas participated"
+  clarity_verified: true
+  remaining_objections:
+    - "5% threshold may be aggressive; report confidence intervals"
+    - "Cross-model generalization untested"
+
+discussion_context:
+  total_exchanges: 17
+  agent_participation:
+    dr_nova: 2
+    prof_vera: 3
+    dr_sage: 3
+    prof_pax: 3
+    dr_ally: 3
+    prof_rex: 3
+  paper_citations: 7
+  convergence_type: "qualitative"

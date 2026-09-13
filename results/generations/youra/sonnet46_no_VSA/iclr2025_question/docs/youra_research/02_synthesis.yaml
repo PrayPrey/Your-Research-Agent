@@ -1,0 +1,118 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-02T15:45:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap_1"
+
+hypothesis_draft:
+  title: "Semantic Entropy Provides Conditionally Independent Uncertainty Signal Over Min Log-Probability on TriviaQA/TruthfulQA with Open-Weight LLMs"
+  hypothesis_id: "H-SE-Ensemble-v1"
+  core_claim: |
+    Under Llama-3.1-8B (temperature=0.7, N=5 stochastic samples) on TriviaQA dev (2500 prompts, LM-as-a-judge correctness with a cross-model judge), adding Semantic Entropy (SE_N5, bidirectional DeBERTa-MNLI NLI clustering) to a min_logprob baseline ensemble achieves ΔAUROC ≥ 0.025 (95% CI lower bound > 0 on length-matched subset), because SE captures semantic disagreement across stochastic samples that is conditionally independent of token-level minimum log-probability — demonstrated by partial R² ≥ 0.02 for SE in a conditional logistic regression, with results replicated on Qwen-2.5-7B without refitting ensemble weights (AUROC gap < 0.05 on TruthfulQA).
+  mechanism: |
+    SE computes entropy over semantic equivalence classes (probability masses of NLI-cluster memberships across N=5 stochastic samples), while min_logprob captures the minimum token probability along a single greedy decoding path. These are algebraically distinct: SE marginalizes over semantic class masses, min_logprob finds the weakest prediction point in a single decode. The 'orthogonality zone' (high min_logprob, high SE) represents prompts where the model generates locally fluent but globally semantically inconsistent answers — each individual sample looks confident at the token level, but across N=5 samples the model anchors on different semantic clusters. This zone is enriched for factual hallucinations (predicted error rate ≥ baseline + 10pp). The ensemble exploits this complementarity by combining features from different layers of uncertainty: token-level prediction confidence (min_logprob) and sample-level semantic coherence (SE).
+  predictions:
+    - P1: "AUROC ≥ 0.85 on TriviaQA dev (LM-as-a-judge, cross-model judge), with ΔAUROC ≥ 0.025 over min_logprob on length-matched subset (95% CI lower bound > 0)"
+    - P2: "Partial R² ≥ 0.02 for SE in conditional LR controlling for min_logprob, response length, and SE×min_logprob interaction"
+    - P3: "Cross-model transfer: Llama-calibrated ensemble weights applied to Qwen-2.5-7B on TruthfulQA yields AUROC gap < 0.05"
+
+variables_summary:
+  independent: "UQ method (baseline min_logprob vs +SE_N5 vs full 5-feature ensemble); N samples (3/5/10); LLM model (Llama-3.1-8B primary, Qwen-2.5-7B transfer)"
+  dependent_primary: "AUROC under LM-as-a-judge correctness (cross-model judge) on TriviaQA dev 2500 prompts; range [0,1], higher = better hallucination detection"
+  controlled: "Response length (via length-matched subset + UQ-feature OLS residualization per Condition 2 from h-m2, NOT correctness label residualization); correctness function (primary: LM-judge; secondary robustness: ROUGE-L, BERTScore); temperature=0.7; ensemble weights via 5-fold nested CV"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in AUROC between the min_logprob baseline and the [min_logprob + SE_N5] ensemble on TriviaQA dev under LM-as-a-judge correctness (ΔAUROC = 0, 95% CI overlapping zero on length-matched subset). Equivalently, SE does not provide conditionally independent uncertainty signal beyond token-level likelihood (partial R² ≈ 0 in conditional LR). This would indicate likelihood saturation: min_logprob already captures the full epistemic uncertainty relevant to TriviaQA short-answer factual QA.
+  statistical_test: "Stratified bootstrap CI on ΔAUROC (question-level resampling, N=2000 bootstrap samples); Likelihood-ratio test for partial R² of SE in conditional LR; Two-sided test."
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First length-bias-robust AUROC benchmark for consistency+log-prob ensemble on TriviaQA/TruthfulQA with open-weight LLMs (Llama-3.1-8B, Qwen-2.5-7B). Operationalizes Santilli 2025's call for LM-judge evaluation with cross-model judge, length-matching, and correctness-function robustness sweep. First mechanistic conditional independence test (partial R² in conditional LR) for SE vs min_logprob."
+  differentiation_summary: |
+    - Kuhn 2023 (SE standalone, 30B OPT, ROUGE-L correctness): we add log-prob combination + LM-judge + length controls
+    - Manakul 2023 (SelfCheckGPT on WikiBio): we use factual QA benchmarks + log-prob combination
+    - Raghuvanshi 2025 (SQuAD2.0 only, no public code): we benchmark TriviaQA/TruthfulQA, open-weight, public code
+    - UQLM 2025 (GPT-4o/Gemini, 6 other benchmarks): we provide open-weight benchmark with mechanistic analysis
+    - h-m1 baseline (log-prob only, ~0.825): we add SE for conditional independence test
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "Llama-3.1-8B (primary generator, greedy + temp=0.7 sampling)"
+    - "Qwen-2.5-7B (cross-model transfer test)"
+    - "Cross-model judge (Qwen-2.5-7B or GPT-4o-mini for LM-as-a-judge correctness labeling)"
+  datasets:
+    - "TriviaQA dev (2500 prompts, primary evaluation)"
+    - "TruthfulQA (secondary, cross-model transfer test)"
+  baselines:
+    - "min_logprob standalone (single greedy forward pass)"
+    - "full_seq_variance standalone (from h-m1, AUROC=0.825)"
+    - "SE_N5 standalone (N=5, temp=0.7, DeBERTa-MNLI)"
+    - "SelfCheckNLI_N5 standalone (N=5, DeBERTa-v3-large-MNLI)"
+
+measurement_plan:
+  data_collection:
+    - source: "TriviaQA dev HuggingFace (mandarjoshi/trivia_qa): 2500 question-answer pairs"
+    - source: "TruthfulQA MC (sylinrl/TruthfulQA): MC1/MC2 evaluation split"
+    - source: "Llama-3.1-8B responses: greedy decode (for log-prob features) + N=5 temp=0.7 samples (for SE, SelfCheckNLI)"
+    - source: "LM-as-a-judge correctness labels: cross-model judge (Qwen-2.5-7B or GPT-4o-mini)"
+  procedure:
+    - step: "1. Generate responses: 1 greedy + 5 temp=0.7 samples per TriviaQA dev prompt using Llama-3.1-8B (reuse h-e1 generate.py checkpoint if available; otherwise fresh generation)"
+    - step: "2. Extract features: min_logprob (greedy), full_seq_var (greedy), SE_N5 (DeBERTa-MNLI clustering on 5 samples), SelfCheckNLI_N5 (NLI contradiction probability on 5 samples)"
+    - step: "3. Pre-experiment diagnostics: Spearman correlation matrix (5 features × response_length × LM-judge_correctness); orthogonality zone slice (min_logprob ≥ 0.8 AND SE top quartile) error enrichment check"
+    - step: "4. Conditional LR: fit logit(h=1) ~ min_logprob + SE + L + SE×min_logprob; compute partial R² for SE via LRT"
+    - step: "5. Ensemble training: 5-fold nested CV (inner: L2 regularization tuning; outer: AUROC evaluation)"
+    - step: "6. Length-matched AUROC: construct matched pairs (correct vs incorrect, ±1 token), evaluate ΔAUROC with 2000 question-level bootstrap samples"
+    - step: "7. Correctness-function sweep: compute ΔAUROC under ROUGE-L(F1), BERTScore(F1), LM-as-a-judge; verify sign-stability"
+    - step: "8. Cross-model transfer: generate Qwen-2.5-7B responses on TruthfulQA (N=5, temp=0.7); apply Llama-calibrated weights; compute AUROC gap"
+  success_criteria:
+    - "P1: AUROC ≥ 0.85 (LM-judge, TriviaQA dev) AND ΔAUROC ≥ 0.025 (95% CI lower bound > 0, length-matched subset)"
+    - "P2: Partial R²(SE) ≥ 0.02 AND β₂(SE) significant at p < 0.05 in conditional LR"
+    - "P3: Cross-model AUROC gap < 0.05 (Llama→Qwen, TruthfulQA)"
+    - "Diagnostic: ρ(SE, LM-judge) < 0.4 (circularity check)"
+    - "Diagnostic: orthogonality zone error enrichment ≥ 10pp above base rate"
+
+validation:
+  internal_validity:
+    - "Nested CV with question-level bootstrap CIs to prevent overfitting in 500-sample LR training"
+    - "Separate LM-judge model (cross-model) to avoid SE-judge shared NLI reasoning (circularity check)"
+    - "Length-matched subset evaluation to eliminate mutual length bias"
+    - "Conditional LR with interaction terms to test SE contribution beyond min_logprob and length"
+    - "UQ-feature OLS residualization (Condition 2, h-m2 validated) — NOT correctness label residualization (h-m2 SUPERSEDED)"
+  external_validity:
+    - "Replication on Qwen-2.5-7B without weight refitting (cross-model transfer)"
+    - "Correctness-function robustness sweep (ROUGE-L, BERTScore, LM-judge) — sign-stability required"
+    - "Secondary benchmark: TruthfulQA in addition to TriviaQA dev"
+    - "N-efficiency ablation (N=3 vs N=5) as secondary analysis"
+
+discussion_synthesis:
+  key_insights:
+    - "SE and min_logprob are algebraically distinct (entropy over semantic class masses vs minimum token probability) — orthogonality is theoretically motivated, not just hoped for"
+    - "The 'orthogonality zone' (high confidence + high semantic disagreement) is the key mechanistic test: enrichment for hallucinations here would empirically validate the mechanism"
+    - "Length-bias-robust evaluation (LM-as-a-judge + length-matched AUROC) is essential — the Santilli 2025 warning makes lexical-only AUROC insufficient for this claim"
+    - "The hypothesis is meaningful regardless of sign: positive = SE adds independent signal; negative = likelihood saturation on TriviaQA short-answer QA (equally publishable)"
+    - "Prior failure avoidance: all three prohibited approaches (hidden-state SVD, POS filtering, EM label residualization) are explicitly excluded"
+  breakthrough_moments:
+    - "Exchange 6 (Prof. Rex): Length-matched subset demand sharpened from 'OLS residualization' to direct pair-matching — stronger causal control"
+    - "Exchange 9 (Dr. Nova): Theoretical derivation of algebraic distinctness (SE = entropy over semantic class masses, not sequence probability) provides mechanistic foundation"
+    - "Exchange 13 (Dr. Ally): Refined hypothesis statement with all quantitative criteria integrated into a single, pre-registered testable claim"
+    - "Exchange 14 (Prof. Vera): Circularity test (ρ(SE, AlignScore)) identified as pre-experiment diagnostic before any ensemble fitting"
+  resolved_tensions:
+    - "Length bias concern: Resolved by combination of length-matched subset AUROC + LM-as-a-judge correctness + UQ-feature (not label) OLS residualization"
+    - "Circularity concern: Resolved by using cross-model judge (separate model from generator) and pre-experiment ρ(SE, judge) diagnostic"
+    - "Overfitting concern: Resolved by nested CV with question-level bootstrap CIs and parsimony test (2-feature model B vs 5-feature model D)"
+    - "Feature redundancy concern: Resolved by requiring incremental nested CV LRT and parsimony stopping criterion"
+    - "Cross-model generalizability: Resolved by explicit cross-model transfer test (train Llama, test Qwen without refitting)"

@@ -1,0 +1,150 @@
+
+\subsubsection{Overview}
+
+Our approach treats alignment-strategy detection as a binary classification problem over
+public benchmark score vectors. This framing follows directly from our central question:
+if DPO and SFT training produce systematically different behavioral profiles, those
+profiles should be detectable as distinct clusters in benchmark score space, recoverable
+by a classifier without access to model internals or training data.
+
+We operationalize this as a three-stage pipeline: (1) curate matched DPO/SFT model
+pairs and evaluate them on a 4-benchmark trustworthiness suite; (2) build a 4D score
+matrix and apply k-NN leave-one-out cross-validation; (3) use Fisher's linear discriminant
+criterion per benchmark to identify which dimension drives separability. Two sub-hypotheses
+structure the inquiry: h-e1 tests fingerprint \textit{existence} (is classification accuracy
+statistically significant?), and h-m1 tests the \textit{mechanism} (which benchmark dimension
+and which direction?).
+
+\subsubsection{Model Selection and Pair Design}
+
+\textbf{Rationale for matched pairs:} We require that DPO and SFT models within each pair
+share the same base model to the extent possible, isolating alignment strategy as the
+primary variable. Unmatched comparisons confound alignment with architecture and data
+quality differences.
+
+\textbf{Primary pair (alignment-handbook):} \texttt{HuggingFaceH4/zephyr-7b-dpo-full} and
+\texttt{HuggingFaceH4/zephyr-7b-sft-full} share the same base model (Mistral-7B-v0.1) and
+training data corpus, providing the cleanest controlled comparison. This pair is from
+the Alignment Handbook \citep{Tunstall2023Zephyr}, which documents matching procedures
+explicitly.
+
+\textbf{Community pairs (n=5):} To reach the minimum n=6 pairs required for permutation
+significance, we include publicly available 7B DPO and SFT models with documented
+alignment provenance:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Pair & SFT Model & DPO-aligned Model & Base Model \\
+\midrule
+P1 & Mistral-7B-Instruct-v0.1 & zephyr-7b-alpha† & Mistral-7B-v0.1 \\
+P2 & OpenHermes-2.5-Mistral-7B & zephyr-7b-beta & Mistral-7B-v0.1 \\
+P3 & tulu-2-7b & tulu-2-dpo-7b & LLaMA-2-7B \\
+P4 & Llama-2-7b-chat (RLHF)‡ & neural-chat-7b-v3-1 & LLaMA-2-7B \\
+P5 & openchat\_3.5 & Starling-LM-7B-alpha & Mistral-7B-v0.1 \\
+P6 & Mistral-7B-Instruct-v0.3 & neural-chat-7b-v3-3 & Mistral-7B-v0.1 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\textbf{Table 1: Model pairs evaluated.}
+
+†zephyr-7b-alpha is classified as SFT in the existence analysis (Table 5) based on its
+primary training objective. In the mechanism analysis, it serves as the DPO-comparable
+counterpart to Mistral-7B-Instruct-v0.1 in the Alignment Handbook training progression;
+its paired placement reflects architectural lineage, not strict DPO labeling. This
+pairing is a limitation (see L4).
+
+‡Llama-2-7b-chat is RLHF-trained (not pure SFT); see misclassification analysis
+(Section 5.1) and sensitivity analysis (Section 6, L4).
+
+\textbf{Rationale for n=6:} The permutation test over n=12 models (6 pairs) provides the
+minimum sample for our one-sided significance threshold ($p\leq 0.05)$ with 1000 permutations.
+We report the sample size as a principled limitation (Section 6).
+
+\subsubsection{Benchmark Suite}
+
+We evaluate each model on four benchmarks via \texttt{lm-evaluation-harness v0.4.3}:
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Benchmark & Task Key & Metric & Dimension \\
+\midrule
+TruthfulQA MC2 & `truthfulqa\_mc2` & MC2 accuracy (log-prob normalized) & Truthfulness \\
+BBQ & `bbq` & Accuracy on ambiguous questions & Social fairness \\
+WinoGrande & `winogrande` & Accuracy & Commonsense robustness \\
+WinoGender & `winograd\_wsc` & Accuracy & Gender fairness \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\textbf{Table 2: Benchmark suite.}
+
+\textbf{Rationale for this suite:} The four benchmarks span the two dimensions predicted by
+the original alignment hypothesis --- truthfulness (TruthfulQA) and fairness (BBQ,
+WinoGender) --- plus a control dimension (WinoGrande) that should not be systematically
+affected by alignment strategy. This design allows us to test not only whether profiles
+differ, but which dimension carries the alignment signal.
+
+\textbf{Evaluation parameters:} \texttt{--batch\textbackslash \_size 8}, \texttt{--dtype bfloat16}, \texttt{--limit 100} per
+task (PoC speed constraint; full evaluation is immediate future work). We report
+\texttt{acc,none} as the primary metric for all tasks.
+
+\subsubsection{Classification Approach}
+
+\textbf{Score matrix construction:} For each of the 12 models, we extract the 4-dimensional
+score vector \texttt{(TruthfulQA MC2, BBQ, WinoGrande, WinoGender)}, yielding a design matrix
+\texttt{X \$\textbackslash in\$ R\^{}\$\{12\textbackslash times 4\}\$} with labels \texttt{y \$\textbackslash in \{0=SFT, 1=DPO\}\^{}\{12\}\$}.
+
+\textbf{k-NN leave-one-out cross-validation:}
+
+\begin{verbatim}
+Classifier: KNeighborsClassifier(n_neighbors=1, metric='euclidean')
+CV: LeaveOneOut() over n=12 samples
+LOO-CV accuracy = (number of correct leave-one-out predictions) / 12
+\end{verbatim}
+
+\textbf{Rationale for k=1:} With n=12 samples and balanced classes, k=1 minimizes inductive
+bias and maximizes sensitivity to cluster structure. We report k=3,5 sensitivity as
+a robustness check.
+
+\textbf{Permutation significance test:}
+
+\begin{verbatim}
+H₀: LOO-CV accuracy ≤ chance level (50%)
+Test: Permute alignment labels y → y_perm (1000 shuffles, seed=42)
+      Re-run LOO-CV for each permutation → perm_scores[1000]
+p-value = P(perm_score ≥ observed_accuracy) under H₀
+Significance threshold: p ≤ 0.05 (one-tailed)
+\end{verbatim}
+
+The permutation test provides a model-free non-parametric significance assessment
+appropriate for small n, controlling false positive rate without distributional
+assumptions.
+
+\subsubsection{Mechanism Analysis}
+
+To identify which benchmark dimension drives fingerprint separability, we compute
+\textbf{Fisher's linear discriminant criterion} for each benchmark independently:
+
+\begin{verbatim}
+Fisher(j) = (μ_DPO,j - μ_SFT,j)² / (σ²_DPO,j + σ²_SFT,j)
+\end{verbatim}
+
+We additionally apply a \textbf{paired sign test} for each fairness benchmark:
+\begin{verbatim}
+k_j = |{pairs i : score_DPO,i,j > score_SFT,i,j}|
+H₀: k_j ~ Binomial(6, 0.5)
+p-value (one-tailed) threshold: p ≤ 0.125
+\end{verbatim}
+
+All analysis code is implemented in Python using scikit-learn $\geq$ 1.3.0 and numpy $\geq$ 1.24.0.
+All random seeds are set to 42. GPU evaluation uses bfloat16 dtype on $5\times$ NVIDIA H100 NVL hardware.
+

@@ -1,0 +1,164 @@
+
+\subsubsection{5.1 Primary Metric: Claim-Type Mass Ratio ($\rho_j$)}
+
+Table 1 shows $\rho_j$ statistics by domain. The most striking finding: values are 20-$80\times$ lower than the inferred range (0.01--0.04 observed vs 0.75--0.85 inferred from CCP paper claims).
+
+\textbf{Table 1: Claim-Type Mass Ratio by Domain}
+
+\begin{table*}[htbp]
+\centering
+\resizebox{\dimexpr 2\columnwidth+\columnsep\relax}{!}{%
+\begin{tabular}{lllllll}
+\toprule
+Domain & Median $\rho_j$ & Mean $\rho_j$ & Std Dev & Min & Max & N \\
+\midrule
+Factual (TruthfulQA) & 0.0354 & 0.0382 & 0.0256 & 0.0001 & 0.1523 & 792 \\
+Creative (WritingPrompts) & 0.0103 & 0.0118 & 0.0094 & 0.0000 & 0.0876 & 817 \\
+Delta & $-0.0250$ & $-0.0264$ & --- & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+\textbf{Inferred range}: 0.75--0.85 (inferred from CCP paper reporting +0.05--0.10 ROC-AUC improvements)  
+\textbf{Observed deviation}: $-95.3$\% (factual), $-98.6$\% (creative)  
+\textbf{Magnitude}: Factual $21\times$ lower (0.75 / 0.0354), Creative $73\times$ lower (0.75 / 0.0103)
+
+\textbf{Statistical Test}: Wilcoxon rank-sum $W = 323{,}304, p = 1.0000$, Cohen's $d = -0.0635$ (negligible effect, wrong direction).
+
+\textbf{Interpretation}: Both domains exhibit uniformly low $\rho_j$, with no statistically significant separation. The negative delta (creative < factual) is opposite to our hypothesis direction, but the magnitude is trivial compared to the 20-$80\times$ baseline deviation.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/rho_j_distribution.png}
+\caption{$\rho_{j}$ Distribution}
+\label{fig:rho_j_distribution}
+\end{figure}
+
+\textit{Figure 1: Distribution of $\rho_{j}$ values by domain. Both distributions are concentrated near 0.0, far below the inferred range of 0.75--0.85. No domain clustering is visible.}
+
+\subsubsection{5.2 Gate Metric Evaluation}
+
+Table 2 evaluates our MUST\_WORK gate criteria:
+
+\textbf{Table 2: Gate Criteria vs Observed}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Criterion & Threshold & Observed & Status \\
+\midrule
+$\Delta\rho_j$ & > 0.15 & $-0.0250$ & ❌ Wrong direction \\
+Direction & creative > factual & creative < factual & ❌ Inverted \\
+Autocorr (creative, lag-1) & > 0.4 & 0.046 & ❌ Below threshold \\
+Autocorr (factual, lag-1) & < 0.2 & 0.264 & ❌ Above threshold \\
+Krippendorff's $\alpha$ & > 0.7 & 0.75 & ✅ MET \\
+Statistical significance & $p < 0.05$ & 1.0000 & ❌ Nonsignificant \\
+Effect size & $d > 0.5$ & $-0.0635$ & ❌ Negligible \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\textbf{Overall Gate Status}: FAILED (1/7 criteria met).
+
+\textbf{Critical Realization}: The gate failure is not a hypothesis refutation---it is a measurement validity failure. When a metric produces values 20-$80\times$ outside the inferred range across all conditions, you cannot distinguish ''hypothesis is wrong'' from ''measurement is broken.''
+
+\subsubsection{5.3 NLI Distribution Analysis}
+
+To diagnose the cause of low $\rho_j$, we examined the raw NLI output distributions (Table 3).
+
+\textbf{Table 3: Mean NLI Class Probabilities by Domain}
+
+\begin{table*}[htbp]
+\centering
+\resizebox{\dimexpr 2\columnwidth+\columnsep\relax}{!}{%
+\begin{tabular}{lllll}
+\toprule
+Domain & $P(\text{entail})$ & $P(\text{neutral})$ & $P(\text{contradict})$ & $\rho_j$ (computed) \\
+\midrule
+Factual & 0.045 & 0.910 & 0.045 & 0.090/1.0 $\approx$ 0.09 \\
+Creative & 0.017 & 0.967 & 0.016 & 0.033/1.0 $\approx$ 0.03 \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+\textbf{Root Cause Identified}: The NLI model assigns approximately 90\% probability mass to the ''neutral'' class for claim-context pairs in both domains. Since $\rho_j = (P(\text{entail}) + P(\text{contradict})) / P(\text{total})$, neutral-class dominance mechanistically drives $\rho_j$ toward zero.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/nli_distribution_heatmap.png}
+\caption{NLI Distribution Heatmap}
+\label{fig:nli_distribution_heatmap}
+\end{figure}
+
+\textit{Figure 2: NLI score distribution heatmap showing neutral-class dominance across all samples, with entailment and contradiction classes contributing <10\% mass each.}
+
+\textbf{Sanity Check Failure}: We tested the NLI model on 20 manually selected TruthfulQA correct/incorrect answer pairs:
+\begin{itemize}
+\item Expected: $P(\text{entail}|\text{correct}) > 0.5, P(\text{contradict}|\text{incorrect}) > 0.5$
+\item Observed: Mean $P(\text{entail}|\text{correct}) = 0.11, P(\text{contradict}|\text{incorrect}) = 0.08, P(\text{neutral}) = 0.81$ for both
+\end{itemize}
+
+This confirms that DeBERTa-v3-base, trained on SNLI/MNLI (sentence-pair semantic similarity tasks), does not generalize to factual verification tasks (claim-context consistency checking).
+
+\subsubsection{5.4 Autocorrelation Analysis}
+
+Table 4 shows lag-1 through lag-10 autocorrelation for both domains.
+
+\textbf{Table 4: Autocorrelation by Lag}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lll}
+\toprule
+Lag & Factual & Creative \\
+\midrule
+1 & 0.264 & 0.046 \\
+2 & 0.200 & 0.057 \\
+3 & 0.139 & $-0.003$ \\
+4 & 0.182 & 0.026 \\
+5 & 0.149 & 0.078 \\
+10 & 0.053 & $-0.025$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\textbf{Prediction}: Creative > 0.4 (metaphorical threads persist), Factual < 0.2 (independent claims)  
+\textbf{Observed}: Inverted pattern---factual autocorr (0.264) > creative (0.046)
+
+\textbf{Explanation}: This reflects dataset structure, not hallucination behavior:
+\begin{itemize}
+\item \textbf{TruthfulQA}: Questions have repeated entities (e.g., multiple questions about ''Barack Obama'' $\rightarrow$ high semantic similarity between claims)
+\item \textbf{WritingPrompts}: Stories have diverse narrative elements (new characters, settings per sample $\rightarrow$ low claim similarity)
+\end{itemize}
+
+\textbf{Implication}: Autocorrelation measures claim similarity, not aggregation fragility. To test the latter, we would need to control for dataset-specific semantic structure (e.g., normalize by claim-embedding distance).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/autocorrelation_comparison.png}
+\caption{Autocorrelation Comparison}
+\label{fig:autocorrelation_comparison}
+\end{figure}
+
+\textit{Figure 3: Autocorrelation line plot (lags 1--10) showing factual domain maintaining higher autocorr across all lags.}
+
+\subsubsection{5.5 Null Results Summary}
+
+\textbf{Cannot Test Hypothesis}: All gate criteria except reliability failed. Statistical tests show no domain separation ($p = 1.0$). Effect size is negligible and wrong-signed ($d = -0.0635$).
+
+\textbf{Measurement Validity Failure Gates Hypothesis Testing}: When $\rho_j$ is 20-$80\times$ lower than the inferred range across all samples (factual and creative), we face a logical impossibility: we cannot distinguish ''creative text confuses CCP'' from ''CCP implementation does not work as described.''
+
+\textbf{Analogy}: Testing a new microscope stain on rare tissue without first validating it on common tissue. Finding all slides blank could mean:
+\begin{enumerate}
+\item Rare tissue lacks the target structure (hypothesis)
+\item Microscope is out of focus (measurement broken)
+\end{enumerate}
+
+Without baseline validation, we cannot separate these explanations.

@@ -1,0 +1,312 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  generated_at: "2026-05-20T08:15:00"
+  source_documents:
+    - h-e1/03_prd.md
+    - h-e1/03_architecture.md
+    - h-e1/03_logic.md
+    - h-e1/03_config.md
+
+tasks:
+  # ─── DATA PREPARATION (priority 100-95) ───────────────────────────────────
+
+  - id: dp-1
+    title: "Download and cache miniF2F dataset"
+    type: data-preparation
+    priority: 100
+    status: todo
+    description: >
+      Load miniF2F via HuggingFace: load_dataset("Tonic/MiniF2F").
+      Verify all 488 problems load correctly with fields:
+      {name, split, formal_statement, goal, header}.
+      Cache locally to avoid repeated downloads.
+    reference_files:
+      - file: h-e1/03_prd.md
+        section: "4. Data Specification — Dataset 1: miniF2F Hard Subset"
+      - file: h-e1/03_logic.md
+        section: "Module: DatasetLoader — load_minif2f()"
+
+  - id: dp-2
+    title: "Download and cache Vericoding dataset"
+    type: data-preparation
+    priority: 99
+    status: todo
+    description: >
+      Manual download from paper release (arXiv:2509.22908 — Bursuc et al. 2025).
+      Filter to Lean4-compatible problems only.
+      Store at data/vericoding/. Verify problem count (~12,504 total).
+    reference_files:
+      - file: h-e1/03_prd.md
+        section: "4. Data Specification — Dataset 2: Vericoding Hard Subset"
+      - file: h-e1/03_logic.md
+        section: "Module: DatasetLoader — load_vericoding()"
+
+  # ─── ENVIRONMENT SETUP (priority 94) ──────────────────────────────────────
+
+  - id: env-1
+    title: "Set up Python environment and install dependencies"
+    type: setup
+    priority: 94
+    status: todo
+    description: >
+      Create conda environment (Python 3.10 + CUDA 12).
+      Install: torch>=2.0.0, transformers>=4.40.0, datasets>=2.18.0,
+      lean-dojo>=2.0.0, scipy>=1.11.0, numpy>=1.24.0, matplotlib>=3.7.0,
+      accelerate>=0.27.0, pyyaml>=6.0, trl>=0.8.0.
+      Install Lean 4 via elan: curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh
+      Verify LeanDojo imports and Lean4 compilation.
+      Set CUDA_VISIBLE_DEVICES to empty GPU (lowest memory from nvidia-smi).
+    reference_files:
+      - file: h-e1/03_prd.md
+        section: "7. Dependencies"
+      - file: h-e1/03_config.md
+        section: "Environment Setup"
+
+  # ─── EPIC IMPLEMENTATION TASKS (priority 93-50) ───────────────────────────
+
+  - id: E1
+    title: "Config & Data Pipeline"
+    type: data-pipeline
+    priority: 93
+    status: todo
+    description: >
+      Implement ExperimentConfig dataclass (config.py) and DatasetLoader
+      (data/load_datasets.py). Includes:
+      - ExperimentConfig with all fields (model, DPO hyperparams, paths, taxonomy)
+      - load_minif2f(), load_vericoding(), run_cold_start_sft_evaluation(),
+        construct_hard_subset() with pass@1 threshold=0.20 across 16 rollouts
+      - Hard subset construction for both miniF2F and Vericoding
+      Complexity: 10/20 (MEDIUM)
+    reference_files:
+      - file: h-e1/03_architecture.md
+        section: "Epic Tasks — E1"
+      - file: h-e1/03_logic.md
+        section: "Module: ExperimentConfig"
+      - file: h-e1/03_logic.md
+        section: "Module: DatasetLoader"
+      - file: h-e1/03_config.md
+        section: "ExperimentConfig Dataclass"
+
+  - id: E2
+    title: "LeanDojo Tracing"
+    type: data-pipeline
+    priority: 92
+    status: todo
+    description: >
+      Implement LeanDojoTracer (data/leandojo_tracing.py). Includes:
+      - TACTIC_TAXONOMY constant (pre-specified, immutable before any training)
+      - ProofStateTriple dataclass with state_id for alignment verification
+      - trace_repository() using LeanGitRepo + trace()
+      - extract_state_triples() via Dojo context manager
+      - classify_lean4_error() for taxonomy categorization
+      - get_premise_consistent_tokens() for locality score computation
+      Complexity: 15/20 (HIGH)
+    reference_files:
+      - file: h-e1/03_architecture.md
+        section: "Epic Tasks — E2"
+      - file: h-e1/03_logic.md
+        section: "Module: LeanDojoTracer"
+
+  - id: E2-sub1
+    title: "Implement Dojo context extraction and error classification"
+    type: subtask
+    parent: E2
+    priority: 49
+    status: todo
+    description: >
+      Detailed implementation of extract_state_triples() using Dojo context manager.
+      Must extract (state, tactic, compiler_error) triples with LeanDojo state IDs.
+      Implement classify_lean4_error() regex matching against TACTIC_TAXONOMY.
+      Handle timeout=60s per problem.
+    reference_files:
+      - file: h-e1/03_logic.md
+        section: "Module: LeanDojoTracer — extract_state_triples()"
+
+  - id: E2-sub2
+    title: "Implement premise-consistent token mapping"
+    type: subtask
+    parent: E2
+    priority: 48
+    status: todo
+    description: >
+      Implement get_premise_consistent_tokens(error_category, tokenizer) -> List[int].
+      Maps each error category to relevant tactic token IDs in the vocabulary.
+      This mapping is used for locality score computation in E5.
+    reference_files:
+      - file: h-e1/03_logic.md
+        section: "Module: LeanDojoTracer — get_premise_consistent_tokens()"
+
+  - id: E3
+    title: "DPO Pair Construction"
+    type: training
+    priority: 91
+    status: todo
+    description: >
+      Implement DPOPairBuilder (training/dpo_pairs.py). Includes:
+      - DPOPair dataclass with state_id_chosen, state_id_rejected, error fields
+      - build_pairs_condition_A(): Lean4 compiler error as a_l (grounded)
+      - build_pairs_condition_B(): failed-branch tactic as a_l (ungrounded)
+      - build_pairs_condition_P(): permuted error message tokens as a_l (control)
+      - validate_state_alignment(): raises ValueError on any s_w ≠ s_l mismatch
+      - build_all_conditions(): returns {"A": [...], "B": [...], "P": [...]}
+      Complexity: 12/20 (MEDIUM)
+    reference_files:
+      - file: h-e1/03_architecture.md
+        section: "Epic Tasks — E3"
+      - file: h-e1/03_logic.md
+        section: "Module: DPOPairBuilder"
+      - file: h-e1/03_prd.md
+        section: "FR-3: DPO Pair Construction (3 Conditions)"
+
+  - id: E4
+    title: "DPO Training Loop"
+    type: training
+    priority: 90
+    status: todo
+    description: >
+      Implement DPOTrainer (training/dpo_trainer.py). Includes:
+      - load_model_and_tokenizer(): loads ByteDance-Seed/BFS-Prover-V2-7B in bfloat16
+      - get_batch_logps(logits[B,T,V], labels[B,T]) -> [B]: sum log-probs (NOT average)
+      - dpo_loss(): -logsigmoid(beta * (chosen_ratio - rejected_ratio)), beta=10.0
+      - train_dpo_condition(): 1 epoch, AdamW, lr 5e-6→5e-7 linear decay, batch=16
+      - run_all_dpo_conditions(): 3 independent runs from same SFT checkpoint
+      Loss stability check: abort if loss > 2× initial at epoch end.
+      Complexity: 16/20 (HIGH)
+    reference_files:
+      - file: h-e1/03_architecture.md
+        section: "Epic Tasks — E4"
+      - file: h-e1/03_logic.md
+        section: "Module: DPOTrainer"
+      - file: h-e1/03_config.md
+        section: "Hyperparameter Source Documentation"
+      - file: h-e1/03_prd.md
+        section: "FR-4: DPO Training (3 Independent Runs)"
+
+  - id: E4-sub1
+    title: "Implement get_batch_logps and dpo_loss with correct tensor shapes"
+    type: subtask
+    parent: E4
+    priority: 47
+    status: todo
+    description: >
+      Critical implementation: get_batch_logps must use average_log_prob=False
+      (sum log-probs not average). Input logits shape [B,T,V], labels [B,T],
+      output [B]. dpo_loss takes 4 [B] tensors + beta=10.0, returns scalar.
+      Follow eric-mitchell/direct-preference-optimization reference exactly.
+    reference_files:
+      - file: h-e1/03_logic.md
+        section: "Module: DPOTrainer — get_batch_logps() and dpo_loss()"
+
+  - id: E4-sub2
+    title: "Implement training stability check and checkpoint saving"
+    type: subtask
+    parent: E4
+    priority: 46
+    status: todo
+    description: >
+      After each DPO training run: check if final loss > 2× initial loss.
+      If unstable: reduce LR by 0.5× or reduce beta, retry once.
+      Save checkpoint to config.checkpoint_dir/{condition}/ after successful training.
+      Log: "[H-E1] Condition {cond} training complete. Final loss: {loss:.4f}"
+    reference_files:
+      - file: h-e1/03_prd.md
+        section: "FR-4.3 Training Stability Check"
+
+  - id: E5
+    title: "Locality Score Computation"
+    type: evaluation
+    priority: 89
+    status: todo
+    description: >
+      Implement LocalityScoreEvaluator (evaluation/locality_score.py). Includes:
+      - compute_locality_score(): LS = sum_s[P_post(pc|s)-P_pre(pc|s)] / sum_s[|Δ(t,s)|]
+        where P_pre=frozen ref model, P_post=DPO-trained model
+        Input tensors: logits[1,T,V], probs[1,T,V], delta[1,T,V]
+      - compute_all_locality_scores(): all 3 conditions × 2 datasets
+        Returns {"A": [ls_per_state...], "B": [...], "P": [...]}
+      Complexity: 14/20 (HIGH)
+    reference_files:
+      - file: h-e1/03_architecture.md
+        section: "Epic Tasks — E5"
+      - file: h-e1/03_logic.md
+        section: "Module: LocalityScoreEvaluator"
+      - file: h-e1/03_prd.md
+        section: "FR-5: Locality Score Computation"
+
+  - id: E6
+    title: "Statistical Testing & Gate Evaluation"
+    type: evaluation
+    priority: 88
+    status: todo
+    description: >
+      Implement StatisticalTests (evaluation/statistical_tests.py). Includes:
+      - GateResult dataclass
+      - one_sided_ttest_ls_a_gt_p(): scipy.stats.ttest_1samp(..., alternative='greater')
+      - evaluate_gate(): gate PASS if p < 0.05 AND LS_A > LS_P
+      - log_gate_result(): exact format:
+          "[H-E1] Locality Score — Condition A: {:.4f} | Condition B: {:.4f} | Condition P: {:.4f}"
+          "[H-E1] Gate Check: LS_A > LS_P = {bool} (p={:.4f})"
+      - write_results_json() + write 04_validation.md
+      Complexity: 9/20 (MEDIUM)
+    reference_files:
+      - file: h-e1/03_architecture.md
+        section: "Epic Tasks — E6"
+      - file: h-e1/03_logic.md
+        section: "Module: StatisticalTests"
+      - file: h-e1/03_prd.md
+        section: "FR-6: Statistical Testing"
+
+  - id: E7
+    title: "Visualization & Experiment Runner"
+    type: evaluation
+    priority: 87
+    status: todo
+    description: >
+      Implement Visualizer (visualization/plots.py) and ExperimentRunner (run_experiment.py).
+      4 required figures:
+      1. locality_score_comparison.png: 6-bar chart (2 datasets × 3 conditions)
+      2. probability_mass_distribution.png: stacked bar per condition × dataset
+      3. error_category_breakdown.png: LS per error category
+      4. locality_score_per_state.png: scatter (x=complexity, y=LS)
+      main() orchestrates all 10 steps end-to-end.
+      Complexity: 10/20 (MEDIUM)
+    reference_files:
+      - file: h-e1/03_architecture.md
+        section: "Epic Tasks — E7"
+      - file: h-e1/03_logic.md
+        section: "Module: Visualizer + ExperimentRunner"
+      - file: h-e1/03_prd.md
+        section: "FR-7: Visualization"
+
+  # ─── FAILSAFE (priority 1) ────────────────────────────────────────────────
+
+  - id: failsafe
+    title: "Pipeline continuation checkpoint"
+    type: failsafe
+    priority: 1
+    status: todo
+    description: >
+      Final checkpoint: verify run_experiment.py completes end-to-end without errors.
+      Write 04_validation.md with LS values, p-value, gate result (PASS/FAIL),
+      and raw scores per dataset. Update verification_state.yaml gate.satisfied field.
+    reference_files:
+      - file: h-e1/03_prd.md
+        section: "FR-8: Gate Evaluation and Results Logging"
+
+budget_summary:
+  data_preparation: 2
+  environment_setup: 1
+  epic_tasks: 7
+  subtasks: 4
+  failsafe: 1
+  total: 15
+  tier_max: 15
+  within_budget: true
+  excluded_subtasks:
+    - "E5-sub1 (locality score tensor loop) — merged into E5 epic to stay within LIGHT budget"
+    - "E5-sub2 (per-state LS scatter data) — merged into E5 epic"

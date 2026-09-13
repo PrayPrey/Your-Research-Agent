@@ -1,0 +1,760 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m1"
+  hypothesis_id_upper: "H-M1"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-05-09T18:45:00+00:00"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+
+  # ─────────────────────────────────────────────────────────────────
+  # ENVIRONMENT SETUP (priority 94)
+  # Source: 03_prd.md Section 7
+  # ─────────────────────────────────────────────────────────────────
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Install Python Dependencies"
+    description: |
+      Install all required Python packages for h-m1 experiment.
+      Run: pip install evalplus>=0.3.0 transformers>=4.35.0 accelerate torch syncode mypy>=1.0.0 matplotlib>=3.7.0 seaborn>=0.12.0 numpy>=1.24.0 scipy>=1.10.0 pyyaml>=6.0
+      If syncode pip fails, clone: git clone https://github.com/uiuc-focal-lab/syncode && pip install -e ./syncode
+      Verify: pip list shows all packages. Set CUDA_VISIBLE_DEVICES to GPU with lowest memory (nvidia-smi).
+      Confirm imports: from syncode import Syncode; import mypy.api; from evalplus.data import get_human_eval_plus; import numpy as np; import matplotlib
+      Note: CodeLlama-7B model already cached at ~/.cache/huggingface/hub/models--codellama--CodeLlama-7b-hf (from h-e1)
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: |
+      - Verify: python -c "from syncode import Syncode; import mypy.api; from evalplus.data import get_human_eval_plus; import numpy; print('All imports OK')"
+      - Confirm CUDA_VISIBLE_DEVICES is set
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#inherited-configuration"
+
+  # ─────────────────────────────────────────────────────────────────
+  # EPIC IMPLEMENTATION TASKS (priority 93-50)
+  # Source: 03_architecture.md Epic Tasks table
+  # ─────────────────────────────────────────────────────────────────
+  - id: "task-002"
+    epic: "A-1"
+    title: "Config & Scaffold"
+    description: |
+      Implement h-m1/code/config.py with ExperimentConfig dataclass hierarchy.
+      Dataclasses: ModelConfig, GenerationConfig (max_new_tokens=512, no seeds field),
+      BootstrapConfig (n_bootstrap=10000, alpha=0.05), ThresholdConfig (delta_ast_min=0.0, ci_lower_min=0.0,
+      constraint_active_rate_min=0.3), FMDConfig, OutputConfig.
+      Create directory structure: h-m1/code/, h-m1/data/, h-m1/results/, h-m1/figures/, h-m1/code/tests/.
+      Seed scheme: problem_idx * 100 + sample_idx (NOT list(range(20)) from h-e1).
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: |
+      - Create tests/test_config.py
+      - test_default_values: ExperimentConfig() creates with correct defaults
+      - test_n_problems: assert config.n_problems == 164
+      - test_bootstrap_config: assert config.bootstrap.n_bootstrap == 10000
+    reference_files:
+      architecture: "03_architecture.md#config"
+      logic: null
+      config: "03_config.md#experiment-configuration"
+
+  - id: "task-003"
+    epic: "A-2"
+    title: "Baseline Pool Extension"
+    description: |
+      Implement h-m1/code/baseline_generator.py with ExtendedBaselineGenerator class.
+      Key changes from h-e1: (1) per-problem seed scheme: seed = problem_idx * 100 + sample_idx,
+      (2) JSONL records include ast_valid, problem_idx, sample_idx fields,
+      (3) max_new_tokens=512 (was 256 in h-e1), (4) resume support via progress.json.
+      load_h_e1_pool(h_e1_path): read h-e1/data/baseline_pool.jsonl, compute ast_valid on load (h-e1 lacks this field).
+      generate_pool(problems, output_path, progress_path, h_e1_pool_path): covers all 164 problems,
+      reuse h-e1 first 20 if available, generate remaining 144 with new seed scheme.
+      Record format: {task_id, problem_idx, sample_idx, seed, completion, ast_valid}
+    feature_tag: "model"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      - Create tests/test_baseline_generator.py
+      - test_seed_scheme: assert _compute_seed(0, 0) == 0; assert _compute_seed(1, 5) == 105
+      - test_record_fields: records contain ast_valid, problem_idx, sample_idx
+      - test_resume: interrupt after 10 problems, resume, verify 164 total unique problems
+    reference_files:
+      architecture: "03_architecture.md#baseline_generator"
+      logic: "03_logic.md#a-2-baseline-pool-extension--logic"
+      config: "03_config.md#generation-configuration"
+
+  - id: "task-004"
+    epic: "A-3"
+    title: "SynCode Pool Extension"
+    description: |
+      Implement h-m1/code/syncode_generator.py with ExtendedSyncodeGenerator class.
+      Key changes from h-e1: (1) per-problem seed scheme (same as baseline), (2) constraint_active bool
+      field derived from filtered_token_count > 0, (3) JSONL records include ast_valid, problem_idx,
+      sample_idx, constraint_active, (4) max_new_tokens=512, (5) resume support.
+      _generate_single_constrained(prompt, seed) -> (str, bool): wraps h-e1's (str, int) return.
+      compute_constraint_active_rate(pool) -> float: fraction of all samples with constraint_active=True.
+      Log per sample: "[SynCode] constraint_active={bool} problem={idx} sample={idx}"
+    feature_tag: "model"
+    priority: 89
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - Create tests/test_syncode_generator.py
+      - test_constrained_return_type: _generate_single_constrained returns (str, bool)
+      - test_pool_record_fields: records contain ast_valid, constraint_active, problem_idx, sample_idx
+      - test_constraint_active_rate: rate in [0.0, 1.0] for real generation run
+    reference_files:
+      architecture: "03_architecture.md#syncode_generator"
+      logic: "03_logic.md#a-3-syncode-pool-extension--logic"
+      config: "03_config.md#syncode-configuration"
+
+  - id: "task-005"
+    epic: "A-4"
+    title: "AST Failure Rate Computation"
+    description: |
+      Implement h-m1/code/ast_metrics.py with ASTFailureRateComputer class.
+      compute_per_problem_rates(pool): {task_id: failure_rate} for all 164 problems.
+      compute_arrays(baseline_pool, syncode_pool): returns (baseline_rates[164], syncode_rates[164], task_ids)
+      with arrays aligned by sorted task_id order.
+      compute_delta_ast(baseline_rates, syncode_rates): delta_ast = mean(baseline) - mean(syncode).
+      save_results(): serialize per_problem + aggregate to h-m1/results/ast_failure_rates.json.
+    feature_tag: "evaluation"
+    priority: 87
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Create tests/test_ast_metrics.py
+      - test_all_valid: failure_rate == 0.0 when all ast_valid=True
+      - test_all_invalid: failure_rate == 1.0 when all ast_valid=False
+      - test_delta_ast_positive: delta > 0 when baseline_rates > syncode_rates
+      - test_arrays_aligned: baseline_rates.shape == syncode_rates.shape == (164,)
+    reference_files:
+      architecture: "03_architecture.md#ast_metrics"
+      logic: "03_logic.md#a-4-ast-failure-rate-computation--logic"
+      config: "03_config.md#threshold-configuration"
+
+  - id: "task-006"
+    epic: "A-5"
+    title: "Bootstrap CI Statistical Test"
+    description: |
+      Implement h-m1/code/bootstrap_ci.py with BootstrapCI class.
+      compute(baseline_rates[164], syncode_rates[164]): paired problem-level bootstrap, 10,000 iterations.
+      Uses diffs = baseline_rates - syncode_rates; bootstrap resamples diffs with replacement.
+      Returns (delta_mean, ci_lower, ci_upper, p_value) where p_value = fraction of boot_deltas <= 0 (one-sided).
+      evaluate_gate(delta_mean, ci_lower): PASS if both > 0; PARTIAL if only delta > 0; FAIL if delta <= 0.
+      save_results(): serialize to h-m1/results/bootstrap_ci.json.
+    feature_tag: "evaluation"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      - Create tests/test_bootstrap_ci.py
+      - test_perfect_improvement: delta=0.5 → ci_lower > 0, p_value < 0.05
+      - test_no_improvement: equal rates → delta ≈ 0, p_value ≈ 0.5
+      - test_gate_pass: delta_mean=0.05, ci_lower=0.01 → PASS
+      - test_gate_partial: delta_mean=0.02, ci_lower=-0.01 → PARTIAL
+      - test_gate_fail: delta_mean=-0.01 → FAIL
+    reference_files:
+      architecture: "03_architecture.md#bootstrap_ci"
+      logic: "03_logic.md#a-5-bootstrap-ci--logic"
+      config: "03_config.md#bootstrap-configuration"
+
+  - id: "task-007"
+    epic: "A-6"
+    title: "FMD Classifier"
+    description: |
+      Implement h-m1/code/fmd_classifier.py with FMDClassifier class.
+      Multi-label classification priority: syntax → type → functional → success.
+      classify_completion(completion, task_id, problem): returns category string.
+      Syntax: ast.parse() raises SyntaxError. Type: mypy.api.run() with temp file, exit_code=1 and "error:" in stdout.
+      classify_pool(pool, problems): {task_id: [category_per_sample]}.
+      compute_distribution(classifications): {category: proportion} over all 3280 samples.
+      compute_syntax_shift(baseline_dist, syncode_dist): syntax_rate_baseline - syntax_rate_syncode.
+      save_results(): serialize to h-m1/results/fmd_results.json.
+    feature_tag: "evaluation"
+    priority: 83
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      - Create tests/test_fmd_classifier.py
+      - test_syntax_category: invalid Python → "syntax"
+      - test_type_category: syntactically valid but type-error code → "type" (mock mypy if needed)
+      - test_success_category: clean code → "success"
+      - test_distribution_sums_to_one: sum(compute_distribution(cls).values()) ≈ 1.0
+    reference_files:
+      architecture: "03_architecture.md#fmd_classifier"
+      logic: "03_logic.md#a-6-fmd-classifier--logic"
+      config: "03_config.md#fmd-classifier-configuration"
+
+  - id: "task-008"
+    epic: "A-7"
+    title: "Transition Extractor"
+    description: |
+      Implement h-m1/code/transition_extractor.py with TransitionExtractor class.
+      extract(baseline_pool, syncode_pool): finds (problem_idx, sample_idx) pairs where
+      baseline ast_valid=False AND syncode ast_valid=True (matched by task_id + sample_idx).
+      compute_coverage_by_problem(transitions, n_problems=164): [{problem_idx, task_id, transitions_count}] for all 164.
+      save_results(): serialize to h-m1/results/F_SynCode_success_transitions.json with
+      transition_count, transition_rate, coverage_by_problem.
+      This output is required by h-m2 for Jaccard overlap / C_score analysis.
+    feature_tag: "evaluation"
+    priority: 81
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Create tests/test_transition_extractor.py
+      - test_transition_detected: baseline_fail + syncode_pass → appears in transitions
+      - test_no_false_positive: baseline_pass → not in transitions
+      - test_transition_rate: in [0.0, 1.0]
+      - test_json_keys: transitions, transition_count, transition_rate, coverage_by_problem all present
+    reference_files:
+      architecture: "03_architecture.md#transition_extractor"
+      logic: "03_logic.md#a-7-transition-extractor--logic"
+      config: null
+
+  - id: "task-009"
+    epic: "A-8"
+    title: "Mechanism Verifier"
+    description: |
+      Implement h-m1/code/mechanism_verifier.py with MechanismVerifier class.
+      check_logits_processor(syn_model): True if GrammarAlignedLogitsProcessor in syn_model.logits_processor list,
+      or if syn_model has grammar_decoder attribute.
+      run_test_samples(syn_generator, test_prompt, n_test=5): generate 5 samples, return
+      {constraint_active_rate, ast_valid_rate}.
+      verify(syn_generator, test_prompt, output_path): run all checks, save to mechanism_verification.json.
+      pre_check_passed = grammar_lp_present AND constraint_active_rate >= 0.3.
+      If pre_check fails: log warning, proceed (do not block experiment).
+    feature_tag: "evaluation"
+    priority: 79
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      - Create tests/test_mechanism_verifier.py
+      - test_logits_processor_check: returns bool for any syn_model
+      - test_verify_output: mechanism_verification.json contains grammar_lp_present, pre_check_passed
+    reference_files:
+      architecture: "03_architecture.md#mechanism_verifier"
+      logic: "03_logic.md#a-8-mechanism-verifier--logic"
+      config: "03_config.md#threshold-configuration"
+
+  - id: "task-010"
+    epic: "A-9"
+    title: "Visualization — 4 Figures"
+    description: |
+      Implement h-m1/code/visualization.py with HM1Visualizer class.
+      Four required figures (all saved as .pdf + .png to h-m1/figures/):
+      1. gate_metrics: bar chart [Baseline, SynCode] × ast.parse failure rate, error bars from bootstrap CI, PASS/FAIL annotation.
+      2. per_problem_scatter: x=baseline_rate, y=syncode_rate per problem, diagonal reference line, color by quartile.
+      3. fmd_comparison: side-by-side bars [Baseline, SynCode] × [syntax, type, functional, success] proportions.
+      4. transition_heatmap: 164×20 grid, color-coded: 0=already_correct, 1=no_gain, 2=SynCode_helps.
+      save_all() calls all four methods. Use matplotlib/seaborn, fontsize>=11, dpi=150.
+    feature_tag: "experiment"
+    priority: 77
+    source_document: "03_architecture.md"
+    complexity: 14
+    test_requirements: |
+      - Create tests/test_visualization.py
+      - test_all_figures_saved: all 8 files exist after save_all() (4 × pdf + png)
+      - test_gate_metrics_annotation: PASS/FAIL text visible in gate_metrics figure
+      - test_scatter_diagonal: diagonal line present in per_problem_scatter
+    reference_files:
+      architecture: "03_architecture.md#visualization"
+      logic: "03_logic.md#a-9-visualization--logic"
+      config: null
+
+  - id: "task-011"
+    epic: "A-10"
+    title: "Orchestrator & Tests"
+    description: |
+      Implement h-m1/code/run_experiment.py with main() orchestrator.
+      Steps 0-9 in order: (0) mechanism pre-verification, (1) load 164 HumanEval+ problems,
+      (2) generate/load baseline pool, (3) generate/load SynCode pool, (4) compute AST failure rates,
+      (5) bootstrap CI → gate evaluation, (6) FMD classification, (7) transition extraction,
+      (8) consolidated metrics.json, (9) 4 figures.
+      CLI args: --load_pools, --skip_syncode, --base_dir, --num_problems, --skip_mechanism_check.
+      Returns 0 if gate PASS, 1 if gate FAIL.
+      Unit tests: tests/test_ast_metrics.py, tests/test_bootstrap_ci.py (see 03_logic.md for test cases).
+    feature_tag: "experiment"
+    priority: 75
+    source_document: "03_architecture.md"
+    complexity: 12
+    test_requirements: |
+      - Create tests/test_run_experiment.py
+      - test_pipeline_runs_with_load_pools: python run_experiment.py --load_pools exits cleanly
+      - test_metrics_json_created: h-m1/results/metrics.json exists after run
+      - test_gate_result_present: metrics.json contains gate_result key
+    reference_files:
+      architecture: "03_architecture.md#run_experiment"
+      logic: "03_logic.md#a-10-orchestrator--logic"
+      config: "03_config.md#experiment-configuration"
+
+  # ─────────────────────────────────────────────────────────────────
+  # SUBTASKS (priority 49-2)
+  # Source: 03_logic.md (Logic agent budget: 16 subtasks)
+  #         03_config.md (Config agent budget: 2 subtasks)
+  # ─────────────────────────────────────────────────────────────────
+
+  # A-3 subtasks (4)
+  - id: "task-012"
+    epic: "A-3"
+    title: "A-3.1: _generate_single_constrained with constraint_active bool"
+    description: |
+      Implement ExtendedSyncodeGenerator._generate_single_constrained(prompt, seed) -> (str, bool).
+      Wraps h-e1 SyncodeGenerator._generate_single_constrained() which returned (str, int).
+      New logic: constraint_active = (filtered_token_count > 0).
+      Try syn_model.infer(prompt)[0], get filtered_count from grammar_decoder or logits_processor.
+      Fallback: direct tokenized generate, filtered_count=1 (grammar constraint was loaded).
+      Set torch.manual_seed(seed) + transformers.set_seed(seed) before generation.
+    feature_tag: "model"
+    priority: 49
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_return_type: (str, bool) tuple
+      - test_seed_reproducible: same seed → same completion
+    reference_files:
+      architecture: "03_architecture.md#syncode_generator"
+      logic: "03_logic.md#a-3-syncode-pool-extension--logic"
+      config: "03_config.md#syncode-configuration"
+
+  - id: "task-013"
+    epic: "A-3"
+    title: "A-3.2: generate_pool with resume and constraint logging"
+    description: |
+      Implement ExtendedSyncodeGenerator.generate_pool(problems, output_path, progress_path) -> Dict[str, List[dict]].
+      Signature change from h-e1: no seeds parameter (computed internally per-problem).
+      For each (problem_idx, task_id): check progress, call _generate_single_constrained for 20 samples.
+      Per sample log: "[SynCode] constraint_active={bool} problem={idx} sample={idx}".
+      Append records to JSONL immediately; update progress.json after each task_id completes.
+      Record: {task_id, problem_idx, sample_idx, seed, completion, ast_valid, constraint_active}.
+    feature_tag: "model"
+    priority: 47
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_progress_resume: interrupt at 50 problems, resume, no duplicates
+      - test_log_output: "[SynCode] constraint_active=" appears in logs
+    reference_files:
+      architecture: "03_architecture.md#syncode_generator"
+      logic: "03_logic.md#a-3-syncode-pool-extension--logic"
+      config: null
+
+  - id: "task-014"
+    epic: "A-3"
+    title: "A-3.3: compute_constraint_active_rate"
+    description: |
+      Implement ExtendedSyncodeGenerator.compute_constraint_active_rate(pool) -> float.
+      Iterates all records across all 164 task_ids.
+      active = count of records where constraint_active == True.
+      total = len(all records) = 164 * 20 = 3280.
+      Returns active / total. Expected threshold >= 0.3 (mechanism_verifier pre-check).
+      Log: "constraint_active_rate={rate:.3f} ({active}/{total} samples)"
+    feature_tag: "model"
+    priority: 45
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_rate_range: result in [0.0, 1.0]
+      - test_all_active: rate == 1.0 when all constraint_active=True
+      - test_none_active: rate == 0.0 when all constraint_active=False
+    reference_files:
+      architecture: "03_architecture.md#syncode_generator"
+      logic: "03_logic.md#a-3-syncode-pool-extension--logic"
+      config: null
+
+  - id: "task-015"
+    epic: "A-3"
+    title: "A-3.4: load_pool_from_jsonl backward compatibility"
+    description: |
+      Implement run_experiment.load_pool_from_jsonl(path) -> Dict[str, List[dict]].
+      Handles both h-e1 format (lacks ast_valid, problem_idx, sample_idx) and h-m1 format.
+      For h-e1 records: compute ast_valid by running ast.parse(completion); set problem_idx=None, sample_idx=None.
+      For h-m1 records: use as-is.
+      Returns {task_id: [record_dicts]} grouped by task_id.
+    feature_tag: "model"
+    priority: 43
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_h_e1_compat: load h-e1/data/baseline_pool.jsonl, ast_valid computed correctly
+      - test_h_m1_format: load h-m1/data/baseline_pool.jsonl, all fields present
+    reference_files:
+      architecture: "03_architecture.md#run_experiment"
+      logic: "03_logic.md#a-3-syncode-pool-extension--logic"
+      config: null
+
+  # A-9 subtasks (4)
+  - id: "task-016"
+    epic: "A-9"
+    title: "A-9.1: plot_gate_metrics with bootstrap CI error bars"
+    description: |
+      Implement HM1Visualizer.plot_gate_metrics(baseline_mean, syncode_mean, ci_lower, ci_upper, delta_ast, gate_result).
+      Bar chart: x=[Baseline, SynCode], y=ast.parse failure rate.
+      Asymmetric error bar on SynCode bar derived from CI around delta_ast.
+      Dashed horizontal line at baseline_mean. Gate color: green=PASS, orange=PARTIAL, red=FAIL.
+      Annotation: "Δ_ast={delta_ast:.4f}\n95% CI [{ci_lower:.4f}, {ci_upper:.4f}]" in gate color.
+      Saves: h-m1/figures/gate_metrics.pdf + gate_metrics.png
+    feature_tag: "experiment"
+    priority: 41
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_files_created: gate_metrics.pdf and gate_metrics.png exist after call
+      - test_annotation_present: PASS/FAIL text in figure (check via savefig+load)
+    reference_files:
+      architecture: "03_architecture.md#visualization"
+      logic: "03_logic.md#a-9-visualization--logic"
+      config: null
+
+  - id: "task-017"
+    epic: "A-9"
+    title: "A-9.2: plot_per_problem_scatter with quartile coloring"
+    description: |
+      Implement HM1Visualizer.plot_per_problem_scatter(baseline_rates[164], syncode_rates[164], task_ids).
+      Scatter plot: x=baseline failure rate, y=syncode failure rate, 164 points.
+      Reference diagonal y=x line (no improvement). Points below diagonal = SynCode benefit.
+      Color by quartile of baseline_rate (4 quartiles, RdYlGn_r colormap).
+      Count and annotate: "{N}/164 problems improved" where improved = syncode_rate < baseline_rate.
+      Saves: per_problem_scatter.pdf + per_problem_scatter.png
+    feature_tag: "experiment"
+    priority: 39
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_files_created: per_problem_scatter.pdf and .png exist
+      - test_point_count: scatter has exactly 164 points
+    reference_files:
+      architecture: "03_architecture.md#visualization"
+      logic: "03_logic.md#a-9-visualization--logic"
+      config: null
+
+  - id: "task-018"
+    epic: "A-9"
+    title: "A-9.3: plot_fmd_comparison side-by-side bars"
+    description: |
+      Implement HM1Visualizer.plot_fmd_comparison(baseline_dist, syncode_dist).
+      Grouped bar chart: 4 categories (syntax, type, functional, success) on x-axis.
+      Two bars per category: Baseline (steelblue) and SynCode (darkorange), width=0.35.
+      Y-axis: proportion of all samples. Legend: Baseline / SynCode.
+      Title: "Failure Mode Distribution: Baseline vs SynCode".
+      Saves: fmd_comparison.pdf + fmd_comparison.png
+    feature_tag: "experiment"
+    priority: 37
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_files_created: fmd_comparison.pdf and .png exist
+      - test_four_categories: figure has 4 category groups
+    reference_files:
+      architecture: "03_architecture.md#visualization"
+      logic: "03_logic.md#a-9-visualization--logic"
+      config: null
+
+  - id: "task-019"
+    epic: "A-9"
+    title: "A-9.4: plot_transition_heatmap 164×20 grid"
+    description: |
+      Implement HM1Visualizer.plot_transition_heatmap(baseline_pool, syncode_pool, task_ids).
+      Build 164×20 integer grid: 0=already_correct (baseline passes), 1=no_gain (both fail), 2=transition (baseline_fail+syncode_pass).
+      Render with imshow, cmap=RdYlGn (3 discrete levels). Colorbar with labels: already correct, no gain, SynCode helps.
+      X-axis: sample index 0-19. Y-axis: problem index 0-163.
+      Saves: transition_heatmap.pdf + transition_heatmap.png
+    feature_tag: "experiment"
+    priority: 35
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_files_created: transition_heatmap.pdf and .png exist
+      - test_grid_shape: internal grid is (164, 20) before plotting
+    reference_files:
+      architecture: "03_architecture.md#visualization"
+      logic: "03_logic.md#a-9-visualization--logic"
+      config: null
+
+  # A-2 subtasks (2)
+  - id: "task-020"
+    epic: "A-2"
+    title: "A-2.1: load_h_e1_pool with ast_valid backfill"
+    description: |
+      Implement ExtendedBaselineGenerator.load_h_e1_pool(h_e1_path) -> Dict[str, List[dict]].
+      Reads h-e1/data/baseline_pool.jsonl. h-e1 format: {task_id, completion, seed, generation_time}.
+      For each record: compute ast_valid = ast.parse(completion) succeeds.
+      Set problem_idx=None, sample_idx=None (seed scheme differs — do not backfill from h-e1 seeds).
+      Returns {task_id: [enriched_dicts]} for first 20 problems only (h-e1 had 20 problems).
+      Used to reuse completions for first 20 HumanEval problems without regenerating.
+    feature_tag: "model"
+    priority: 33
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_load_succeeds: no exception if h-e1/data/baseline_pool.jsonl exists
+      - test_ast_valid_present: all returned records have ast_valid key
+      - test_20_problems: len(result) == 20 (h-e1 covered first 20 problems)
+    reference_files:
+      architecture: "03_architecture.md#baseline_generator"
+      logic: "03_logic.md#a-2-baseline-pool-extension--logic"
+      config: null
+
+  - id: "task-021"
+    epic: "A-2"
+    title: "A-2.2: generate_pool with h-e1 reuse and progress tracking"
+    description: |
+      Implement ExtendedBaselineGenerator.generate_pool(problems, output_path, progress_path, h_e1_pool_path).
+      Algorithm: (1) load completed = load_progress(progress_path), (2) if h_e1_pool_path: h_e1_recs = load_h_e1_pool(),
+      (3) for each (problem_idx, task_id) in sorted(problems): skip if completed, use h_e1_recs if available
+      (task_id in h_e1_recs), else generate 20 samples with _compute_seed. Append to JSONL, update progress.
+      Seed scheme: _compute_seed(problem_idx, sample_idx) = problem_idx * 100 + sample_idx.
+      Note: h-e1 reused records have correct completions but seeds were different — document in code comment.
+    feature_tag: "model"
+    priority: 31
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_all_problems: pool covers all 164 task_ids
+      - test_reuse_logic: when h_e1_pool_path provided, first 20 problems skip generation
+      - test_progress_file: progress.json updated after each task_id
+    reference_files:
+      architecture: "03_architecture.md#baseline_generator"
+      logic: "03_logic.md#a-2-baseline-pool-extension--logic"
+      config: null
+
+  # A-10 subtasks (2)
+  - id: "task-022"
+    epic: "A-10"
+    title: "A-10.1: main() orchestration steps 0-9"
+    description: |
+      Implement run_experiment.main() with all 9 pipeline steps in correct order.
+      Step 0: MechanismVerifier.verify(). Step 1: load_humaneval_plus() → assert 164 problems.
+      Step 2: ExtendedBaselineGenerator.generate_pool() or load from disk. Step 3: ExtendedSyncodeGenerator.generate_pool().
+      Step 4: ASTFailureRateComputer.compute_arrays(). Step 5: BootstrapCI.compute() + evaluate_gate().
+      Step 6: FMDClassifier.classify_pool() for both conditions. Step 7: TransitionExtractor.extract().
+      Step 8: consolidated metrics.json with {delta_ast, ci_lower, ci_upper, p_value, gate_result,
+      constraint_active_rate, syntax_shift, transition_count, transition_rate}.
+      Step 9: HM1Visualizer.save_all(). Return 0 if PASS, 1 if FAIL.
+    feature_tag: "experiment"
+    priority: 29
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_step_order: steps execute 0→9 without skipping
+      - test_return_code: 0 for PASS gate, 1 for FAIL gate
+    reference_files:
+      architecture: "03_architecture.md#run_experiment"
+      logic: "03_logic.md#a-10-orchestrator--logic"
+      config: "03_config.md#experiment-configuration"
+
+  - id: "task-023"
+    epic: "A-10"
+    title: "A-10.2: unit tests for ASTFailureRateComputer and BootstrapCI"
+    description: |
+      Implement tests/test_ast_metrics.py and tests/test_bootstrap_ci.py.
+      test_ast_metrics.py: TestASTFailureRateComputer with test_all_valid, test_all_invalid, test_delta_ast_positive,
+      test_arrays_aligned_shape (baseline_rates.shape == (164,)). Use synthetic pool dicts (ast_valid field only needed).
+      test_bootstrap_ci.py: TestBootstrapCI with test_perfect_improvement (delta=0.5 → PASS),
+      test_no_improvement (equal rates → PARTIAL/FAIL), test_gate_pass, test_gate_partial, test_gate_fail.
+      Use n_bootstrap=1000 for test speed. All tests runnable with pytest.
+    feature_tag: "experiment"
+    priority: 27
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - All test methods pass: pytest tests/test_ast_metrics.py tests/test_bootstrap_ci.py
+      - No placeholder tests (assert True, pass, ...)
+    reference_files:
+      architecture: null
+      logic: "03_logic.md#a-10-orchestrator--logic"
+      config: null
+
+  # A-5 subtasks (2)
+  - id: "task-024"
+    epic: "A-5"
+    title: "A-5.1: Bootstrap algorithm with rng seed"
+    description: |
+      Implement BootstrapCI.compute() bootstrap loop with deterministic rng.
+      Use np.random.default_rng(seed=42) for reproducibility.
+      diffs = baseline_rates - syncode_rates (shape: 164,).
+      boot_deltas = [mean(diffs[rng.choice(n, n, replace=True)]) for _ in range(n_bootstrap)].
+      ci_lower = percentile(boot_deltas, alpha/2 * 100). ci_upper = percentile(boot_deltas, (1-alpha/2)*100).
+      p_value = mean(boot_deltas <= 0) — one-sided test.
+      Verify: two runs with same rng seed produce identical boot_deltas.
+    feature_tag: "evaluation"
+    priority: 25
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_deterministic: two compute() calls with rng seed=42 → identical results
+      - test_bootstrap_iterations: len(boot_deltas) == n_bootstrap
+    reference_files:
+      architecture: "03_architecture.md#bootstrap_ci"
+      logic: "03_logic.md#a-5-bootstrap-ci--logic"
+      config: "03_config.md#bootstrap-configuration"
+
+  - id: "task-025"
+    epic: "A-5"
+    title: "A-5.2: Gate evaluation and save_results"
+    description: |
+      Implement BootstrapCI.evaluate_gate(delta_mean, ci_lower) -> str and save_results().
+      Gate logic: PASS if delta_mean > 0 AND ci_lower > 0. PARTIAL if delta_mean > 0 AND ci_lower <= 0. FAIL if delta_mean <= 0.
+      save_results(delta_mean, ci_lower, ci_upper, p_value, gate_result, output_path): serialize to bootstrap_ci.json
+      with fields: delta_ast, ci_lower, ci_upper, p_value, gate_result, n_bootstrap, alpha, interpretation.
+      interpretation = "one-sided: p_value = fraction of bootstrap deltas <= 0"
+    feature_tag: "evaluation"
+    priority: 23
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_gate_boundary: delta=0.001, ci_lower=0.0001 → PASS
+      - test_json_keys: all 8 keys present in saved bootstrap_ci.json
+    reference_files:
+      architecture: "03_architecture.md#bootstrap_ci"
+      logic: "03_logic.md#a-5-bootstrap-ci--logic"
+      config: null
+
+  # A-8 subtasks (2)
+  - id: "task-026"
+    epic: "A-8"
+    title: "A-8.1: check_logits_processor and run_test_samples"
+    description: |
+      Implement MechanismVerifier.check_logits_processor(syn_model) -> bool and run_test_samples().
+      check_logits_processor: inspect syn_model.logits_processor list for any lp where 'Grammar' in type(lp).__name__.
+      Fallback: return True if hasattr(syn_model, 'grammar_decoder').
+      run_test_samples(syn_generator, test_prompt, n_test=5): call _generate_single_constrained for seeds 42+i.
+      Returns {constraint_active_rate, ast_valid_rate}. n_test=5 for speed (not full pool).
+    feature_tag: "evaluation"
+    priority: 21
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_lp_check_true: mock syn_model with Grammar-named processor → True
+      - test_lp_check_false: mock syn_model with no Grammar processor → False (or grammar_decoder fallback)
+    reference_files:
+      architecture: "03_architecture.md#mechanism_verifier"
+      logic: "03_logic.md#a-8-mechanism-verifier--logic"
+      config: null
+
+  - id: "task-027"
+    epic: "A-8"
+    title: "A-8.2: verify() with non-blocking pre-check"
+    description: |
+      Implement MechanismVerifier.verify(syn_generator, test_prompt, output_path) -> dict.
+      Calls check_logits_processor(syn_generator.syn_model) and run_test_samples(syn_generator, test_prompt).
+      pre_check_passed = grammar_lp_present AND constraint_active_rate >= 0.3.
+      IMPORTANT: If pre_check_passed=False, log warning and return result dict (do NOT raise exception).
+      Experiment must proceed even if pre-check fails (mechanism may still work empirically).
+      Save: {grammar_lp_present, constraint_active_rate, ast_valid_rate, pre_check_passed, note} to mechanism_verification.json.
+    feature_tag: "evaluation"
+    priority: 19
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_non_blocking: verify() with pre_check=False does not raise exception
+      - test_json_saved: mechanism_verification.json exists with pre_check_passed key
+    reference_files:
+      architecture: "03_architecture.md#mechanism_verifier"
+      logic: "03_logic.md#a-8-mechanism-verifier--logic"
+      config: null
+
+  # A-6 config subtasks (2) — from 03_config.md
+  - id: "task-028"
+    epic: "A-6"
+    title: "C-6-1: FMDConfig classification timeout guards"
+    description: |
+      Implement FMDConfig dataclass and apply timeout guards in FMDClassifier.classify_completion().
+      FMDConfig fields: mypy_timeout=30 (seconds), evalplus_timeout=10 (seconds),
+      category_priority=["syntax", "type", "functional", "success"], cleanup_temp_files=True.
+      Apply in classify_completion: wrap mypy.api.run() call with signal-based or subprocess timeout.
+      If mypy times out (>30s): classify as "success" (conservative — cannot confirm type error).
+      cleanup_temp_files: delete temp .py file in finally block.
+    feature_tag: "evaluation"
+    priority: 17
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - test_timeout_handled: mypy call timeout does not crash classify_completion
+      - test_cleanup: temp file deleted after classify_completion
+    reference_files:
+      architecture: "03_architecture.md#fmd_classifier"
+      logic: "03_logic.md#a-6-fmd-classifier--logic"
+      config: "03_config.md#fmd-classifier-configuration"
+
+  - id: "task-029"
+    epic: "A-6"
+    title: "C-6-2: FMD distribution serialization"
+    description: |
+      Implement FMDClassifier.save_results(baseline_dist, syncode_dist, syntax_shift, output_path) -> dict.
+      Output fmd_results.json format:
+      {baseline_distribution: {syntax, type, functional, success}, syncode_distribution: {same keys},
+      syntax_shift: float, interpretation: "positive syntax_shift = SynCode reduces syntax failure proportion"}.
+      All 4 category keys must be present even if proportion=0.0.
+      Validate: sum(baseline_dist.values()) ≈ 1.0 (within 1e-6 float tolerance).
+    feature_tag: "evaluation"
+    priority: 15
+    source_document: "03_config.md"
+    complexity: null
+    test_requirements: |
+      - test_all_keys_present: all 4 categories in both distributions
+      - test_proportions_sum: sum(baseline_dist.values()) ≈ 1.0
+      - test_json_format: fmd_results.json valid JSON with all required keys
+    reference_files:
+      architecture: "03_architecture.md#fmd_classifier"
+      logic: "03_logic.md#a-6-fmd-classifier--logic"
+      config: "03_config.md#fmd-classifier-configuration"
+
+  # ─────────────────────────────────────────────────────────────────
+  # FAILSAFE TASK (priority 1)
+  # Pipeline continuation checkpoint
+  # ─────────────────────────────────────────────────────────────────
+  - id: "task-failsafe"
+    epic: "Failsafe"
+    title: "Pipeline Continuation Checkpoint"
+    description: |
+      Final validation checkpoint for h-m1 Phase 4 execution.
+      Verify all experiment outputs are present:
+      - h-m1/data/baseline_pool.jsonl (164 × 20 = 3280 lines)
+      - h-m1/data/syncode_pool.jsonl (3280 lines)
+      - h-m1/results/ast_failure_rates.json
+      - h-m1/results/bootstrap_ci.json (gate_result key present)
+      - h-m1/results/fmd_results.json
+      - h-m1/results/F_SynCode_success_transitions.json
+      - h-m1/results/mechanism_verification.json
+      - h-m1/results/metrics.json (gate_result key present)
+      - h-m1/figures/*.pdf and *.png (8 files total: 4 figures × 2 formats)
+      Read bootstrap_ci.json; extract gate_result, delta_ast, ci_lower, ci_upper, p_value.
+      Report GATE PASS or GATE FAIL for Phase 4 validator.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "system"
+    complexity: null
+    test_requirements: |
+      - Verify all output files exist
+      - Assert metrics.json is valid JSON with gate_result key
+      - Report delta_ast and CI bounds
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 18
+  failsafe: 1
+  total: 30

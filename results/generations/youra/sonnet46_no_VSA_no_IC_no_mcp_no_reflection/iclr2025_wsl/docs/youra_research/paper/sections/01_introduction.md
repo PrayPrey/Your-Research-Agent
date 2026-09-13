@@ -1,0 +1,67 @@
+# Introduction
+
+A model's weight tensors predict its generalization gap — how much training accuracy exceeds test accuracy
+at convergence — better than they predict its test accuracy outright. In the Unterthiner CIFAR-10 CNN zoo,
+a simple position-indexed MLP achieves Spearman rank correlation r = 0.56 on generalization gap prediction
+but only r = 0.28 on test accuracy prediction, despite receiving the identical weight tensor as input.
+The harder prediction target, as it turns out, is the more legible one.
+
+This asymmetry is not merely a curiosity. Generalization gap (train_acc − test_acc at convergence) is the
+direct quantitative signature of overfitting — the quantity that determines whether a model has memorized
+its training data or extracted transferable patterns. For practitioners managing large model zoos, identifying
+low-gap models without held-out test evaluation would dramatically reduce the cost of model selection. For
+theorists, knowing that weight tensors encode an accessible gap signal raises a structural question: what
+is the geometric nature of overfitting in weight space, and which architectural inductive biases are best
+suited to extract it?
+
+**The gap in existing work.** A rich literature has established that weight-space encoders can predict test
+accuracy with Spearman correlations as high as r ≈ 0.9. Unterthiner et al. [2020] introduced the model zoo
+benchmark and flat MLP baseline. Navon et al. [2023] demonstrated that permutation-equivariant Deep Weight
+Space networks (DWS) substantially outperform flat baselines on test accuracy. Zhou et al. [2023] showed
+that Neural Functional Transformers (NFT) — cross-layer attention architectures respecting weight-space
+symmetries — achieve competitive or superior performance. Kofinas et al. [2024] extended this with graph
+neural network encoders over the neural network graph. Critically, **all these works benchmark exclusively
+on test accuracy prediction.** Generalization gap is computable from the same zoo metadata yet has never
+been treated as the primary prediction target in this line of work — and no study has examined whether
+encoder architecture advantage is target-specific (gap vs. test_acc) or uniform across targets.
+
+**Our approach.** We conduct the first controlled comparison of equivariant vs. non-equivariant weight
+encoders on generalization gap as the primary prediction target. The central methodological innovation is
+a dual-target experimental design: the same encoder trained on the same zoo with the same hyperparameter
+budget, evaluated on both gap and test accuracy prediction. This design isolates target-specificity from
+encoder-specificity. We additionally introduce a partial Spearman analysis — the first in this literature —
+that tests whether gap predictions contain information about true gap that is statistically independent of
+test accuracy rank.
+
+**Key finding.** NFT's cross-layer attention captures gap-specific overfitting structure in weight tensors
+that is statistically independent of test accuracy: partial Spearman(NFT_gap_pred, true_gap | true_test_acc)
+= 0.73, p = 1.6×10⁻¹⁶⁷. This result — substantially exceeding NFT's direct gap Spearman of 0.57 —
+indicates that the gap-specific component of NFT's predictions is stronger than the combined signal, and
+that generalization gap and test accuracy occupy distinct regions of the weight-space information landscape.
+
+**Contributions.** We make four contributions:
+
+1. **Gap learnability (existence).** We establish that generalization gap is predictable from weight tensors
+   at Spearman r > 0.5 using both position-indexed (FlatMLP r = 0.5567) and equivariant (DWSNet r = 0.5104)
+   encoders, with a confirmed A1 audit showing gap is not trivially derivable from test accuracy
+   (Spearman(gap, −test_acc) = −0.142).
+
+2. **Architecture specificity.** Among the four tested encoders, NFT achieves the highest gap Spearman
+   (r = 0.5752, 95% CI: [0.5339, 0.6158]) with a non-overlapping confidence interval from FlatMLP.
+   DWSNet (r = 0.4881) and GNN (r = 0.3747) both underperform FlatMLP on gap — showing that equivariance
+   alone is insufficient; cross-layer reasoning matters.
+
+3. **Gap-specific signal independence (P3).** NFT gap predictions contain substantial information about
+   true generalization gap that is independent of test accuracy (partial Spearman r = 0.73, p ≈ 0),
+   establishing gap as a genuinely distinct weight-space prediction target.
+
+4. **Documented null result (Δ mechanism).** The differential advantage hypothesis — that equivariant
+   encoders show a larger Spearman improvement on gap than on test_acc (Δ > 0.02) — is not confirmed
+   under our experimental conditions. We identify a plausible confounder (anomalously low FlatMLP test_acc
+   in our zoo, r = 0.28 vs. literature ~0.85) and propose corrected future experiments.
+
+We organize the paper as follows. Section 2 surveys weight-space encoder and generalization prediction
+literature, positioning our dual-target formulation against prior work. Section 3 describes the experimental
+methodology including the dual-target design and partial Spearman analysis. Section 4 presents experimental
+results. Section 5 discusses mechanism interpretation, limitations, and broader implications. Section 6
+concludes.

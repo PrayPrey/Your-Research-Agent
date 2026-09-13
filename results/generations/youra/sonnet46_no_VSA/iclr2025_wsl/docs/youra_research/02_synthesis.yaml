@@ -1,0 +1,128 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-03T18:30:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap1"
+
+hypothesis_draft:
+  title: "Architectural Permutation-Invariance Improves ModelZoo Prediction by Eliminating Encoder Symmetry Noise"
+  hypothesis_id: "H-InvEnc-v1"
+  core_claim: |
+    Under functionally valid S_16³ permutations (coupled row-column per DWSNet formalism),
+    architecturally invariant weight encoders (DeepSets, NFN) achieve near-zero OrbitVar
+    AND LightGBM R² at least matching simple per-layer statistics (R²≈0.984), while
+    CISE underperforms both because its sinusoidal PE introduces non-negligible permutation-
+    induced prediction variance (MSE_perm ≥ 10% of MSE_total).
+  mechanism: |
+    CISE's sinusoidal positional encoding sin(cπ/C), cos(cπ/C) assigns unique embeddings
+    to each channel position, making the encoder sensitive to channel order. Under S_16³
+    functional permutations (which preserve network function but change weight ordering),
+    CISE produces different representations for functionally identical networks. This
+    within-orbit variance (OrbitVar=0.010333) propagates to prediction-level variance
+    (MSE_perm), which directly inflates expected squared prediction error. Architecturally
+    invariant encoders (DeepSets: φ(w_c) summed over channels; NFN: parameter-sharing
+    equivariant layers) guarantee OrbitVar→0 by construction, eliminating this noise source.
+    The causal test: ΔMSE(C1→C2) = MSE_perm^C1 ± 10% (mechanism closure criterion).
+  predictions:
+    - P1: "DeepSets and NFN achieve OrbitVar < 1e-6 under functionally verified permutations"
+    - P2: "CISE achieves R² < Ŵ_L baseline AND MSE_perm^C1 ≥ 10% of MSE_total^C1"
+    - P3: "DeepSets achieves R² ≥ Ŵ_L; ΔMSE matches MSE_perm^C1 ± 10%"
+    - P4: "NFN achieves R² > DeepSets under matched linear head (ΔR² ≥ 0.01, 95% CI)"
+
+variables_summary:
+  independent: "Weight encoder architecture (C0=Ŵ_L, C1=CISE, C2=DeepSets, C3=NFN, C4=HIE)"
+  dependent_primary: "OrbitVar (encoder-level) + LightGBM R² (downstream) + MSE_perm (mechanistic)"
+  controlled: "Train/test split, LightGBM HP, embedding dimensionality, random seeds (≥5)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in LightGBM R² between architecturally invariant
+    encoders (C2, C3) and simple per-layer statistics (C0), indicating that LightGBM
+    implicitly learns approximate permutation invariance regardless of encoder architecture.
+    Equivalently: CISE R² ≥ Ŵ_L R², and MSE_perm^C1 < 1% of MSE_total^C1.
+  statistical_test: "5-fold CV paired t-test on R²; one-sided test for R²(C2) ≥ R²(C0)"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "MSE bias-variance decomposition over permutation orbits as causal diagnostic: E[(y-ŷ)²] = MSE_res + MSE_perm. First application of this decomposition to weight encoder selection."
+  differentiation_summary: |
+    NFN and DWSNet papers measure downstream performance improvements without OrbitVar or MSE_perm.
+    Unterthiner 2020 establishes R² baseline without encoder symmetry analysis.
+    This work is first to connect all three measurements (OrbitVar, MSE_perm, R²) in a
+    closed causal loop, establishing OrbitVar as a diagnostic metric for encoder quality.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "Small CNN (3 conv layers, C=16 channels) from ModelZooDataset CIFAR10-GS"
+  datasets:
+    - "ModelZooDataset CIFAR10-GS (Zenodo 6620869, dataset_cifar_small_hyp_rand.pt)"
+    - "ModelZooDataset CIFAR10-C (if available, for distribution-shift test)"
+  baselines:
+    - "C0: Ŵ_L per-layer statistics (R²=0.984 established by Unterthiner 2020)"
+    - "C1: CISE with sinusoidal PE (OrbitVar=0.010333 established by sh1)"
+    - "C2: DeepSets sum-pooling (AllanYangZhou/nfn or custom)"
+    - "C3: NFN NF-Layers (pip install nfn)"
+    - "C4: HIE = concatenate(C0, C2)"
+
+measurement_plan:
+  data_collection:
+    - source: "ModelZooDataset CIFAR10-GS (Zenodo 6620869) — same dataset as sh1/sh2"
+    - source: "sh1 code artifacts: cise_encoder.py, permutation.py, evaluate.py, data_loader.py"
+  procedure:
+    - step: "PREREQUISITE: Audit sh1's apply_channel_permutation() — verify coupled row-column action (functional permutations)"
+    - step: "Implement functional permutation validator: for N models, compute ||f_v(x) - f_{g·v}(x)||_∞ ≤ 1e-6"
+    - step: "Compute OrbitVar for all 5 encoders (100 models × 50 permutations each)"
+    - step: "Train LightGBM on each encoder's embeddings (5-fold CV, same HP search)"
+    - step: "Compute MSE_perm for C1: K=50 orbit samples per model, E_v[Var_g(ŷ(g·v))]"
+    - step: "Compute MSE_res = MSE_total - MSE_perm; verify mechanism closure ΔMSE = MSE_perm ± 10%"
+    - step: "Matched linear head ablation: Ridge regression on frozen C2, C3 embeddings (isolate expressivity)"
+    - step: "Distribution-shift robustness: evaluate trained predictors on CIFAR-10-C zoo if available"
+  success_criteria:
+    - "P1: OrbitVar(C2, C3) < 1e-6 (architectural invariance verified)"
+    - "P2: R²(C1) < R²(C0) AND MSE_perm^C1 ≥ 0.10 × MSE_total^C1 (CISE noise non-negligible)"
+    - "P3: R²(C2) ≥ R²(C0) AND |ΔMSE - MSE_perm^C1| / MSE_perm^C1 ≤ 0.10 (mechanism closure)"
+    - "P4: R²(C3 linear) - R²(C2 linear) ≥ 0.01 (95% CI excludes 0, ≥5 seeds)"
+
+validation:
+  internal_validity:
+    - "Functional permutation audit before experiments (A1 verification)"
+    - "Matched embedding capacity across encoders (control A4)"
+    - "Orbit-averaged C1 baseline: ŷ_avg(W) = (1/K)Σŷ(π_k·W) to test implicit invariance (A2)"
+    - "Anti-h-m1 gate: confirm no order statistics in DeepSets φ(w_c)"
+    - "Anti-sh2 gate: confirm no post-hoc alignment in any encoder"
+  external_validity:
+    - "ModelZooDataset is a standard public benchmark (Unterthiner 2020, Schürholt 2022) — results are reproducible"
+    - "Distribution-shift test (CIFAR-10 → CIFAR-10-C) provides second axis of evidence"
+    - "NFN pip-installable with MIT license — all code publicly available"
+
+discussion_synthesis:
+  key_insights:
+    - "Ŵ_L moment statistics are ALREADY approximately permutation-invariant (order statistics) — they are the correct baseline, not CISE"
+    - "CISE's sinusoidal PE breaks invariance on purpose (to measure OrbitVar) but this same noise may hurt downstream R²"
+    - "The R² ceiling effect (only 1.6% headroom above 0.984) requires MSE decomposition to find signal"
+    - "DeepSets (simple invariance) vs NFN (structured equivariance) test: does cross-layer coupling add beyond sum pooling?"
+    - "HIE (Ŵ_L + DeepSets) as synthesis: combines approximate-invariant statistics with learned invariant features"
+  breakthrough_moments:
+    - "Exchange 5 (Prof. Rex): identified Unterthiner R²=0.984 from simple statistics as the true ceiling and baseline — not CISE"
+    - "Exchange 6 (Dr. Nova): reframed the experiment as a spectrum (approximate → non-invariant → architectural invariance)"
+    - "Exchange 7 (Prof. Vera): formalized MSE bias-variance decomposition over orbits as the mechanistic test"
+    - "Exchange 10 (Prof. Pax): identified functional symmetry group requirement (coupled row-column, DWSNet Eq. 5)"
+    - "Exchange 16 (Dr. Nova): proposed HIE as practical synthesis encoder completing the design"
+  resolved_tensions:
+    - "R² ceiling concern → resolved by MSE_perm decomposition (measure headroom directly)"
+    - "DeepSets vs NFN comparison → resolved by matched linear head ablation"
+    - "Symmetry group validity → resolved by mandatory functional permutation audit"
+    - "LightGBM implicit invariance → resolved by orbit-averaged C1 baseline as control"

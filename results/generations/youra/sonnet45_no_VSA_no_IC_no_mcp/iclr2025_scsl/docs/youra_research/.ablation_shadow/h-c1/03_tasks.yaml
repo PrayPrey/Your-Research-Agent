@@ -1,0 +1,360 @@
+data_preparation:
+- dependencies: []
+  description: 'Download CelebA dataset using torchvision.datasets.CelebA.
+
+    Verify test set size = 19,962 images.
+
+    Verify attributes file contains Blond_Hair and Male columns.
+
+    Verify spurious correlation ≥95% in training set.
+
+    '
+  estimated_tokens: 15000
+  id: data-001
+  name: Download and verify CelebA dataset
+  priority: P0
+  validation:
+  - Test set contains exactly 19,962 images
+  - Blond_Hair and Male attributes present in all splits
+  - Training set spurious correlation ≥95%
+- dependencies:
+  - data-001
+  description: 'Implement get_celeba_loader() in celeba_loader.py.
+
+    Apply preprocessing: center crop 178→224, ImageNet normalization.
+
+    Apply augmentation: random horizontal flip (training only).
+
+    Return DataLoader yielding (images, labels, group_ids).
+
+    Group mapping: 0=blond-female, 1=blond-male, 2=not-blond-female, 3=not-blond-male.
+
+    '
+  estimated_tokens: 25000
+  id: data-002
+  name: Implement CelebA group loader
+  priority: P0
+  validation:
+  - 'Output shape: images [B,3,224,224], labels [B], group_ids [B]'
+  - 4 groups present in test set
+  - Preprocessing matches Waterbirds (224×224, ImageNet norms)
+environment_setup:
+- dependencies: []
+  description: 'Create h-c1/ directory with subdirectories: data/, models/, training/,
+    analysis/, experiments/, results/.
+
+    Copy/symlink h-e1 modules for reuse (data_loader.py, models.py, train.py).
+
+    Install dependencies: torch, torchvision, scipy, pandas, numpy.
+
+    '
+  estimated_tokens: 10000
+  id: env-001
+  name: Set up h-c1 project structure
+  priority: P0
+  validation:
+  - Directory structure created
+  - h-e1 modules accessible via sys.path or symlinks
+  - Dependencies installed (verify imports)
+- dependencies:
+  - env-001
+  description: 'Import and test h-e1 modules: get_waterbirds_dataloader, get_resnet18_bn,
+    get_resnet18_ln, evaluate_groups.
+
+    Run smoke test: load 1 batch from Waterbirds, forward pass through ResNet-BN.
+
+    Verify group evaluation metrics produce expected output format.
+
+    '
+  estimated_tokens: 12000
+  id: env-002
+  name: Verify h-e1 reuse compatibility
+  priority: P0
+  validation:
+  - All h-e1 imports succeed
+  - Smoke test completes without errors
+  - evaluate_groups returns dict with avg_acc, worst_group_gap
+epic_tasks:
+- dependencies:
+  - env-002
+  - data-002
+  description: 'Implement train_until_threshold() in train_to_threshold.py.
+
+    Reuse h-e1 train_one_epoch() and evaluate_groups().
+
+    Add early stopping: detect first epoch where avg_acc ≥ 0.90.
+
+    Record worst_group_gap at threshold epoch.
+
+    Return dict: {architecture, seed, threshold_epoch, avg_acc, worst_group_gap, group_accs}.
+
+    '
+  estimated_tokens: 35000
+  id: epic-001
+  name: Implement training-to-threshold module
+  priority: P0
+  validation:
+  - Training stops at first 90% avg_acc crossing
+  - Gap recorded at threshold epoch (not final epoch)
+  - All fields present in return dict
+- dependencies:
+  - epic-001
+  description: 'Implement compute_rankings.py with:
+
+    - aggregate_gaps(results): compute mean gap per architecture across seeds
+
+    - compute_ranking(aggregated_gaps): rank architectures (lower gap = rank 1)
+
+    - Deterministic tie-breaking: alphabetical by architecture name
+
+    Return rank vector: [rank_arch1, rank_arch2, ...]
+
+    '
+  estimated_tokens: 20000
+  id: epic-002
+  name: Implement ranking computation module
+  priority: P0
+  validation:
+  - 'Unit test: {BN: [0.2], LN: [0.1]} → ranks [2, 1]'
+  - Ties broken alphabetically
+  - Rank vector length matches architecture count
+- dependencies:
+  - epic-002
+  description: 'Implement correlation_stats.py with:
+
+    - compute_correlation(ranks1, ranks2): Spearman ρ, p-value, Kendall''s τ
+
+    - detect_rank_reversals(ranks1, ranks2): count reversals
+
+    - check_success(rho, p_value): gate decision (PASS if ρ>0.8 & p<0.05, FAIL if
+    ρ<0.6)
+
+    Use scipy.stats.spearmanr and scipy.stats.kendalltau.
+
+    '
+  estimated_tokens: 18000
+  id: epic-003
+  name: Implement correlation analysis module
+  priority: P0
+  validation:
+  - 'Unit test: perfect correlation ([1,2], [1,2]) → ρ=1.0'
+  - 'Unit test: anti-correlation ([1,2], [2,1]) → ρ=-1.0'
+  - Gate decision deterministic from ρ threshold
+- dependencies:
+  - epic-001
+  - epic-002
+  description: 'Implement experiments/run_waterbirds.sh or run_waterbirds.py.
+
+    Train 2 architectures (ResNet-BN, ResNet-LN) × 10 seeds on Waterbirds.
+
+    Use train_until_threshold() with target_avg_acc=0.90.
+
+    Save results to results/waterbirds_metrics.csv.
+
+    Compute ranking and save to results/waterbirds_ranking.json.
+
+    '
+  estimated_tokens: 25000
+  id: epic-004
+  name: Implement Waterbirds experiment script
+  priority: P0
+  validation:
+  - 20 training runs complete (2 archs × 10 seeds)
+  - All runs reach 90% avg acc
+  - 'Metrics CSV contains: arch, seed, threshold_epoch, avg_acc, worst_group_gap'
+  - 'Ranking JSON contains: {BN: rank, LN: rank}'
+- dependencies:
+  - epic-001
+  - epic-002
+  - data-002
+  description: 'Implement experiments/run_celeba.sh or run_celeba.py.
+
+    Train 2 architectures (ResNet-BN, ResNet-LN) × 10 seeds on CelebA.
+
+    Use train_until_threshold() with target_avg_acc=0.90.
+
+    Save results to results/celeba_metrics.csv.
+
+    Compute ranking and save to results/celeba_ranking.json.
+
+    '
+  estimated_tokens: 25000
+  id: epic-005
+  name: Implement CelebA experiment script
+  priority: P0
+  validation:
+  - 20 training runs complete (2 archs × 10 seeds)
+  - ≥16/20 runs reach 90% avg acc (80% success rate)
+  - Metrics CSV contains same columns as Waterbirds
+  - 'Ranking JSON contains: {BN: rank, LN: rank}'
+- dependencies:
+  - epic-003
+  - epic-004
+  - epic-005
+  description: 'Implement analyze_correlation.py.
+
+    Load Waterbirds and CelebA ranking JSONs.
+
+    Compute Spearman ρ, Kendall''s τ, p-values.
+
+    Detect rank reversals.
+
+    Determine gate decision (PASS/FAIL).
+
+    Save to results/correlation_stats.json.
+
+    '
+  estimated_tokens: 15000
+  id: epic-006
+  name: Implement correlation analysis script
+  priority: P0
+  validation:
+  - 'Correlation stats JSON contains: rho, p_value, kendall_tau, reversals, gate_decision'
+  - Gate decision matches threshold (ρ>0.8 → PASS, ρ<0.6 → FAIL)
+- dependencies:
+  - epic-006
+  description: 'Implement generate_report.py.
+
+    Load all results: waterbirds_metrics.csv, celeba_metrics.csv, waterbirds_ranking.json,
+    celeba_ranking.json, correlation_stats.json.
+
+    Generate 04_validation.md with:
+
+    - Hypothesis statement
+
+    - Experimental setup (architectures, datasets, seeds)
+
+    - Results table: mean gaps per architecture per dataset
+
+    - Ranking table: Waterbirds ranks vs CelebA ranks
+
+    - Correlation metrics: Spearman ρ, Kendall''s τ, p-values
+
+    - Gate decision: PASSED or FAILED
+
+    '
+  estimated_tokens: 20000
+  id: epic-007
+  name: Generate validation report (04_validation.md)
+  priority: P0
+  validation:
+  - 04_validation.md exists in docs/youra_research/h-c1/
+  - Report contains all required sections
+  - Gate decision documented
+- dependencies:
+  - data-002
+  description: 'Implement tests/test_celeba_loader.py.
+
+    Test group assignment correctness (4 groups).
+
+    Test preprocessing (output shape 224×224×3).
+
+    Test augmentation toggle (flip on train, off on test).
+
+    '
+  estimated_tokens: 12000
+  id: epic-008
+  name: Unit tests for CelebA loader
+  priority: P1
+  validation:
+  - All tests pass
+  - Test coverage for group mapping logic
+- dependencies:
+  - epic-002
+  description: 'Implement tests/test_ranking.py.
+
+    Test deterministic ranking (alphabetical tie-breaking).
+
+    Test mean aggregation across seeds.
+
+    Test edge case: single architecture (rank=1).
+
+    '
+  estimated_tokens: 10000
+  id: epic-009
+  name: Unit tests for ranking module
+  priority: P1
+  validation:
+  - All tests pass
+  - Edge cases covered
+- dependencies:
+  - epic-003
+  description: 'Implement tests/test_correlation.py.
+
+    Test perfect correlation (ρ=1.0).
+
+    Test anti-correlation (ρ=-1.0).
+
+    Test p-value computation.
+
+    Test gate decision logic.
+
+    '
+  estimated_tokens: 10000
+  id: epic-010
+  name: Unit tests for correlation module
+  priority: P1
+  validation:
+  - All tests pass
+  - Gate thresholds validated
+- dependencies:
+  - epic-001
+  - epic-002
+  - data-002
+  description: 'Implement tests/test_e2e.py.
+
+    Run 1 architecture × 1 seed on CelebA (smoke test).
+
+    Verify training reaches 90% avg acc.
+
+    Verify gap recorded at correct epoch.
+
+    Verify ranking computation produces valid rank.
+
+    '
+  estimated_tokens: 15000
+  id: epic-011
+  name: Integration test (end-to-end smoke test)
+  priority: P1
+  validation:
+  - Smoke test completes in <10 minutes
+  - All assertions pass
+- dependencies:
+  - epic-001
+  - env-002
+  description: 'Implement tests/test_reuse.py.
+
+    Run Waterbirds with h-c1 code (train_until_threshold).
+
+    Compare gaps with h-e1 results.
+
+    Tolerance: ±0.5 pp difference (seed variance acceptable).
+
+    '
+  estimated_tokens: 12000
+  id: epic-012
+  name: Reuse validation test (Waterbirds consistency check)
+  priority: P1
+  validation:
+  - Gap difference within tolerance
+  - Confirms h-e1 reuse correctness
+failsafe:
+- dependencies:
+  - epic-005
+  description: 'If h-m2 incomplete or CelebA training fails for >20% seeds:
+
+    - Proceed with BN + LN only (2 architectures)
+
+    - Flag results as "limited test, need h-m2 completion"
+
+    - Document in validation report: "Minimal test (2 archs), extend to 4 archs in
+    future"
+
+    '
+  estimated_tokens: 8000
+  id: failsafe-001
+  name: Fallback to 2-architecture minimal test
+  priority: P2
+  validation:
+  - Fallback documented in 04_validation.md
+  - Gate decision still deterministic (ρ from 2 archs)

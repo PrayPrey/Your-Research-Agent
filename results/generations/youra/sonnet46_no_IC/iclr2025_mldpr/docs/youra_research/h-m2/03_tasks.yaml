@@ -1,0 +1,258 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  complexity_score: 8
+  complexity_level: Simple/Moderate
+  incremental: true
+  base_hypothesis: h-e1
+  created_at: "2026-08-05"
+
+budget_summary:
+  epic_tasks: 7
+  subtasks: 4
+  setup_tasks: 1
+  failsafe_tasks: 1
+  total: 13
+  within_budget: true
+
+tasks:
+  # ── SETUP ────────────────────────────────────────────────────────────────
+  - id: S-0
+    type: setup
+    priority: 94
+    title: "Environment setup"
+    description: >
+      Verify Python environment and install required packages.
+      Requirements: statsmodels>=0.14, numpy>=1.24, pandas>=2.0,
+      scipy>=1.10, matplotlib>=3.7, patsy>=0.5, pyarrow>=11.0.
+      Also verify H-E1 parquet exists at docs/youra_research/h-e1/results/preprocessed.parquet.
+    dependencies: []
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "## 9. Dependencies"
+
+  # ── EPIC TASKS ────────────────────────────────────────────────────────────
+  - id: A-1
+    type: setup
+    priority: 93
+    title: "Setup & path constants"
+    description: >
+      Create h-m2 directory structure (code/, figures/, results/).
+      Verify H-E1 preprocessed parquet is accessible.
+      Define PROJECT_ROOT = Path(__file__).resolve().parents[4] pattern.
+    complexity: 4
+    dependencies: [S-0]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_architecture.md"
+        section: "## File Organization"
+      - path: "docs/youra_research/h-m2/03_config.md"
+        section: "### C-5-2: Model Constants"
+
+  - id: A-2
+    type: data-pipeline
+    priority: 92
+    title: "Implement 01_preprocess.py"
+    description: >
+      Load H-E1 parquet (docs/youra_research/h-e1/results/preprocessed.parquet).
+      Filter to has_tags=1 subset (expect N≈2,625; assert > 500).
+      Verify tag_count and log_tag_count_p1 already present (H-E1 derive_features() pre-computed them).
+      If missing: derive tag_count = tags.str.count(',') + 1; log_tag_count_p1 = log(tag_count + 1).
+      Run collinearity check: Spearman rho(log_tag_count_p1, decade).
+      Save tagged_subset.parquet to docs/youra_research/h-m2/results/.
+      CSV fallback: h-e1/code/data/h_e1/openml_dataset_corpus.csv.
+    complexity: 8
+    dependencies: [A-1]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### FR-01"
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### FR-02"
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### FR-03"
+      - path: "docs/youra_research/h-m2/03_architecture.md"
+        section: "### Preprocessor"
+      - path: "docs/youra_research/h-m2/03_config.md"
+        section: "### C-5-2: Model Constants"
+
+  - id: A-3
+    type: model
+    priority: 88
+    title: "Implement CT LR overdispersion test in 02_fit_models.py"
+    description: >
+      Fit Poisson(FORMULA_BASELINE) and NB-2(FORMULA_BASELINE) on df_tagged.
+      Compute LR = 2*(llf_NB2 - llf_Poisson). Report CT LR stat.
+      Note: use FORMULA_BASELINE (controls-only) — NOT FORMULA_PROPOSED with IV.
+      Copy NumpyEncoder from H-E1 verbatim. Save ct_lr_test result to model_results.json.
+    complexity: 7
+    dependencies: [A-2]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### FR-04"
+      - path: "docs/youra_research/h-m2/03_logic.md"
+        section: "## A-4: fit_nb2 + extract_iv_stats + compute_attenuation"
+      - path: "docs/youra_research/h-m2/03_architecture.md"
+        section: "### ModelFitter"
+
+  - id: A-4
+    type: model
+    priority: 85
+    title: "Implement NB-2 model fits and attenuation in 02_fit_models.py"
+    description: >
+      Implement fit_nb2(formula, df, label) -> dict (verbatim from H-E1; same return contract).
+      Implement extract_iv_stats(fit_result, iv_name) -> dict (parameterized, not hardcoded 'has_tags').
+      Implement compute_attenuation(irr_no_fe, irr_with_fe) -> float.
+      Fit 3 models: baseline (controls-only), proposed (with C(decade)), proposed (no C(decade)).
+      Extract IV stats for log_tag_count_p1. Compute attenuation ratio.
+      Serialize all results to model_results.json via NumpyEncoder.
+    complexity: 10
+    dependencies: [A-3]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_logic.md"
+        section: "## A-4: fit_nb2 + extract_iv_stats + compute_attenuation"
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### FR-05"
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### FR-06"
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### FR-07"
+
+  - id: A-5
+    type: evaluation
+    priority: 75
+    title: "Implement 03_generate_figures.py — 4 figures"
+    description: >
+      Generate 4 figures at 300 DPI, saved to docs/youra_research/h-m2/figures/.
+      Fig 1 (MANDATORY): Gate bar chart — IRR_P2 with 95% CI error bars; dashed threshold at 1.05; annotate PASS/INFORMATIVE_NEGATIVE.
+      Fig 2: Tag count histogram (log x-axis if skewed).
+      Fig 3: Partial regression (added variable plot) — log_tag_count_p1 vs residual log(N_tasks).
+      Fig 4: Forest plot — IRR with/without C(decade) FE; error bars = 95% CI; vertical lines at 1.0 and 1.05.
+      Use H-E1 color palette: PRIMARY=#2196F3, THRESHOLD=#F44336, CI=#90CAF9.
+    complexity: 11
+    dependencies: [A-4]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### FR-09"
+      - path: "docs/youra_research/h-m2/03_architecture.md"
+        section: "### FigureGenerator"
+      - path: "docs/youra_research/h-m2/03_config.md"
+        section: "### C-5-1: Figure Configuration"
+
+  - id: A-6
+    type: evaluation
+    priority: 65
+    title: "Implement 04_evaluate_gate.py"
+    description: >
+      Load model_results.json. Extract proposed_with_fe IV stats for log_tag_count_p1.
+      Gate logic (SHOULD_WORK): passed = (ci_lower >= 1.05) AND (pval < 0.05).
+      result_label = 'PASS' if passed else 'INFORMATIVE_NEGATIVE'.
+      Save primary_results.json with: gate, passed, IRR_P2, CI_lower_P2, CI_upper_P2, p_value_P2,
+      result, n_tagged_subset, attenuation_ratio.
+      Print clear verdict line. INFORMATIVE_NEGATIVE is not a failure — document and proceed.
+    complexity: 6
+    dependencies: [A-5]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### FR-08"
+      - path: "docs/youra_research/h-m2/03_architecture.md"
+        section: "### GateEvaluator"
+      - path: "docs/youra_research/h-m2/03_logic.md"
+        section: "## A-4: fit_nb2"
+
+  - id: A-7
+    type: evaluation
+    priority: 55
+    title: "Integration test — full pipeline end-to-end"
+    description: >
+      Implement code/05_integration_test.py.
+      Run all 4 scripts sequentially; fail fast on non-zero exit.
+      Verify: tagged_subset.parquet (N in [500, 4000], log_tag_count_p1 present, tag_count >= 1).
+      Verify: model_results.json (proposed_with_fe converged, ct_lr_test present).
+      Verify: primary_results.json (result in PASS/INFORMATIVE_NEGATIVE, IRR_P2 present, n >= 500).
+      Verify: 4 figures exist and non-empty (> 1000 bytes each).
+      Print: "INTEGRATION TEST PASSED" on success.
+    complexity: 9
+    dependencies: [A-6]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_logic.md"
+        section: "## A-7: Integration Test"
+
+  # ── SUBTASKS ────────────────────────────────────────────────────────────
+  - id: L-4-1
+    type: subtask
+    priority: 48
+    title: "fit_nb2 adaptation: use FORMULA_BASELINE for CT LR, copy verbatim for model fits"
+    description: >
+      Copy H-E1 fit_nb2() verbatim into h-m2/code/02_fit_models.py.
+      Adapt ct_lr_test() to use FORMULA_BASELINE (controls-only) instead of H-E1's FORMULA_PROPOSED.
+      Verify return type is dict[str, Any] with keys: label, converged, llf, aic, bic, n_obs,
+      params, bse, pvalues, conf_int (where conf_int[name] = [lower, upper] as floats).
+    parent_epic: A-4
+    dependencies: [A-3]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_logic.md"
+        section: "## External Dependencies (Base Hypothesis)"
+
+  - id: L-4-2
+    type: subtask
+    priority: 46
+    title: "extract_iv_stats and compute_attenuation: new parameterized functions"
+    description: >
+      Implement extract_iv_stats(fit_result: dict, iv_name: str) -> dict.
+      Access fit_result['params'][iv_name] and fit_result['conf_int'][iv_name] = [lower, upper].
+      Exponentiate to get IRR and CI bounds. Return {'irr', 'ci_lower', 'ci_upper', 'pval'}.
+      Implement compute_attenuation(irr_no_fe, irr_with_fe) -> float = irr_no_fe / irr_with_fe.
+    parent_epic: A-4
+    dependencies: [L-4-1]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_logic.md"
+        section: "## A-4: fit_nb2 + extract_iv_stats + compute_attenuation"
+
+  - id: L-4-3
+    type: subtask
+    priority: 44
+    title: "main() wiring: 3 model fits → extract stats → serialize model_results.json"
+    description: >
+      Wire main() in 02_fit_models.py: load tagged_subset.parquet → ct_lr_test →
+      fit baseline → fit proposed_with_fe → fit proposed_no_fe →
+      extract_iv_stats for each → compute_attenuation →
+      serialize dict with NumpyEncoder to model_results.json.
+    parent_epic: A-4
+    dependencies: [L-4-2]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_logic.md"
+        section: "## A-4: fit_nb2 + extract_iv_stats + compute_attenuation"
+
+  - id: L-7-1
+    type: subtask
+    priority: 10
+    title: "Integration test script: 5-check pipeline verifier"
+    description: >
+      Implement code/05_integration_test.py with run_script(), verify_tagged_subset(),
+      verify_model_results(), verify_primary_results(), verify_figures(), main().
+      No pytest framework — direct script execution. Print "INTEGRATION TEST PASSED" on success.
+    parent_epic: A-7
+    dependencies: [A-6]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_logic.md"
+        section: "## A-7: Integration Test"
+
+  # ── FAILSAFE ─────────────────────────────────────────────────────────────
+  - id: F-1
+    type: failsafe
+    priority: 1
+    title: "Failsafe: INFORMATIVE_NEGATIVE handling and H-M3 gate check"
+    description: >
+      If gate result is INFORMATIVE_NEGATIVE (CI_lower < 1.05 or p >= 0.05):
+      This is scientifically valid — binary threshold is the full FAIR F1 signal.
+      Document in primary_results.json with result='INFORMATIVE_NEGATIVE'.
+      Do NOT re-route to Phase 0. Proceed to H-M3 (categorical dose-response).
+      If NB-2 fails to converge: try method='nm' (Nelder-Mead) fallback.
+      If N (tagged subset) < 500: report data issue and halt.
+    dependencies: [A-6]
+    reference_files:
+      - path: "docs/youra_research/h-m2/03_prd.md"
+        section: "### Failure Conditions"

@@ -1,0 +1,8 @@
+# Title
+Modular Certified Smoothing: Scalable Provable Robustness for Large Multimodal Models via Compositional Certification
+
+# Motivation
+Large multimodal models (LMMs) like CLIP are vulnerable to adversarial attacks across vision and language modalities, yet existing defenses face a critical dilemma: empirical methods (APT, PMG-AFT) lack formal guarantees, while certified defenses via randomized smoothing are computationally intractable for billion-parameter models. This gap prevents deployment of LMMs in safety-critical applications like medical diagnosis and autonomous systems that require provable robustness. We address this by exploiting LMM modularity—separate vision and language encoders—to decompose certification into tractable per-modality sub-problems.
+
+# Main Idea
+We propose Modular Certified Smoothing (MCS), which certifies LMM robustness by: (1) independently applying randomized smoothing to vision encoders (Gaussian noise) and language encoders (token substitution), yielding per-modality certified radii r_v and r_t; (2) bounding fusion layer Lipschitz constant L_f via adversarial training; (3) composing end-to-end certificates through a novel probabilistic theorem: certified accuracy ≥ p_v × p_t × (1 - L_f(r_v + r_t)). This reduces computational cost from O(N_v × N_t) to O(N_v + N_t), enabling billion-parameter certification. We predict ≥70% certified accuracy at radius 0.5 on ImageNet (exceeding empirical defenses by 5%) with 10× speedup versus monolithic smoothing, while maintaining composition tightness ratio ρ ≥ 0.5, making formal guarantees practical for large-scale multimodal AI.

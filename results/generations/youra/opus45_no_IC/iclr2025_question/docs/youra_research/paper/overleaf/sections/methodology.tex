@@ -1,0 +1,43 @@
+\section{Methodology}
+
+Our approach has three stages: (1) compute semantic entropy distributions per benchmark, (2) cluster benchmarks by JS-divergence, and (3) evaluate transfer success within and across clusters.
+
+\subsection{Semantic Entropy Computation}
+
+Following \citet{kuhn2023semantic}, we compute semantic entropy for each query as follows:
+
+\textbf{Generation.} For each query $q$, we generate $N=10$ responses $\{r_1, \ldots, r_N\}$ using temperature $T=0.7$ sampling from Llama-2-7B-Chat.
+
+\textbf{Semantic clustering.} We cluster responses by meaning using bidirectional entailment. Two responses $r_i, r_j$ belong to the same semantic cluster if $\text{NLI}(r_i, r_j) = \text{ENTAILMENT}$ and $\text{NLI}(r_j, r_i) = \text{ENTAILMENT}$, using DeBERTa-v3-large-MNLI as the NLI model.
+
+\textbf{Entropy computation.} Let $C_1, \ldots, C_k$ be the semantic clusters with empirical probabilities $p_c = |C_c|/N$. Semantic entropy is:
+\begin{equation}
+H_{\text{sem}}(q) = -\sum_{c=1}^{k} p_c \log p_c
+\end{equation}
+
+High entropy indicates diverse semantic content across generations (hallucination signal); low entropy indicates consistent responses (likely correct).
+
+\subsection{Distribution Distance via JS-Divergence}
+
+To quantify similarity between benchmark uncertainty distributions, we use Jensen-Shannon divergence. For benchmarks $B_i$ and $B_j$ with semantic entropy distributions $P_i$ and $P_j$:
+\begin{equation}
+\text{JS}(P_i \| P_j) = \frac{1}{2} D_{\text{KL}}(P_i \| M) + \frac{1}{2} D_{\text{KL}}(P_j \| M)
+\end{equation}
+where $M = \frac{1}{2}(P_i + P_j)$.
+
+We estimate distributions using kernel density estimation (KDE) with Gaussian kernels. JS-divergence is symmetric, bounded in $[0, 1]$, and interpretable: values near 0 indicate similar distributions; values near 1 indicate dissimilar distributions.
+
+\subsection{Hierarchical Clustering}
+
+We discover benchmark families using hierarchical agglomerative clustering with Ward linkage on the JS-divergence matrix. This approach does not require pre-specifying the number of clusters and produces interpretable dendrograms. We select the optimal cluster count by maximizing silhouette score.
+
+\subsection{Transfer Evaluation Protocol}
+
+\textbf{Threshold calibration.} For source benchmark $B_s$, we split data 70/30 into calibration and held-out sets. We calibrate a threshold $\tau_s$ to achieve 10\% false positive rate on the calibration set.
+
+\textbf{Transfer evaluation.} We apply threshold $\tau_s$ to target benchmark $B_t$ and measure AUROC. Transfer degradation is:
+\begin{equation}
+\Delta_{\text{AUROC}} = \text{AUROC}(B_s) - \text{AUROC}(B_t | \tau_s)
+\end{equation}
+
+We expect within-cluster degradation $\leq 0.08$ and cross-cluster degradation $> 0.15$.

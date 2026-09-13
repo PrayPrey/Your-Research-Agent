@@ -1,0 +1,1 @@
+Conventions observed: small Python modules per hypothesis branch; configuration isolated in `config.py`; outputs saved as JSON/CSV/NPY/PT artifacts under branch-specific `results/`; plotting kept in separate visualization modules; docstrings are concise and type hints are used in most public functions.

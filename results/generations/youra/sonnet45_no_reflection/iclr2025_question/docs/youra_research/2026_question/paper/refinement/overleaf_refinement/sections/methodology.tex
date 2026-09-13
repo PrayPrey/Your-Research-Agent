@@ -1,0 +1,64 @@
+
+\subsubsection{Research Question}
+
+We tested whether geometric features extracted from hidden states correlate with semantic entropy on factual questions. The hypothesis predicted Spearman correlation magnitude exceeding 0.4 between at least one geometric feature (participation ratio, eigenvalue decay rate, or condition number) and semantic entropy computed from K=10 samples on TruthfulQA test questions.
+
+\subsubsection{Dataset}
+
+TruthfulQA (Lin et al., 2021) contains 817 questions designed to elicit epistemic uncertainty. Questions span science, history, and common misconceptions. We applied a 70/30 split, yielding 571 training and 246 test examples. Only the test set was used for correlation analysis.
+
+\subsubsection{Model Configuration}
+
+We planned to use Llama-3-8B-Instruct but substituted Mistral-7B-v0.1 due to gated access restrictions. Mistral-7B-v0.1 is a 32-layer decoder-only transformer with 7B parameters, 32 attention heads, and hidden dimension 4096. The model was loaded in bfloat16 precision.
+
+\subsubsection{Hidden State Extraction Protocol}
+
+The protocol specified extracting hidden states from layers 24-31 (final 8 of 32 layers) at the final token position before generation. For each question, forward pass with output_hidden_states=True would yield activations h_l ∈ R^4096 for layers l ∈ {24, 25, ..., 31}. The layer range was selected based on proximity to output logits, though no ablation study validated this choice.
+
+\subsubsection{Geometric Feature Computation}
+
+Given hidden states H = [h_24, h_25, ..., h_31] ∈ R^(8×4096) formed by concatenating all 8 layers, the protocol specified:
+
+\begin{enumerate}
+\item Compute covariance matrix C = H^T H / (8×4096)
+\item Perform eigendecomposition C = VΛV^T
+\item Extract features:
+\begin{itemize}
+\item Participation ratio: PR = (trace(C))^2 / (||C||_F^2 · 8×4096)
+\item Eigenvalue decay rate: α from power law fit λ_k ∝ k^(-α) to top-5 eigenvalues
+\item Condition number: κ = λ_max / λ_min
+\end{itemize}
+\end{enumerate}
+
+Participation ratio measures effective dimensionality. The hypothesis predicted negative correlation between PR and semantic entropy (uncertain states compress into fewer dimensions). Eigenvalue decay rate and condition number provide complementary geometric characterizations.
+
+\subsubsection{Semantic Entropy Computation}
+
+For each test question, the protocol specified:
+
+\begin{enumerate}
+\item Generate K=10 responses at temperature T=0.7
+\item Cluster semantically equivalent responses using DeBERTa-v3-base natural language inference (responses equivalent if mutually entailing with threshold >0.5)
+\item Compute discrete entropy H = -Σ p_i log p_i over meaning clusters
+\end{enumerate}
+
+This follows Farquhar et al. (2024) validated parameters.
+
+\subsubsection{Correlation Analysis}
+
+Spearman rank correlation ρ would be computed between each geometric feature and semantic entropy across the test set (N=246). Success criteria: |ρ| > 0.4 with p < 0.001 and 95\% confidence interval excluding 0.3 for at least one feature. Bootstrap resampling (1000 iterations) would validate statistical stability.
+
+\subsubsection{Implementation}
+
+The implementation comprised approximately 1,200 lines of Python code:
+
+\begin{itemize}
+\item config.py: Configuration constants
+\item data/loader.py: TruthfulQA loading (96 lines)
+\item models/extractor.py: Hidden state extraction (125 lines)
+\item metrics/geometric.py: PR, α, κ computation (120 lines)
+\item metrics/semantic_entropy.py: Semantic entropy via NLI clustering (221 lines)
+\item analysis/correlation.py: Spearman correlation, bootstrap CI, visualization (228 lines)
+\end{itemize}
+
+The code is modular with proper separation of concerns. However, execution failed during hidden state extraction.

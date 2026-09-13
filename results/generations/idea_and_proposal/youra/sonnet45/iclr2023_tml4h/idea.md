@@ -1,0 +1,8 @@
+# Title
+Uncertainty Field Theory (UFT): Cognitive-Adaptive Explainable Uncertainty Visualization for Trustworthy Medical AI
+
+# Motivation
+Medical AI faces critical trust barriers preventing clinical adoption despite high technical accuracy. Current uncertainty quantification (UQ) provides opaque confidence scores, while explainable AI (XAI) offers saliency maps—but these exist as separate streams, leaving clinicians unable to understand *why* AI is uncertain. This gap causes overtrust (accepting AI on out-of-distribution cases) and undertrust (ignoring correct predictions), undermining safety. We address this by integrating UQ and XAI into a unified spatial uncertainty field with component attribution, matched to clinician cognitive capacity.
+
+# Main Idea
+We hypothesize that representing AI uncertainty as a spatial field φ(x)=w₁·φ_epistemic+w₂·φ_aleatoric+w₃·φ_distributional overlaid on medical images, with adaptive visualization complexity based on clinician working memory (OSPAN score), will improve uncertainty comprehension (Likert 4.2 vs. baseline 2.8) and decision accuracy (85% vs. 78%). The field decomposes uncertainty into interpretable components: model disagreement (epistemic), data noise (aleatoric), and out-of-distribution distance (distributional via Wasserstein metric). Cognitive load matching prevents overload—binary heatmaps for low working memory, 3D fields for high. We validate through randomized trial (N=50 radiologists, pneumonia detection) measuring comprehension, accuracy, and OOD detection (target AUROC>0.85). This provides the first implementation of explainable uncertainty estimation with actionable routing signals for clinical decision support.

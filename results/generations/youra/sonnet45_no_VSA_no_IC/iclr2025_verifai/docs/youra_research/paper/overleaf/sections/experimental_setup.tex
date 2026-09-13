@@ -1,0 +1,144 @@
+\section{Experimental Setup}
+
+We evaluate five sub-hypotheses (H-E1 baseline, H-M1 NL mechanism, H-M2 depth mechanism, H-M3 corpus mechanism, H-C1 tactic budget control) on miniF2F Lean 4 test set (N=244 Olympiad-level problems). All experiments use Lean 4 proof checker for deterministic validation, 300s timeout, and identical Mathlib version.
+
+\subsection{Baseline Configuration (H-E1)}
+
+\textbf{Prover:} lean-auto with Duper backend (deterministic hammer, breadth-first search over Mathlib premises) \\
+\textbf{Dataset:} miniF2F Lean 4 test set (N=244) \\
+\textbf{Timeout:} 300s per problem \\
+\textbf{Metrics:} Success rate (primary), tactic count per solved problem (for H-C1 analysis), error classification (type elaboration vs Mathlib API)
+
+\textbf{Experimental questions:}
+\begin{itemize}
+\item What is pure automated prover baseline success rate on miniF2F?
+\item How many tactic evaluations do solved problems require?
+\item What error sources affect Lean 3$\rightarrow$4 ported problems?
+\end{itemize}
+
+\textbf{Expected outcome:} 15\% [10\%, 25\%] success, $\sim$10 tactic evaluations/problem, <5\% error rate.
+
+\subsection{NL Understanding Ablation (H-M1)}
+
+\textbf{Design:} Paired comparison with NL-intact vs NL-ablated variants \\
+\textbf{NL ablation method:} Strip all docstrings and inline comments preserving formal statement structure \\
+\textbf{Dataset:} miniF2F Lean 4 test set (N=244), both variants \\
+\textbf{LLM configuration:} LeanCopilot with @32 sampling budget, 300s timeout \\
+\textbf{Statistical test:} McNemar $\chi^2$ for paired binary outcomes, bootstrap 95\% CI \\
+\textbf{Gate criterion:} $\Delta$ $\geq$ 25pp AND p < 0.05
+
+\textbf{Experimental question:} Does removing natural language hints drop LLM success by $\geq$25pp, validating $\sim$60\% contribution to LLM advantage?
+
+\textbf{Baseline vs ablated comparison:}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Variant} & \textbf{NL Hints} & \textbf{Expected Success} \\
+\midrule
+NL-intact & Yes (original docstrings/comments) & 65\% \\
+NL-ablated & No (stripped, formal statement only) & 35\% \\
+\textbf{$\Delta$ (effect size)} & --- & \textbf{30pp [25\%, 35\%]} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Example ablation:}
+\begin{verbatim}
+-- Before (NL-intact):
+-- For all prime p, prove p^2 - 1 is divisible by 24
+theorem prime_square_div (p : Nat) (hp : Nat.Prime p) : ...
+
+-- After (NL-ablated):
+theorem prime_square_div (p : Nat) (hp : Nat.Prime p) : ...
+\end{verbatim}
+
+LLM loses linguistic hint ``for all prime p'' $\rightarrow$ \texttt{Nat.Prime} lemma suggestion pathway.
+
+\subsection{Proof Depth Filtering (H-M2)}
+
+\textbf{Design:} Post-hoc stratification by tactic count \\
+\textbf{Stratification:} Full dataset (all depths) vs Shallow subset ($\leq$3 tactics) \\
+\textbf{Dataset:} LLM-solved problems from H-M1 (NL-intact variant) \\
+\textbf{Depth threshold:} 3 tactics (typical automated prover depth limit before timeout) \\
+\textbf{Statistical test:} McNemar $\chi^2$ for paired comparison (same problem, different depth strata) \\
+\textbf{Gate criterion:} $\Delta$ $\geq$ 5pp AND p < 0.05
+
+\textbf{Experimental question:} Does filtering to shallow proofs ($\leq$3 tactics) drop LLM success by $\geq$5pp, validating proof depth as LLM-specific advantage?
+
+\textbf{Stratified comparison:}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Stratum} & \textbf{Depth Constraint} & \textbf{Expected Success} \\
+\midrule
+Full & All depths & 65\% \\
+Shallow & $\leq$3 tactics only & 50\% \\
+\textbf{$\Delta$ (effect size)} & --- & \textbf{15pp [5\%, 30\%]} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Rationale:} Olympiad problems require multi-step proofs (median=9 tactics in literature). If LLMs exploit long-range context (5-10 tactic chains), filtering to shallow proofs should drop success significantly.
+
+\subsection{Corpus Pattern Matching (H-M3)}
+
+\textbf{Design:} Random tactic sampling from Mathlib distribution \\
+\textbf{Sampler:} Draw tactics from Mathlib corpus with empirical frequency weights (e.g., \texttt{simp} 40\%, \texttt{rw} 25\%, \texttt{exact} 15\%) \\
+\textbf{Budget:} 15 tactic evaluations/problem (from H-C1 recommendation) \\
+\textbf{Dataset:} miniF2F Lean 4 test set (N=244) \\
+\textbf{Timeout:} 300s \\
+\textbf{Statistical test:} Chi-squared for independent proportions (random Mathlib vs lean-auto H-E1) \\
+\textbf{Gate criterion:} Success $\in$ [18\%, 25\%], $\Delta$=+3pp to +10pp vs lean-auto
+
+\textbf{Experimental question:} Does random Mathlib sampling achieve 18-25\% success (3-10pp above lean-auto baseline), suggesting corpus frequency patterns contribute 10\% of LLM advantage?
+
+\textbf{Baseline comparison:}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Prover} & \textbf{Tactic Selection} & \textbf{Expected Success} \\
+\midrule
+lean-auto (H-E1) & Deterministic heuristics & 15\% \\
+Random Mathlib & Stochastic (human distribution) & 20\% [18\%, 25\%] \\
+\textbf{$\Delta$ (corpus contribution)} & --- & \textbf{+5pp [+3\%, +10\%]} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Rationale:} LLMs trained on Mathlib learn implicit heuristics from human proof distributions (which tactics frequently succeed together). Random sampling from same distribution provides stochastic baseline --- exceeding lean-auto suggests corpus frequency signals contribute, but remaining gap (random 20\% $\rightarrow$ LLM 65\%) requires semantic understanding.
+
+\subsection{Tactic Budget Control (H-C1)}
+
+\textbf{Design:} Post-hoc statistical analysis on H-E1 solved problems \\
+\textbf{Metrics:} Mean tactic count $\mu$, standard deviation $\sigma$, coefficient of variation CV = $\sigma$/$\mu$ \\
+\textbf{Gate criterion:} CV $\leq$ 1.0 (low variance validates stable control metric) \\
+\textbf{Budget recommendation:} $\mu$ + 1$\sigma$ (captures $\sim$90\% of baseline strategies)
+
+\textbf{Experimental question:} Is tactic evaluation count a stable metric (low variance) for controlling computational confounds in LLM vs automated prover comparisons?
+
+\textbf{Expected statistics:}
+\begin{itemize}
+\item Mean $\mu$ = 10 tactics/problem
+\item Std $\sigma$ = 4 tactics
+\item CV = 0.40 << 1.0
+\item Recommended budget = 15 ($\mu$+1$\sigma$)
+\end{itemize}
+
+\textbf{Fairness rationale:} Without tactic budget control, LLMs might appear better by evaluating more tactics (computational advantage) rather than smarter search (algorithmic advantage). Budget=15 equalizes computational resources across configs.
+
+\subsection{Implementation Details}
+
+\textbf{Infrastructure:} Lean 4.0 RC, Mathlib 4 (commit abc123...), miniF2F fork (Lean 4 port) \\
+\textbf{Compute:} 32-core CPU, 128GB RAM, no GPU (lean-auto, random Mathlib deterministic) \\
+\textbf{LLM (H-M1):} LeanCopilot with @32 sampling budget (generates 32 tactic candidates per step, beam search) \\
+\textbf{Tactic extraction:} Parse Lean proof checker output for tactic count (deterministic, no custom extraction) \\
+\textbf{Reproducibility:} All experiment configs, Lean code, random seeds published at [repository URL]

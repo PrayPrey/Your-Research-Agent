@@ -1,0 +1,121 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-27T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Independent-Controller Self-Play (Claude plays all personas)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Query-Conditioned Prefill Observation Outperforms Cumulative Attention on Extractive QA under KV Compression"
+  hypothesis_id: "H-PrefixObs-v1"
+  core_claim: |
+    Prefill-observation importance scoring (SnapKV-style query-conditioned window) achieves
+    ≥2.0 F1 points higher macro-average than cumulative-attention scoring (H2O-style) on
+    4-task LongBench QA subset (NarrativeQA, HotpotQA, 2WikiMQA, MuSiQue) at 50% KV retention
+    with LLaMA-2-7B-chat, with the advantage being larger on QA than on summarization tasks.
+  mechanism: |
+    Query-conditioned observation windows selectively retain KV entries that are semantically
+    aligned with the specific tokens of the question being answered (Step 1: prefill attention
+    to query tokens identifies answer-relevant positions). This produces higher probability of
+    preserving answer-relevant context in the compressed cache (Step 2: query-aligned retention
+    improves extractive QA F1). Summarization tasks have diffuse query signals, reducing the
+    advantage of query-conditioning over globally-salient cumulative attention (Step 3:
+    task-conditional prediction). A 2x2 ablation (metric x timing) disentangles the metric
+    effect from the timing effect (prefill vs decode eviction).
+  predictions:
+    - P1: "Prefixobs macro-F1(QA) - Cumulative_at_prefill macro-F1(QA) >= 2.0 at 50% KV retention, 95% CI non-overlapping"
+    - P2: "delta_F1(QA) > delta_F1(Summ) by at least 1.0 percentage point (task-conditional advantage)"
+    - P3: "H2O-at-prefill F1(QA) > H2O-at-decode F1(QA) by at least 0.5 points (timing effect exists)"
+
+variables_summary:
+  independent: "Importance metric type (6 conditions: prefixobs, cumulative-at-prefill, cumulative-at-decode, warm-up, entropy, static) x Eviction timing (prefill, decode) x KV retention budget (0.40, 0.50, 0.60)"
+  dependent_primary: "LongBench macro-average F1 on 4-task QA subset (NarrativeQA, HotpotQA, 2WikiMQA, MuSiQue), 100 examples/task"
+  controlled: "Model (LLaMA-2-7B-chat-hf), codebase (unified HuggingFace + pluggable score_fn), hardware (A100 40GB, FP16), sequence length cap (4096 tokens), random seed (42)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in LongBench macro-average F1 between prefill-observation
+    scoring and cumulative-attention-at-prefill scoring at 50% KV retention on LLaMA-2-7B-chat
+    (95% bootstrap CIs overlap on the 4-task QA subset).
+  statistical_test: "Bootstrap confidence intervals (1000 resamples) on macro-average F1; 95% CI non-overlapping as significance criterion"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First 2x2 ablation (metric type x eviction timing) on identical model/benchmark/budget — disentangles what-to-score from when-to-evict. First task-conditional prediction for metric advantage (QA vs summarization)."
+  differentiation_summary: |
+    Prior comparisons (H2O vs SnapKV in SnapKV paper) conflate metric type, eviction timing,
+    and model family. H2O uses base models + decode eviction; SnapKV uses instruct models +
+    prefill eviction. No prior work implements both metrics on the same model at the same timing
+    with the same benchmark. The H2O-at-prefill condition (M2) is a novel ablation point that
+    does not exist in any published paper.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "meta-llama/Llama-2-7b-chat-hf"
+  datasets:
+    - "THUDM/LongBench (NarrativeQA, HotpotQA, 2WikiMQA, MuSiQue, GovReport, QMSum)"
+  baselines:
+    - "StreamingLLM (static sink+window, M6)"
+    - "Full KV cache (no eviction, upper bound)"
+  metric_conditions:
+    - "M1: Prefill-Observation (SnapKV-style)"
+    - "M2: Cumulative-Attention-at-Prefill (H2O-at-prefill, novel ablation)"
+    - "M3: Cumulative-Attention-at-Decode (H2O original)"
+    - "M4: Warm-Up Attention (ScissorHands-style)"
+    - "M5: Attention Entropy (novel metric)"
+    - "M6: StreamingLLM (static baseline)"
+
+measurement_plan:
+  data_collection:
+    - source: "THUDM/LongBench via HuggingFace datasets"
+    - source: "LLaMA-2-7B-chat-hf via HuggingFace Hub (meta-llama/Llama-2-7b-chat-hf)"
+  procedure:
+    - step: "Implement unified KV eviction codebase with pluggable score_fn interface in HuggingFace transformers"
+    - step: "Implement M1-M5 as score_fn variants; M6 as positional mask"
+    - step: "For each metric condition x KV budget x task: load 100 examples, run inference, compute F1/ROUGE-L"
+    - step: "Bootstrap CI (1000 resamples) over 100 examples for each condition"
+    - step: "Compute delta_F1(QA) and delta_F1(Summ) for task-conditional comparison (P2)"
+  success_criteria:
+    - "P1: prefixobs_F1_QA - cumulative_at_prefill_F1_QA >= 2.0 AND 95% CI lower bound > 0"
+    - "P2: delta_F1(QA) - delta_F1(Summ) >= 1.0 percentage point"
+    - "P3: H2O_at_prefill_F1 - H2O_at_decode_F1 >= 0.5 (QA tasks)"
+    - "Floor: all query-aware metrics beat StreamingLLM by >= 5.0 F1 on QA subset at 50% retention"
+
+validation:
+  internal_validity:
+    - "Unified codebase with pluggable score_fn — implementation confounds eliminated"
+    - "Same model, same benchmark, same budget across all metric conditions"
+    - "Fixed random seed for reproducibility"
+    - "Bootstrap CI for statistical significance — avoids point-estimate-only reporting (h-m2 lesson)"
+  external_validity:
+    - "LLaMA-2-7B is widely deployed — results transfer to production systems using this model family"
+    - "LongBench is the standard long-context benchmark — results are comparable to existing literature"
+    - "Cross-architecture generalization is out of scope for this hypothesis (Gap 3 / Phase 5)"
+
+discussion_synthesis:
+  key_insights:
+    - "The critical confound in all prior KV eviction comparisons is that metric type and eviction timing are always co-varied — H2O-at-prefill is the missing ablation point"
+    - "Task-conditional metric advantage (QA vs summarization) provides a mechanistic falsification path beyond overall benchmark ranking"
+    - "h-m2 failure teaches that extreme eviction (80%) on base models makes baseline comparison invalid — 50% retention on instruct models avoids this"
+    - "Unified codebase with pluggable score_fn is both a practical contribution and a methodological necessity for fair comparison"
+  breakthrough_moments:
+    - "Prof. Rex's identification of the timing confound (Exchange 6) — transformed the design from a benchmark paper into a mechanistic study"
+    - "Dr. Nova's 2x2 design proposal (Exchange 7) — the H2O-at-prefill ablation condition is the key novel experimental point"
+    - "Dr. Sage's minimum sufficient experiment scoping (Exchange 3) — reduced from 250 GPU-hours to 6 GPU-hours without losing scientific value"
+  resolved_tensions:
+    - "Scope (tractable vs. comprehensive): resolved by 5-task LongBench subset + 100 examples/task"
+    - "Statistical power (2.0 F1 gate vs. CI): resolved by requiring bootstrap 95% CI non-overlapping, not just point estimate"
+    - "h-m2 failure mode: resolved by instruct model + 50% retention (not base + 80% eviction)"
+    - "Metric vs. timing confound: resolved by 2x2 design with H2O-at-prefill as the decoupling condition"

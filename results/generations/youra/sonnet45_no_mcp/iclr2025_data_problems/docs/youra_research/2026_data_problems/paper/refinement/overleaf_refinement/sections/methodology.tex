@@ -1,0 +1,128 @@
+
+\subsubsection{3.1 Problem Formulation}
+
+Let $\mathcal{D} = \{D_1, D_2, \ldots, D_K\}$ be $K$ training domains, each with fixed token budget $B_i$. A static mixture schedule samples from each domain with constant probability $p_i$ throughout training such that $\sum_{i=1}^K p_i = 1$ and total tokens consumed from domain $i$ equals $B_i$.
+
+Temporal domain schedules allow sampling probabilities $p_i(t)$ to vary with training progress $t \in [0, 1]$, subject to:
+\begin{itemize}
+\item Non-negativity: $p_i(t) \geq 0$ for all $i, t$
+\item Normalization: $\sum_{i=1}^K p_i(t) = 1$ for all $t$
+\item Budget constraint: $\int_0^1 p_i(t) \, dt = \frac{B_i}{\sum_j B_j}$
+\end{itemize}
+
+The objective is to find a temporal schedule $\{p_i(t)\}$ that maximizes final model performance $\mathcal{P}(\theta_T)$ on multi-domain benchmarks, where $\theta_T$ denotes parameters after training to completion.
+
+The hypothesis is that ordering domains by corpus diversity (high to low) yields $\mathcal{P}_{\text{div-ranked}}(\theta_T) > \mathcal{P}_{\text{static}}(\theta_T)$ when total per-domain exposure is matched. This hypothesis is not tested in this work.
+
+\subsubsection{3.2 Diversity Metrics}
+
+Domain diversity is quantified using three corpus-level statistics.
+
+\textbf{Vocabulary Entropy.} For domain $D_i$ with unigram distribution $\mathbf{u}_i$ over vocabulary size $V$:
+$$\text{VocabEntropy}(D_i) = -\sum_{v=1}^V u_i(v) \log u_i(v)$$
+Normalized by $\log V$ to yield scores in $[0, 1]$.
+
+\textbf{Syntactic Complexity.} Parse tree depth variance for 10,000 sampled sentences:
+$$\text{SyntaxComplexity}(D_i) = \text{Var}(\{\text{depth}(s) : s \in \text{Sample}(D_i)\})$$
+Normalized using min-max scaling across domains.
+
+\textbf{Semantic Spread.} Embedding space coverage via k-means clustering with $k=1000$:
+$$\text{SemanticSpread}(D_i) = \frac{\text{Number of non-empty clusters}}{1000}$$
+Computed using 100,000 random spans (32 tokens each) embedded with a pretrained sentence encoder.
+
+\textbf{Composite Diversity Score:} Arithmetic mean of the three normalized metrics:
+$$\text{Diversity}(D_i) = \frac{1}{3}\left(\text{VocabEntropy}(D_i) + \text{SyntaxComplexity}(D_i) + \text{SemanticSpread}(D_i)\right)$$
+
+These metrics are heuristics motivated by linguistic intuition. Alternative combinations or additional features may improve ranking quality. Whether diversity scores correlate with gradient covariance rank is not tested in this work.
+
+\subsubsection{3.3 Diversity-Ranked Curriculum Scheduling}
+
+Given diversity scores $d_1 \geq d_2 \geq \ldots \geq d_K$ (ranked high to low), domain sampling probabilities are defined using Gaussian-weighted scheduling:
+
+$$p_i(t) = \frac{w_i(t)}{\sum_{j=1}^K w_j(t)}$$
+
+where the unnormalized weight for domain $i$ at training progress $t$ is:
+
+$$w_i(t) = \max\left(w_{\min}, \exp\left(-\frac{(t - \mu_i)^2}{2\sigma^2}\right)\right)$$
+
+Here $\mu_i = (i-1)/(K-1)$ centers the Gaussian peak for domain $i$, $\sigma = 0.3$ controls transition smoothness, and $w_{\min} = 0.05$ ensures all domains remain accessible throughout training.
+
+High-diversity domains (small $\mu_i$) peak early in training. Low-diversity domains (large $\mu_i$) peak late. The Gaussian shape provides smooth transitions. The minimum weight prevents complete domain exclusion.
+
+Budget matching is verified numerically: $\int_0^1 p_i(t) \, dt$ matches the static baseline budget for each domain within 1\% tolerance.
+
+\subsubsection{3.4 Experimental Conditions}
+
+Four scheduling conditions are compared, each with identical total per-domain token exposure:
+
+\begin{enumerate}
+\item \textbf{Static (Baseline)}: $p_i(t) = 1/K$ for all $i, t$
+\item \textbf{Diversity-Ranked (Proposed)}: Gaussian scheduling with $\mu_i = (i-1)/(K-1)$ where $i$ indexes domains in decreasing diversity order
+\item \textbf{Reversed (Control)}: Gaussian scheduling with $\mu_i = (K-i)/(K-1)$
+\item \textbf{Shuffled (Control)}: Gaussian scheduling with $\mu_i$ assigned randomly each epoch
+\end{enumerate}
+
+Reversed tests whether ordering direction matters. Shuffled tests whether smooth monotonic structure matters versus early-domain weighting.
+
+\subsubsection{3.5 Model Architecture}
+
+GPT-2 style decoder-only transformers at two scales:
+
+\textbf{1B Scale:}
+\begin{itemize}
+\item Layers: 24
+\item Hidden dimension: 1536
+\item Attention heads: 16
+\item Context length: 2048 tokens
+\item Total parameters: 760,300,032
+\end{itemize}
+
+\textbf{7B Scale:}
+\begin{itemize}
+\item Layers: 32
+\item Hidden dimension: 4096
+\item Attention heads: 32
+\item Context length: 2048 tokens
+\end{itemize}
+
+\textbf{Training configuration:}
+\begin{itemize}
+\item Optimizer: AdamW with $\beta_1 = 0.9, \beta_2 = 0.95$, weight decay = 0.1
+\item Learning rate: $3 \times 10^{-4}$ (1B), $1.5 \times 10^{-4}$ (7B) with cosine decay to 10\%
+\item Warmup: 2000 steps (linear)
+\item Batch size: 512 sequences (1B), 1024 sequences (7B)
+\item Gradient clipping: 1.0
+\item Precision: BFloat16
+\item Total steps: 100,000 (1B), 150,000 (7B)
+\end{itemize}
+
+\subsubsection{3.6 Proof-of-Concept Protocol}
+
+The proof-of-concept goal is to confirm that diversity-ranked scheduling is implementable and testable, not to demonstrate performance improvements.
+
+\textbf{Validation Criteria:}
+\begin{enumerate}
+\item Code executes without errors (unit tests pass, no runtime exceptions)
+\item Mechanism correctly implemented (curriculum scheduler produces valid probability distributions)
+\item Metrics are measurable (benchmark evaluation framework operational)
+\end{enumerate}
+
+\textbf{Proof-of-Concept Workflow:}
+\begin{enumerate}
+\item Implement diversity computation for 6 Pile domains
+\item Implement curriculum data loader supporting all 4 conditions
+\item Implement GPT-2 model architecture (1B scale)
+\item Integrate lm-evaluation-harness for benchmark evaluation
+\item Run smoke test: single run (static condition, 1B scale, seed 42) for 10 steps
+\item Validate outputs: model trains without errors, checkpoints save, evaluation executes
+\end{enumerate}
+
+\textbf{What Proof-of-Concept Does Not Validate:}
+\begin{itemize}
+\item Performance improvements (requires 100,000+ steps to convergence, n=5 seeds)
+\item Gradient geometry mechanism (requires multi-checkpoint PR/CKA measurements)
+\item Scaling behavior (7B experiments not performed)
+\item Statistical significance (smoke test has n=1)
+\end{itemize}
+
+\textbf{Success Criterion:} If all 22 unit tests pass and smoke test completes without errors, proof-of-concept validation succeeds and full-scale experiments can proceed.

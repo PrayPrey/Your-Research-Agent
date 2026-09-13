@@ -1,0 +1,369 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: "h-m2"
+  hypothesis_type: "MECHANISM"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-08-05T18:10:00Z"
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 10
+  subtasks: 7
+  failsafe: 1
+  total: 18
+
+tasks:
+  # ── Environment Setup ────────────────────────────────────────────────────────
+  - id: "ENV-1"
+    title: "Environment Setup"
+    type: "setup"
+    priority: 94
+    description: >
+      Verify Python packages (torch, torchvision, wilds, sklearn, scipy, numpy,
+      matplotlib) are installed. Create h-m2/code/ and h-m2/figures/ directories.
+    reference_files:
+      - file: "03_prd.md"
+        section: "8.1 Python Packages"
+    acceptance_criteria:
+      - "All packages importable without error"
+      - "h-m2/code/ and h-m2/figures/ directories exist"
+    estimated_complexity: 2
+
+  # ── Epic Tasks ───────────────────────────────────────────────────────────────
+  - id: "A-1"
+    title: "Project Setup — config.py"
+    type: "setup"
+    priority: 93
+    description: >
+      Write h-m2/code/config.py with all experiment constants: WILDS_CACHE,
+      CHECKPOINT_ARCHIVE, METHODS, SEEDS, N_GRAD_BATCHES, PROBE_C, LAYER4_BLOCKS,
+      WEIGHT_DIFF_EPSILON, IMAGENET_MEAN/STD, BASE_DIR, FIGURES_DIR, RESULTS_JSON,
+      VALIDATION_REPORT. Flat constants-only module (no dataclass), matching h-m1 pattern.
+    reference_files:
+      - file: "03_config.md"
+        section: "A-10: Orchestration Config"
+      - file: "03_architecture.md"
+        section: "Config (code/config.py)"
+    acceptance_criteria:
+      - "config.py importable with no errors"
+      - "All path constants resolve to existing directories"
+      - "CHECKPOINT_ARCHIVE points to actual checkpoint files"
+    estimated_complexity: 4
+
+  - id: "A-2"
+    title: "Checkpoint Loader — load_resnet50"
+    type: "model"
+    priority: 92
+    description: >
+      Implement load_resnet50(ckpt_path, device='cpu') in run_experiment.py.
+      Must handle key 'model_state_dict' (primary, verified from h-m1 code).
+      Must set model.fc = torch.nn.Linear(2048, 2) BEFORE load_state_dict.
+      Use weights_only=False in torch.load. Try key fallback: model_state_dict
+      → model → state_dict → raw dict. Return model in eval() mode.
+    reference_files:
+      - file: "03_logic.md"
+        section: "External Dependencies (Base Hypothesis)"
+      - file: "03_architecture.md"
+        section: "Checkpoint loader"
+    acceptance_criteria:
+      - "Loads all 12 checkpoints without error"
+      - "model.fc has out_features=2"
+      - "Returns model in eval() mode"
+    estimated_complexity: 6
+
+  - id: "A-3"
+    title: "WILDS Data Helpers — get_transform, get_loader"
+    type: "data-pipeline"
+    priority: 91
+    description: >
+      Implement get_transform() returning Compose([Resize(224), ToTensor,
+      Normalize(IMAGENET_MEAN, IMAGENET_STD)]). Implement get_loader(split,
+      batch_size, shuffle=False) using wilds get_dataset(download=False,
+      root_dir=WILDS_CACHE). Train loader: batch_size=32. Test loader: batch_size=128
+      for full 5794 samples. Both shuffle=False for reproducibility.
+    reference_files:
+      - file: "03_logic.md"
+        section: "External Dependencies (Base Hypothesis)"
+      - file: "03_prd.md"
+        section: "4. Data Specification"
+    acceptance_criteria:
+      - "Train split: ~4795 samples loadable"
+      - "Test split: exactly 5794 samples loadable"
+      - "metadata[:, 0] gives group_array (0-3)"
+      - "background_label = group_array % 2 gives binary labels"
+    estimated_complexity: 6
+
+  - id: "A-4"
+    title: "Weight Difference Analysis — verify_gradient_propagation"
+    type: "evaluation"
+    priority: 90
+    description: >
+      Implement weight difference analysis for all method pairs vs ERM.
+      verify_gradient_propagation(erm_ckpt, gdro_ckpt, seed) computes per-block L2
+      norm diff for layer4[0,1,2] and head. compare_all_methods() loops over
+      PAIRED_METHODS × SEEDS. Assert gradient_reached_layer4 for all 3 GroupDRO seeds.
+      DFR-ERM diff should be ~0 (negative control). Load/del sequentially (OOM-safe).
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-4: Weight Difference Analysis"
+      - file: "03_prd.md"
+        section: "FR-1: Layer4 Weight Difference Analysis"
+    acceptance_criteria:
+      - "verify_gradient_propagation returns dict with layer4_block{0,1,2}_diff keys"
+      - "gradient_reached_layer4=True for all 3 GroupDRO seeds"
+      - "backbone_to_head_ratio computed for each seed"
+      - "DFR-ERM diff ~0 (control verification)"
+    estimated_complexity: 9
+
+  - id: "A-5"
+    title: "Gradient Norm Analysis — compute_layer4_gradient_norm"
+    type: "evaluation"
+    priority: 89
+    description: >
+      Implement compute_layer4_gradient_norm(model, dataloader, loss_type, device,
+      n_batches=50). model.train() during analysis; no optimizer.step(); zero_grad()
+      before each backward. For 'groupdro' loss_type: compute per-group losses,
+      take max(). Collect p.grad.norm() for all layer4 parameters with grad != None.
+      Returns (mean, std) over n_batches. run_gradient_analysis() uses seed-1
+      ERM+GroupDRO checkpoints.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: Gradient Norm Analysis"
+      - file: "03_prd.md"
+        section: "FR-2: Gradient Norm Analysis"
+    acceptance_criteria:
+      - "Both ERM and GroupDRO mean gradient norms > 0 at layer4"
+      - "50 batches processed without optimizer step or weight update"
+      - "Returns (float, float) tuple"
+    estimated_complexity: 10
+
+  - id: "A-6"
+    title: "Feature Extraction + Linear Probe — full test set"
+    type: "evaluation"
+    priority: 88
+    description: >
+      Implement extract_layer4_features(model, dataloader, device) using H-P0 proven
+      protocol: layer4 → adaptive_avg_pool2d(1,1) → flatten → [N, 2048].
+      Returns (features[N,2048], bg_labels[N]) where bg_labels = group_array % 2.
+      Implement run_linear_probe_all_checkpoints() for all 12 checkpoints sequentially.
+      Fit probe on train features, evaluate on FULL test set (5794 samples).
+      del model; gc.collect() between each checkpoint.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: Feature Extraction + Linear Probe"
+      - file: "03_prd.md"
+        section: "FR-3: Linear Probe — Full Test Set"
+    acceptance_criteria:
+      - "Features shape (N, 2048) for all splits"
+      - "Test set: exactly 5794 samples evaluated"
+      - "12 probe accuracies returned in dict"
+      - "ERM probe acc ~0.90 (matches H-P0 baseline)"
+    estimated_complexity: 11
+
+  - id: "A-7"
+    title: "Statistical Test — paired t-test + Cohen's d"
+    type: "evaluation"
+    priority: 87
+    description: >
+      Implement paired_ttest(erm_accs, gdro_accs) using scipy.stats.ttest_rel
+      with alternative='greater' (one-sided: H0 probe_gdro >= probe_erm).
+      Compute Cohen's d = mean_diff / std_diff. Report p-value + Cohen's d.
+      Gate verdict: p<0.05 → CONFIRMED, p<0.10 with d>0.5 → SUGGESTIVE,
+      else → REJECTED (SHOULD_WORK gate still passes).
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-4: Statistical Test"
+      - file: "03_prd.md"
+        section: "9. Evaluation Criteria"
+    acceptance_criteria:
+      - "p_value and cohens_d computed"
+      - "Gate verdict determined and printed"
+      - "3 paired values used (one per seed)"
+    estimated_complexity: 5
+
+  - id: "A-8"
+    title: "Visualization — 3 required + 1 optional figures"
+    type: "visualization"
+    priority: 86
+    description: >
+      Generate and save to h-m2/figures/: (1) layer4_weight_diff.png — grouped bar
+      chart, x=seeds, groups=layer4 blocks 0,1,2; (2) gradient_norm_comparison.png
+      — box plot ERM vs GroupDRO across 50 batches; (3) backbone_head_ratio.png —
+      scatter per seed. Optional: (4) layer4_heatmap.png — heatmap per block × seed.
+      Use matplotlib.use('Agg') for headless. Save all to FIGURES_DIR.
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-5: Visualization"
+    acceptance_criteria:
+      - "3 required figures exist in h-m2/figures/"
+      - "No display errors on headless server (Agg backend)"
+      - "Figures have labeled axes and titles"
+    estimated_complexity: 8
+
+  - id: "A-9"
+    title: "Results + Validation Report — results.json + 04_validation.md"
+    type: "reporting"
+    priority: 85
+    description: >
+      Implement save_results(results) writing to RESULTS_JSON. Implement
+      generate_validation_report(results) writing to VALIDATION_REPORT (04_validation.md).
+      Report must include: weight diff table (3 seeds × 3 blocks), gradient norm table,
+      probe accuracy table (all 12 checkpoints), gate verdict with evidence, contested
+      landscape note (Izmailov 2022 vs Raymond 2026).
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-6: Results Logging"
+      - file: "03_prd.md"
+        section: "FR-7: Validation Report"
+    acceptance_criteria:
+      - "results.json valid JSON with all required keys"
+      - "04_validation.md exists with gate_result field"
+      - "n_test_samples=5794 in results"
+    estimated_complexity: 6
+
+  - id: "A-10"
+    title: "Orchestration + Integration — main() sequential flow"
+    type: "integration"
+    priority: 84
+    description: >
+      Implement main() in run_experiment.py orchestrating all 5 steps:
+      (1) weight diff analysis, (2) gradient norm analysis, (3) linear probe
+      all 12 checkpoints, (4) statistical test, (5) figures + reports.
+      Sequential checkpoint loading (del + gc.collect() between pairs).
+      Assert gradient_reached_layer4 for all GroupDRO seeds. Print progress.
+      if __name__ == '__main__': main().
+    reference_files:
+      - file: "03_architecture.md"
+        section: "Orchestration + integration"
+      - file: "03_config.md"
+        section: "Orchestration Flow"
+    acceptance_criteria:
+      - "main() runs end-to-end without OOM"
+      - "All 5 output files created: results.json, 04_validation.md, 3 figures"
+      - "Assertion fails early if gradient_reached_layer4=False"
+    estimated_complexity: 9
+
+  # ── Subtasks: A-4 Weight Difference ─────────────────────────────────────────
+  - id: "L4.1"
+    title: "verify_gradient_propagation — single seed pair"
+    type: "subtask"
+    priority: 49
+    parent_epic: "A-4"
+    description: >
+      Core function: loads ERM + method checkpoint for one seed, computes per-block
+      L2 weight diff at layer4[0,1,2], head diff, backbone_to_head_ratio.
+      Returns dict with gradient_reached_layer4 boolean.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-4: Weight Difference Analysis — Pseudo-code"
+    estimated_complexity: 5
+
+  - id: "L4.2"
+    title: "compare_all_methods — all method × seed combinations"
+    type: "subtask"
+    priority: 48
+    parent_epic: "A-4"
+    description: >
+      Loops over PAIRED_METHODS × SEEDS, calls verify_gradient_propagation for each,
+      aggregates results dict. Returns nested dict {method: {seed: indicators}}.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-4: Weight Difference Analysis — Pseudo-code"
+    estimated_complexity: 4
+
+  # ── Subtasks: A-5 Gradient Norm ─────────────────────────────────────────────
+  - id: "L5.1"
+    title: "compute_layer4_gradient_norm — single model + loss type"
+    type: "subtask"
+    priority: 47
+    parent_epic: "A-5"
+    description: >
+      Processes n_batches from dataloader. model.train(), no optimizer.step().
+      Supports 'erm' and 'groupdro' loss_type. Returns (mean_float, std_float).
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: Gradient Norm Analysis — Pseudo-code"
+    estimated_complexity: 6
+
+  - id: "L5.2"
+    title: "run_gradient_analysis — seed-1 representative analysis"
+    type: "subtask"
+    priority: 46
+    parent_epic: "A-5"
+    description: >
+      Loads erm_seed1 and groupdro_seed1 checkpoints, calls L5.1 for both
+      loss types, returns {'erm': (mean, std), 'groupdro': (mean, std)}.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-5: Gradient Norm Analysis — Pseudo-code"
+    estimated_complexity: 4
+
+  # ── Subtasks: A-6 Linear Probe ──────────────────────────────────────────────
+  - id: "L6.1"
+    title: "extract_layer4_features — H-P0 protocol, returns (features, labels)"
+    type: "subtask"
+    priority: 45
+    parent_epic: "A-6"
+    description: >
+      H-P0 proven extraction: conv1→bn1→relu→maxpool→layer1→layer2→layer3→layer4→
+      adaptive_avg_pool2d(1,1)→flatten. Returns (np.ndarray[N,2048], np.ndarray[N]).
+      Labels = metadata[:,0] % 2 (background_label). model.eval() + torch.no_grad().
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: Feature Extraction + Linear Probe — Pseudo-code"
+    estimated_complexity: 5
+
+  - id: "L6.2"
+    title: "run_linear_probe_all_checkpoints — 12 checkpoints, full test set"
+    type: "subtask"
+    priority: 44
+    parent_epic: "A-6"
+    description: >
+      Sequential loop over 12 checkpoints: load, extract train+test features,
+      del model + gc.collect(), fit probe, score on full test set.
+      Returns dict {ckpt_name: accuracy}. Full test set = 5794 samples.
+    reference_files:
+      - file: "03_logic.md"
+        section: "A-6: Feature Extraction + Linear Probe — Pseudo-code"
+    estimated_complexity: 6
+
+  # ── Subtask: A-10 Config ────────────────────────────────────────────────────
+  - id: "C-10-1"
+    title: "Write h-m2/code/config.py — constants-only module"
+    type: "subtask"
+    priority: 43
+    parent_epic: "A-10"
+    description: >
+      Write config.py with all constants from 03_config.md. Flat module, no dataclass.
+      Verify CHECKPOINT_ARCHIVE path resolves to 12 checkpoint files.
+    reference_files:
+      - file: "03_config.md"
+        section: "Configuration (h-m2/code/config.py)"
+    estimated_complexity: 2
+
+  # ── Failsafe ────────────────────────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: >
+      Verify all outputs exist: results.json, 04_validation.md, 3 figures,
+      h-m2/code/run_experiment.py. Update verification_state.yaml gate field.
+      SHOULD_WORK gate: even if H-M3 proxy fails, layer4 weight diff evidence
+      allows pipeline to continue to h-m3.
+    reference_files:
+      - file: "03_prd.md"
+        section: "3. Objectives and Success Criteria"
+    acceptance_criteria:
+      - "results.json exists with gate_result field"
+      - "04_validation.md exists"
+      - "verification_state.yaml updated"
+    estimated_complexity: 1

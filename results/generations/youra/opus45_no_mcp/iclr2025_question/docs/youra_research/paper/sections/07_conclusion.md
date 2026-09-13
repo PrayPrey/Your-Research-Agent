@@ -1,0 +1,13 @@
+# Conclusion
+
+This work provides a systematic empirical comparison of two prominent hallucination detection signals—token entropy and semantic consistency—on the same benchmark under identical conditions. Our findings reveal a striking asymmetry: semantic consistency dramatically outperforms token entropy, achieving AUROC 0.81 versus 0.65, a 16 percentage point gap with large effect size (Cohen's d = 1.19 versus 0.47).
+
+This result fundamentally challenges the implicit assumption that internal uncertainty signals warrant equal attention to behavioral consistency measures. While prior work has emphasized entropy-based detection methods, our direct comparison demonstrates that what a model *says* across samples is substantially more predictive of correctness than how *confident* it appears in its token distributions. For practitioners building hallucination detection systems, the implication is clear: prioritize consistency-based signals.
+
+Equally important is our negative result on signal combination. Despite the intuitive appeal of fusing complementary signals, linear combination yielded no improvement over consistency alone at proof-of-concept scale. The moderate negative correlation between signals (Pearson r = -0.54) suggests partial redundancy rather than the orthogonal failure modes our hypothesis assumed. This finding serves as a cautionary note against assuming that more signals automatically improve detection.
+
+**Contributions.** We offer three primary contributions to the field. First, we provide the first direct AUROC comparison of entropy and consistency signals evaluated on the same TriviaQA subset with the same model (Llama-2-7B-chat), establishing consistency as the dominant signal. Second, we quantify effect sizes that inform practical deployment decisions—consistency's large effect (d = 1.19) versus entropy's moderate effect (d = 0.47). Third, we document an important negative result: naive linear fusion fails to improve detection at small sample sizes, establishing a boundary condition for future ensemble approaches.
+
+**Limitations and Future Work.** Our findings are constrained by proof-of-concept scale (N = 20) and single-dataset evaluation. Future work should validate on larger samples (N >= 500) where fusion benefits may emerge, extend to additional benchmarks (Natural Questions, TruthfulQA), explore non-linear combination strategies that may better capture signal interactions, and test across model scales (13B, 70B) to assess generalization.
+
+The path forward is clear: consistency should be the foundation of hallucination detection systems, with entropy as a secondary signal pending larger-scale validation of combination strategies.

@@ -1,0 +1,410 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m1"
+  hypothesis_type: "MECHANISM"
+  incremental_base: "h-e1"
+  tier: "FULL"
+  total_budget: 30
+  created_at: "2026-05-11T10:50:00+00:00"
+  phase: "Phase 3"
+  description: "Token Entropy vs. Semantic Entropy Divergence Analysis"
+
+budget_summary:
+  environment_setup: 1
+  epic_tasks: 11
+  subtasks: 7
+  failsafe: 1
+  total: 20
+  within_budget: true
+
+tasks:
+  # ─── ENVIRONMENT SETUP (priority 94) ────────────────────────────────────────
+  - id: "ENV-1"
+    title: "Environment Setup & H-E1 Output Verification"
+    type: "setup"
+    priority: 94
+    description: >
+      Create h-m1/code/ directory structure. Verify all H-E1 output files exist
+      and have correct length (2000 entries each): token_entropy_mean.json,
+      semantic_entropy.json, stochastic_samples.jsonl, halueval_qa_2k.json.
+      Install dependencies (numpy, scipy, scikit-learn, matplotlib, seaborn, tqdm).
+    acceptance_criteria:
+      - "h-m1/code/ structure created with __init__.py files"
+      - "All 4 H-E1 input files verified: len == 2000"
+      - "pip install completes without error"
+      - "import numpy, scipy, sklearn, matplotlib, seaborn all succeed"
+    dependencies: []
+    reference_files:
+      - file: "03_prd.md"
+        section: "7. Dependencies"
+      - file: "03_architecture.md"
+        section: "File Organization"
+
+  # ─── EPIC TASKS (priority 93–50) ────────────────────────────────────────────
+  - id: "E-2"
+    title: "Config Module"
+    type: "implementation"
+    priority: 93
+    complexity: 4
+    description: >
+      Implement ExperimentConfig dataclass in h-m1/code/config.py with all
+      paths, analysis hyperparameters, and visualization settings.
+      Inherits seed=42, n_bootstrap=1000 from h-e1. New fields:
+      degenerate_threshold=1e-6, pearson_gate_threshold=0.9,
+      divergence_sigma_multiplier=1.0.
+    acceptance_criteria:
+      - "ExperimentConfig dataclass with all fields and defaults"
+      - "YAML config file (config.yaml) loadable"
+      - "Paths resolve correctly relative to h-m1/code/"
+    dependencies: ["ENV-1"]
+    reference_files:
+      - file: "03_config.md"
+        section: "ExperimentConfig Dataclass"
+      - file: "03_architecture.md"
+        section: "E-2"
+
+  - id: "E-3"
+    title: "Score Loading & Degenerate Diagnosis"
+    type: "analysis"
+    priority: 90
+    complexity: 9
+    description: >
+      Implement correlation.py: load_uq_scores() loads token_entropy_mean.json
+      and semantic_entropy.json as numpy arrays (2000,). check_degenerate()
+      tests np.std(se) < 1e-6. If degenerate, inspect_cluster_distribution()
+      re-runs NLI clustering with cluster_id logging via h-e1/code/uq_signals.py
+      and reports cluster count distribution (1-5) across 2000 examples.
+    acceptance_criteria:
+      - "load_uq_scores() returns two np.ndarray of shape (2000,)"
+      - "check_degenerate() correctly flags constant SE"
+      - "inspect_cluster_distribution() produces cluster_count dict if degenerate"
+      - "FileNotFoundError with clear message if H-E1 files missing"
+    dependencies: ["E-2"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-3-1: load_uq_scores + check_degenerate"
+      - file: "03_architecture.md"
+        section: "E-3"
+      - file: "02c_experiment_brief.md"
+        section: "Degenerate Case Diagnosis"
+
+  - id: "L-3-1"
+    title: "Subtask: implement load_uq_scores + check_degenerate + inspect_cluster_distribution"
+    type: "subtask"
+    priority: 49
+    parent_epic: "E-3"
+    description: >
+      Full implementation of the three functions in correlation.py per logic spec.
+      inspect_cluster_distribution uses sys.path.insert to import from h-e1/code/uq_signals.py.
+    acceptance_criteria:
+      - "Unit test: load_uq_scores returns correct shapes"
+      - "Unit test: check_degenerate returns True for all-zero array"
+      - "inspect_cluster_distribution returns dict with keys: mean_clusters, std_clusters, histogram"
+    dependencies: ["E-3"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-3-1"
+
+  - id: "E-4"
+    title: "Pearson r + Bootstrap CI"
+    type: "analysis"
+    priority: 85
+    complexity: 10
+    description: >
+      Implement pearson_r_bootstrap_ci() in correlation.py using percentile CI
+      (N=1000 resamples, seed=42). Returns dict with r_obs, ci_lower, ci_upper,
+      r_boot array. evaluate_gate() checks ci_upper < 0.9. Degenerate case:
+      if SE is constant, gate interpreted as PASS with documentation (r undefined).
+    acceptance_criteria:
+      - "pearson_r_bootstrap_ci() returns r_obs in [-1, 1]"
+      - "ci = [2.5th, 97.5th] percentile of 1000 bootstrap r values"
+      - "evaluate_gate() returns True if ci_upper < 0.9"
+      - "Degenerate branch: returns gate_pass=True with degenerate_note string"
+    dependencies: ["E-3"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-4-1, L-4-2"
+      - file: "03_architecture.md"
+        section: "E-4"
+      - file: "02c_experiment_brief.md"
+        section: "Pearson r with bootstrap CI"
+
+  - id: "L-4-1"
+    title: "Subtask: implement pearson_r_bootstrap_ci with Fisher z-transform"
+    type: "subtask"
+    priority: 48
+    parent_epic: "E-4"
+    description: >
+      Implement bootstrap Pearson r using np.random.default_rng(seed).
+      Use percentile method for CI. Handle edge case: r = NaN when both arrays constant.
+    acceptance_criteria:
+      - "Reproduces same CI with same seed"
+      - "NaN handling for zero-variance inputs"
+    dependencies: ["E-4"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-4-1"
+
+  - id: "L-4-2"
+    title: "Subtask: implement evaluate_gate + degenerate gate interpretation"
+    type: "subtask"
+    priority: 47
+    parent_epic: "E-4"
+    description: >
+      evaluate_gate(ci_upper, threshold=0.9, degenerate=False) -> dict.
+      If degenerate=True: gate_pass=True, result='DEGENERATE_PASS', note='SE constant'.
+      If not degenerate: gate_pass = ci_upper < threshold.
+    acceptance_criteria:
+      - "Returns correct gate_pass bool"
+      - "Degenerate case documented in gate_result dict"
+    dependencies: ["L-4-1"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-4-2"
+
+  - id: "E-5"
+    title: "Spearman rho + Divergence Analysis"
+    type: "analysis"
+    priority: 80
+    complexity: 8
+    description: >
+      Implement divergence.py: spearman_rho() via scipy.stats.spearmanr.
+      compute_pointwise_divergence() = |te - se| per example (2000,).
+      identify_high_divergence() returns indices where divergence > mean + sigma_mult * std.
+    acceptance_criteria:
+      - "spearman_rho() returns (rho, p_value) tuple"
+      - "divergence array shape (2000,)"
+      - "high_divergence_idx is subset of range(2000)"
+      - "threshold = mean + divergence_sigma_multiplier * std"
+    dependencies: ["E-4"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "divergence.py APIs"
+      - file: "03_architecture.md"
+        section: "E-5"
+
+  - id: "E-6"
+    title: "TTR Lexical Diversity Analysis"
+    type: "analysis"
+    priority: 75
+    complexity: 9
+    description: >
+      Implement load_stochastic_samples() from stochastic_samples.jsonl (2000 lines,
+      5 samples each). compute_ttr() = len(unique_tokens) / len(all_tokens) across
+      N=5 samples for one example. compute_ttr_by_group() computes mean TTR for
+      high-divergence vs low-divergence examples.
+    acceptance_criteria:
+      - "load_stochastic_samples() returns list of 2000 lists of 5 strings"
+      - "compute_ttr() returns float in [0, 1]"
+      - "compute_ttr_by_group() returns dict: {high_div_mean_ttr, low_div_mean_ttr, n_high, n_low}"
+    dependencies: ["E-5"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-6-1"
+      - file: "03_architecture.md"
+        section: "E-6"
+      - file: "02c_experiment_brief.md"
+        section: "Lexical Diversity (TTR)"
+
+  - id: "L-6-1"
+    title: "Subtask: implement compute_ttr + compute_ttr_by_group + load_stochastic_samples"
+    type: "subtask"
+    priority: 46
+    parent_epic: "E-6"
+    description: >
+      Full implementation of TTR pipeline in divergence.py. Token split: lower().split().
+      Handle empty sample edge case (return 0.0).
+    acceptance_criteria:
+      - "compute_ttr(['Paris', 'The city of Paris', 'Paris France']) returns < 1.0"
+      - "compute_ttr_by_group handles empty high_div_idx gracefully"
+    dependencies: ["E-6"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-6-1"
+
+  - id: "E-7"
+    title: "AUROC Context Recomputation"
+    type: "evaluation"
+    priority: 70
+    complexity: 7
+    description: >
+      Load labels from halueval_qa_2k.json (field: hallucination, int 0/1).
+      Call h-e1 compute_auroc() and bootstrap_auroc_ci() for token_entropy_mean
+      and semantic_entropy. Report AUROC values as context only (not gate metric).
+      Use sys.path.insert to import from h-e1/code/evaluate.py.
+    acceptance_criteria:
+      - "Labels array shape (2000,) with values in {0, 1}"
+      - "auroc_te and auroc_se computed without error"
+      - "bootstrap_auroc_ci called with n_resamples=1000 (not n_bootstrap)"
+    dependencies: ["E-3"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "External Dependencies API — bootstrap_auroc_ci"
+      - file: "03_architecture.md"
+        section: "E-7"
+
+  - id: "E-8"
+    title: "Visualization (5 figures)"
+    type: "visualization"
+    priority: 65
+    complexity: 10
+    description: >
+      Implement all 5 plot functions in visualize.py. Save to h-m1/figures/.
+      1. scatter_te_vs_se: scatter with Pearson r annotation + identity line y=x
+      2. cluster_count_dist: histogram of NLI cluster counts (1-5)
+      3. divergence_dist: histogram/KDE of |TE-SE|
+      4. ttr_vs_divergence: scatter TTR vs |TE-SE| per example
+      5. bootstrap_ci_cdf: CDF of bootstrap r distribution with gate threshold line
+    acceptance_criteria:
+      - "All 5 PNG files created in h-m1/figures/"
+      - "scatter includes r annotation and y=x identity line"
+      - "bootstrap_ci_cdf shows vertical line at r=0.9 gate threshold"
+      - "All figures use dpi=150"
+    dependencies: ["E-5", "E-6"]
+    reference_files:
+      - file: "03_config.md"
+        section: "Visualization Configuration"
+      - file: "03_architecture.md"
+        section: "E-8"
+      - file: "03_prd.md"
+        section: "FR-9: Visualization"
+
+  - id: "C-8-1"
+    title: "Subtask: implement plot_scatter_te_vs_se"
+    type: "subtask"
+    priority: 45
+    parent_epic: "E-8"
+    description: >
+      Scatter plot of te vs se with Pearson r annotation in title/text,
+      identity line y=x (dashed), axis labels, figsize=(8,8), dpi=150.
+      Save to figures/scatter_te_vs_se.png.
+    acceptance_criteria:
+      - "PNG file created at figures/scatter_te_vs_se.png"
+      - "r value annotated on plot"
+      - "Identity line y=x visible"
+    dependencies: ["E-8"]
+    reference_files:
+      - file: "03_config.md"
+        section: "C-8-1"
+
+  - id: "C-8-2"
+    title: "Subtask: implement remaining 4 plot functions"
+    type: "subtask"
+    priority: 44
+    parent_epic: "E-8"
+    description: >
+      Implement cluster_count_dist, divergence_dist, ttr_vs_divergence,
+      bootstrap_ci_cdf. Each saves PNG to figures/. bootstrap_ci_cdf
+      includes vertical dashed line at r=0.9 gate threshold.
+    acceptance_criteria:
+      - "4 PNG files created in figures/"
+      - "bootstrap_ci_cdf shows gate threshold line at 0.9"
+      - "All figures use configured figsize and dpi from ExperimentConfig"
+    dependencies: ["C-8-1"]
+    reference_files:
+      - file: "03_config.md"
+        section: "C-8-2"
+
+  - id: "E-9"
+    title: "Gate Evaluation & Results Serialization"
+    type: "evaluation"
+    priority: 60
+    complexity: 8
+    description: >
+      Assemble all metrics into experiment_results.json. Evaluate MUST_WORK gate:
+      ci_upper < 0.9 → PASS (or DEGENERATE_PASS). Structure:
+      {hypothesis_id, gate_result, r_pearson, ci, r_spearman, p_spearman,
+      n_high_divergence, ttr_analysis, auroc_context, degenerate_info}.
+    acceptance_criteria:
+      - "experiment_results.json written to h-m1/code/outputs/"
+      - "gate_result in ['PASS', 'FAIL', 'DEGENERATE_PASS']"
+      - "All metric fields present (no null except degenerate fields when non-degenerate)"
+      - "Valid JSON parseable by json.load()"
+    dependencies: ["E-4", "E-5", "E-6", "E-7"]
+    reference_files:
+      - file: "03_prd.md"
+        section: "FR-8: Gate Evaluation"
+      - file: "03_architecture.md"
+        section: "E-9"
+
+  - id: "E-10"
+    title: "Validation Report (04_validation.md)"
+    type: "reporting"
+    priority: 55
+    complexity: 7
+    description: >
+      Write 04_validation.md to h-m1/ folder with gate decision, metric tables,
+      and degenerate case documentation. Include: gate status, r_pearson, CI bounds,
+      r_spearman, n_high_divergence, TTR analysis summary, AUROC context,
+      cluster count distribution (if degenerate), key findings list.
+    acceptance_criteria:
+      - "04_validation.md written to h-m1/"
+      - "Gate status clearly stated (PASS/FAIL/DEGENERATE_PASS)"
+      - "All primary metrics in table format"
+      - "Key findings section with bullet points"
+    dependencies: ["E-9"]
+    reference_files:
+      - file: "03_prd.md"
+        section: "8. Success Criteria"
+      - file: "03_architecture.md"
+        section: "E-10"
+
+  - id: "E-11"
+    title: "End-to-End Integration & run_experiment.py"
+    type: "integration"
+    priority: 50
+    complexity: 9
+    description: >
+      Wire all modules in run_experiment.py run() orchestrator. Full pipeline:
+      load scores → degenerate check → (branch: degenerate diagnosis OR correlation
+      analysis) → divergence + TTR → AUROC context → visualization → gate evaluation
+      → results serialization → validation report. Must complete in < 2 minutes on CPU.
+    acceptance_criteria:
+      - "python run_experiment.py completes without error"
+      - "All output files created: experiment_results.json, 04_validation.md, 5 figures"
+      - "Runtime < 2 minutes on CPU"
+      - "Degenerate branch executes correctly when se_std < 1e-6"
+    dependencies: ["E-9", "E-10", "E-8"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-11-1: run() orchestrator"
+      - file: "03_architecture.md"
+        section: "E-11"
+
+  - id: "L-11-1"
+    title: "Subtask: implement run() orchestrator with degenerate branching"
+    type: "subtask"
+    priority: 43
+    parent_epic: "E-11"
+    description: >
+      Full run() implementation with try/except for FileNotFoundError on H-E1 files,
+      degenerate branch (if check_degenerate → inspect_cluster_distribution path),
+      and normal branch (full correlation + divergence + TTR pipeline).
+    acceptance_criteria:
+      - "Degenerate branch produces valid gate_result='DEGENERATE_PASS'"
+      - "Normal branch produces all metrics"
+      - "FileNotFoundError caught with remediation message"
+    dependencies: ["E-11"]
+    reference_files:
+      - file: "03_logic.md"
+        section: "L-11-1"
+
+  # ─── FAILSAFE (priority 1) ──────────────────────────────────────────────────
+  - id: "FAILSAFE-1"
+    title: "Pipeline Continuation Checkpoint"
+    type: "failsafe"
+    priority: 1
+    description: >
+      Verify experiment_results.json and 04_validation.md exist and are valid.
+      Extract gate_result from experiment_results.json and report PASS/FAIL
+      for hypothesis-loop continuation. This task is the handoff point to Phase 4
+      result evaluation.
+    acceptance_criteria:
+      - "experiment_results.json parseable with gate_result field"
+      - "04_validation.md exists with gate status"
+      - "Gate result extracted and reported to hypothesis loop"
+    dependencies: ["E-11"]
+    reference_files:
+      - file: "03_prd.md"
+        section: "8. Success Criteria"

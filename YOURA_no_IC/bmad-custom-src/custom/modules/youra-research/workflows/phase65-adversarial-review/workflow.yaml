@@ -1,0 +1,626 @@
+# Phase 6.5: Adversarial Review Workflow
+# Anonymous Research Pipeline 
+#
+# Purpose: Multi-round adversarial review to identify and fix paper issues
+# Principle: "Devil's Advocate review with role separation and persuasiveness checking"
+name: "phase65-adversarial-review"
+description: "Multi-round adversarial review with persuasiveness verification for academic papers"
+version: "2.0"
+
+# ============================================================================
+# PATH VARIABLES (evaluated at runtime)
+# ============================================================================
+
+variables:
+  # Base paths (injected from pipeline)
+  project_root: "${PROJECT_ROOT}"
+  research_folder: "${RESEARCH_FOLDER}"
+
+  # Workflow paths
+  workflow_path: "{project_root}/bmad-custom-src/custom/modules/youra-research/workflows/phase65-adversarial-review"
+
+  # Input files (from Phase 6)
+  paper_input: "{research_folder}/paper/06_paper.md"
+  sections_folder: "{research_folder}/paper/sections"
+  references_file: "{research_folder}/paper/06_references.bib"
+  narrative_blueprint: "{research_folder}/paper/06_narrative_blueprint.yaml"
+  ground_truth_file: "{research_folder}/paper/065_ground_truth.yaml"
+
+  # Phase 4/5 artifacts for cross-validation
+  verification_state: "{research_folder}/verification_state.yaml"
+  hypothesis_folder_pattern: "{research_folder}/{hypothesis_id_lower}"
+  phase4_validation_pattern: "{hypothesis_folder}/04_validation.md"
+  phase5_baseline_pattern: "{hypothesis_folder}/baseline_comparison/05_baseline_comparison.md"
+
+  # Output folders
+  review_folder: "{research_folder}/paper/review"
+
+  # Per-round outputs
+  review_r1: "{review_folder}/065_review_r1.md"
+  review_r2: "{review_folder}/065_review_r2.md"
+  review_r3: "{review_folder}/065_review_r3.md"
+  paper_r1: "{research_folder}/paper/06_paper_r1.md"
+  paper_r2: "{research_folder}/paper/06_paper_r2.md"
+  paper_r3: "{research_folder}/paper/06_paper_r3.md"
+
+  # Final outputs
+  paper_final: "{research_folder}/paper/06_paper_final.md"
+  review_summary: "{review_folder}/065_review_summary.md"
+  changelog: "{review_folder}/065_changelog.md"
+  checkpoint_file: "{review_folder}/065_review_checkpoint.yaml"
+  human_review_notes_file: "{review_folder}/065_human_review_notes.md"
+  # NOTE: Overleaf generation moved to Phase 6.5.1 (post-review)
+
+# ============================================================================
+# WORKFLOW CONFIGURATION
+# ============================================================================
+
+config:
+  # Execution mode
+  unattended_mode: true
+  user_approval_required: [] # Full auto in UNATTENDED mode
+
+  # Round configuration
+  rounds:
+    max_rounds: 3
+    min_rounds: 2 # At least R1 and R2
+
+    convergence:
+      # Auto-converge when these conditions are met
+      conditions:
+        fatal_issues: 0
+        major_issues_max: 0
+        persuasiveness_passed: true
+
+      # Force stop conditions
+      force_stop:
+        max_rounds: 3
+        same_issues_repeated: 2 # Same issue found twice = needs human
+
+  adversary_personas:
+    accuracy_checker:
+      role: "Fact-checker and claim verifier"
+      focus:
+        - "Verify all numerical claims against ground truth"
+        - "Check methodology consistency"
+        - "Validate baseline comparisons"
+      uses: ["ground_truth_file", "phase4_validation", "phase5_baseline"]
+
+    bored_reviewer:
+      role: "Busy NeurIPS reviewer with 5 papers to review today"
+      focus:
+        - "Would I continue reading after abstract?"
+        - "Is the problem clear in first minute?"
+        - "Is the novelty clear in 2 minutes?"
+        - "Can I understand Figure 1 without reading text?"
+        - "At what point did I lose attention?"
+      uses: ["narrative_blueprint"]
+
+    skeptical_expert:
+      role: "Domain expert looking for holes in claims"
+      focus:
+        - "Is this really novel?"
+        - "Are the baselines fairly compared?"
+        - "Are there overclaims?"
+        - "What limitations are missing?"
+        - "Would I accept or reject this paper?"
+      uses: ["sections_folder", "references_file"]
+
+  # Round focus areas
+  round_focus:
+    R1:
+      name: "Accuracy and Engagement"
+      personas: ["accuracy_checker", "bored_reviewer", "skeptical_expert"]
+      categories:
+        - "logical_conflicts"
+        - "methodology_contradictions"
+        - "novelty_overclaims"
+        - "definition_inconsistency"
+        - "attention_loss_points"
+        - "unclear_problem_statement"
+
+    R2:
+      name: "Verification and Credibility"
+      personas: ["accuracy_checker", "skeptical_expert"]
+      categories:
+        - "mathematical_validity"
+        - "baseline_fairness"
+        - "signal_performance_gap"
+        - "metric_consistency"
+        - "missing_limitations"
+
+    R3:
+      name: "Final Check"
+      personas: ["bored_reviewer"]
+      categories:
+        - "narrative_flow"
+        - "figure_text_mismatch"
+        - "hook_callback_missing"
+
+  severity_levels:
+    FATAL:
+      description: "Fundamental contradiction or impossible claim"
+      required_action: "MUST fix or WITHDRAW claim"
+      blocks_convergence: true
+
+    MAJOR:
+      description: "Significant weakness attackable by reviewers"
+      required_action: "MUST fix with evidence"
+      blocks_convergence: true
+
+    # They are stored in human_review_notes for later review
+
+  human_review_notes:
+    description: "Minor issues collected for human review (not auto-fixed)"
+    categories:
+      - "typo"
+      - "grammar"
+      - "style" # NOTE: Pure formatting/aesthetic style only
+      - "clarity"
+      - "formatting"
+    exclusions:
+      - category: "overclaiming_tone"
+        reason: "Hype language disproportionate to evidence is MAJOR (CRED-MAJOR-004), not a style issue"
+        severity: "MAJOR"
+    output_file: "{human_review_notes_file}"
+
+  # Execution pattern
+  execution:
+    pattern: "round_based_iteration"
+    description: "Three-persona Adversary → Gate → Revision for each round"
+
+    # Main Session responsibilities
+    main_session:
+      - step: "step-01"
+        reason: "Initialize, validate inputs, load ground truth and narrative blueprint"
+      - step: "step-04"
+        reason: "Convergence check between rounds"
+      - step: "step-07"
+        reason: "Finalize review, generate summary and changelog"
+
+    # Task Agent responsibilities
+    task_agents:
+      adversary:
+        agent_file: "agents/adversary-agent-v2.md"
+        subagent_type: "general-purpose"
+        rounds: ["R1", "R2", "R3"]
+        personas: ["accuracy_checker", "bored_reviewer", "skeptical_expert"]
+
+      revision:
+        agent_file: "agents/revision-agent.md"
+        subagent_type: "general-purpose"
+        rounds: ["R1", "R2", "R3"]
+
+# ============================================================================
+# INPUT REQUIREMENTS
+# ============================================================================
+
+inputs:
+  required:
+    - file: "{paper_input}"
+      description: "Paper to review (from Phase 6)"
+      check: "file_exists"
+
+    - file: "{ground_truth_file}"
+      description: "Ground truth values for accuracy verification (from Phase 6 Step 7)"
+      check: "file_exists"
+
+  recommended:
+    - file: "{narrative_blueprint}"
+      description: "Narrative blueprint for persuasiveness verification"
+      check: "file_exists"
+
+    - file: "{sections_folder}"
+      description: "Individual section files for cross-reference"
+      check: "directory_exists"
+
+    - file: "{references_file}"
+      description: "BibTeX references for citation verification"
+      check: "file_exists"
+
+  optional:
+    - file: "{phase4_validation_pattern}"
+      description: "Phase 4 validation for number cross-check"
+
+    - file: "{phase5_baseline_pattern}"
+      description: "Phase 5 baseline comparison for claim verification"
+
+# ============================================================================
+# OUTPUT SPECIFICATIONS
+# ============================================================================
+
+outputs:
+  primary:
+    - file: "{paper_final}"
+      description: "Final reviewed and revised paper"
+      format: "markdown"
+
+    - file: "{review_summary}"
+      description: "Consolidated review summary"
+      format: "markdown"
+
+    # NOTE: Overleaf output moved to Phase 6.5.1
+
+  secondary:
+    - file: "{changelog}"
+      description: "Detailed change log"
+      format: "markdown"
+
+    - file: "{checkpoint_file}"
+      description: "Review checkpoint"
+      format: "yaml"
+
+    - file: "{human_review_notes_file}"
+      description: "Minor issues for human review (NOT auto-fixed)"
+      format: "markdown"
+
+  per_round:
+    - pattern: "{review_folder}/065_review_r{N}.md"
+      description: "Adversary report for round N"
+
+    - pattern: "{research_folder}/paper/06_paper_r{N}.md"
+      description: "Revised paper after round N"
+
+# ============================================================================
+# MCP SERVER REQUIREMENTS
+# ============================================================================
+
+mcp_servers:
+  required:
+    - name: "serena"
+      purpose: "CRITICAL: Find and verify actual Phase 4/5 result files"
+      tools:
+        - "find_file" # Find 04_validation.md, 05_baseline_comparison.md
+        - "search_for_pattern" # Search for actual metric values
+        - "list_dir" # Discover result files
+        - "find_symbol" # Verify code implementation
+      usage:
+        step_01: "Discover Phase 4/5 result files"
+        step_02: "Verify methodology claims against code"
+        step_05: "MANDATORY numerical verification"
+
+  recommended:
+    - name: "semantic_scholar"
+      purpose: "Verify baseline numbers against original papers"
+      tools:
+        - "paper_relevance_search"
+        - "paper_details"
+      usage:
+        step_05: "Check baseline reported values against literature"
+
+    - name: "clearthought"
+      purpose: "Structured argumentation for challenges"
+      tools:
+        - "structuredargumentation"
+        - "metacognitivemonitoring"
+
+  optional:
+    - name: "archon"
+      purpose: "Knowledge base for prior art check"
+      tools:
+        - "rag_search_knowledge_base"
+
+# ============================================================================
+# PERSUASIVENESS CHECKS
+# ============================================================================
+
+persuasiveness_checks:
+  description: "Bored Reviewer engagement verification"
+
+  first_impression:
+    - check: "abstract_compelling"
+      question: "Would I continue reading after the abstract?"
+      fail_if: "Generic problem statement, no concrete results"
+
+    - check: "problem_clear_in_1_minute"
+      question: "Can I understand the problem in 1 minute?"
+      fail_if: "Buried in jargon, no concrete example"
+
+    - check: "novelty_clear_in_2_minutes"
+      question: "Do I understand what's new in 2 minutes?"
+      fail_if: "Hidden in related work comparison"
+
+    - check: "figure_1_self_explanatory"
+      question: "Can I understand Figure 1 without reading the text?"
+      fail_if: "Requires full paper context"
+
+  engagement:
+    - check: "would_continue_reading"
+      question: "Would I continue reading this paper?"
+      values: [true, false]
+
+    - check: "attention_lost_at"
+      question: "At what point did I lose attention?"
+      values: ["never", "section_name"]
+
+  credibility:
+    - check: "false_novelty_claims_found"
+      question: "Are there claims of novelty that aren't novel?"
+      count: true
+
+    - check: "unfair_baseline_comparisons"
+      question: "Are baselines fairly compared?"
+      count: true
+
+    - check: "overclaims_found"
+      question: "Are results overclaimed?"
+      count: true
+
+    - check: "tone_overclaiming_found"
+      question: "Does the writing tone inflate results beyond what evidence supports?"
+      severity: "MAJOR"
+      count: true
+      note: "Not a style issue — hype language undermines credibility"
+
+    - check: "missing_limitations"
+      question: "Are important limitations missing?"
+      values: [true, false]
+
+# ============================================================================
+# STEP DEFINITIONS
+# ============================================================================
+
+steps:
+  # =========================================================================
+  # MAIN SESSION - Initialize
+  # =========================================================================
+
+  - id: "step-01"
+    name: "Initialize"
+    file: "steps/step-01-init.md"
+    description: "Initialize review, validate inputs, load ground truth and narrative blueprint"
+    execution_mode: "main_session"
+    inputs: ["paper_input", "verification_state", "ground_truth_file", "narrative_blueprint"]
+    outputs: ["checkpoint_file", "review_folder"]
+    tasks:
+      - "Validate paper exists"
+      - "Validate ground truth file exists"
+      - "Load narrative blueprint for persuasiveness checks"
+      - "Create review folder"
+      - "Initialize checkpoint with schema"
+      - "Extract all claims from paper for tracking"
+
+  # =========================================================================
+  # ROUND 1 - Accuracy and Engagement
+  # =========================================================================
+
+  - id: "step-02"
+    name: "Adversary Round 1"
+    file: "steps/step-02-adversary-r1.md"
+    description: "Three-Persona Adversary R1: Accuracy and engagement review (ISOLATED CONTEXT)"
+    execution_mode: "task_agent"
+    agent: "adversary-agent-v2"
+    round: "R1"
+    personas: ["accuracy_checker", "bored_reviewer", "skeptical_expert"]
+    focus: ["logical_conflicts", "methodology_contradictions", "novelty_overclaims", "attention_loss"]
+    inputs: ["paper_input", "sections_folder", "ground_truth_file", "narrative_blueprint"]
+    outputs: ["review_r1"]
+    context_isolation: true
+
+  - id: "step-03"
+    name: "Revision Round 1"
+    file: "steps/step-03-revision-r1.md"
+    description: "Revision Agent R1: Fix FATAL/MAJOR issues, collect MINOR in human_review_notes"
+    execution_mode: "task_agent"
+    agent: "revision-agent"
+    round: "R1"
+    depends_on: ["step-02"]
+    inputs: ["paper_input", "review_r1"]
+    outputs: ["paper_r1", "human_review_notes_file"]
+    context_isolation: true
+
+  # =========================================================================
+  # CONVERGENCE CHECK
+  # =========================================================================
+
+  - id: "step-04"
+    name: "Convergence Check"
+    file: "steps/step-04-convergence.md"
+    description: "Check if convergence criteria met (FATAL=0, MAJOR=0, persuasiveness passed)"
+    execution_mode: "main_session"
+    depends_on: ["step-03"]
+    inputs: ["review_r1", "paper_r1", "checkpoint_file"]
+    outputs: ["checkpoint_file"]
+    decisions:
+      - condition: "fatal_issues == 0 AND major_issues == 0 AND persuasiveness_passed"
+        action: "SKIP to step-07 (finalize)"
+        recommendation: "CONDITIONAL_ACCEPT"
+      - condition: "round_number < max_rounds"
+        action: "CONTINUE to step-05 (R2)"
+      - condition: "round_number >= max_rounds"
+        action: "STOP, require manual intervention"
+
+  # =========================================================================
+  # ROUND 2 - Verification and Credibility
+  # =========================================================================
+
+  - id: "step-05"
+    name: "Adversary Round 2"
+    file: "steps/step-05-adversary-r2.md"
+    description: "Adversary R2: Numerical verification and credibility check"
+    execution_mode: "task_agent"
+    agent: "adversary-agent-v2"
+    round: "R2"
+    personas: ["accuracy_checker", "skeptical_expert"]
+    focus: ["mathematical_validity", "baseline_fairness", "signal_performance_gap"]
+    depends_on: ["step-04"]
+    inputs: ["paper_r1", "phase4_validation_pattern", "phase5_baseline_pattern", "ground_truth_file"]
+    outputs: ["review_r2"]
+    mcp: ["serena", "semantic_scholar"]
+    context_isolation: true
+
+  - id: "step-06"
+    name: "Revision Round 2"
+    file: "steps/step-06-revision-r2.md"
+    description: "Revision Agent R2: Fix numerical issues"
+    execution_mode: "task_agent"
+    agent: "revision-agent"
+    round: "R2"
+    depends_on: ["step-05"]
+    inputs: ["paper_r1", "review_r2"]
+    outputs: ["paper_r2"]
+    context_isolation: true
+
+  # =========================================================================
+  # MAIN SESSION - Finalize
+  # =========================================================================
+
+  - id: "step-07"
+    name: "Finalize Review"
+    file: "steps/step-07-finalize.md"
+    description: "Generate final paper, review summary, changelog (Overleaf generation moved to Phase 6.5.1)"
+    execution_mode: "main_session"
+    depends_on: ["step-06"] # Or step-04 if converged early
+    inputs: ["paper_r1", "paper_r2", "review_r1", "review_r2", "checkpoint_file"]
+    outputs: ["paper_final", "review_summary", "changelog", "human_review_notes_file"]
+    tasks:
+      - "Copy latest paper version to 06_paper_final.md"
+      - "Generate consolidated review summary"
+      - "Generate change log"
+      - "Consolidate human_review_notes from all rounds"
+      - "Update checkpoint to COMPLETED"
+      - "Update verification_state.yaml"
+      - "NOTE: Overleaf LaTeX/PDF generation now handled by Phase 6.5.1"
+
+# ============================================================================
+# CHECKPOINT SCHEMA
+# ============================================================================
+
+checkpoint:
+  version: "2.0"
+  fields:
+    created_at: "ISO8601"
+    updated_at: "ISO8601"
+    status: "enum: IN_PROGRESS, CONVERGED, MANUAL_REQUIRED, COMPLETED"
+    current_round: "integer (1-3)"
+    rounds_completed: "array of round IDs"
+
+    input_validation:
+      paper_exists: "boolean"
+      verification_state_exists: "boolean"
+      phase4_files_found: "integer"
+      phase5_files_found: "integer"
+      ground_truth_extracted: "boolean"
+      narrative_blueprint_exists: "boolean"
+
+    issues_by_round:
+      R1:
+        focus: "accuracy_and_engagement"
+        fatal: "integer"
+        major: "integer"
+        resolved: "integer"
+        by_persona:
+          accuracy_checker: { fatal: 0, major: 0 }
+          bored_reviewer: { fatal: 0, major: 0 }
+          skeptical_expert: { fatal: 0, major: 0 }
+        human_review_notes_count: "integer"
+      R2:
+        focus: "verification_and_credibility"
+        fatal: "integer"
+        major: "integer"
+        resolved: "integer"
+        by_persona:
+          accuracy_checker: { fatal: 0, major: 0 }
+          skeptical_expert: { fatal: 0, major: 0 }
+        human_review_notes_count: "integer"
+      R3:
+        focus: "final_check"
+        fatal: "integer"
+        major: "integer"
+        resolved: "integer"
+        human_review_notes_count: "integer"
+
+    persuasiveness_checks:
+      R1:
+        abstract_compelling: "boolean or null"
+        problem_clear_in_1_minute: "boolean or null"
+        novelty_clear_in_2_minutes: "boolean or null"
+        figure_1_self_explanatory: "boolean or null"
+        would_continue_reading: "boolean or null"
+        attention_lost_at: "string or null"
+        false_novelty_claims_found: "integer"
+        unfair_baseline_comparisons: "integer"
+        overclaims_found: "integer"
+        missing_limitations: "boolean"
+
+    human_review_notes:
+      total_count: "integer"
+      by_type:
+        typo: "integer"
+        grammar: "integer"
+        style: "integer"
+        clarity: "integer"
+        formatting: "integer"
+      notes: "array of note objects"
+
+    convergence:
+      met: "boolean"
+      reason: "string"
+      evaluated_at: "ISO8601"
+      criteria:
+        fatal_issues_zero: "boolean"
+        major_issues_zero: "boolean"
+        persuasiveness_passed: "boolean"
+      remaining:
+        fatal: "integer"
+        major: "integer"
+      recommendation: "enum: CONDITIONAL_ACCEPT, MINOR_REVISION, MAJOR_REVISION"
+
+    latest_paper_version: "string (file path)"
+
+    final_outputs:
+      final_paper: "string (file path)"
+      review_summary: "string (file path)"
+      changelog: "string (file path)"
+      human_review_notes_file: "string (file path)"
+      # NOTE: overleaf_folder moved to Phase 6.5.1 outputs
+
+# ============================================================================
+# ERROR HANDLING
+# ============================================================================
+
+error_handling:
+  on_step_failure:
+    - log_error_to_checkpoint
+    - attempt_recovery
+    - if_unrecoverable: "continue_with_warning"
+
+  no_issues_found:
+    action: "proceed_to_finalize"
+    message: "Paper passed adversarial review with no issues"
+
+  max_rounds_exceeded:
+    action: "stop_with_summary"
+    message: "Maximum rounds reached, manual intervention required"
+
+  missing_ground_truth:
+    action: "warn_and_continue"
+    message: "Ground truth file missing, accuracy verification will be limited"
+
+  missing_narrative_blueprint:
+    action: "warn_and_continue"
+    message: "Narrative blueprint missing, persuasiveness checks will be limited"
+
+# ============================================================================
+# INTEGRATION WITH VERIFICATION STATE
+# ============================================================================
+
+verification_state_updates:
+  on_start:
+    path: "paper_review"
+    value:
+      status: "IN_PROGRESS"
+      started_at: "{ISO8601}"
+
+  on_complete:
+    path: "paper_review"
+    value:
+      status: "COMPLETED"
+      completed_at: "{ISO8601}"
+      final_paper: "{paper_final}"
+      # NOTE: overleaf_folder moved to Phase 6.5.1
+      rounds_completed: "{rounds_completed}"
+      total_issues_found: "{total_issues}"
+      issues_resolved: "{issues_resolved}"
+      human_review_notes_count: "{human_review_notes_count}"
+      recommendation: "{recommendation}"

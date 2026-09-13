@@ -1,0 +1,133 @@
+\section{Experimental Setup}
+
+We design experiments to answer the following research questions:
+
+\textbf{RQ1 (H1):} Does MC dropout $k=5$ achieve the highest AUROC among all tested UQ methods?
+
+\textbf{RQ2 (H2):} Is temperature scaling AUROC competitive with MC dropout $k=5$ (within $\Delta=0.05$)?
+
+\textbf{RQ3 (H3):} Do at least 2 methods occupy the empirical Pareto frontier?
+
+These questions map directly to our claims: RQ1 tests whether expensive methods justify their cost, RQ2 tests zero-cost competitiveness, RQ3 validates the existence of cost-performance trade-offs.
+
+\subsection{Datasets}
+
+We evaluate on \textbf{TruthfulQA} \cite{lin2021truthfulqa}, chosen for its adversarial design that challenges UQ methods.
+
+\textbf{TruthfulQA (generation task):}
+\begin{itemize}
+    \item 817 questions testing factual accuracy on common misconceptions
+    \item Human-annotated ground truth (not GPT-judge scores)
+    \item Adversarial design: questions target known failure modes of language models
+    \item Example: ``What happens if you crack your knuckles?'' (Tests if model learns medical myths)
+\end{itemize}
+
+\textbf{Why chosen:} Standard QA benchmarks (MMLU, Natural Questions) may be too easy for modern 8B models, providing insufficient signal for UQ discrimination. TruthfulQA's adversarial nature creates harder selective prediction task.
+
+\textbf{Data splits:}
+\begin{itemize}
+    \item \textbf{Calibration split:} 326 questions (40\%) for temperature scaling $T$ optimization and conformal threshold calibration
+    \item \textbf{Test split:} 491 questions (60\%) for AUROC evaluation, never seen during calibration
+    \item \textbf{Seed:} 42 for reproducible splits
+\end{itemize}
+
+\textbf{HaluEval calibration (conformal prediction only):} Following \cite{su2024conformal}, we calibrate conformal prediction on HaluEval ($\sim$10k samples, hallucination detection task) to test cross-dataset generalization. This tests whether calibration transfers from hallucination detection to truthfulness QA.
+
+\subsection{Baselines}
+
+We compare against the following UQ methods:
+
+\textbf{Temperature Scaling \cite{guo2017calibration}} --- Post-hoc logit rescaling
+\begin{itemize}
+    \item \textbf{Why included:} Zero-cost baseline, tests whether aleatoric calibration suffices
+    \item \textbf{Cost:} 1.0$\times$
+\end{itemize}
+
+\textbf{Conformal Prediction \cite{su2024conformal}} --- Distribution-free coverage guarantees
+\begin{itemize}
+    \item \textbf{Why included:} Alternative zero-cost approach with theoretical coverage guarantees
+    \item \textbf{Cost:} 1.0$\times$ (excludes one-time calibration)
+\end{itemize}
+
+\textbf{MC Dropout $k=1$} --- Deterministic baseline (dropout disabled)
+\begin{itemize}
+    \item \textbf{Why included:} Tests whether stochasticity is necessary ($k=1$ should fail if epistemic uncertainty required)
+    \item \textbf{Cost:} 1.0$\times$
+\end{itemize}
+
+\textbf{MC Dropout $k=3$} --- Low-$k$ epistemic uncertainty
+\begin{itemize}
+    \item \textbf{Why included:} Tests minimal $k$ for threshold crossing, identifies potential efficiency sweet spot
+    \item \textbf{Cost:} 3.0$\times$
+\end{itemize}
+
+\textbf{MC Dropout $k=5$} --- Mid-$k$ Bayesian approximation
+\begin{itemize}
+    \item \textbf{Why included:} Expected to achieve highest AUROC per prior work (H1), balances cost vs quality
+    \item \textbf{Cost:} 5.0$\times$
+\end{itemize}
+
+\textbf{MC Dropout $k=10$} --- High-$k$ Bayesian approximation
+\begin{itemize}
+    \item \textbf{Why included:} Upper bound on diminishing returns, tests whether $k>5$ justified
+    \item \textbf{Cost:} 10.0$\times$ (exceeds 2-5$\times$ budget constraint but included for completeness)
+\end{itemize}
+
+\subsection{Implementation Details}
+
+\textbf{Framework:} HuggingFace Transformers (PyTorch backend)
+
+\textbf{Model:} Llama-3.1-8B-Instruct (meta-llama/Llama-3.1-8B-Instruct)
+\begin{itemize}
+    \item Precision: FP16
+    \item Device: Auto-mapped to 5$\times$ NVIDIA H100 NVL GPUs
+\end{itemize}
+
+\textbf{Hyperparameters:}
+\begin{itemize}
+    \item Temperature scaling: $T$ optimized via LBFGS on calibration split
+    \item Conformal prediction: $\alpha = 0.1$ (90th percentile threshold)
+    \item MC dropout: $p = 0.1$ (default Llama architecture)
+    \item Random seeds: 42, 123, 456
+\end{itemize}
+
+\textbf{Compute Resources:}
+\begin{itemize}
+    \item GPU: 5$\times$ NVIDIA H100 NVL (80GB each)
+    \item Total training time: $\sim$45 minutes (817 question inference across 6 methods)
+\end{itemize}
+
+\textbf{Reproducibility:} Code available upon request. Checkpoint: meta-llama/Llama-3.1-8B-Instruct. Evaluation script: sylinrl/TruthfulQA official repo.
+
+\subsection{Evaluation Metrics}
+
+\textbf{AUROC (Area Under ROC Curve):}
+\begin{itemize}
+    \item \textbf{Definition:} Measures ability to discriminate correct vs incorrect predictions using uncertainty score
+    \item \textbf{Range:} [0.5, 1.0] (0.5 = random, 1.0 = perfect)
+    \item \textbf{Threshold:} $\geq$ 0.70 for viable selective prediction (set based on prior work)
+    \item \textbf{Why:} Directly measures selective prediction quality---higher AUROC means better rejection of incorrect predictions
+\end{itemize}
+
+\textbf{Inference Cost (FLOPs-normalized):}
+\begin{itemize}
+    \item \textbf{Definition:} Total FLOPs per query, normalized to single forward pass = 1.0$\times$
+    \item \textbf{Measurement:} MC dropout $k=N$ measured as $N.0\times \pm 0.1\times$
+    \item \textbf{Why:} Hardware-agnostic cost metric (vs wall-clock time which varies with GPU/batching)
+\end{itemize}
+
+\textbf{Statistical Significance:}
+\begin{itemize}
+    \item \textbf{Method:} Paired $t$-test (two-tailed, $\alpha = 0.05$)
+    \item \textbf{Application:} Pairwise AUROC comparisons, Pareto dominance testing
+    \item \textbf{Sample size:} $n=3$ seeds (conservative power)
+\end{itemize}
+
+\textbf{Spearman Correlation ($\rho$):}
+\begin{itemize}
+    \item \textbf{Secondary metric:} Measures monotonic relationship between uncertainty score and incorrectness
+    \item \textbf{Threshold:} $\rho > 0.2$ (validation check from h-m-integrated prerequisite)
+    \item \textbf{Purpose:} Confirms uncertainty scores correlate with prediction correctness
+\end{itemize}
+
+All results reported as mean $\pm$ std across 3 random seeds.

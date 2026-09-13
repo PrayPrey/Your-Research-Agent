@@ -1,0 +1,9 @@
+# Compositional Primitive LoRA for Parameter-Efficient Personalization
+
+## Motivation
+Personalizing large language models to individual users typically requires fine-tuning separate LoRA adapters per user (~100K parameters each), which becomes prohibitively expensive at scale and struggles with limited user data (<100 interactions). Current approaches like PROPER use routing mechanisms but still maintain substantial per-user overhead. A key insight from compositional learning research suggests that diverse user preferences may be expressible as combinations of shared preference primitives—analogous to how humans achieve systematic generalization through compositional structure.
+
+## Main Idea
+We propose Compositional Primitive LoRA (CP-LoRA), which represents user personalization as learned compositions over a shared bank of K primitive LoRA modules. The core mechanism involves: (1) pre-training K=64 orthogonal primitive LoRAs on population data using contrastive objectives to capture diverse preference patterns, (2) learning a lightweight 5K-parameter attention network per user that composes these frozen primitives based on user history embeddings. Because primitives remain frozen during user adaptation, base model generalization is preserved while enabling flexible user-specific combinations.
+
+We predict CP-LoRA achieves ≥90% personalization accuracy of user-specific LoRA baselines while using <10K user-specific parameters (>10x efficiency) and retaining >95% generalization on standard benchmarks. Experiments on PersoBench/LaMP with n≥25 users will validate this through paired comparisons, with falsification if accuracy drops below 80% of baselines.

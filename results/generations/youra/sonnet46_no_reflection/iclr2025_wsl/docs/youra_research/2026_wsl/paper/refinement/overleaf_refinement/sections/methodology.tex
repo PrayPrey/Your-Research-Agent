@@ -1,0 +1,59 @@
+
+The methodology follows a three-stage sequential verification chain, with each stage constituting a necessary precondition for the next.
+
+\subsubsection{3.1 Orbit-PE Construction}
+
+SANE \citep{Schurholtetal2024} assigns each weight token a sequential positional encoding P_n = [n, l, k], where n, l, k denote global index, layer index, and within-layer index, respectively. This encoding carries no information about the weight token's position relative to any symmetry group.
+
+The input/output channel permutation group G = S_{c_in} x S_{c_out} acts on any weight matrix W in R^{c_out x c_in} by permuting rows (output channels) and columns (input channels). This group action is a functionally exact symmetry for all linear operators — Conv2d, Linear, MultiheadAttention — as a consequence of the linear operator structure, provided the paired permutations are applied consistently in adjacent layers.
+
+Orbit-PE replaces the sequential positional encoding with an orbit membership vector computed as follows:
+
+\begin{enumerate}
+\item For each weight token W_{l,k} (a row of the reshaped weight matrix), its orbit under S_{c_in} is identified.
+\item An orbit membership matrix M in R^{n_tokens x d_orbit} is constructed and decomposed via singular value decomposition.
+\item The left singular vectors yield the orbit basis U in R^{n_tokens x d_pe}, and each token receives the corresponding row as its orbit-PE vector (d_pe = 64 = token_dim).
+\end{enumerate}
+
+The orbit-PE computation is implemented via a dispatch table over layer types (Conv2d, Linear, MultiheadAttention) with no architecture-conditional branches (HAS_ARCH_BRANCHES = False), producing a token_dim = 64 output for all types.
+
+\subsubsection{3.2 Symmetry Validity Verification (H-E1)}
+
+H-E1 tests whether the input/output channel permutation group constitutes a functionally exact symmetry across architecture families. For each checkpoint, 10 random canonical permutations are applied (seeds 0-9), and the change in evaluation accuracy |Delta acc| is measured by comparing logits on fixed random inputs before and after permutation. The gate criterion requires mean |Delta acc| < 0.001 (0.1\%) for both CNN Zoo and Transformer Zoo, and orbit-PE success rate = 1.0 for all layer types.
+
+Implementation details: the first layer's input channels receive the identity permutation (the network input is not permuted); the final layer's output channels receive the identity permutation (class indices are fixed). The Conv-to-Linear (Flatten) transition is handled by expanding the channel permutation to grouped flattened indices (ch * spatial_size + offset). Transformer Zoo uses separate Q/K/V projections (no fused in_proj_weight) with head-grouped permutation.
+
+\subsubsection{3.3 Computability and Overhead Verification (H-M1)}
+
+H-M1 measures the wall-clock time overhead of orbit-PE computation relative to sequential PE computation on 200 checkpoints (100 CNN Zoo, 100 Transformer Zoo). The overhead ratio is defined as:
+
+    overhead_ratio = t_{orbit-PE} / t_{sequential-PE}
+
+The gate criterion requires overhead_ratio_mean <= 1.2x. Additional criteria: computability_rate = 1.0 (orbit-PE computable for all checkpoints), HAS_ARCH_BRANCHES = False, and dim_consistent = True.
+
+\subsubsection{3.4 Variance Decomposition (H-M2)}
+
+H-M2 measures the fraction of weight-space variance explained by permutation orbits versus General Linear (GL) orbits across CNN Zoo training trajectories.
+
+For each checkpoint's weight tensors, two projections are computed:
+
+\begin{itemize}
+\item \textbf{Permutation orbit projection:} The weight vector is projected onto the SVD-derived orbit basis U. Var_perm = sum_i sigma_i^2, where sigma_i are singular values of the orbit basis applied to the weight matrix.
+\end{itemize}
+
+\begin{itemize}
+\item \textbf{GL orbit projection:} Polar decomposition W = QR (Q orthogonal, R symmetric positive semidefinite) is used to extract GL-orbit variation components.
+\end{itemize}
+
+The primary metric is:
+
+    ratio = Var_perm / (Var_perm + Var_GL)
+
+This is computed per checkpoint, per layer type, and averaged across 1,000 CNN Zoo CIFAR-10-GS models x 50 training epochs. The gate criterion requires ratio > 0.60. A pre-specified pivot was defined: if ratio < 0.60, proceed to hybrid orbit-PE combining permutation orbit for Conv2d layers with GL-invariant trace features for Linear/attention layers.
+
+Note on implementation: the H-M2 orbit projector uses an SVD-based orbit basis as a fallback because a path resolution issue prevented direct import of the H-M1 OrbitPEComputer. This substitution is methodologically equivalent for the purpose of variance decomposition.
+
+\subsubsection{3.5 Verification Chain Structure}
+
+The three sub-hypotheses form a prerequisite chain: H-E1 (symmetry validity) -> H-M1 (computability) -> H-M2 (variance dominance). H-M3 (cross-architecture training) and H-C1 (OVR decomposition) were pre-specified as dependent on H-M2 passing. Because H-M2 failed, H-M3 and H-C1 were not executed.
+

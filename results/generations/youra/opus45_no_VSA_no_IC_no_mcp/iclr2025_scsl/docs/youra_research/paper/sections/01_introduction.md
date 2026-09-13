@@ -1,0 +1,39 @@
+# Introduction
+
+The dominant explanation for why neural networks rely on spurious features—that such features produce stronger gradient signals during training—is wrong. We set out to characterize when deep networks learn spurious correlations, expecting to find that simple, spurious patterns commandeer gradient flow early in training. Instead, we discovered that minority-group samples—those that require learning invariant features—produce 5.7 times *higher* gradient norms than spurious-aligned samples. The gradient competition hypothesis, implicitly assumed across much of the robustness literature, is empirically inverted.
+
+This finding matters because interventions targeting gradient dynamics may be fundamentally misguided. Methods that attempt to rebalance gradient contributions between easy and hard samples assume that easy (spurious-aligned) samples dominate the learning signal. Our measurements reveal the opposite: spurious-aligned samples achieve low loss quickly and subsequently contribute *less* to parameter updates, while minority samples continue generating high gradients precisely because they remain unsolved.
+
+## The Spurious Correlation Problem
+
+Deep neural networks trained with empirical risk minimization (ERM) exploit statistical shortcuts present in training data [Sagawa et al., 2020]. On the Waterbirds benchmark, models learn to classify birds by background habitat rather than bird morphology—a spurious correlation that holds for most training examples but fails catastrophically on minority groups where the correlation breaks. Despite achieving over 90% average accuracy, such models may correctly classify fewer than 70% of landbirds photographed on water backgrounds [Sagawa et al., 2020].
+
+The field has developed increasingly sophisticated interventions: Group DRO [Sagawa et al., 2020] reweights losses to optimize worst-group performance but requires group annotations; JTT [Liu et al., 2021] identifies likely spurious predictions via early training errors and upweights them in a second training phase; SAM [Foret et al., 2021] seeks flat minima that may generalize better across distribution shifts.
+
+## Beyond Detection: Understanding the Mechanism
+
+Yet most work focuses on *detecting* or *mitigating* spurious reliance post-hoc, rather than understanding *why* networks preferentially learn spurious features. The simplicity bias hypothesis [Shah et al., 2020] provides a partial answer—simpler features are learned first—but the mechanism by which this bias operates during gradient-based optimization remains underspecified.
+
+A natural assumption is that spurious features, being simpler, produce stronger gradient signals that accelerate their learning. This "gradient competition" view suggests that spurious and invariant features compete for representational capacity, with spurious features winning through gradient magnitude. If true, interventions could target this competition directly.
+
+## Our Investigation
+
+We test this mechanistic hypothesis through two complementary experiments:
+
+**Existence (H-E1):** We first verify that spurious feature dominance occurs early in training, measuring the ratio of GradCAM attribution on spurious (background) versus core (bird) regions across 50 training epochs.
+
+**Mechanism (H-M1):** We then measure gradient norm magnitudes for spurious-aligned versus minority samples, testing whether spurious features indeed receive stronger optimization signals.
+
+Our results confirm spurious dominance from epoch 0 (attribution ratio 1.35) but *falsify* the gradient competition mechanism. The expected gradient ratio of >1.5 favoring spurious features inverts to 0.18—minority samples generate far stronger gradients than spurious-aligned ones.
+
+## Contributions
+
+This paper makes three contributions:
+
+1. **Empirical falsification** of the gradient competition hypothesis for spurious feature learning, demonstrating that gradient norm ratios are inverted from theoretical predictions.
+
+2. **Confirmation and characterization** of simplicity bias dynamics, showing spurious attribution dominates from initialization with ratio 1.35, peaking at 1.59 around epoch 13.
+
+3. **Mechanistic reframing** proposing that spurious dominance arises from convergence speed rather than gradient magnitude—spurious patterns occupy simpler loss landscape regions that achieve low loss (and thus low gradients) faster, not louder gradient signals.
+
+These findings suggest that robustness interventions should target loss landscape geometry or convergence dynamics rather than gradient rebalancing.

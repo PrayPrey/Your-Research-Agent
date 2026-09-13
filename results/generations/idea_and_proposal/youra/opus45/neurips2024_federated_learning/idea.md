@@ -1,0 +1,10 @@
+## Title
+Rank-Aware Differential Privacy for Heterogeneous Federated LoRA Fine-Tuning
+
+## Motivation
+Federated learning enables privacy-preserving training of foundation models across distributed data sources, but combining differential privacy (DP) with parameter-efficient fine-tuning methods like LoRA faces a critical challenge: clients with heterogeneous computational resources use different LoRA ranks, yet current approaches apply uniform privacy budgets regardless of adapter capacity. This mismatch causes suboptimal noise allocation—high-rank adapters (more expressive) receive insufficient protection while low-rank adapters are over-noised, degrading overall model utility. No existing work addresses privacy budget allocation that accounts for rank heterogeneity in federated settings.
+
+## Main Idea
+We propose rank-proportional privacy budget allocation (ε_i = ε_total × r_i / Σr_j), where each client's privacy budget scales with their LoRA rank. The core insight is information-theoretic: higher-rank adapters have greater capacity and thus require tighter privacy budgets to achieve equitable information leakage per unit capacity, while lower-rank adapters can tolerate more noise without proportional accuracy loss. This creates balanced privacy-utility tradeoffs across heterogeneous clients.
+
+We will validate this through federated fine-tuning experiments on Llama-7B across NLP benchmarks, comparing against uniform DP allocation. Key predictions: (1) 2-5% accuracy improvement at equivalent total privacy budget (ε=3), (2) consistent advantages across privacy regimes (ε∈{1,3,5,8}), with larger gains under stricter budgets. This approach enables practical deployment of privacy-preserving federated foundation model training across resource-diverse client populations.

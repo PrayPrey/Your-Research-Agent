@@ -1,0 +1,397 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m1"
+  hypothesis_id_upper: "H-M1"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-04-30T13:40:00Z"
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Setup development environment"
+    description: |
+      Install required packages:
+        pandas >= 2.0.0
+        pingouin >= 0.5.3
+        scipy >= 1.11.0
+        numpy >= 1.24.0
+        matplotlib >= 3.7.0
+        seaborn >= 0.12.0
+        pytest >= 7.0.0
+
+      All packages are inherited from H-E1 environment — no new dependencies.
+      Run: pip install pandas pingouin scipy numpy matplotlib seaborn pytest
+
+      Create output directories:
+        mkdir -p h-m1/results/ h-m1/figures/
+    feature_tag: "setup"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: "03_config.md#inherited-configuration-base-hypothesis"
+
+  - id: "task-002"
+    epic: "Project Setup"
+    title: "A-1: Create project structure and config.py"
+    description: |
+      Create h-m1/code/ directory structure with all module files.
+      Implement config.py with all constants:
+        - Score matrix paths (SCORE_MATRIX_PATH, SCORE_MATRIX_T07_PATH)
+        - Output directories (RESULTS_DIR, FIGURES_DIR)
+        - Bootstrap params (N_BOOTSTRAP=10000, BOOTSTRAP_SEED=42)
+        - Column names (PRIMARY_X, PRIMARY_Y, DISCRIMINANT_Y, COVARIATE, INTERNAL_X, INTERNAL_Y)
+        - Thresholds (PRIMARY_THRESHOLD=0.40, INTERNAL_THRESHOLD=0.30, DISCRIMINANT_THRESHOLD=0.20, DECODING_INVARIANCE_THRESHOLD=0.30)
+        - Figure settings (FIGURE_DPI=150, FIGURE_FORMAT="png", FIGURE_NAMES dict)
+        - REQUIRED_COLS list, MIN_MODELS=25
+      Verify H-E1 score matrix exists at configured path.
+    feature_tag: "setup"
+    priority: 93
+    source_document: "03_architecture.md"
+    complexity: 5
+    test_requirements: |
+      Create tests/test_config.py
+      - test_required_cols_present: assert all REQUIRED_COLS are strings
+      - test_threshold_values: assert PRIMARY_THRESHOLD == 0.40, INTERNAL_THRESHOLD == 0.30
+      - test_figure_names_complete: assert len(FIGURE_NAMES) >= 5
+    reference_files:
+      architecture: "03_architecture.md#A-1"
+      logic: null
+      config: "03_config.md#a-1-project-setup"
+
+  - id: "task-003"
+    epic: "Data Loader"
+    title: "A-2: Implement data_loader.py"
+    description: |
+      Implement data_loader.py with:
+        - load_score_matrix(path: str) -> pd.DataFrame
+          Reads CSV; validates columns and row count >= MIN_MODELS
+          Raises ValueError on schema mismatch or insufficient rows
+        - load_score_matrix_t07(path: str) -> pd.DataFrame
+          Same as above for T=0.7 variant
+          Returns empty DataFrame if file not found (invariance test becomes optional)
+        - validate_schema(df: pd.DataFrame, required_cols: list[str]) -> bool
+          Checks all required_cols present and non-NaN for gate columns
+    feature_tag: "data-pipeline"
+    priority: 92
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      Create tests/test_data_loader.py
+      - test_load_score_matrix_valid: load real CSV and assert shape (30, 8)
+      - test_validate_schema_missing_col: assert raises ValueError when column missing
+      - test_load_t07_missing_returns_empty: assert empty DataFrame when file not found
+    reference_files:
+      architecture: "03_architecture.md#A-2"
+      logic: "03_logic.md#a-2-data-loader"
+      config: "03_config.md#a-2-data-loader"
+
+  - id: "task-004"
+    epic: "BCa Bootstrap Core"
+    title: "A-3: Implement BCa bootstrap functions in analyzers.py"
+    description: |
+      Implement core BCa bootstrap CI functions (adapted from H-E1 bca_bootstrap_ci):
+        - _bca_bootstrap_spearman(df, x, y, n_boot, seed) -> tuple[float, float]
+          BCa CI for unconditional spearmanr
+        - _bca_bootstrap_partial(df, x, y, covar, n_boot, seed) -> tuple[float, float]
+          BCa CI for pg.partial_corr
+
+      Pseudo-code for BCa:
+        1. Compute observed statistic (rho_obs)
+        2. rng = np.random.default_rng(seed)
+        3. boot_stats = [] for n_boot resamples with replacement
+        4. jackknife_stats = leave-one-out estimates
+        5. acceleration = sum((jack_mean - jack_i)^3) / (6 * sum((jack_mean - jack_i)^2)^1.5)
+        6. bias = norm.ppf(mean(boot < obs))
+        7. alpha1 = norm.cdf(bias + (bias + z_alpha) / (1 - accel*(bias+z_alpha)))
+        8. alpha2 = norm.cdf(bias + (bias + z_1alpha) / (1 - accel*(bias+z_1alpha)))
+        9. ci = (percentile(boot, alpha1*100), percentile(boot, alpha2*100))
+    feature_tag: "evaluation"
+    priority: 91
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      Create tests/test_analyzers.py (partial — BCa section)
+      - test_bca_spearman_deterministic: same seed produces same CI
+      - test_bca_partial_deterministic: same seed produces same partial CI
+      - test_bca_direction: negative rho yields negative CI bounds
+    reference_files:
+      architecture: "03_architecture.md#A-3"
+      logic: "03_logic.md#a-3-bca-bootstrap-core"
+      config: "03_config.md#a-3-bca-bootstrap-core"
+
+  - id: "task-005"
+    epic: "Internal Consistency Analyzer"
+    title: "A-4: Implement compute_internal_consistency in analyzers.py"
+    description: |
+      Implement:
+        compute_internal_consistency(df, x, y, n_boot, seed) -> dict
+        Returns: {rho, pval, bca_ci_low, bca_ci_high, passes_threshold}
+        - Uses scipy.stats.spearmanr for point estimate
+        - Uses _bca_bootstrap_spearman for CI
+        - passes_threshold = rho >= INTERNAL_THRESHOLD (0.30)
+    feature_tag: "evaluation"
+    priority: 90
+    source_document: "03_architecture.md"
+    complexity: 7
+    test_requirements: |
+      Add to tests/test_analyzers.py
+      - test_internal_consistency_expected_range: ρ(ECE, Brier) >= 0.30 on real data
+      - test_internal_consistency_ci_bounds: ci_low < rho < ci_high
+      - test_internal_consistency_passes_threshold: passes_threshold True when rho >= 0.30
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#a-4-internal-consistency-analyzer"
+      config: "03_config.md#a-4-internal-consistency-analyzer"
+
+  - id: "task-006"
+    epic: "Partial Correlation Analyzer"
+    title: "A-5: Implement primary gate analysis in analyzers.py"
+    description: |
+      Implement (PRIMARY GATE — MUST_WORK):
+        compute_partial_corr_bca(df, x, y, covar, n_boot, seed) -> dict
+        Returns: {rho_partial, bca_ci_low, bca_ci_high, ci_excludes_zero, passes_threshold}
+        - Uses pingouin.partial_corr(data=df, x=x, y=y, covar=covar, method='spearman')
+        - Uses _bca_bootstrap_partial for CI
+        - ci_excludes_zero: (ci_low > 0 or ci_high < 0)
+        - passes_threshold: abs(rho_partial) >= PRIMARY_THRESHOLD and ci_excludes_zero
+
+        compute_confound_magnitude(raw_rho, partial_rho) -> dict
+        Returns: {survival_fraction, confound_fraction, interpretation}
+        - survival_fraction = abs(partial_rho) / abs(raw_rho)
+
+        evaluate_gate(partial_result, threshold) -> bool
+        Returns True if abs(rho_partial) >= threshold AND ci_excludes_zero
+    feature_tag: "evaluation"
+    priority: 89
+    source_document: "03_architecture.md"
+    complexity: 11
+    test_requirements: |
+      Add to tests/test_analyzers.py
+      - test_partial_corr_gate_pass: |partial ρ(ECE, TruthfulQA%|MMLU)| >= 0.40 on real data
+      - test_ci_excludes_zero: BCa CI does not straddle zero for primary test
+      - test_confound_magnitude: survival_fraction in [0.5, 1.0] (MMLU < 50% confound)
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#a-5-partial-correlation-analyzer"
+      config: "03_config.md#a-5-partial-correlation-analyzer"
+
+  - id: "task-007"
+    epic: "Discriminant + Invariance Analyzers"
+    title: "A-6: Implement discriminant and decoding invariance checks"
+    description: |
+      Implement:
+        compute_discriminant_validity(df, x, y, covar, n_boot, seed) -> dict
+        Returns: {rho_partial, bca_ci_low, bca_ci_high, passes_threshold}
+        - passes_threshold = abs(rho_partial) < DISCRIMINANT_THRESHOLD (0.20)
+        - Expected: partial ρ(ECE, HumanEval|MMLU) < 0.20
+
+        compute_decoding_invariance(df_greedy, df_t07, x, y, covar, n_boot, seed) -> dict
+        Returns: {rho_greedy, rho_t07, passes_threshold, skipped}
+        - skipped=True if df_t07 is empty (T=0.7 file not found)
+        - Uses seed+1 for T=0.7 run to avoid identical random streams
+        - passes_threshold = abs(rho_t07) >= DECODING_INVARIANCE_THRESHOLD (0.30)
+    feature_tag: "evaluation"
+    priority: 88
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      Add to tests/test_analyzers.py
+      - test_discriminant_validity_low: |partial ρ(ECE, HumanEval|MMLU)| < 0.20 on real data
+      - test_decoding_invariance_skipped: skipped=True when df_t07 is empty DataFrame
+      - test_decoding_invariance_threshold: passes_threshold logic correct
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: "03_logic.md#a-6-discriminant--invariance-analyzers"
+      config: "03_config.md#a-6-discriminant--invariance-analyzers"
+
+  - id: "task-008"
+    epic: "Visualization Figs 1-3"
+    title: "A-7: Implement visualizer.py figures 1-3"
+    description: |
+      Implement in h-m1/code/visualizer.py:
+        plot_gate_bar(partial_result, threshold, figures_dir) -> Path
+          Fig 1: Bar chart partial ρ(ECE, TruthfulQA%|MMLU) vs threshold (0.40),
+          BCa CI error bar, pass/fail annotation, save to figures_dir/fig1_gate_bar.png
+
+        plot_raw_vs_partial(raw_rho, partial_rho, confound_result, figures_dir) -> Path
+          Fig 2: Side-by-side bars raw ρ vs partial ρ, survival_fraction annotation,
+          save to figures_dir/fig2_raw_vs_partial.png
+
+        plot_ece_brier_scatter(df, internal_result, figures_dir) -> Path
+          Fig 3: Scatter ECE vs Brier, N=30 points colored by model family,
+          Spearman ρ annotated, save to figures_dir/fig3_ece_brier_scatter.png
+    feature_tag: "evaluation"
+    priority: 87
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      Create tests/test_visualizer.py
+      - test_plot_gate_bar_creates_file: assert fig1_gate_bar.png created with size > 0
+      - test_plot_raw_vs_partial_creates_file: assert fig2 file created
+      - test_plot_ece_brier_creates_file: assert fig3 file created
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#a-7-visualization-figs-1-3"
+      config: "03_config.md#a-7a-8-visualization"
+
+  - id: "task-009"
+    epic: "Visualization Figs 4-5"
+    title: "A-8: Implement visualizer.py figures 4-5"
+    description: |
+      Implement in h-m1/code/visualizer.py:
+        plot_discriminant_validity(primary_result, discriminant_result, figures_dir) -> Path
+          Fig 4: Grouped bar partial ρ(ECE, TruthfulQA%|MMLU) vs partial ρ(ECE, HumanEval|MMLU),
+          save to figures_dir/fig4_discriminant_validity.png
+
+        plot_decoding_invariance(invariance_result, figures_dir) -> Path
+          Fig 5: Scatter greedy partial ρ vs T=0.7 partial ρ; H-M1 point highlighted;
+          skipped (blank fig) if invariance_result['skipped'],
+          save to figures_dir/fig5_decoding_invariance.png
+    feature_tag: "evaluation"
+    priority: 86
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      Add to tests/test_visualizer.py
+      - test_plot_discriminant_creates_file: assert fig4 file created
+      - test_plot_invariance_skipped: skipped invariance_result still creates fig5 file
+      - test_all_figures_exist: after full run, assert all 5 figure files exist
+    reference_files:
+      architecture: "03_architecture.md#A-8"
+      logic: "03_logic.md#a-8-visualization-figs-4-5"
+      config: "03_config.md#a-7a-8-visualization"
+
+  - id: "task-010"
+    epic: "Reporter"
+    title: "A-9: Implement reporter.py"
+    description: |
+      Implement in h-m1/code/reporter.py:
+        write_results_json(internal_result, primary_result, confound_result,
+                           discriminant_result, invariance_result, gate_pass,
+                           output_path) -> None
+          Writes h-m1/results/hm1_results.json with all results and pass/fail flags
+
+        write_validation_md(internal_result, primary_result, confound_result,
+                            discriminant_result, invariance_result, gate_pass,
+                            output_path) -> None
+          Writes h-m1/04_validation.md with criterion table (threshold, observed, pass/fail)
+          Table rows: primary gate, construct validity, confound magnitude,
+                      discriminant validity, decoding invariance
+    feature_tag: "evaluation"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      Create tests/test_reporter.py
+      - test_write_results_json_valid: assert output is valid JSON with required keys
+      - test_write_validation_md_exists: assert 04_validation.md created with content
+      - test_gate_pass_reflected: gate_pass=True reflected in JSON gate_pass field
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: "03_logic.md#a-9-reporter"
+      config: "03_config.md#a-9-reporter"
+
+  - id: "task-011"
+    epic: "Main Pipeline Integration"
+    title: "A-10: Implement main.py orchestration"
+    description: |
+      Implement h-m1/code/main.py:
+        main() -> dict
+          Returns gate_eval dict with PASS bool and all results
+          Pipeline:
+            1. load_score_matrix(SCORE_MATRIX_PATH) → validate_schema
+            2. load_score_matrix_t07(SCORE_MATRIX_T07_PATH) (optional)
+            3. internal_result = compute_internal_consistency(df, ECE, Brier, N_BOOTSTRAP, SEED)
+            4. primary_result = compute_partial_corr_bca(df, ECE, TruthfulQA_pct, MMLU_acc, ...)
+            5. confound_result = compute_confound_magnitude(raw_rho, primary_result['rho_partial'])
+            6. discriminant_result = compute_discriminant_validity(df, ECE, HumanEval_pass1, MMLU_acc, ...)
+            7. invariance_result = compute_decoding_invariance(df, df_t07, ...)
+            8. gate_pass = evaluate_gate(primary_result, PRIMARY_THRESHOLD)
+            9. [plot all 5 figures]
+            10. write_results_json(...); write_validation_md(...)
+            11. sys.exit(0) if gate_pass else sys.exit(1)
+          Log all intermediate values with pass/fail for each criterion
+    feature_tag: "experiment"
+    priority: 84
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      Create tests/test_main.py
+      - test_main_runs_without_error: main() completes and returns dict with gate_pass key
+      - test_main_gate_pass_logged: gate_pass logged to stdout
+      - test_main_all_outputs_created: after main(), assert JSON + MD + 5 figures exist
+    reference_files:
+      architecture: "03_architecture.md#A-10"
+      logic: "03_logic.md#a-10-main-pipeline-integration"
+      config: "03_config.md#a-10-main-pipeline"
+
+  - id: "task-012"
+    epic: "Validation + Gate Check"
+    title: "A-11: Run full pipeline and validate gate"
+    description: |
+      Run complete H-M1 pipeline end-to-end:
+        1. cd docs/youra_research/20260430_buildingtrust
+        2. python h-m1/code/main.py
+        3. Verify exit code 0 (gate PASS) or document failure with partial ρ value
+        4. Check results: |partial ρ(ECE, TruthfulQA%|MMLU)| >= 0.40 AND BCa CI excludes zero
+        5. Verify 04_validation.md contains criterion table with pass/fail
+        6. Run full pytest suite: pytest h-m1/code/tests/ -v
+
+      Gate interpretation:
+        EXIT 0: MUST_WORK PASS — proceed to Phase 4.5
+        EXIT 1: MUST_WORK FAIL — document partial ρ value, route to reflection
+
+      pytest requirements:
+        - All test files created (test_config, test_data_loader, test_analyzers,
+          test_visualizer, test_reporter, test_main)
+        - All tests pass (no placeholder assertions)
+    feature_tag: "evaluation"
+    priority: 83
+    source_document: "03_architecture.md"
+    complexity: 9
+    test_requirements: |
+      (This task IS the validation step)
+      - Run pytest h-m1/code/tests/ -v and assert 0 failures
+      - Assert hm1_results.json exists with gate_pass field
+      - Assert 04_validation.md has criterion table
+    reference_files:
+      architecture: "03_architecture.md#A-11"
+      logic: "03_logic.md#a-11-validation--gate-check"
+      config: null
+
+  - id: "task-013"
+    epic: "Pipeline Management"
+    title: "Pipeline Continuation Checkpoint"
+    description: "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK"
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "system"
+    complexity: null
+    test_requirements: "Failsafe task does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 11
+  subtasks: 0
+  failsafe: 1
+  total: 13

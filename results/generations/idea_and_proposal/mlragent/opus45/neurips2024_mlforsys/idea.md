@@ -1,0 +1,9 @@
+﻿# Title: Carbon-Aware Neural Job Scheduling with Multi-Horizon Carbon Intensity Forecasting
+
+## Motivation
+Large-scale ML training and cloud computing contribute significantly to global carbon emissions, yet current job schedulers are largely carbon-agnostic. While temporal and spatial shifting of workloads can reduce carbon footprint by up to 40%, existing approaches rely on simplistic carbon forecasting or static policies. The challenge lies in accurately predicting carbon intensity across multiple time horizons (minutes to days) and jointly optimizing for carbon, performance, and resource utilization under uncertainty. This is critical as datacenters increasingly commit to sustainability targets while maintaining SLOs.
+
+## Main Idea
+We propose **CarbonSched**, a hierarchical reinforcement learning framework for carbon-aware job scheduling that integrates a novel multi-horizon carbon intensity predictor. The system consists of: (1) a transformer-based forecasting module that predicts regional carbon intensity at multiple granularities using weather data, grid mix, and historical patterns; (2) a high-level RL policy that makes strategic decisions about job deferral and geographic placement across datacenters; and (3) a low-level policy that handles fine-grained resource allocation and preemption decisions.
+
+Key innovations include uncertainty-aware scheduling that accounts for forecast confidence intervals and a carbon budget mechanism that guarantees emission caps while minimizing deadline violations. We will evaluate on production traces from Google and Azure, targeting 25-35% carbon reduction with less than 5% performance degradation. This approach provides a practical pathway for sustainable cloud computing at scale.

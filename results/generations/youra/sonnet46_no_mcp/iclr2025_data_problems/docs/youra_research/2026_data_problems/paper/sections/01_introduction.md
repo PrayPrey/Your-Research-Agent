@@ -1,0 +1,25 @@
+# 1. Introduction
+
+Professional medicine questions appear in The Pile v1 at 43 times the rate of high school mathematics questions — yet when practitioners report MMLU accuracy, they average across all 57 sub-tasks as if contamination were uniform. It is not.
+
+Training data contamination, the n-gram overlap between benchmark test sets and training corpora, is widely recognized as a potential source of performance inflation. A model whose training data contains benchmark questions has, in effect, seen the answers. The NLP community has responded with contamination reporting guidelines, decontamination filters, and specialized tooling [CITE:elazar2023wimbd]. Yet these responses share a fundamental limitation: they treat contamination as a scalar — a single number per benchmark — rather than a structured phenomenon that varies predictably with corpus composition and benchmark domain.
+
+This framing misses a deeper problem. The three most widely-used open training corpora — The Pile v1 [CITE:gao2020pile], C4 en.noclean [CITE:dodge2021c4], and RedPajama-v1 [CITE:togethercomputer2023redpajama] — have structurally different source compositions. The Pile deliberately includes domain-aligned academic sources (PubMed Central, ArXiv, FreeLaw). C4 applies a CommonCrawl quality filter that incidentally removes content overlapping with NLP benchmarks. RedPajama draws from a curated mix of web, code, and academic text. If corpus source composition shapes which benchmark sub-tasks are most contaminated, then aggregate contamination rates hide exactly the information practitioners need.
+
+The gap is concrete: no published work provides a unified cross-corpus contamination matrix — contamination rates for each benchmark sub-task against each major training corpus, computed with consistent methodology. WIMBD [CITE:elazar2023wimbd] provides 13-gram containment tooling for The Pile, but does not extend to C4 or RedPajama. The GPT-4 Technical Report [CITE:openai2023gpt4] reports Jaccard similarity for select benchmarks against a closed training corpus. Dodge et al. [CITE:dodge2021c4] document C4's properties but do not measure contamination against MMLU, HellaSwag, or BIG-Bench Hard. The contamination atlas — the structured map of which sub-tasks are most at risk from which corpora — does not exist.
+
+Our key insight is that **corpus source composition, not corpus scale, determines which benchmark domains are most contaminated**. Quality-filtered web text (C4) shows 38% lower mean contamination than The Pile despite similar scale. The Pile and RedPajama are statistically indistinguishable in contamination distribution (Dunn p=0.810), because both draw heavily from CommonCrawl web text that overlaps with benchmark content. This insight enables a prediction: academic-weighted corpora will disproportionately contaminate academic benchmark sub-tasks, and this domain-specific signature will vary across corpora in proportion to their academic source content.
+
+We validate this insight empirically by computing a 59-sub-task × 3-corpus contamination matrix — 177 (sub-task, corpus) cells — using 13-gram containment methodology validated against WIMBD published baselines (Spearman ρ=0.721). Our experiments confirm that contamination rates vary by 40× across benchmark sub-tasks within a single corpus (Kruskal-Wallis H=590.82, p=2.73e-89) and vary significantly across the three corpora (H=17.51, p=1.58e-4), with a source-composition-consistent ordering (Pile 6.53% > RedPajama 5.75% > C4 4.05%) and statistically novel Pile-RedPajama equivalence.
+
+**Our contributions are:**
+
+1. **The Cross-Corpus Contamination Atlas**: The first unified 59-sub-task × 3-corpus 13-gram contamination matrix for MMLU, HellaSwag, and BIG-Bench Hard against The Pile v1, C4 en.noclean, and RedPajama-v1, computed with reproducible open-source methodology.
+
+2. **The Corpus Composition Effect**: Empirical demonstration that corpus source composition — not scale — predicts contamination levels. C4's quality filtering reduces mean contamination by 38% relative to The Pile. The Pile-RedPajama statistical equivalence (p=0.810) is a novel finding grounded in shared CommonCrawl ancestry.
+
+3. **Domain-Stratified Contamination Profiles**: Evidence that academic/professional MMLU sub-tasks are contaminated at 2–3× higher rates than commonsense benchmarks across all three corpora (Cohen's d=0.85), with the pattern consistent across corpus-specific source compositions.
+
+4. **Methodological Validation**: Demonstration that rank-based contamination analysis is robust to text format variations (ρ=0.74) and corpus sampling fractions (ρ>0.995), establishing the 13-gram contamination matrix as a reliable tool for downstream benchmark validity assessment.
+
+We organize the paper as follows. Section 2 reviews related work on contamination measurement and corpus documentation. Section 3 describes our methodology and pipeline. Section 4 presents our experimental design. Section 5 reports results. Section 6 discusses implications and limitations. Section 7 concludes.

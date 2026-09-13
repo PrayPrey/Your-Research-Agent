@@ -1,0 +1,9 @@
+﻿# Title: Calibrated Uncertainty Quantification for Detecting Overconfident Generations in Large Language Models
+
+## Motivation
+Large language models (LLMs) often generate factually incorrect or fabricated content with high apparent confidence, leading users to trust unreliable outputs. This overconfidence problem is particularly dangerous in high-stakes domains like healthcare, legal advice, and scientific research, where users may lack expertise to verify claims. Current confidence estimation methods are poorly calibrated and fail to distinguish between reliable and hallucinated content, creating significant safety risks as LLM adoption accelerates.
+
+## Main Idea
+I propose developing a **multi-signal uncertainty framework** that combines internal model signals with external verification to produce calibrated confidence scores for LLM outputs. The methodology involves: (1) extracting uncertainty signals from token-level entropy, attention pattern consistency, and hidden state clustering across multiple generation samples; (2) training a lightweight calibration module using contrastive learning on datasets pairing claims with ground-truth verifiability labels; (3) integrating retrieval-augmented verification scores as an external grounding signal. The framework outputs interpretable confidence intervals alongside generated text, with automatic flagging when uncertainty exceeds domain-specific thresholds.
+
+Expected outcomes include 30-40% improvement in calibration error (ECE) over baseline methods and reduced user trust in hallucinated content. The potential impact extends to enabling safer deployment of LLMs in critical applications by providing actionable uncertainty information that helps users make informed decisions about when to trust or verify AI-generated content.

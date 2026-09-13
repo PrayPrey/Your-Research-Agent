@@ -1,0 +1,189 @@
+# Phase 2A Extended: Hypothesis Clarification
+
+**Date:** 2026-02-12
+**Author:** Pray
+**Source Round:** 02a_round_1_discussion.md
+**Status:** Ready for Phase 2B Verification Planning
+
+---
+
+## 1. Clarified Hypothesis
+
+### 1.1 Core Statement
+
+**Hypothesis ID:** H-SpectralOperator-v1
+**Confidence Level:** 0.82
+
+**Main Hypothesis:**
+Under the condition of DE-inspired architecture selection tasks, if task data spectral properties are analyzed and matched to architecture spectral biases via Spectral Signature Matching, then selected architectures will outperform random/heuristic selection by >10% because architectures with spectral biases aligned to task dynamics exploit appropriate inductive priors that reduce sample complexity and improve generalization.
+
+**Alternative Hypothesis (H0):**
+There is no systematic relationship between task data spectral properties and optimal architecture choice among DE-inspired architectures (Neural ODE, SSM, FNO). Architecture selection based on spectral matching performs no better than random selection.
+
+### 1.2 Variables
+
+| Variable | Type | Operationalization | Expected Range/Values |
+|----------|------|-------------------|----------------------|
+| Task Data Spectral Signature | Independent | Autocorrelation decay rate (τ), frequency spectrum via FFT, characteristic time scales | τ ∈ [0.1, 1000], frequency peaks ∈ [0, Nyquist] |
+| Architecture Selection | Independent | Spectral Signature Matching protocol output | {Neural ODE, SSM (S4/Mamba), FNO} |
+| Model Performance | Dependent | Task-specific metric (accuracy, MSE, RMSE) on benchmark datasets | Accuracy: 0-100%, MSE: domain-dependent |
+| Training Procedure | Controlled | Fixed hyperparameters, AdamW optimizer, same epochs | Learning rate, batch size, epochs fixed per task |
+| Evaluation Metrics | Controlled | Standard benchmark metrics for each domain | Test accuracy, test MSE, generalization gap |
+
+### 1.3 Causal Mechanism
+
+**Causal Chain (N=3 steps):**
+
+```
+Step 1: Task Data Spectral Analysis
+    ↓ (FFT, autocorrelation, eigenvalue analysis)
+Step 2: Spectral Signature Extraction & Matching
+    ↓ (Match to architecture spectral biases)
+Step 3: Architecture Selection & Deployment
+    ↓ (Aligned inductive prior)
+Outcome: Performance Improvement (>10% over random)
+```
+
+**Step 1 - Spectral Analysis:**
+Task data analyzed using FFT, autocorrelation decay rate τ, eigenvalue analysis.
+*Evidence:* SPARCS (Peri 2025) demonstrates spectral attributes guide architecture optimization
+
+**Step 2 - Spectral Signature Matching:**
+- **Neural ODE:** Continuous flow spectrum, high-frequency local dynamics
+- **SSM (S4/Mamba):** Polynomial decay via HiPPO, long-range dependencies
+- **FNO:** Fourier basis localization, translation-invariant spatial patterns
+*Evidence:* S4 HiPPO captures polynomial decay; Mamba adds selective reasoning
+
+**Step 3 - Performance via Matched Prior:**
+Matched spectral bias provides appropriate inductive prior.
+*Evidence:* Mamba (5600+ citations) SOTA due to spectral alignment with sequence structure
+
+**Evidence for Causal Links:**
+
+| Link | Evidence Source | Key Finding | Strength |
+|------|-----------------|-------------|----------|
+| Step1 → Step2 | SPARCS (Peri 2025) | Spectral attributes enable architecture search | Strong |
+| Step2 → Step3 | Aswani et al. (2024) | Neural layers as Koopman operators | Medium |
+| Step2 → Step3 | Haseli et al. (2025) | Koopman extends to controlled systems | Medium |
+| Step3 → Outcome | Mamba (Gu 2023) | SSM spectral structure enables SOTA | Strong |
+
+**Key Tension:**
+- **Tension:** Aswani (2024) shows Koopman linearization at 97% accuracy, but Haseli (2025) notes selective systems require extended formulations.
+- **Resolution:** Verification tests extended Koopman framework validity for selective architectures.
+
+### 1.4 Key Assumptions
+
+1. **Koopman Linearization Validity** - Evidence: Aswani (2024) 97% MNIST accuracy
+   *If violated:* Framework reduces to heuristic
+
+2. **Finite-Dimensional Approximation Sufficiency** - Evidence: DMD, HiPPO success
+   *If violated:* Computationally intractable
+
+3. **Spectral Predictivity** - Evidence: SPARCS (2025), S4/Mamba on LRA
+   *If violated:* Hypothesis falsified
+
+4. **Proxy Measure Adequacy** - Evidence: Standard signal processing theory
+   *If violated:* More sophisticated analysis required
+
+### 1.5 Scope & Boundaries
+
+**Applies To:**
+- DE-inspired architectures: Neural ODE, SDE, SSM, FNO
+- Tasks with temporal/spatial dynamics: time series, sequences, PDEs
+
+**Does NOT Apply To:**
+- Vanilla Transformers without DE connection
+- Static tasks without temporal/spatial structure
+
+**Known Limitations:**
+- FNO connection is analogical (spatial vs temporal)
+- Mamba selectivity requires controlled Koopman theory
+
+### 1.6 Testable Predictions
+
+**Primary Prediction:**
+
+**P1 (Architecture Selection Accuracy):**
+Spectral Signature Matching will select the optimal architecture with accuracy ≥70% across diverse task categories, compared to 33% random baseline.
+
+*Measurement*: Selection accuracy, χ² test, p < 0.05, N ≥ 30 tasks
+*Success Criteria*: ≥70% accuracy
+*Falsification*: ≤40% triggers rejection
+
+**Secondary Predictions:**
+
+**P2 (Performance Improvement):**
+Selected architectures outperform random by ≥10% on average.
+*Success*: Relative improvement ≥10%, p < 0.05
+
+**P3 (Spectral Correlation):**
+Spectral properties correlate with optimal architecture (r > 0.5).
+*Success*: |r| > 0.5, p < 0.01
+
+**Falsification Criteria:**
+
+1. **Primary Failure**: Selection accuracy ≤ 40%
+2. **Mechanism Failure**: |r| < 0.3 or p > 0.05
+3. **Performance Failure**: Improvement < 5%
+
+### 1.8 Statistical Verification Design
+
+**Sample Size:** N ≥ 30 tasks across 3 domains
+**Tests:** χ² for selection, paired t-test for performance, Spearman correlation
+**Significance:** α = 0.05, power = 0.8
+**Report:** Selection accuracy ± 95% CI, effect sizes, confusion matrix
+
+---
+
+## 4. Phase 2B Readiness
+
+### Decomposition Preview
+
+**SH1 (Existence):**
+"Do distinct spectral signatures exist for different DE-inspired architecture classes that can be reliably measured?"
+- Verification: Theoretical + Empirical
+- Critical: MUST PASS
+
+**SH2 (Mechanism):**
+"Is spectral signature matching the actual cause of improved selection?"
+- Decomposes to N=3 sub-hypotheses (H-M1 to H-M3)
+- Verification: Causal analysis with ablations
+
+**SH3 (Comparison):**
+"Does Spectral Signature Matching outperform baselines (random, heuristic, NAS)?"
+- Verification: Comparative empirical
+
+### Readiness Checklist
+
+- [x] Hypothesis in "If-Then-Because" format
+- [x] Hypothesis ID: H-SpectralOperator-v1
+- [x] Confidence: 0.82
+- [x] H0 defined
+- [x] Variables operationalized
+- [x] Causal mechanism (N=3) with evidence
+- [x] Key tension + resolution
+- [x] Assumptions with consequences
+- [x] 3 testable predictions (primary marked)
+- [x] Falsification criteria defined
+- [x] Baselines identified
+- [x] SH1/SH2/SH3 ready
+
+### Open Questions
+
+1. **Resources:** Standard GPU, public benchmarks, ~2-4 weeks
+2. **Data:** UCI, ETT, LRA, Navier-Stokes (all public)
+3. **Priority:** SH1 → SH2-M2 → SH3
+
+---
+
+**Note:** This is a summary optimized for Phase 2B input.
+Full output with all sections available in: `02a_extended_hypothesis_full.md`
+
+**Full document includes:**
+- Section 2: Contribution Summary
+- Section 3: Key Related Work
+
+---
+
+*Generated using YouRA Research Phase 2A Extended Workflow (Focused)*
+*2026-02-12*

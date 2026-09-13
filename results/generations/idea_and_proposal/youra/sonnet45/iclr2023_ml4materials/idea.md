@@ -1,0 +1,10 @@
+# Title
+Compositional Material Embeddings with Adaptive Periodic Graphs: Unified Cross-Class Transfer Learning for Materials Discovery
+
+# Motivation
+Materials discovery is bottlenecked by the need for class-specific models and massive datasets. Unlike molecules and proteins, materials span diverse structural classes (crystals, polymers, surfaces) with distinct representations—crystals require periodic boundary conditions, polymers use chain topologies, surfaces need slab geometries. Current ML models treat each class separately, requiring months of architecture design and thousands of expensive DFT calculations per new material type. This fragmentation prevents leveraging knowledge across the 100,000+ known crystals to accelerate polymer or catalyst discovery, where data is scarce.
+
+# Main Idea
+We hypothesize that **atomic environments are transferable across material classes**: similar local bonding (e.g., sp³ carbon) contributes similarly to properties regardless of global structure. Our framework, CoME-APG+, introduces: (1) **Adaptive Periodic Graphs** that unify crystals/polymers/surfaces into a single message-passing architecture via class-specific graph construction rules, (2) **Physics-Informed Hierarchical Contrastive Alignment** that aligns embeddings across three levels (composition→electronics→geometry) using domain knowledge, and (3) **compositional tokenization** treating atomic neighborhoods as transferable units. 
+
+**Key prediction**: Pre-training on 100k crystals enables polymer property prediction with only 10% of typical data (1k vs. 7k structures), achieving ≥70% of full-data performance—a 7× data reduction saving ~600k CPU-hours. Validation involves correlation studies confirming cross-class environment similarity (r>0.7) and transfer learning experiments. This enables rapid adaptation to new material classes and mixed-class systems like nanocomposites.

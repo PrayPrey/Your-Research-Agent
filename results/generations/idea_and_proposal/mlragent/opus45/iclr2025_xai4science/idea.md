@@ -1,0 +1,9 @@
+﻿# Title: Concept Bottleneck Networks with Automated Scientific Concept Discovery for Climate Model Interpretation
+
+## Motivation
+Current explainability methods in climate science often rely on post-hoc attribution techniques (e.g., saliency maps), which can be unreliable and fail to provide semantically meaningful explanations to domain scientists. While concept bottleneck models (CBMs) offer inherently interpretable predictions through human-defined concepts, they require extensive manual concept annotation—impractical for complex climate systems where relevant physical concepts may be unknown or poorly understood. This gap limits both model trustworthiness and the potential for discovering novel climate phenomena.
+
+## Main Idea
+We propose **Auto-CBM-Climate**, a framework that automatically discovers and validates physically meaningful concepts for interpretable climate prediction. The methodology involves: (1) training an initial neural network on climate prediction tasks (e.g., extreme weather forecasting), (2) using sparse dictionary learning on intermediate representations to extract candidate concept directions, (3) employing large language models with climate science knowledge to label and filter physically plausible concepts, and (4) constructing a concept bottleneck layer verified against known climate indices (e.g., ENSO, NAO patterns).
+
+The framework will be evaluated on ERA5 reanalysis data for predicting heat waves, measuring both predictive accuracy and concept alignment with established climate science. Expected outcomes include discovery of interpretable precursor patterns and potential identification of novel teleconnections. This bridges the gap between model interpretability and scientific knowledge discovery, enabling climate scientists to trust and learn from ML predictions.

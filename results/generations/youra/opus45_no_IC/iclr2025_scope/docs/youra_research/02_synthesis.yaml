@@ -1,0 +1,111 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-10T23:00:00"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Play Loop (Claude-only, IC-ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap1-eviction-vs-compression"
+
+hypothesis_draft:
+  title: "Attention-Probe Router for Task-Conditioned KV Cache Compression"
+  hypothesis_id: "H-AttnProbeRouter-v1"
+  core_claim: |
+    Early attention patterns (first 100 tokens) predict optimal KV cache compression strategy,
+    enabling a lightweight router that selects task-appropriate configurations achieving ≥5%
+    AUPC improvement over best single strategy.
+  mechanism: |
+    Attention entropy and head-wise sparsity encode task structure (retrieval-heavy vs synthesis-heavy).
+    High-entropy tasks tolerate eviction; low-entropy tasks tolerate quantization. Router maps
+    attention features to predicted optimal compression configuration.
+  predictions:
+    - P1: "Gap statistic identifies k* > 1 clusters in compression response profiles"
+    - P2: "Router achieves AUPC > 1.05 × best-single on held-out tasks"
+    - P3: "Attention entropy correlates with cluster membership (ρ > 0.5)"
+
+variables_summary:
+  independent: "Compression strategy (eviction ratio × quantization level)"
+  dependent_primary: "Accuracy retention (task accuracy with compression / baseline)"
+  controlled: "Model (Llama-2-7B), benchmark (LongBench), hardware (A100)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no task-dependent structure in compression response (k* = 1) OR
+    attention features do not predict optimal compression (AUPC(router) ≤ AUPC(best-single)).
+  statistical_test: "Gap statistic for clustering; paired t-test for AUPC comparison"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Attention-probe router: first use of early attention features to predict task-level compression strategy"
+  differentiation_summary: |
+    Prior work (H2O, Ada-KV) makes per-token or per-head decisions. This hypothesis makes
+    per-task strategy selection based on a lightweight attention probe, shifting paradigm
+    from "best method" to "best method for this task."
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - name: "Llama-2-7B"
+      source: "meta-llama/Llama-2-7b-hf"
+  datasets:
+    - name: "LongBench"
+      tasks: 21
+      categories: 6
+  baselines:
+    - "Best-Single-Strategy (task-agnostic)"
+    - "H2O-Default"
+    - "StreamingLLM-Default"
+    - "Full-KV (no compression)"
+
+measurement_plan:
+  data_collection:
+    - source: "LongBench inference outputs"
+      metrics: ["task_accuracy", "memory_usage", "attention_weights"]
+    - source: "KV cache profiler"
+      metrics: ["cache_size_bytes", "eviction_ratio", "quantization_level"]
+  procedure:
+    - step: "Run Llama-2-7B on all 21 LongBench tasks with full KV (baseline)"
+    - step: "Run 6 compression configs on all tasks (126 measurements)"
+    - step: "Extract attention features from first 100 tokens per task"
+    - step: "Compute (accuracy, memory) Pareto points per task per config"
+    - step: "Apply gap statistic to discover cluster structure"
+    - step: "Train logistic regression router on 14 tasks (3-fold CV)"
+    - step: "Evaluate AUPC on held-out 7 tasks per fold"
+  success_criteria:
+    - "k* > 1 (clustering exists)"
+    - "AUPC(router) > 1.05 × AUPC(best-single)"
+    - "ρ(entropy, cluster) > 0.5"
+
+validation:
+  internal_validity:
+    - "3-fold cross-validation prevents overfitting"
+    - "Gap statistic uses null distribution comparison"
+    - "Pre-committed success thresholds prevent p-hacking"
+  external_validity:
+    - "LongBench covers 6 task categories for generalization"
+    - "Leave-one-category-out cross-validation tests category transfer"
+    - "Single model (Llama-2-7B) limits cross-model claims"
+
+discussion_synthesis:
+  key_insights:
+    - "Eviction and quantization are not independent; interaction effects matter"
+    - "Task category may not align with compression-relevant structure"
+    - "Attention patterns in early tokens encode task-relevant information"
+    - "Pareto frontier is task-dependent, not universal"
+  breakthrough_moments:
+    - "Exchange 7: Flipping from assuming to discovering compression-relevant task structure"
+    - "Exchange 9: Attention probe as router input—first-100-token features predict compression"
+    - "Exchange 13: AUPC as unified metric replacing single-point accuracy"
+  resolved_tensions:
+    - "Per-token vs per-task decisions → per-task selection at inference start"
+    - "Arbitrary thresholds → gap statistic for principled cluster count"
+    - "Post-hoc analysis → 3-fold CV for honest evaluation"

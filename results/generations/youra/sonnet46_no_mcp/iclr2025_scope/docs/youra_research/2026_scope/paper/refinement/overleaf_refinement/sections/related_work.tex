@@ -1,0 +1,33 @@
+
+\subsubsection{2.1 KV Cache Eviction Methods}
+
+KV cache memory grows linearly with sequence length, making it the primary bottleneck for serving long-context LLMs. Several methods address this by selectively evicting low-importance token entries at inference time.
+
+\textbf{H2O} \citep{Zhangetal2023} retains tokens with the highest cumulative attention scores (heavy hitters) along with a fixed set of initial attention-sink tokens. H2O reports that 50\% KV cache reduction incurs modest accuracy degradation on LongBench. The persistence of heavy-hitter token sets across inputs for a given model is the property that makes H2O masks informative as training-time constraints in the present work. H2O is applied post-hoc to fixed models.
+
+\textbf{SnapKV} \citep{Lietal2024} selects KV entries based on query-aware clustering, improving accuracy on multi-document QA tasks at matched cache budgets compared to H2O. Like H2O, SnapKV is a post-hoc inference-time method applied to fixed models.
+
+\textbf{StreamingLLM} \citep{Xiaoetal2023} retains attention-sink tokens and a sliding window of recent tokens, enabling theoretically unbounded context at fixed cache size. The concentration of sink tokens in early layers is relevant to the observation in Section 5.2 that lower transformer layers (0–3) show no significant attention divergence under eviction-aware training.
+
+All three methods share the assumption that the adapted model is a fixed artifact. The present work departs from this assumption by treating the adapter as a design target.
+
+\subsubsection{2.2 Parameter-Efficient Fine-Tuning}
+
+\textbf{LoRA} \citep{Huetal2022} decomposes weight updates into low-rank matrices (ΔW = BA, B ∈ ℝ^{d×r}, A ∈ ℝ^{r×k}), achieving competitive performance with substantially fewer trainable parameters than full fine-tuning. Eviction-Aware LoRA modifies the LoRA forward pass by applying H2O eviction masks before the attention score matrix is finalized, changing the gradient signal reaching A and B.
+
+\textbf{AdaLoRA} \citep{Zhangetal2023} allocates LoRA rank budget adaptively across layers via singular value decomposition. The strong weight divergence observed in H-E1 (mean cosine similarity 0.053 after 30 steps) is consistent with AdaLoRA's observation that concentrated gradient signals drive more efficient adapter specialization.
+
+\textbf{DoRA} \citep{Liuetal2024} decomposes weight updates into magnitude and direction components. Like standard LoRA, DoRA assumes full KV cache access during training.
+
+\textbf{LongLoRA} \citep{Chenetal2023} extends LoRA for long-context fine-tuning using shifted sparse attention to reduce computation. LongLoRA modifies attention patterns for computational efficiency, not to match an inference-time eviction policy. It does not address the training-inference distribution mismatch arising from post-hoc KV cache eviction at deployment.
+
+\subsubsection{2.3 Regularization by Structured Absence}
+
+Dropout \citep{Srivastavaetal2014} trains models to be robust to structured absence by randomly zeroing activations during training, operating at the neuron level within each token. Token-position eviction operates at a coarser granularity — entire KV entries — and uses deterministic, policy-driven masks rather than stochastic ones. Neuron dropout does not alter the set of token positions a model attends to; token-position eviction does. These structural differences are relevant to the interpretation of weight divergence magnitudes in Section 5.1.
+
+Prior work on attention pattern characterization in encoder models \citep{Clarketal2019} identifies middle transformer layers as carrying the bulk of long-range dependency information in BERT. The H-M1 finding that significant attention entropy divergence is concentrated in middle layers 4–11 of GPT-2 is consistent with this prior, though direct generalization from encoder to decoder architectures requires separate verification.
+
+\subsubsection{2.4 Distribution Mismatch Perspective}
+
+Domain adaptation theory [Ben-David et al., 2010] establishes that models trained on distribution P and evaluated on distribution Q incur a performance penalty proportional to the divergence between P and Q. In the present setting, P is the full-cache attention distribution encountered during fine-tuning and Q is the evicted-cache distribution encountered at inference. Eviction-Aware LoRA is a targeted intervention to minimize this divergence for a fixed eviction policy (H2O), trading policy-generality for policy-specific calibration. No prior work applies this framing to the joint optimization of KV cache eviction and LoRA fine-tuning.
+

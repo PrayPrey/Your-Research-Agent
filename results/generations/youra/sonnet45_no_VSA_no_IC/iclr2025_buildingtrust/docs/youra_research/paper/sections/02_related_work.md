@@ -1,0 +1,29 @@
+# Related Work
+
+## Multi-Dimensional Trustworthiness Frameworks
+
+Multi-dimensional LLM evaluation has matured rapidly. TrustLLM (Sun et al. 2024) introduced an 8-dimension framework covering truthfulness, safety, fairness, robustness, privacy, machine ethics, transparency, and accountability. MMTrustEval (Li et al. 2024) proposed a 5-dimension benchmark for multimodal LLMs with standardized evaluation protocols. Both frameworks provide per-dimension scores and model cards, enabling systematic comparison across trustworthiness criteria.
+
+These frameworks share a common limitation: dimensions are evaluated independently. TrustLLM reports aggregate scores per dimension but no co-occurrence statistics showing which instances fail on multiple dimensions simultaneously. MMTrustEval generates model cards highlighting dimension-specific strengths and weaknesses, but does not measure cross-dimensional relationships. This design reflects an implicit assumption that dimensions are uncorrelated—an assumption our work tests empirically.
+
+We differ in measurement approach: where existing frameworks compute per-dimension accuracy, we measure phi coefficient on instance-level binary labels across dimension pairs to quantify coupling strength. This reveals correlation structure invisible to independent evaluation.
+
+## LLM Vulnerability Analysis
+
+Single-dimension vulnerability analysis has produced specialized benchmarks. TruthfulQA evaluates factual accuracy on questions where models exhibit systematic falsehoods. AdvBench tests adversarial robustness via carefully crafted perturbations. BBQ (Bias Benchmark for QA) measures fairness across demographic groups. These benchmarks provide ground truth for their respective dimensions but do not capture cross-dimensional behavior.
+
+Recent work hints at coupling. Li & Li (2024) document triangular trade-offs between robustness and fairness in specific scenarios—models achieving high robustness on adversarial examples simultaneously exhibit fairness degradation. This validates that coupling exists but does not characterize its breadth (how many dimension pairs couple?) or model-specificity (do different architectures show different patterns?). Our work extends this observation to systematic coupling analysis across 10 dimension pairs and 3 model families.
+
+Behavioral detection methods operate on model outputs without internal state access. TrustScore (Zheng et al. 2024) introduces Behavioral Consistency—a reference-free metric evaluating response alignment with intrinsic knowledge using only API outputs. This architecture-agnostic approach validates that trustworthiness properties are observable from behavior alone, supporting our coupling measurement methodology.
+
+## Difficulty Confound Control
+
+Our partial correlation approach addresses a methodological gap in coupling analysis. The psychometric literature (PMC confounding studies) shows that difficulty confounds correlation estimates: hard instances fail on all dimensions simultaneously, creating spurious coupling. Prior multi-dimensional evaluation lacks explicit difficulty control.
+
+We use partial correlation controlling for instance difficulty to isolate genuine coupling from spurious artifacts. This distinguishes shared vulnerability mechanisms (coupling persists after control) from measurement confounds (coupling disappears). Our finding that partial phi exceeds raw phi in 5/6 cases (retention 86-161%) reveals difficulty as a suppressor variable—controlling it unmasks stronger latent coupling rather than reducing spurious correlation.
+
+## Positioning Summary
+
+Our work sits at the intersection of three research threads: multi-dimensional evaluation (provides dimension coverage), behavioral detection (validates API-only measurement), and difficulty control (isolates genuine coupling). We add coupling analysis to existing frameworks, measure it from behavioral outputs, and validate difficulty-independence. The key contribution: sparse coupling as a fundamental architectural property, not an assumption.
+
+The next section explains our measurement methodology and why this design solves the coupling characterization problem.

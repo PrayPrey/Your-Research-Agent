@@ -1,0 +1,55 @@
+
+Three research questions were addressed through executed experiments. A fourth, the primary performance claim, was pre-registered but not executed.
+
+\begin{itemize}
+\item \textbf{RQ1 (H-E1):} Is there substantial misalignment between LoRA-adapted attention priorities and LM-trained Locret eviction scores?
+\item \textbf{RQ2 (H-M1):} Does task classification loss produce gradient signals that reach Locret heads and improve task accuracy over the frozen-Locret baseline?
+\item \textbf{RQ3 (H-M2):} Is joint training numerically stable across multiple random seeds?
+\item \textbf{RQ4 (H-M3, not executed):} Does JointLoRA-KV achieve ≥3\% improvement over B3 on LongBench-QA at full training scale?
+\end{itemize}
+
+\subsubsection{4.1 Datasets}
+
+\textbf{GLUE} \citep{Wangetal2018}: MNLI (3-class natural language inference, 500 training / 200 validation examples per task), SST-2 (binary sentiment), QNLI (question-NLI). For H-E1, 100 MNLI validation_matched examples are used.
+
+\textbf{LongBench} \citep{Baietal2024}: NarrativeQA, Qasper, MultiFieldQA-en (long-context QA tasks). In H-M2, 50 examples per task are used for evaluation on the PoC model. Full-scale LongBench evaluation with LLaMA-3.1-8B was planned for H-M3 (not executed).
+
+\subsubsection{4.2 Model and Hardware Configuration}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+Component & Specification \\
+\midrule
+Base model & meta-llama/Meta-Llama-3.1-8B-Instruct \\
+LoRA rank / alpha / dropout & r=16, α=32, dropout=0.05 \\
+LoRA target modules & q_proj, k_proj, v_proj \\
+Locret checkpoint & hyx21/Locret-llama-3.1-8B-instruct \\
+KV retention budget & 50\% (b=0.50) \\
+Hardware & NVIDIA H100 NVL \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{4.3 Evaluation Metrics}
+
+\begin{itemize}
+\item \textbf{GLUE tasks:} Classification accuracy; mean across MNLI, SST-2, QNLI.
+\item \textbf{LongBench tasks:} Token-level F1 \citep{Rajpurkaretal2016}; mean across tasks.
+\item \textbf{Misalignment (H-E1):} Spearman rank correlation ρ between LoRA attention weights and Locret CIS scores per example, averaged across 100 MNLI validation examples.
+\item \textbf{Stability (H-M2):} Count of NaN events and divergence events across 3 random seeds.
+\end{itemize}
+
+\subsubsection{4.4 H-E1 Experimental Protocol}
+
+The LoRA-fine-tuned MNLI checkpoint (yophis/DRM-Llama-3.1-8B-mnli) and the Locret checkpoint (hyx21/Locret-llama-3.1-8B-instruct) are loaded sequentially to remain within GPU VRAM. For each of 100 MNLI examples, LoRA attention scores (shape: 32 query heads × L) and Locret CIS scores (shape: 8 KV heads × L) are extracted. CIS scores are expanded from 8 to 32 heads via \texttt{repeat_interleave(4)} to match the query-head dimensionality under GQA. Spearman ρ is computed per example over non-padding tokens. This GQA expansion treats 8 KV heads as 32 independent query-head signals; this may artificially deflate the correlation relative to a KV-head-level analysis.
+
+\subsubsection{4.5 H-M1 Execution Constraints}
+
+H-M1 was designed for 3 seeds, 3–5 epochs, and 2000 training samples per task. Due to a 4-hour compute constraint on the H100 NVL, only a PoC run was completed: 1 seed (42), 1 epoch per task, 500 training samples, 200 validation samples. The full-protocol code (\texttt{run_experiment.py}) is implemented.
+
+\subsubsection{4.6 H-M2 Model Scale}
+
+H-M2 uses a synthetic PoC model (d=64, 2 transformer layers) with the BERT tokenizer (vocab_size=30,522) rather than full LLaMA-3.1-8B. This model outputs class-index tokens that do not match LongBench answer strings, so LongBench F1 is 0.000 for both JointLoRA-KV and B3 at this scale. The H-M2 evaluation is accordingly restricted to stability metrics (NaN/divergence counts) and equality of F1 (no regression from joint training).
+

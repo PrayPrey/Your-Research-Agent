@@ -1,0 +1,123 @@
+# 02_synthesis.yaml - Phase 2A Synthesis (v10.0.0 Free-Parse)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-03-16T14:30:00Z"
+  workflow: "phase2a-dialogue v10.0.0"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Extrospective NLI as Grounding-Conditioned Hallucination Detection on HaluEval"
+  hypothesis_id: "H-ExtrospectiveNLI-v1"
+  core_claim: |
+    Under the post-hoc, generation-free evaluation setting (no LLM generation at experiment time),
+    cross-encoder/nli-deberta-v3-large applied to HaluEval (context, response) pairs with
+    net-contradiction framing and sentence-level max aggregation achieves AUROC >= 0.65 on
+    HaluEval-Summarization and HaluEval-QA, because MNLI-trained NLI models encode graded
+    support sensitivity sufficient to detect factual inconsistency without generative inference.
+  mechanism: |
+    DeBERTa-v3-large-mnli produces P(contradiction), P(neutral), P(entailment) for each
+    (context, response) pair. Net-contradiction = P(contradiction) - P(entailment) captures
+    both explicit contradictions and unsupported-but-non-entailed content. Sentence-level max
+    aggregation isolates the most contradictory response sentence, preventing dilution by
+    non-hallucinated sentences. The structural ceiling (AUROC_max = p + 0.5*(1-p)) bounds the
+    theoretical achievable AUROC given the proportion p of context-contradictory hallucinations.
+  predictions:
+    - P1: "AUROC >= 0.65 on HaluEval-Summarization and HaluEval-QA simultaneously (primary)"
+    - P2: "Net-contradiction framing outperforms raw contradiction by DELTA >= 0.02 on >= 2/3 tasks"
+    - P3: "Empirical AUROC >= 70% of structural ceiling on Summarization and QA (near-ceiling for in-scope hallucination types)"
+
+variables_summary:
+  independent: "NLI framing (3 levels) × Aggregation granularity (3 levels) × Premise window (3 levels) × HaluEval task (3 tasks)"
+  dependent_primary: "AUROC (binary hallucination classification, range [0,1])"
+  controlled: "Model (frozen DeBERTa-v3-large-mnli), dataset split (HaluEval test sets as-released), tokenizer (max_length=512)"
+
+null_hypothesis:
+  h0_statement: |
+    No NLI framing achieves AUROC >= 0.65 on both HaluEval-Summarization and HaluEval-QA
+    simultaneously when applied zero-shot without any task-specific training.
+  statistical_test: "DeLong test for AUROC comparison; bootstrap 95% CIs for framing effect sizes"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "Extrospective NLI paradigm (external grounding) + structural ceiling analysis (hallucination type characterization) as dual contributions"
+  differentiation_summary: |
+    Prior NLI work (SummaC, TRUE) evaluates on summarization benchmarks, not HaluEval, without
+    framing ablations or AUROC. SelfCheckGPT uses self-consistency (orthogonal signal). HaluEval
+    paper evaluates generative LLMs, not discriminative NLI. Our work is the first zero-shot AUROC
+    measurement for NLI-based hallucination detection on HaluEval multi-task, with self-diagnostic
+    framing ablation and structural ceiling analysis.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "cross-encoder/nli-deberta-v3-large (primary, frozen)"
+  datasets:
+    - "HaluEval-Dialogue (~12,988 examples)"
+    - "HaluEval-Summarization (10,000 examples)"
+    - "HaluEval-QA (10,000 examples)"
+  baselines:
+    - "SelfCheckGPT-NLI (AUROC 0.48/0.53, prior pipeline — as executed lower bound)"
+    - "P(True) (AUROC 0.84/0.73, theoretical reference — inaccessible)"
+    - "NER-overlap lexical baseline (trivial, negative control)"
+
+measurement_plan:
+  data_collection:
+    - source: "HaluEval (pminervini/HaluEval HuggingFace, cached)"
+    - source: "Label audit: 200 random positive samples per task, manually typed (contradiction/unsupported/ambiguous)"
+  procedure:
+    - step: "Load HaluEval test splits for Dialogue, QA, Summarization"
+    - step: "For each example: construct (premise, hypothesis) pair per task (premise=context/knowledge/document, hypothesis=response/answer/summary)"
+    - step: "Apply DeBERTa-v3-large-mnli in batch (batch_size=32, torch.inference_mode()) to all pairs"
+    - step: "Compute three framing scores per example: contradiction, 1-entailment, net-contradiction"
+    - step: "For sentence-level: tokenize response with NLTK sent_tokenize, apply DeBERTa to each (premise, sentence) pair, take max score"
+    - step: "For dialogue: apply premise windowing (full, last-3-turns, last-user-only)"
+    - step: "Compute AUROC for all 3 framings × 3 granularities × 3 premise windows × 3 tasks = 81 conditions"
+    - step: "Identify pre-registered primary configuration (net-contradiction, sentence-level max, last-3-turns for dialogue)"
+    - step: "Run label audit on 200 positive samples per task; compute structural ceiling"
+    - step: "Run controlled truncation study: crop summarization documents to 128/256/384/512 tokens, report AUROC sensitivity"
+    - step: "Compute Cohen's d for score distributions per task"
+  success_criteria:
+    - "AUROC >= 0.65 on HaluEval-Summarization (primary)"
+    - "AUROC >= 0.65 on HaluEval-QA (primary)"
+    - "AUROC >= 0.60 on HaluEval-Dialogue (exploratory)"
+    - "DeLong test p < 0.05 vs. uniform baseline for primary tasks"
+    - "Structural ceiling analysis completed with typed label audit"
+
+validation:
+  internal_validity:
+    - "Pre-registered primary configuration (net-contradiction, sentence-level max, last-3-turns) avoids post hoc framing selection"
+    - "All 81 framing/granularity/window combinations are ablation; only pre-registered configuration is primary"
+    - "Controlled truncation experiment isolates context-visibility from inference quality"
+    - "Label audit quantifies hallucination type distribution for ceiling analysis"
+  external_validity:
+    - "HaluEval covers three distinct task types (dialogue, QA, summarization) — results characterize NLI detection across generation formats"
+    - "DeBERTa-v3-large-mnli is a standard publicly available NLI model — results are reproducible"
+    - "No dataset augmentation or custom preprocessing — results reflect out-of-the-box NLI performance on HaluEval as-released"
+
+discussion_synthesis:
+  key_insights:
+    - "Extrospective NLI (external grounding) and introspective NLI (self-consistency) are orthogonal signals — different deployment contexts favor different approaches"
+    - "HaluEval's 'unverifiable information' annotation may not fully align with NLI contradiction signal — structural ceiling analysis is the methodological bridge"
+    - "Net-contradiction framing is theoretically motivated: penalizes both explicit contradiction and non-entailment simultaneously"
+    - "Sentence-level max aggregation is motivated by FActScore's finding that 40% of atomic facts are unsupported — localized hallucination assumption"
+    - "Dialogue NLI is the hardest case: longer contexts, truncation artifacts, pragmatic structure — exploratory status is empirically appropriate"
+  breakthrough_moments:
+    - "Exchange 9: Dr. Nova reframes structural ceiling from limitation to novel contribution — AUROC_max = p + 0.5*(1-p)"
+    - "Exchange 13: Dr. Ally formalizes that SelfCheckGPT comparison must be restricted to theoretical reference (instruct model inaccessible)"
+    - "Exchange 15: Dr. Nova establishes orthogonality of extrospective (context-grounding) vs. introspective (self-consistency) NLI — clarifies paradigm claim"
+  resolved_tensions:
+    - "Tension: AUROC threshold too low vs. too ambitious — Resolved by two-tier threshold (primary >= 0.65, secondary >= 0.70 on 2/3)"
+    - "Tension: Framing ablation as tuning leakage vs. scientific contribution — Resolved by pre-registration of single primary configuration"
+    - "Tension: Truncation as confound vs. interesting finding — Resolved by making truncation sensitivity a mandatory causal experiment"
+    - "Tension: SelfCheckGPT comparison — Resolved by establishing orthogonality and restricting comparison to available baselines"

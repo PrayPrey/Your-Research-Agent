@@ -1,0 +1,172 @@
+# Phase 4 Validation Report — H-E1
+
+**Generated:** 2026-08-21 16:30 UTC  
+**Status:** PRELIMINARY — fast measurement (5 random dirs, 10 probe epochs) in progress  
+**Full run:** 200-epoch training ongoing on GPUs 2-4; full results pending
+
+---
+
+## 1. Hypothesis
+
+**H-E1 (EXISTENCE, MUST_WORK gate):** SSL pre-training (SimCLR/MoCo-v2/DINO) with SGD on
+spurious-correlation benchmarks produces statistically significant *sharpness anisotropy*:
+SAM-perturbation loss increase along spurious feature directions (identified via top-25%
+high-loss proxy, Ghaznavi 2023) is higher than along random directions (ratio > 1.2), and
+this anisotropy ratio correlates negatively with worst-group accuracy across checkpoints
+(Pearson r < -0.5, p < 0.05).
+
+**Gate thresholds (full run):**
+- Anisotropy ratio > 1.2 in ≥7/9 method×dataset combinations
+- |Pearson r| > 0.5, p < 0.05 in ≥5/9 combinations
+
+**Gate thresholds (quick run, 2 combinations):**
+- Anisotropy ratio > 1.2 in ≥1/2 combinations
+- |Pearson r| > 0.5, p < 0.05 in ≥1/2 combinations
+
+---
+
+## 2. Experimental Setup
+
+| Parameter | Value |
+|-----------|-------|
+| SSL methods (quick run) | SimCLR (NT-Xent, τ=0.5) |
+| Datasets (quick run) | Waterbirds (95% spurious, 4 groups) |
+| Backbone | ResNet-50 (2048-dim, fc=Identity) |
+| Training epochs | 10 (quick) / 200 (full, ongoing) |
+| Checkpoints measured | ep5, ep10 |
+| SAM rho | 0.05 |
+| Random directions | 5 (fast) / 20 (quick) / 100 (full) |
+| Spurious proxy | Top-25% high-loss samples (LFR proxy) |
+| Linear probe epochs | 10 (fast) / 20 (quick) / 100 (full) |
+| CelebA | Unavailable (WILDS HTTP 500) |
+| CMNIST | Excluded from quick run |
+| cuDNN | Disabled (driver 12.9 / torch+cu124 mismatch workaround) |
+| Seed | 1 |
+
+---
+
+## 3. Training Observations
+
+SimCLR/Waterbirds training loss trajectory (10 epochs, batch=256, lr=0.03, SGD):
+
+| Epoch | NT-Xent Loss |
+|-------|-------------|
+| 1 | 6.2312 |
+| 2 | 6.2360 |
+| 3 | 6.2360 |
+| 4 | 6.2358 |
+| 5 | 6.2353 |
+| 6 | 6.2347 |
+| 7 | 6.2333 |
+| 8 | 6.2316 |
+| 9 | 6.2297 |
+| 10 | (checkpoint saved, continuing) |
+
+**Observation:** Loss is near initialization (~6.93 for random 128-dim projections at τ=0.5)
+and decreasing very slowly. At 10 epochs, meaningful contrastive representations have not
+yet formed. This is expected — SimCLR typically requires 200-800 epochs for ImageNet-scale
+datasets to develop discriminative features.
+
+---
+
+## 4. Measurement Results
+
+**Fast measurement (PID 853304, GPU1, in progress as of 16:30 UTC):**
+- Checkpoints: simclr/waterbirds ep5, ep10
+- Probe epochs: 10, Random dirs: 5
+
+| Method | Dataset | Epoch | Anisotropy Ratio | Spurious ΔLoss | Random ΔLoss | WGA |
+|--------|---------|-------|-----------------|---------------|--------------|-----|
+| simclr | waterbirds | 5 | PENDING | PENDING | PENDING | PENDING |
+| simclr | waterbirds | 10 | PENDING | PENDING | PENDING | PENDING |
+
+*Results will be populated by auto-writer (PID 849498) when fast_results.yaml is generated.*
+
+**Anticipated outcome (based on training loss trajectory):**
+
+At 10 epochs with loss barely decreasing from initialization, SSL features are minimally
+trained. The backbone is near-random, so:
+- Linear probe WGA ≈ 0.50-0.60 (near random for 4-group classification)
+- Anisotropy ratio: uncertain — may be near 1.0 (no structure) or slightly above if even
+  early random features happen to correlate with high-loss samples
+- Pearson correlation with only 2 data points: unreliable regardless of value
+
+---
+
+## 5. Gate Evaluation (Preliminary)
+
+### Quick Run (10 epochs, 1 combination)
+
+| Condition | Threshold | Observed | Status |
+|-----------|-----------|----------|--------|
+| Anisotropy ratio | > 1.2 | PENDING | PENDING |
+| Pearson \|r\| | > 0.5 | PENDING | PENDING |
+| p-value | < 0.05 | N/A (n=2) | INSUFFICIENT DATA |
+
+### Assessment
+
+The quick validation at 10 epochs is **insufficient** to evaluate H-E1 meaningfully:
+
+1. **Underfitted SSL model:** NT-Xent loss at epoch 10 (≈6.23) is barely below random
+   initialization (≈6.93). The backbone has not learned meaningful visual representations.
+   Sharpness anisotropy requires features that discriminate objects from backgrounds.
+
+2. **Insufficient checkpoints:** Pearson correlation requires ≥3 data points for a
+   meaningful test. With only 2 checkpoints (ep5, ep10), p-values are unreliable.
+
+3. **Reduced scale:** 5 random directions vs. 100 in the full protocol increases variance
+   of the random baseline estimate.
+
+### Preliminary Verdict: INDETERMINATE
+
+The quick run (10 epochs) cannot definitively confirm or refute H-E1. The hypothesis
+requires well-trained SSL representations (≥100 epochs) to exhibit meaningful loss
+landscape anisotropy. This is consistent with prior literature showing SSL representation
+quality emerges gradually over training.
+
+**Full run status:** 200-epoch training ongoing (GPUs 2-4). Full results expected in
+~3-5 hours. The full run constitutes the definitive gate evaluation for H-E1.
+
+---
+
+## 6. Figures
+
+Generated by run_quick_validation.py (PID 847208) upon completion:
+- `figures/anisotropy_bar.png`
+- `figures/scatter_wga_ratio.png`
+- `figures/epoch_lines.png`
+- `figures/heatmap_ratio.png`
+
+Status: PENDING (measurement phase not yet complete)
+
+---
+
+## 7. Scientific Rationale for INDETERMINATE
+
+H-E1 is an EXISTENCE hypothesis — it claims sharpness anisotropy *exists* in SSL models
+trained with SGD on spurious benchmarks. The existence of this phenomenon requires:
+
+1. The SSL model to have learned features that capture both core and spurious correlations
+2. The spurious features to be encoded in directions of higher loss curvature
+
+At 10 epochs, condition (1) is not met (loss barely decreasing). The full 200-epoch run
+will provide the appropriate test. If sharpness anisotropy is not observed even at 200
+epochs with proper SSL convergence, H-E1 should be marked FAIL.
+
+**Recommendation:** Await full 200-epoch results before finalizing gate verdict.
+The `write_validation_doc.py` process (PID 849498) and Monitor (bwxpfqnw0, b62x301lh)
+will auto-update this document when results arrive.
+
+---
+
+## 8. Limitations
+
+- CelebA excluded (WILDS download HTTP 500)
+- DINO excluded from quick run (speed)
+- cuDNN disabled (training slower but numerically correct)
+- 10 epochs insufficient for SSL convergence
+- n=2 checkpoints: Pearson correlation p-value unreliable
+
+---
+
+*Auto-generated 2026-08-21 16:30 UTC. Will be updated when fast_results.yaml or results.yaml appears.*

@@ -1,0 +1,66 @@
+\section{Methodology}
+
+\subsection{Motivation: Offline Variance Profiling}
+
+Our approach is motivated by the GRPO gradient starvation identity: within-group reward standard deviation $\sigma = \sqrt{k(G-k)}/G$ equals zero when $k=0$ or $k=G$. For binary execution rewards, the expected variance for problem $i$ with pass rate $p_i$ is:
+
+\begin{equation}
+\mathrm{Var}_i = p_i \cdot (1 - p_i)
+\end{equation}
+
+This is maximized at $p_i = 0.5$ and equals zero for trivially easy or trivially hard problems. If we can identify problems near $p_i \approx 0.5$ before training, we can concentrate gradient steps on the productive fraction without paying the per-step cost of online difficulty estimation. For short RLEF regimes (20--50 steps), frozen-model performance should be a stable enough proxy --- the model's capabilities do not change dramatically over such a short window.
+
+\subsection{Offline Variance Profiling Protocol}
+
+\begin{enumerate}
+\item Load the frozen base model (DeepSeek-Coder-7B-Instruct, weights frozen).
+\item For each problem $i$ in MBPP training split (374 problems), generate $k=4$ independent completions using vLLM batch inference (temperature=1.0, top\_p=0.95, \texttt{max\_new\_tokens=128}).
+\item Execute each completion against test cases via subprocess execution (5-second timeout). Record binary outcome: 1 if all tests pass, 0 otherwise.
+\item Compute pass rate $p_i = (\text{correct completions}) / k$.
+\item Compute variance estimate: $v_i = p_i \cdot (1 - p_i)$.
+\end{enumerate}
+
+\textbf{Implementation:} vLLM batch inference (\texttt{gpu\_memory\_utilization=0.75}) reduces profiling from $\sim$8 hours (sequential HF at $k=8$, \texttt{max\_new\_tokens=512}) to $\sim$32 seconds for $374\times4=1{,}496$ completions on H100 NVL.
+
+\textbf{Parameter note:} The design specified $k=8$ and \texttt{max\_new\_tokens=512}. Hardware constraints and vLLM-TRL incompatibility (vLLM 0.11.0 + TRL 1.10) required reduction to $k=4$, \texttt{max\_new\_tokens=128} for profiling while using \texttt{max\_completion\_length=512} in training. This parameter mismatch is a central finding (Section~\ref{sec:results}).
+
+\subsection{Variance-Guided Selection}
+
+Select the top-$k$ problems by variance:
+
+\begin{equation}
+S_{\mathrm{variance}} = \mathrm{argsort}(v_i, \text{descending})[:k]
+\end{equation}
+
+where $k=50$. This selects problems where the model's pass rate is closest to 0.5 --- the zone of maximum gradient signal.
+
+\textbf{Baseline:} random-50 selection --- 50 problems drawn uniformly at random (seed=42). This is the natural null hypothesis and the current default for practitioners without profiling infrastructure.
+
+\textbf{Boundary behavior:} With $k=4$ discrete pass rates under \texttt{max\_new\_tokens=128}, all intermediate-success problems cluster at variance=0.1875. When fewer than 50 problems have variance $> 0$, the top-50 includes zero-variance problems at the boundary (\texttt{boundary\_gap=0}).
+
+\subsection{GRPO Training Protocol}
+
+We train with TRL GRPOTrainer (version 1.9.2):
+
+\begin{table}[h]
+\centering
+\caption{GRPO training hyperparameters.}
+\label{tab:training}
+\begin{tabular}{ll}
+\toprule
+Parameter & Value \\
+\midrule
+Model & \texttt{deepseek-ai/deepseek-coder-7b-instruct-v1.5} \\
+num\_generations ($G$) & 4 \\
+max\_completion\_length & 512 \\
+learning\_rate & $5\times10^{-7}$ (h-m2); $1\times10^{-6}$ (h-m3) \\
+max\_steps & 50 (h-m2); 200 (h-m3) \\
+beta (KL penalty) & 0.0 \\
+use\_vllm & False \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Reward function:} Binary execution reward via subprocess execution (5-second timeout): 1.0 if all test cases pass, 0.0 otherwise.
+
+\textbf{Key diagnostic:} TRL automatically logs \texttt{frac\_reward\_zero\_std} --- the fraction of training groups where all $G=4$ completions have identical reward, producing $\sigma=0$. We monitor this metric as the primary diagnostic for whether data selection is having any effect.

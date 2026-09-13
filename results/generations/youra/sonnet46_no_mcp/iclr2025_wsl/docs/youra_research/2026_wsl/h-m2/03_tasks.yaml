@@ -1,0 +1,535 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m2
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  generated_at: "2026-05-05T14:00:00Z"
+  source_documents:
+    - docs/youra_research/20260505_wsl/h-m2/03_prd.md
+    - docs/youra_research/20260505_wsl/h-m2/03_architecture.md
+    - docs/youra_research/20260505_wsl/h-m2/03_logic.md
+    - docs/youra_research/20260505_wsl/h-m2/03_config.md
+
+budget_summary:
+  total: 24
+  data_preparation: 0
+  environment_setup: 1
+  epic_tasks: 9
+  subtasks: 13
+  failsafe: 1
+  within_budget: true
+
+tasks:
+  # ── Environment Setup ────────────────────────────────────────────────────────
+  - id: task-001
+    epic: "Environment Setup"
+    title: "Setup development environment"
+    description: |
+      Install required packages:
+        torch>=1.12.0
+        numpy>=1.21.0
+        scipy>=1.7.0
+        matplotlib>=3.5.0
+        pyyaml>=6.0
+        scikit-learn>=1.0.0
+
+      External repositories (reference only):
+        - AvivNavon/equivariant-weight-space-networks (NFN encoder reference)
+        - ModelZoos/ModelZooDataset (dataset loading reference)
+
+      Dataset is already cached at:
+        docs/youra_research/20260505_wsl/.data_cache/datasets/mnist_hyp_rand/dataset_mnist_hyp_rand.pt
+      No download required (REUSE from h-m1).
+    feature_tag: setup
+    priority: 94
+    source_document: "03_prd.md#7.1-Python-Packages"
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_prd.md"
+        section: "7. Dependencies"
+
+  # ── Epic Tasks ───────────────────────────────────────────────────────────────
+  - id: task-002
+    epic: "A-1"
+    title: "Project Setup"
+    description: |
+      Create h-m2/code/ file structure. Implement config.py with:
+        - MNIST_CNN_WEIGHT_SHAPES constant (8-tensor list)
+        - ExperimentConfig dataclass with NFN fields (channel_dim_candidates,
+          n_layers_candidates, target_params_min/max, sensitivity_gate_absolute=0.1,
+          sensitivity_gate_relative=0.3245, flat_mlp_sensitivity_score=0.6490)
+        - VisualizationConfig dataclass
+        - set_seed(seed) utility
+      Files to create: config.py, models.py, data_loader.py, train.py, probe.py,
+        evaluate.py, visualize.py, run_experiment.py
+    feature_tag: setup
+    priority: 93
+    source_document: "03_architecture.md#Epic-A-1"
+    complexity: 5
+    test_requirements: "Verify ExperimentConfig instantiates with defaults; set_seed reproducibility check."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "Module Definitions - ExperimentConfig"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_config.md"
+        section: "A-1: Project Setup"
+
+  - id: task-003
+    epic: "A-2"
+    title: "NFNWeightDataset"
+    description: |
+      Implement data_loader.py:
+        - NFNWeightDataset.__getitem__ returns (weight_list, flat_w_normalized, acc)
+          where weight_list is list of 8 per-layer tensors for NFN forward
+        - _extract_weight_list: discovers actual keys at runtime from first checkpoint,
+          returns ordered list matching MNIST_CNN_WEIGHT_SHAPES layer order
+        - _flatten: same as h-m1 for permutation generation compatibility
+        - collate_nfn: custom collate stacking weight_list per-layer across batch
+        - load_and_split_dataset_nfn: reuses _load_raw_splits from h-m1, computes
+          z-score stats from train set, returns 3 NFNWeightDataset splits
+        - build_dataloaders_nfn: uses collate_nfn, same batch_size as h-m1
+    feature_tag: data-pipeline
+    priority: 90
+    source_document: "03_architecture.md#Epic-A-2"
+    complexity: 10
+    test_requirements: "Verify dataset loads 2249 checkpoints; weight_list has 8 tensors with correct shapes; collate_nfn produces batched list."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "NFNWeightDataset"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "External Dependencies"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_config.md"
+        section: "A-2: NFNWeightDataset"
+
+  - id: task-004
+    epic: "A-3"
+    title: "NPLinear Layer"
+    description: |
+      Implement NPLinear in models.py — permutation-equivariant linear layer
+      (Navon et al. 2023). Maps list of per-layer tensors [B, n_elements_i, in_ch]
+      to list [B, n_elements_i, out_ch]. Uses two ModuleLists:
+        - diag: nn.Linear(in_ch, out_ch, bias=False) per layer shape
+        - bias_terms: nn.Linear(in_ch, out_ch) per layer shape
+      forward(Ws): for each Ws[i] of shape [B, n_i, in_ch]:
+        pooled = Ws[i].mean(dim=1, keepdim=True)  # [B, 1, in_ch]
+        out[i] = diag[i](Ws[i]) + bias_terms[i](pooled).expand_as(diag[i](Ws[i]))
+      CRITICAL: preserve equivariant structure — no arbitrary nn.Linear inside encoder.
+    feature_tag: model
+    priority: 88
+    source_document: "03_architecture.md#Epic-A-3"
+    complexity: 14
+    test_requirements: "Equivariance unit test: permuting neurons in input must produce same output up to permutation. Test all 8 MNIST-CNN weight shapes."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "NPLinear + NFNEncoder + NFNWithHead"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-3: NPLinear Layer"
+
+  - id: task-005
+    epic: "A-4"
+    title: "NFNEncoder + NFNWithHead + grid_search_nfn"
+    description: |
+      Implement in models.py:
+        - NFNEncoder(weight_shapes, channel_dim, embed_dim=128, n_layers):
+            _prepare_inputs: reshape each w to [B, n_elements_i, 1]
+            in_proj: NPLinear(1, channel_dim, weight_shapes)
+            n_layers-1 NPLinear(channel_dim, channel_dim, weight_shapes) layers
+            Global mean pool: stack per-layer means → mean across layers → [B, channel_dim]
+            readout: Linear(channel_dim, embed_dim) → [B, embed_dim]
+        - NFNWithHead(encoder, embed_dim=128):
+            forward returns (embedding [B,128], prediction [B,1]) two-tuple
+        - count_params(model): sum(p.numel() for p in model.parameters())
+        - grid_search_nfn: iterate channel_dim∈{24,32,40,48,56} × n_layers∈{2,3,4},
+          return first (encoder, channel_dim, n_layers, param_count) with
+          param_count ∈ [475K, 525K]. Raise ValueError if none found.
+    feature_tag: model
+    priority: 86
+    source_document: "03_architecture.md#Epic-A-4"
+    complexity: 13
+    test_requirements: "Verify grid_search_nfn finds valid config; NFNEncoder forward produces [B,128]; NFNWithHead returns two-tuple."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "NPLinear + NFNEncoder + NFNWithHead"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-4: NFNEncoder + NFNWithHead"
+
+  - id: task-006
+    epic: "A-5"
+    title: "Train Loop Adaptation"
+    description: |
+      Implement train.py adapted from h-m1 for NFN collated batches:
+        - TrainHistory dataclass: train_loss, val_loss, train_spearman, val_spearman lists
+        - train_encoder(model, train_loader, val_loader, cfg, device):
+            Unpack batch as (weight_list, flat_w, acc) — uses weight_list for forward
+            Adam(lr=cfg.lr, weight_decay=cfg.weight_decay, betas=cfg.betas)
+            CosineAnnealingLR(T_max=cfg.t_max, eta_min=cfg.eta_min)
+            MSELoss on (pred.squeeze(), acc)
+            Log train/val loss + Spearman rho every epoch
+            Save best-val-loss checkpoint to cfg.results_dir/"best_nfn_encoder.pt"
+    feature_tag: training
+    priority: 84
+    source_document: "03_architecture.md#Epic-A-5"
+    complexity: 9
+    test_requirements: "Verify training loop runs 2 epochs without error; loss decreases; checkpoint saved."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "train_encoder"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_config.md"
+        section: "A-5: Train Loop Adaptation"
+
+  - id: task-007
+    epic: "A-6"
+    title: "NFN Probing"
+    description: |
+      Implement probe.py for permutation sensitivity probing with NFN encoder:
+        - _embed_nfn(encoder, state_dict, weight_key_order, device):
+            Discover actual keys at runtime from state_dict
+            Extract ordered weight list, add batch dim [1, n_i, 1] per tensor
+            encoder.forward in eval+no_grad → squeeze → [embed_dim] CPU tensor
+            No mean/std normalization (NFN operates on raw tensors)
+        - compute_permutation_sensitivity_nfn(encoder, checkpoints, weight_key_order, cfg, device):
+            Reuse stratified_pair_sample from h-e1/code/weight_analysis.py (sys.path insert)
+            Reuse generate_permuted_weights from h-m1/code/probe.py
+            For each of 500 pairs: compute L2(embed(w), embed(perm(w)))
+            sensitivity_score = mean_equiv_L2 / mean_random_L2
+            Return dict: {sensitivity_score, mean_equiv_L2, mean_random_L2,
+                          n_pairs, equiv_dists, random_dists, decile_scores}
+    feature_tag: evaluation
+    priority: 82
+    source_document: "03_architecture.md#Epic-A-6"
+    complexity: 12
+    test_requirements: "Verify sensitivity_score > 0; equiv_dists < random_dists on average for well-trained NFN."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "compute_permutation_sensitivity_nfn"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-6: NFN Probing"
+
+  - id: task-008
+    epic: "A-7"
+    title: "Evaluation + Gate Check"
+    description: |
+      Implement evaluate.py:
+        - compute_spearman(model, loader, device):
+            Unpack (weight_list, flat_w, acc) from loader
+            model.forward(weight_list) → (embedding, pred)
+            spearmanr(pred.cpu().numpy(), acc.cpu().numpy()).statistic
+        - run_gate_check_nfn(sensitivity_score, spearman_rho, param_count, n_pairs, cfg):
+            gate_absolute = sensitivity_score < cfg.sensitivity_gate_absolute  # 0.1
+            gate_relative = sensitivity_score < cfg.sensitivity_gate_relative  # 0.3245
+            gate_pass = gate_absolute and gate_relative
+            Return full metrics dict with all gate details
+        - save_results(results, cfg): save to cfg.results_dir/"h-m2_results.json"
+    feature_tag: evaluation
+    priority: 80
+    source_document: "03_architecture.md#Epic-A-7"
+    complexity: 8
+    test_requirements: "Verify gate_pass logic with mock sensitivity scores above/below thresholds."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "evaluate"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "External Dependencies"
+
+  - id: task-009
+    epic: "A-8"
+    title: "6 Required Figures"
+    description: |
+      Implement visualize.py with all 6 figures (output to cfg.figures_dir):
+        1. plot_gate_metrics_comparison: bar chart NFN score vs 0.1 vs 0.3245 vs h-m1 0.6490
+        2. plot_l2_distribution_comparison: side-by-side histograms equiv-pair L2 vs random-pair L2
+        3. plot_embedding_pca: PCA 2D scatter colored by accuracy; equiv pairs connected
+        4. plot_training_curves: loss + Spearman rho over 150 epochs (train/val)
+        5. plot_sensitivity_by_decile: NFN per-decile bar chart (compare to h-m1)
+        6. plot_nfn_vs_mlp_decile_comparison: grouped bar NFN vs flat MLP per decile
+    feature_tag: visualization
+    priority: 78
+    source_document: "03_architecture.md#Epic-A-8"
+    complexity: 10
+    test_requirements: "Verify each figure saves to figures_dir without error."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "visualize"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_prd.md"
+        section: "FR-7: Visualizations"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_config.md"
+        section: "A-8: 6 Required Figures"
+
+  - id: task-010
+    epic: "A-9"
+    title: "run_experiment.py"
+    description: |
+      Implement run_experiment.py main entry point:
+        1. set_seed(cfg.seed)
+        2. load_and_split_dataset_nfn(cfg) → train_ds, val_ds, test_ds, mean, std, all_checkpoints
+        3. grid_search_nfn(cfg.weight_shapes, cfg.channel_dim_candidates,
+                           cfg.n_layers_candidates, cfg.embed_dim,
+                           cfg.target_params_min, cfg.target_params_max)
+           → nfn_encoder, channel_dim, n_layers, param_count
+        4. Assert param_count in [475K, 525K] before training
+        5. NFNWithHead(nfn_encoder) → nfn_model; train_encoder(...) → history
+        6. compute_spearman(nfn_model, test_loader, device)
+        7. compute_permutation_sensitivity_nfn(nfn_encoder.eval(), all_checkpoints, ...)
+        8. run_gate_check_nfn(...) → gate_results
+        9. save_results(gate_results, cfg)
+        10. Generate all 6 figures
+        Log: "[H-M2] NFN trained. Spearman ρ = {rho:.4f}. Running permutation sensitivity probing..."
+    feature_tag: integration
+    priority: 76
+    source_document: "03_architecture.md#Epic-A-9"
+    complexity: 9
+    test_requirements: "Integration test: run with 2 epochs, 10 pairs — verify results JSON and gate_results dict produced."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "run_experiment"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_config.md"
+        section: "A-9: run_experiment.py"
+
+  # ── Subtasks ─────────────────────────────────────────────────────────────────
+  # A-3 NPLinear subtasks (4)
+  - id: task-011
+    epic: "A-3"
+    title: "L-3-1: NPLinear shape flattening"
+    description: |
+      Implement _prepare_ws helper: reshape each Ws[i] (arbitrary shape with batch dim)
+      to [B, n_elements_i, in_ch] for conv weights (e.g. [B,32,1,3,3] → [B,32,9])
+      and bias weights (e.g. [B,32] → [B,32,1]). This normalization is required
+      before applying diag and bias_terms Linear layers.
+    feature_tag: model
+    priority: 49
+    source_document: "03_logic.md#A-3-NPLinear-Layer"
+    complexity: null
+    test_requirements: "Verify all 8 MNIST-CNN weight shapes produce correct [B, n_i, in_ch] output."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-3: NPLinear Layer - Subtasks"
+
+  - id: task-012
+    epic: "A-3"
+    title: "L-3-2: NPLinear diag path"
+    description: |
+      Implement diag transformation: self.diag[i](Ws_flat[i]) → [B, n_i, out_ch].
+      diag ModuleList uses nn.Linear(in_ch, out_ch, bias=False) to avoid double-counting
+      bias with the bias_terms path. One Linear per weight shape in weight_shapes.
+    feature_tag: model
+    priority: 48
+    source_document: "03_logic.md#A-3-NPLinear-Layer"
+    complexity: null
+    test_requirements: "Verify diag output shape [B, n_i, out_ch] for all 8 shapes."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-3: NPLinear Layer - Subtasks"
+
+  - id: task-013
+    epic: "A-3"
+    title: "L-3-3: NPLinear bias_terms path"
+    description: |
+      Implement bias_terms transformation: pool Ws_flat[i] over neuron dim →
+      [B, 1, in_ch]; apply self.bias_terms[i] → [B, 1, out_ch]; expand to [B, n_i, out_ch].
+      Final: out[i] = diag_out[i] + bias_terms_out[i]. This mean-pool+broadcast
+      pattern provides the permutation-invariant correction term.
+    feature_tag: model
+    priority: 47
+    source_document: "03_logic.md#A-3-NPLinear-Layer"
+    complexity: null
+    test_requirements: "Verify combined output shape [B, n_i, out_ch]; check equivariance: permuting n_i dim in input permutes same dim in output."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-3: NPLinear Layer - Subtasks"
+
+  - id: task-014
+    epic: "A-3"
+    title: "L-3-4: NPLinear equivariance unit test"
+    description: |
+      Write equivariance verification: create random Ws list with MNIST_CNN_WEIGHT_SHAPES,
+      apply random neuron permutation to Ws[0] (conv1), run NPLinear forward on both,
+      verify output[0] is permuted version of original output[0] (up to float32 tolerance).
+      Run for all 8 weight shapes.
+    feature_tag: model
+    priority: 46
+    source_document: "03_logic.md#A-3-NPLinear-Layer"
+    complexity: null
+    test_requirements: "Test passes for all 8 MNIST-CNN weight shapes with allclose tolerance=1e-5."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-3: NPLinear Layer - Subtasks"
+
+  # A-4 NFNEncoder subtasks (2)
+  - id: task-015
+    epic: "A-4"
+    title: "L-4-1: NFNEncoder _prepare_inputs + forward pipeline"
+    description: |
+      Implement NFNEncoder._prepare_inputs(weights): for each weight tensor w,
+      reshape to [B, n_elements_i, 1] (adding channel dim for NPLinear in_ch=1).
+      Then forward pipeline: in_proj → ReLU → n_layers-1 × (NPLinear → ReLU) →
+      global mean pool (stack per-layer [B, n_i, channel_dim].mean(1) → stack → mean(1)
+      → [B, channel_dim]) → readout Linear → [B, embed_dim].
+    feature_tag: model
+    priority: 45
+    source_document: "03_logic.md#A-4-NFNEncoder"
+    complexity: null
+    test_requirements: "Verify output shape [B, 128] for batch of 4 with all 8 weight shapes."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-4: NFNEncoder + NFNWithHead - Subtasks"
+
+  - id: task-016
+    epic: "A-4"
+    title: "L-4-2: grid_search_nfn parameter counting"
+    description: |
+      Implement grid_search_nfn: iterate channel_dim ∈ {24,32,40,48,56} (outer),
+      n_layers ∈ {2,3,4} (inner). For each: instantiate NFNEncoder, call count_params.
+      Return first config with param_count ∈ [475_000, 525_000].
+      Print param counts for all searched configs.
+      Raise ValueError with param table if no config found in range.
+    feature_tag: model
+    priority: 44
+    source_document: "03_logic.md#A-4-NFNEncoder"
+    complexity: null
+    test_requirements: "Verify grid_search_nfn returns valid config with param_count in [475K, 525K] for MNIST_CNN_WEIGHT_SHAPES."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-4: NFNEncoder + NFNWithHead - Subtasks"
+
+  # A-6 NFN Probing subtasks (2)
+  - id: task-017
+    epic: "A-6"
+    title: "L-6-1: _embed_nfn implementation"
+    description: |
+      Implement _embed_nfn(encoder, state_dict, weight_key_order, device):
+        1. Discover actual state_dict keys matching weight_key_order at runtime
+           (keys may be like "module_list.0.weight" — verify from first checkpoint)
+        2. Extract tensors in order, move to device
+        3. Add batch dim: each tensor t → t.unsqueeze(0) → [1, ...]
+        4. Reshape to [1, n_elements_i, 1] for NPLinear in_ch=1 input
+        5. encoder.eval(); torch.no_grad(); encoder.forward(weight_list)
+        6. Squeeze batch dim → [embed_dim] on CPU
+        No mean/std normalization (NFN operates on raw weight tensors).
+    feature_tag: evaluation
+    priority: 43
+    source_document: "03_logic.md#A-6-NFN-Probing"
+    complexity: null
+    test_requirements: "Verify _embed_nfn returns [128] tensor; same state_dict always produces same embedding."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-6: NFN Probing - Subtasks"
+
+  - id: task-018
+    epic: "A-6"
+    title: "L-6-2: compute_permutation_sensitivity_nfn decile breakdown"
+    description: |
+      Implement decile-level sensitivity breakdown in compute_permutation_sensitivity_nfn:
+        - After computing 500 pair distances, group by accuracy decile (50 per decile)
+        - decile_scores[d] = mean(equiv_dists[d*50:(d+1)*50]) / mean(random_dists[d*50:(d+1)*50])
+        - Include decile_scores (list of 10 floats) in return dict
+        - Reuse get_mnist_cnn_layer_order from h-m1/code/probe.py for weight_key_order
+        - Reuse stratified_pair_sample from h-e1/code/weight_analysis.py (sys.path insert)
+    feature_tag: evaluation
+    priority: 42
+    source_document: "03_logic.md#A-6-NFN-Probing"
+    complexity: null
+    test_requirements: "Verify decile_scores has 10 entries; all positive; sum consistent with overall sensitivity_score."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_logic.md"
+        section: "A-6: NFN Probing - Subtasks"
+
+  # Config subtasks (4)
+  - id: task-019
+    epic: "A-2"
+    title: "C-2-1: collate_nfn + load_and_split_dataset_nfn"
+    description: |
+      Implement collate_nfn(batch): batch is list of (weight_list, flat_w, acc) tuples.
+      Stack per layer: batched_weights[i] = torch.stack([item[0][i] for item in batch]).
+      Returns (batched_weights: List[Tensor(B,...)], flat_w_batch: Tensor(B,D), acc_batch: Tensor(B,)).
+      Implement load_and_split_dataset_nfn(cfg): load dataset, compute z-score from train,
+      return (train_ds, val_ds, test_ds, mean, std, all_checkpoints).
+    feature_tag: data-pipeline
+    priority: 41
+    source_document: "03_config.md#A-2-NFNWeightDataset"
+    complexity: null
+    test_requirements: "Verify collate_nfn output shapes; DataLoader with collate_nfn produces correct batch structure."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_config.md"
+        section: "A-2: NFNWeightDataset"
+
+  - id: task-020
+    epic: "A-5"
+    title: "C-5-1: TrainHistory dataclass + checkpoint saving"
+    description: |
+      Implement TrainHistory dataclass in train.py (not config.py):
+        train_loss, val_loss, train_spearman, val_spearman: List[float] fields.
+      Add checkpoint saving logic: save best model when val_loss improves.
+      Save: {"encoder_state": nfn_model.encoder.state_dict(),
+              "head_state": nfn_model.head.state_dict(),
+              "epoch": epoch, "val_loss": best_val_loss}
+      to cfg.results_dir / "best_nfn_encoder.pt".
+    feature_tag: training
+    priority: 40
+    source_document: "03_config.md#A-5-Train-Loop"
+    complexity: null
+    test_requirements: "Verify checkpoint file created after training; loadable for probe step."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_config.md"
+        section: "A-5: Train Loop Adaptation"
+
+  - id: task-021
+    epic: "A-8"
+    title: "C-8-1: VisualizationConfig + figures_dir setup"
+    description: |
+      Ensure VisualizationConfig in config.py has: figure_size=(10,6), dpi=150,
+      figures_dir=Path("./figures"). Create figures_dir in run_experiment.py before
+      any plot calls. Each plot function receives figures_dir and saves with
+      plt.savefig(figures_dir / "filename.png", dpi=dpi, bbox_inches="tight").
+    feature_tag: visualization
+    priority: 39
+    source_document: "03_config.md#A-8-Figures"
+    complexity: null
+    test_requirements: "Verify figures_dir created; each plot saves PNG without error."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_config.md"
+        section: "A-8: 6 Required Figures"
+
+  - id: task-022
+    epic: "A-9"
+    title: "C-9-1: results_dir setup + JSON results schema"
+    description: |
+      Ensure cfg.results_dir (Path("./results")) created before saving.
+      Define results JSON schema saved by save_results:
+        {hypothesis_id, param_count, channel_dim, n_layers, spearman_rho,
+         sensitivity_score, mean_equiv_L2, mean_random_L2, n_pairs,
+         gate_absolute_pass, gate_relative_pass, gate_pass, decile_scores,
+         flat_mlp_sensitivity_score, timestamp}
+      Save to cfg.results_dir / "h-m2_results.json" with indent=2.
+    feature_tag: integration
+    priority: 38
+    source_document: "03_config.md#A-9-run_experiment"
+    complexity: null
+    test_requirements: "Verify results JSON loads correctly; all required keys present."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_config.md"
+        section: "A-9: run_experiment.py"
+
+  # ── Failsafe ──────────────────────────────────────────────────────────────────
+  - id: task-023
+    epic: "Failsafe"
+    title: "Pipeline Continuation Checkpoint"
+    description: |
+      Final checkpoint task for Phase 4. Before reporting completion:
+        1. Verify run_experiment.py executes end-to-end without errors (short test run)
+        2. Verify gate_results dict contains all required keys
+        3. Verify h-m2_results.json saved to results/
+        4. Verify all 6 figures saved to figures/
+        5. Update 04_checkpoint.yaml with task completion status
+      Gate check: sensitivity_score < 0.1 AND < 0.3245 → H-M2 PASS (SHOULD_WORK)
+    feature_tag: validation
+    priority: 1
+    source_document: "03_prd.md#6-Success-Criteria"
+    complexity: null
+    test_requirements: "Full integration run with reduced epochs (2) and pairs (10) passes without error."
+    reference_files:
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_prd.md"
+        section: "6. Success Criteria"
+      - path: "docs/youra_research/20260505_wsl/h-m2/03_architecture.md"
+        section: "Epic Tasks"

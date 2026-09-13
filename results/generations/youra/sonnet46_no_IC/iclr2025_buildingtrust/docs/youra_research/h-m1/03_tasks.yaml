@@ -1,0 +1,268 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-m1
+  hypothesis_type: MECHANISM
+  tier: FULL
+  total_budget: 30
+  date: "2026-08-04"
+  base_hypothesis: h-e1
+  description: "RLHF Co-Optimization of Safety and Ethics — Within-Family Natural Experiment"
+
+budget_summary:
+  data_prep: 0
+  environment_setup: 1
+  epic_tasks: 12
+  subtasks: 8
+  total: 21
+
+tasks:
+  # ── Environment Setup ─────────────────────────────────────────────────────────
+  - id: S-0
+    type: setup
+    title: "Environment setup and dependency verification"
+    description: >
+      Verify h-e1 environment is available. Confirm scipy>=1.12 for binomtest.
+      Create h-m1/code/ and h-m1/figures/ directories.
+    priority: 94
+    complexity: null
+    reference_files:
+      - file: "h-m1/03_prd.md"
+        section: "9. Dependencies"
+      - file: "h-m1/03_config.md"
+        section: "Requirements Delta from h-e1"
+    commands:
+      - "mkdir -p docs/youra_research/h-m1/code docs/youra_research/h-m1/figures"
+      - "python -c \"import scipy; print(scipy.__version__)\""
+
+  # ── Epic Tasks (from 03_architecture.md) ──────────────────────────────────────
+  - id: A-1
+    type: implementation
+    title: "Config & paths (config.py)"
+    description: >
+      Create h-m1/code/config.py with all path constants (HE1_CODE_DIR, HE1_JSON,
+      OUTPUT_DIR, FIGURES_DIR, RESULTS_JSON, LOG_PATH), analysis constants
+      (DIMENSIONS, SAFETY_IDX=1, ETHICS_IDX=5, RHO_THRESHOLD=0.5,
+      SECONDARY_GATE_MIN=2, N_PAIRS=3, BONFERRONI_ALPHA=0.0033), and LLaMA-2
+      name patterns (verified from h-e1 MODEL_ANNOTATIONS).
+    priority: 93
+    complexity: 5
+    reference_files:
+      - file: "h-m1/03_architecture.md"
+        section: "Config (h-m1/code/config.py)"
+      - file: "h-m1/03_config.md"
+        section: "A-11: Main Orchestration"
+
+  - id: A-2
+    type: implementation
+    title: "H-E1 data loading (load_he1_data)"
+    description: >
+      Implement load_he1_data(he1_code_dir, he1_results_dir, he1_json) in analysis.py.
+      Use sys.path.insert to import h-e1 data_loader. Load scores_df via
+      load_trustllm_scores(results_dir). Load rho_partial via json.load + np.array(data["rho_partial"]).
+      Note: JSON key is "rho_partial" not "rho_partial_matrix". Raw scores NOT in JSON.
+      Returns (scores_df [16,6], annotated_df [16,8], rho_partial [6,6]).
+    priority: 92
+    complexity: 8
+    reference_files:
+      - file: "h-m1/03_architecture.md"
+        section: "Analysis (h-m1/code/analysis.py)"
+      - file: "h-m1/03_logic.md"
+        section: "External Dependencies API"
+
+  - id: A-3
+    type: implementation
+    title: "LLaMA-2 pair extraction (extract_llama2_pairs)"
+    description: >
+      Implement extract_llama2_pairs(scores_df) in analysis.py.
+      Filter to 3 base/chat pairs using LLAMA2_PAIRS constant.
+      Validate all 6 LLaMA-2 models found (raise ValueError if missing).
+      Return list of 3 dicts with scale, base_scores [6], chat_scores [6].
+    priority: 91
+    complexity: 7
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "Subtask L-4-1: compute_deltas()"
+      - file: "h-m1/03_architecture.md"
+        section: "Epic Tasks"
+
+  - id: A-4
+    type: implementation
+    title: "Delta computation & sign test"
+    description: >
+      Implement compute_deltas() and run_sign_test() in analysis.py.
+      compute_deltas: chat_scores - base_scores for all 6 dims, flag both_positive
+      for safety(idx=1) and ethics(idx=5).
+      run_sign_test: scipy.stats.binomtest(n_both, n=3, p=0.5, alternative='greater').
+      Note: use binomtest not binom_test (deprecated in scipy>=1.12).
+    priority: 90
+    complexity: 9
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "A-4: Delta Computation & Sign Test"
+    subtasks:
+      - id: L-4-1
+        title: "compute_deltas() with exact array indexing"
+        description: "chat_scores[SAFETY_IDX] - base_scores[SAFETY_IDX], both_positive bool"
+      - id: L-4-2
+        title: "run_sign_test() using scipy.stats.binomtest"
+        description: "binomtest(n_both, n=3, p=0.5, alternative='greater') — NOT deprecated binom_test"
+
+  - id: A-5
+    type: implementation
+    title: "Primary gate verification (verify_primary_gate)"
+    description: >
+      Implement verify_primary_gate(rho_partial) in analysis.py.
+      Read rho_partial[SAFETY_IDX][ETHICS_IDX] = rho_partial[1][5].
+      Compare vs RHO_THRESHOLD=0.5. Expected value ~0.841 (pre-confirmed by H-E1).
+      Returns {"rho_safety_ethics": float, "primary_gate_pass": bool}.
+    priority: 89
+    complexity: 5
+    reference_files:
+      - file: "h-m1/03_architecture.md"
+        section: "Analysis (h-m1/code/analysis.py)"
+      - file: "h-m1/03_logic.md"
+        section: "API Signatures"
+
+  - id: A-6
+    type: implementation
+    title: "Figure 1 — Gate metrics bar chart"
+    description: >
+      Implement plot_gate_metrics(rho_safety_ethics, n_both_positive, n_pairs, out_path)
+      in visualization.py. Dual-panel or single bar chart comparing rho vs threshold 0.5
+      and n_pairs_both_positive vs gate (2/3). Save to h-m1/figures/fig1_gate_metrics.png at 300 DPI.
+    priority: 88
+    complexity: 8
+    reference_files:
+      - file: "h-m1/03_prd.md"
+        section: "FR-6: Visualization"
+      - file: "h-m1/03_architecture.md"
+        section: "Visualization (h-m1/code/visualization.py)"
+
+  - id: A-7
+    type: implementation
+    title: "Figure 2 — Within-family delta grouped bar"
+    description: >
+      Implement plot_within_family_deltas(deltas, sign_test, out_path) in visualization.py.
+      Grouped bar: Δ_safety (blue) and Δ_ethics (orange) per LLaMA-2 scale.
+      Color bars by sign (positive vs negative). Annotate PASS/FAIL sign test top-right.
+      Save to h-m1/figures/fig2_within_family_deltas.png at 300 DPI.
+    priority: 87
+    complexity: 9
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "A-7: Within-Family Delta Figure"
+    subtasks:
+      - id: L-7-1
+        title: "plot_within_family_deltas() grouped bar implementation"
+        description: "np.arange + width=0.35, color by sign, tight_layout"
+      - id: L-7-2
+        title: "_annotate_sign_test() PASS/FAIL annotation"
+        description: "ax.text top-right, dark green/red border bbox, ax.transAxes coords"
+
+  - id: A-8
+    type: implementation
+    title: "Figure 3 — Safety-ethics scatter with arrows"
+    description: >
+      Implement plot_safety_ethics_scatter(annotated_df, llama2_pairs, out_path) and
+      _annotate_arrows() in visualization.py. 16-model scatter: x=safety, y=ethics,
+      colored by is_RLHF (blue=base, red=chat). Arrows from base to chat for LLaMA-2 pairs
+      using ax.annotate arrowstyle="-|>", amber color, mutation_scale=12.
+      Save to h-m1/figures/fig3_safety_ethics_scatter.png at 300 DPI.
+    priority: 86
+    complexity: 10
+    reference_files:
+      - file: "h-m1/03_logic.md"
+        section: "A-8: Safety-Ethics Scatter"
+    subtasks:
+      - id: L-8-1
+        title: "plot_safety_ethics_scatter() 16-model scatter"
+        description: "Split by is_RLHF, call _annotate_arrows before savefig"
+      - id: L-8-2
+        title: "_annotate_arrows() arrow geometry"
+        description: "ax.annotate arrowstyle='-|>', amber #FF6F00, midpoint scale label"
+
+  - id: A-9
+    type: implementation
+    title: "Figure 4 — 2D delta space scatter"
+    description: >
+      Implement plot_delta_2d(deltas, n_both_positive, secondary_gate_pass, out_path)
+      in visualization.py. Scatter (Δ_safety, Δ_ethics) for 3 LLaMA-2 pairs.
+      Quadrant lines at x=0, y=0. Shade positive quadrant light green.
+      Label points by scale (7B/13B/70B). Annotate gate result.
+      Save to h-m1/figures/fig4_delta_2d.png at 300 DPI.
+    priority: 85
+    complexity: 8
+    reference_files:
+      - file: "h-m1/03_architecture.md"
+        section: "Visualization (h-m1/code/visualization.py)"
+
+  - id: A-10
+    type: implementation
+    title: "Figure 5 — ρ_partial heatmap highlighted"
+    description: >
+      Implement plot_rho_heatmap_highlighted(rho_partial, dimensions, safety_idx, ethics_idx, out_path)
+      in visualization.py. 6×6 heatmap of rho_partial with safety-ethics cell (1,5) and (5,1)
+      highlighted with a colored rectangle patch. Reuse h-e1 RdBu_r diverging colormap.
+      Save to h-m1/figures/fig5_rho_heatmap.png at 300 DPI.
+    priority: 84
+    complexity: 7
+    reference_files:
+      - file: "h-m1/03_prd.md"
+        section: "FR-6: Visualization"
+
+  - id: A-11
+    type: implementation
+    title: "Main orchestration & results serialization"
+    description: >
+      Implement run_experiment(), serialize_results(), check_gate() in main.py.
+      Wire: load_he1_data → extract_llama2_pairs → compute_deltas → run_sign_test
+      → verify_primary_gate → all 5 visualization functions → serialize_results → log.
+      Write experiment_results_phase3.json with full results dict.
+      Write experiment.log. Print gate result to console.
+    priority: 83
+    complexity: 9
+    reference_files:
+      - file: "h-m1/03_architecture.md"
+        section: "Main (h-m1/code/main.py)"
+      - file: "h-m1/03_config.md"
+        section: "A-11: Main Orchestration"
+    subtasks:
+      - id: C-11-1
+        title: "Path configuration constants in config.py"
+        description: "HE1_CODE_DIR, HE1_JSON, OUTPUT_DIR, FIGURES_DIR, RESULTS_JSON, LOG_PATH"
+      - id: C-11-2
+        title: "Experiment constants in config.py"
+        description: "SAFETY_IDX, ETHICS_IDX, RHO_THRESHOLD, SECONDARY_GATE_MIN, LLAMA2_SCALES"
+
+  - id: A-12
+    type: implementation
+    title: "Integration test / smoke test"
+    description: >
+      Write a smoke test (assert-based __main__ block or test_main.py) that:
+      1. Runs full pipeline end-to-end
+      2. Asserts exactly 3 LLaMA-2 pairs extracted
+      3. Asserts 5 figure files exist in h-m1/figures/
+      4. Asserts experiment_results_phase3.json is valid JSON with required keys
+      5. Asserts primary_gate_pass == True (rho > 0.5 pre-confirmed)
+    priority: 50
+    complexity: 7
+    reference_files:
+      - file: "h-m1/03_prd.md"
+        section: "8. Success Criteria"
+
+  # ── Failsafe ──────────────────────────────────────────────────────────────────
+  - id: DONE
+    type: checkpoint
+    title: "Phase 3 complete — ready for Phase 4"
+    description: >
+      All implementation planning artifacts verified. Run /phase4-coding to begin
+      implementation. Phase 4 will read this task file and track progress via
+      04_checkpoint.yaml.
+    priority: 1
+    complexity: null
+    reference_files:
+      - file: "h-m1/03_prd.md"
+      - file: "h-m1/03_architecture.md"
+      - file: "h-m1/03_logic.md"
+      - file: "h-m1/03_config.md"

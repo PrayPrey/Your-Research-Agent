@@ -1,0 +1,13 @@
+# Conclusion
+
+We set out to test whether semantic entropy's correctness-predictive advantage over token-probability scales with model size in the Llama-3 family. Instead, we discovered that semantic entropy produces an AUROC of 0.4735 on TriviaQA—below random chance—when applied to a base language model under the standard evaluation protocol. The celebrated method that surpasses token-probability by 0.05–0.12 AUROC in published evaluations is here anti-correlated with correctness.
+
+The explanation is precise and actionable: Llama-3-8B-Base produces semantically identical responses for 89% of TriviaQA queries under N=10 sampling at temperature=1.0. When all samples cluster into a single equivalence class, semantic entropy collapses to zero—not because of an implementation error, but because the method's diversity precondition is violated. The SE mechanism (NLI clustering, K < N) is correctly implemented and activates; the failure is conceptual. SE is a diversity-conditional estimator. Base model factual recall is a low-diversity regime.
+
+This finding reframes a significant body of published evidence. SE superiority results were obtained on instruction-tuned models with higher sampling diversity; the diversity precondition was never explicitly stated or measured. We introduce `degenerate_fraction`—the proportion of queries producing K=1 semantic clusters—as a simple, computable diagnostic that makes this precondition explicit. Token-probability (AUROC=0.6835) and SelfCheckGPT-NLI (AUROC=0.6862) remain valid and achieve competitive performance in the degenerate regime, providing robust alternatives for base-model deployment.
+
+The path forward is clear. A one-or-two-day experiment verifying SE on Llama-3-8B-Instruct (Future Work F1) would establish whether the failure is specific to base models or more general. A temperature-calibration sweep (F2) would characterize whether and when SE becomes viable for base models. A diversity-conditional UQ protocol (F3) would operationalize our diagnostic into a practical pre-screening tool.
+
+The contribution is not only negative. The full generation and evaluation infrastructure (~2,222 lines, checkpointed, reproducible) is validated and released for the community. The degenerate_fraction metric provides a concrete, model-type-aware audit for UQ benchmarking studies. And the characterization of the failure mode—grounded in the mechanism of base model sampling, the structure of NLI clustering, and the known behavior of factual recall in pretrained LLMs—offers a principled foundation for redesigning UQ evaluation protocols in the field.
+
+When a method celebrated for surpassing the baseline instead falls below chance, that is not just a failed experiment—it is an experiment that worked.

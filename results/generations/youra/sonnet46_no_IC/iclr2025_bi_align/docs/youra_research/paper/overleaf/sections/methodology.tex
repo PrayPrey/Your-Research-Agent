@@ -1,0 +1,82 @@
+% Section 3: Methodology
+\section{Methodology}
+\label{sec:methodology}
+
+Building on our observation that the capability-LC alignment question is inherently a partial
+correlation problem, we design a multi-layer statistical analysis establishing existence (P1),
+mechanism (P2), and population-level confirmation (P3).
+
+\subsection{Dataset}
+
+We use the publicly available AlpacaEval 2.0 leaderboard CSV (accessed August 2026),
+containing pairwise preference results for 223 diverse LLMs compared against a GPT-4o reference
+on 805 instruction-following prompts. The three variables of interest are:
+
+\begin{itemize}
+  \item \textbf{\texttt{win\_rate}}: Fraction of pairwise comparisons where human annotators
+    prefer the model (range: ${\sim}3$--$80\%$)
+  \item \textbf{\texttt{LC\_winrate}}: Win rate after GLM-based length debiasing
+    \citep{Dubois2024LengthControlled} (range: ${\sim}2$--$95\%$)
+  \item \textbf{\texttt{avg\_length}}: Mean response token count per model
+    (range: ${\sim}400$--$2200$ tokens)
+\end{itemize}
+
+All 223 rows have complete data; no imputation was required.
+
+\textbf{Verbosity Separability Check}: VIF = 1.764 for both \texttt{win\_rate} and
+\texttt{avg\_length} (threshold: VIF $<$ 5.0), confirming OLS coefficients and partial
+correlations are interpretable (Figure~\ref{fig:vif}).
+
+\subsection{Primary Analysis: Partial Correlation (H-E1)}
+
+We seek $\rho(\texttt{win\_rate}, \texttt{LC\_winrate} \mid \texttt{avg\_length})$ --- the
+Spearman partial correlation after controlling for \texttt{avg\_length}.
+
+\textbf{Implementation}: \texttt{pingouin.partial\_corr(method='spearman', alternative='greater')}
+with covariate \texttt{avg\_length}. Pre-registered threshold: $|r_{\mathrm{partial}}| \geq 0.15$,
+$p < 0.05$ (one-tailed; directional hypothesis $\rho > 0$). Bootstrap 95\% CI: 1000 resamples,
+\texttt{random\_state=42}.
+
+\subsection{Mechanism Analysis: Standardized OLS (H-M1)}
+
+\textbf{Design}: \texttt{LC\_winrate} $\sim$ \texttt{win\_rate\_std} + \texttt{avg\_length\_std}
+with \texttt{sklearn.StandardScaler} preprocessing and \texttt{statsmodels.OLS}. Dominance
+criterion: $|\beta_{\mathrm{win}}| > |\beta_{\mathrm{len}}|$. Verbosity-only baseline
+(\texttt{LC\_winrate} $\sim$ \texttt{avg\_length\_std}) for $R^2$ comparison.
+
+\subsection{FWL-Inspired Robustness Verification (H-M2)}
+
+\textbf{Design}: Regress \texttt{avg\_length} from both \texttt{win\_rate} and
+\texttt{LC\_winrate} (OLS); compute Spearman $\rho$ on residual pairs. Delta
+$= |\rho_{\mathrm{Pingouin}} - \rho_{\mathrm{resid}}| < 0.02$ confirms estimator consistency.
+\textit{Note}: The Frisch--Waugh--Lovell theorem guarantees exact algebraic equality between
+partial OLS coefficients and residualized OLS estimates (Pearson). For Spearman partial
+correlation, residualized ranks provide an independent estimator that approximates this
+principle; convergence within 1.1pp is empirical evidence of robustness, not a theorem
+guarantee.
+
+\subsection{Population-Level Confirmation: Kruskal-Wallis + Dunn (H-M3, H-C1)}
+
+\textbf{Design}: \texttt{win\_rate} quartiles (Q1--Q4; $N = 56, 56, 55, 56$).
+\texttt{scipy.stats.kruskal} on both \texttt{LC\_winrate} (H-C1) and $\Delta$ (H-M3).
+Post-hoc: \texttt{scikit\_posthocs.posthoc\_dunn} with Bonferroni correction. Effect size:
+$\varepsilon^2 = (H - k + 1) / (N - k)$. Bootstrap CI on Dunn Q1 vs Q4 $p$ (1000 resamples).
+
+\subsection{Sub-Hypothesis Structure}
+
+\begin{table}[h]
+\centering
+\caption{Sub-hypothesis summary}
+\label{tab:hypotheses}
+\begin{tabular}{llll}
+\toprule
+Hypothesis & Type & Gate & Test \\
+\midrule
+H-E1 & Existence & MUST\_WORK & Partial corr $> 0.15$ \\
+H-M1 & Mechanism & MUST\_WORK & $|\beta_{\mathrm{win}}| > |\beta_{\mathrm{len}}|$ in standardized OLS \\
+H-M2 & Mechanism & SHOULD\_WORK & FWL delta $< 0.02$ \\
+H-M3 & Mechanism & SHOULD\_WORK & KW on $\Delta$ across quartiles, $p < 0.05$ \\
+H-C1 & Condition & SHOULD\_WORK & KW on LC\_winrate AND Dunn Q1 vs Q4, both $p < 0.05$ \\
+\bottomrule
+\end{tabular}
+\end{table}

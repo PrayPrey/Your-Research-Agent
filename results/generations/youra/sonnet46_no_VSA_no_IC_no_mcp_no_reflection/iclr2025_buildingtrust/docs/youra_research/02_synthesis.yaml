@@ -1,0 +1,126 @@
+# 02_synthesis.yaml - Phase 2A Synthesis
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Supplementary file loaded by Phase 2B (FULL_LOAD).
+# Contains synthesis details, measurement plan, and validation strategy.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-31T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop (Independent-Controller Ablation)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+
+hypothesis_draft:
+  title: "Alignment Fingerprinting: DPO vs SFT Produces Detectable Trustworthiness Profile Shift in Standard Benchmark Space"
+  hypothesis_id: "H-AlignFingerprint-v1"
+  core_claim: |
+    DPO-aligned 7B language models exhibit a systematically different trustworthiness profile
+    compared to matched SFT-aligned models, detectable by a k-NN classifier using 4 standard
+    benchmark scores (TruthfulQA MC2, BBQ, WinoGrande, WinoGender) with leave-one-out
+    cross-validation accuracy ≥67% and permutation test p≤0.05 over ≥6 matched model pairs.
+  mechanism: |
+    DPO preference optimization implicitly rewards responses that avoid bias-triggering
+    patterns (because human annotators prefer them) without explicitly rewarding factual
+    accuracy. SFT on instruction-following data directly trains on factual Q&A pairs.
+    This produces a characteristic profile shift: DPO higher on fairness benchmarks
+    (BBQ, WinoGender), neutral-to-lower on truthfulness (TruthfulQA MC2). The profile
+    shape — not just overall level — constitutes the alignment fingerprint.
+    NOTE: This is a candidate mechanism, not a verified causal claim. The primary test
+    is empirical detection, not mechanistic verification.
+  predictions:
+    - P1: "k-NN LOO accuracy ≥67% with permutation p≤0.05 (n≥6 matched pairs)"
+    - P2: "TruthfulQA MC2 is the most discriminative single dimension (highest Fisher's criterion)"
+    - P3: "BBQ fairness score shows DPO ≥ SFT in ≥4/6 matched pairs (sign test p≤0.125)"
+
+variables_summary:
+  independent: "Alignment strategy: DPO vs SFT (categorical, 2 levels)"
+  dependent_primary: "4D benchmark score vector (TruthfulQA MC2, BBQ, WinoGrande, WinoGender) → k-NN LOO classification accuracy"
+  controlled: "Base model architecture + size (7B, matched pairs); preference data source (documented); evaluation harness version (pinned)"
+
+null_hypothesis:
+  h0_statement: |
+    There is no significant difference in the 4D trustworthiness profile between DPO and SFT
+    models trained on matched data. k-NN classifier accuracy ≤50% (at or below chance) and
+    permutation test p > 0.05. BBQ fairness scores show no consistent directional pattern
+    (sign test p > 0.125).
+  statistical_test: "Permutation test (1000 permutations) on k-NN LOO accuracy; one-sided binomial sign test for P3"
+  significance_level: 0.05
+
+novelty_assessment:
+  status: "VERIFIED"
+  key_innovation: "First study to frame alignment strategy identification as a detection/classification problem using standard benchmark scores as the signal — enabling model auditing without training data access"
+  differentiation_summary: |
+    DecodingTrust, InstructGPT, and DPO paper all fail to address the specific gap:
+    none treat alignment strategy as IV + apply a unified trustworthiness benchmark suite +
+    test fingerprinting/classification. This study fills that exact intersection.
+    The methodological contribution is agnostic about mechanism — detection works
+    regardless of WHY alignment strategies differ.
+
+clarity:
+  overall_level: "HIGH"
+  clarity_verified: true
+  improvements_needed: []
+
+experimental_scope:
+  models:
+    - "HuggingFaceH4/zephyr-7b-sft-full (primary — alignment-handbook, SFT)"
+    - "HuggingFaceH4/zephyr-7b-dpo-full (primary — alignment-handbook, DPO)"
+    - "Additional community DPO/SFT 7B pairs with documented alignment (target: ≥6 total pairs)"
+  datasets:
+    - "TruthfulQA MC2 (lm-evaluation-harness task: truthfulqa_mc2)"
+    - "BBQ (lm-evaluation-harness task: bbq)"
+    - "WinoGrande (lm-evaluation-harness task: winogrande)"
+    - "WinoGender (manual setup or winograd_wsc proxy)"
+  baselines:
+    - "50% random classifier (lower bound)"
+    - "Majority-class classifier"
+    - "Single-benchmark k-NN (TruthfulQA MC2 only)"
+
+measurement_plan:
+  data_collection:
+    - source: "lm-evaluation-harness (pinned commit hash) on HuggingFace Hub models"
+    - source: "Model cards for alignment method documentation"
+  procedure:
+    - step: "1. Curate ≥6 matched DPO/SFT model pairs from alignment-handbook + community; document alignment evidence for each pair"
+    - step: "2. Pin lm-evaluation-harness version; confirm BBQ task availability"
+    - step: "3. Run inference for all models on 4 benchmarks: lm_eval --tasks truthfulqa_mc2,bbq,winogrande,winograd_wsc --model hf --model_args pretrained=<model_id>"
+    - step: "4. Collect n×4 score matrix; verify reproducibility with 2-run check on 2 random models"
+    - step: "5. Run k-NN LOO CV (sklearn, k=1, Euclidean distance) on n×4 matrix with DPO/SFT labels"
+    - step: "6. Run permutation test: 1000 label permutations, compute accuracy distribution under H0"
+    - step: "7. Compute Fisher's criterion for each of 4 dimensions; rank for P2"
+    - step: "8. Compute BBQ directional signs per pair; run binomial sign test for P3"
+  success_criteria:
+    - "P1: LOO accuracy ≥ 0.67 AND permutation p ≤ 0.05"
+    - "P2: TruthfulQA MC2 ranks first by Fisher's criterion"
+    - "P3: ≥4/6 pairs show DPO > SFT on BBQ; binomial p ≤ 0.125"
+    - "Null criterion: accuracy < 0.50 = fingerprint absent (informative null)"
+
+validation:
+  internal_validity:
+    - "Matched model pairs control for base architecture and size"
+    - "Pinned lm-evaluation-harness version prevents evaluation drift"
+    - "Reproducibility check (2-run test) confirms score stability"
+    - "Pre-registered predictions prevent HARKing (Hypothesizing After Results are Known)"
+  external_validity:
+    - "Alignment-handbook pairs generalize to controlled-experiment setting"
+    - "Community model pairs test robustness to imperfect controls"
+    - "Results are model-family-agnostic IF patterns replicate across Mistral/Llama/Phi"
+    - "Null result is externally valid as evidence that standard benchmarks cannot detect alignment"
+
+discussion_synthesis:
+  key_insights:
+    - "Framing as detection problem (not explanation problem) resolves mechanism verification issue and makes the study immediately falsifiable"
+    - "Small-n is the core statistical challenge — permutation test + sign test are appropriate solutions"
+    - "Alignment-handbook SFT/DPO pairs are the gold standard controlled comparison; 3-way RLHF comparison is too confounded"
+    - "Both positive and null results are impactful — this makes the study epistemically responsible"
+    - "lm-evaluation-harness covers TruthfulQA and BBQ natively; WinoGrande is clean substitute for AdvGLUE"
+  breakthrough_moments:
+    - "Exchange 4 (Prof. Pax): Identifying that matched model pairs are scarce — pivoting from 3-way RLHF/DPO/SFT to 2-way DPO/SFT is the key feasibility fix"
+    - "Exchange 7 (Dr. Nova): Detection problem reframe — classification accuracy instead of mechanistic verification — resolves the mechanism-confound problem cleanly"
+    - "Exchange 8 (Prof. Vera): Specifying permutation test + sign test for small-n validity — gives the study real statistical teeth"
+  resolved_tensions:
+    - "Mechanism vs observation: resolved by weakening mechanism to candidate explanation; primary test is empirical detection"
+    - "RLHF inclusion: resolved by scoping to DPO vs SFT (best controlled comparison); RLHF flagged as future work"
+    - "AdvGLUE implementation risk: resolved by pre-registering WinoGrande as substitute"
+    - "Small-n statistical power: resolved by permutation test and sign test design"

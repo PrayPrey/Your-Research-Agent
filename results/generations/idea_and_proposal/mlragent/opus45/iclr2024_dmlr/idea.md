@@ -1,0 +1,9 @@
+﻿# Title: Quality Signals from Model Disagreement for Large-Scale Dataset Curation
+
+## Motivation
+A critical bottleneck in building foundation models is identifying low-quality, mislabeled, or ambiguous samples within massive uncurated datasets. Current approaches rely on expensive human annotation or simple heuristics (e.g., perplexity filtering), which scale poorly and miss nuanced quality issues. Model disagreement—where multiple models trained on overlapping data produce conflicting predictions—offers an underexplored, scalable signal for detecting problematic samples that can systematically degrade model performance.
+
+## Main Idea
+I propose a framework called **Disagreement-Driven Data Refinement (D3R)** that leverages ensemble disagreement patterns across diverse model architectures as automatic quality signals. The methodology involves: (1) training a small ensemble of lightweight, architecturally diverse models on subsets of the target dataset; (2) computing disagreement scores using metrics like prediction entropy variance and confidence calibration misalignment across models; (3) categorizing flagged samples into interpretable quality issues (label noise, ambiguity, out-of-distribution, near-duplicates) using disagreement patterns.
+
+The key insight is that *consistent* disagreement across architecturally different models indicates intrinsic data problems rather than model-specific artifacts. Expected outcomes include a reusable quality scoring pipeline validated on DataComp/LAION-scale datasets, demonstrating improved downstream performance when filtering high-disagreement samples. This approach bridges model-assisted curation with scalable quality assessment, potentially reducing curation costs by 10x while improving data utility for foundation model training.

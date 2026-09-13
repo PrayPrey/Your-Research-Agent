@@ -1,0 +1,33 @@
+# Related Work
+
+We review three bodies of work: factuality evaluation, adversarial robustness, and calibration. Each has developed independently; our work proposes connecting them.
+
+## Factuality and Truthfulness Evaluation
+
+TruthfulQA \cite{lin2022truthfulqa} established the standard benchmark for evaluating LLM truthfulness, finding that larger models were not more truthful and sometimes worse. The MC1 (multiple-choice single answer) format provides a clean accuracy metric. Subsequent work expanded factuality evaluation: TruthEval \cite{khatun2024trutheval} curated challenging statements, while ARES \cite{you2025ares} achieved 72.1% Macro-F1 on error detection in reasoning chains.
+
+Intervention methods have emerged to improve truthfulness. Non-Linear Inference Time Intervention (NL-ITI) \cite{hoscilowicz2024nliti} achieves 16% relative MC1 improvement by probing activation patterns associated with truthfulness. FactSelfCheck \cite{sawczyn2025factselfcheck} enables black-box hallucination detection at the fact level. SPOC \cite{zhao2025spoc} demonstrates self-correction mechanisms improving accuracy by 8-20%.
+
+These methods focus on factuality metrics in isolation. None examine whether factual models also resist adversarial attacks, leaving potential shared mechanisms unexplored.
+
+## Adversarial Robustness
+
+TextFooler \cite{jin2019textfooler} established word-level adversarial attacks as a standard evaluation. By substituting synonyms to flip model predictions, it measures susceptibility to semantically-preserving perturbations. BERT-Attack and similar methods have extended this paradigm.
+
+Robustness work focuses on attack success rates and defense mechanisms. The connection to other reliability properties—whether robust models are also factual—remains unstudied. Theoretical work suggests well-calibrated models should produce high uncertainty on out-of-distribution inputs, including adversarial examples, but empirical validation across factuality benchmarks is lacking.
+
+## Calibration
+
+Guo et al. \cite{guo2017calibration} demonstrated that modern neural networks are poorly calibrated, motivating Expected Calibration Error (ECE) as a metric and temperature scaling as a simple fix. Minderer et al. \cite{minderer2021revisiting} showed that architecture significantly affects calibration properties.
+
+Calibration literature focuses on confidence-accuracy alignment without connecting to factuality or robustness benchmarks. If calibration provides reliable uncertainty estimates, these estimates should support both error detection (factuality) and anomaly detection (robustness). Our work tests this hypothesis.
+
+## Summary of Gap
+
+| Research Area | Focus | Gap |
+|--------------|-------|-----|
+| Factuality | Detection accuracy | No connection to robustness |
+| Robustness | Attack success rates | No connection to calibration |
+| Calibration | Confidence-accuracy | No joint factuality-robustness analysis |
+
+We propose that calibration unifies these dimensions, with ECE mediating the correlation between factuality (MC1) and robustness (1-ASR).

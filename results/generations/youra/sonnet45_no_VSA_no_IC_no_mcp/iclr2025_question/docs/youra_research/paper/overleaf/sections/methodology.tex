@@ -1,0 +1,104 @@
+\section{Methodology}
+
+Building on our observation that computational overhead scales predictably from micro-pilot to full dataset, we design Pilot-Driven Viability Gates as an incremental empirical validation framework. The framework combines three mechanisms: (M1) linear overhead extrapolation from micro-pilot measurements, (M2) Bayesian posterior refinement through sequential observations, and (M3) threshold-based viability classification. We describe each mechanism's theoretical foundation, implementation details, and design rationale.
+
+\subsection{Framework Overview}
+
+The framework structures hypothesis validation as a three-stage process:
+
+\textbf{Gate 1 (Micro-Pilot)}: Measure overhead $O_{10}$ on 10 samples. Extrapolate to full-scale via $O_{\text{pred}} = k \times O_{10}$ where $k$ is the scaling factor. Compare $O_{\text{pred}}$ to user-specified threshold $T$. If $O_{\text{pred}} > T$, stop (hypothesis non-viable). If $O_{\text{pred}} \leq T$, continue to Gate 2.
+
+\textbf{Gate 2 (Mid-Scale)}: Measure overhead $O_{100}$ on 100 samples. Apply Bayesian update combining Gate 1 prior $P(O_{\text{full}} | O_{10})$ with Gate 2 likelihood $P(O_{100} | O_{\text{full}})$ to compute posterior $P(O_{\text{full}} | O_{10}, O_{100})$. Repeat threshold comparison. If posterior mean > $T$, stop. Otherwise, continue to Gate 3.
+
+\textbf{Gate 3 (Full-Scale)}: Measure ground truth overhead $O_{\text{full}}$ on complete dataset. Validate viability decision and update scaling factor $k$ for future hypotheses.
+
+\textbf{Rationale}: The staged design enables fail-fast at minimal cost. Gate 1 requires <1 hour (10 samples) vs days for full implementation. Early stops avoid wasted effort while incremental refinement (Gate 2) reduces false negatives.
+
+\subsection{Mechanism M1: Linear Overhead Scaling}
+
+\textbf{Theoretical Basis}: Many ML operations exhibit linear or near-linear scaling with sample count. Matrix multiplication, attention mechanisms (O(n$^2$) in sequence length but O(n) in batch size), and gradient computations scale predictably. We model this as:
+
+\begin{equation}
+O_{\text{full}} = k \times O_{10} + \epsilon
+\end{equation}
+
+where $k$ is the scaling factor (ratio of full dataset size to micro-pilot size) and $\epsilon$ represents measurement noise.
+
+\textbf{Implementation}: At Gate 1, measure wall-clock time for hypothesis implementation on 10 randomly sampled datapoints. Normalize by baseline (vanilla model without hypothesis) to compute overhead percentage. Fit linear regression across observed (sample size, overhead) pairs to estimate $k$. For new hypotheses, predict $O_{\text{full}} = k \times O_{10}$.
+
+\textbf{Design Decision}: We use Pearson correlation $r$ as a validation metric. The framework assumes $r \geq 0.7$ between $O_{10}$ and $O_{\text{full}}$ across a corpus of past hypotheses. If $r < 0.7$, linear extrapolation breaks down and the framework requires recalibration (e.g., per-hypothesis-type scaling factors or non-linear models).
+
+\textbf{Complexity Analysis}: Gate 1 overhead measurement requires $O(10 \times \text{hypothesis\_complexity})$ time. For typical ML operations (forward pass, gradient computation), this translates to seconds to minutes rather than hours required for full-scale experiments.
+
+\subsection{Mechanism M2: Bayesian Posterior Refinement}
+
+\textbf{Theoretical Basis}: Bayesian inference reduces prediction uncertainty by combining prior beliefs with new evidence. We model overhead as a Gaussian random variable: $O_{\text{full}} \sim \mathcal{N}(\mu, \sigma^2)$. Gate 1 provides prior: $\mu_{\text{prior}} = k \times O_{10}$, $\sigma^2_{\text{prior}}$ estimated from historical variance. Gate 2 provides likelihood: $\mu_{\text{likelihood}} = k \times O_{100}$, $\sigma^2_{\text{likelihood}}$ from measurement uncertainty. The posterior combines both:
+
+\begin{equation}
+\frac{1}{\sigma^2_{\text{post}}} = \frac{1}{\sigma^2_{\text{prior}}} + \frac{1}{\sigma^2_{\text{likelihood}}}
+\end{equation}
+
+\begin{equation}
+\mu_{\text{post}} = \sigma^2_{\text{post}} \left( \frac{\mu_{\text{prior}}}{\sigma^2_{\text{prior}}} + \frac{\mu_{\text{likelihood}}}{\sigma^2_{\text{likelihood}}} \right)
+\end{equation}
+
+\textbf{Implementation}: We use scipy.stats Gaussian conjugate update. Prior variance $\sigma^2_{\text{prior}}$ estimated from residuals in linear regression fit (M1). Likelihood variance $\sigma^2_{\text{likelihood}}$ estimated from measurement stability across 3 repeated runs at 100-sample scale.
+
+\textbf{Design Decision}: Bayesian updates are optional (SHOULD\_WORK gate). If Gate 2 data is unavailable or error reduction is minimal (<20\%), the framework degrades gracefully to Gate 1-only prediction. This design prioritizes practical deployment over theoretical completeness.
+
+\subsection{Mechanism M3: Viability Classification}
+
+\textbf{Theoretical Basis}: Viability is a binary decision: hypothesis overhead $O_{\text{full}}$ either exceeds threshold $T$ (non-viable) or remains within bounds (viable). We classify based on posterior mean:
+
+\begin{equation}
+\text{viable} = \begin{cases}
+\text{True} & \text{if } \mu_{\text{post}} \leq T \\
+\text{False} & \text{if } \mu_{\text{post}} > T
+\end{cases}
+\end{equation}
+
+Confidence intervals provide uncertainty quantification: if 95\% confidence interval [$\mu - 1.96\sigma$, $\mu + 1.96\sigma$] straddles $T$, the decision is borderline and warrants Gate 2 refinement.
+
+\textbf{Implementation}: Gate 1 predicts viability using $O_{\text{pred}} = k \times O_{10}$. For borderline cases (within 10\% of threshold), we recommend proceeding to Gate 2 for refined prediction. High-confidence cases ($O_{\text{pred}} < 0.9T$ or $O_{\text{pred}} > 1.1T$) can stop/continue immediately.
+
+\textbf{Design Decision}: We prioritize recall over precision---minimizing false negatives (viable hypotheses incorrectly stopped) at the cost of occasional false positives (non-viable hypotheses continuing to Gate 2). Rationale: A viable hypothesis stopped at Gate 1 is a missed opportunity; a non-viable hypothesis caught at Gate 2 wastes only 1 hour rather than days.
+
+\subsection{Scaling Factor Calibration}
+
+The scaling factor $k$ depends on hypothesis type and dataset characteristics. We consider three calibration strategies:
+
+\textbf{Global k (simplest)}: Use single $k$ across all hypotheses. Our validation tests this approach with synthetic data.
+
+\textbf{Type-specific k (moderate complexity)}: Learn separate $k_{\text{attention}}$, $k_{\text{gradient}}$, $k_{\text{regularization}}$ factors. Requires stratified historical corpus.
+
+\textbf{Per-hypothesis k (most accurate, least practical)}: Estimate $k$ from micro-pilot + 100-sample pair for each new hypothesis. Requires 100-sample investment before viability decision.
+
+Our validation uses global $k$. Future work (FD5) explores whether type-specific calibration improves accuracy when scaling variance (CV) exceeds 30\% within types.
+
+\subsection{Algorithm Summary}
+
+\begin{verbatim}
+Input: Hypothesis H, threshold T, micro-pilot size n_micro=10
+Output: Viability decision (STOP / CONTINUE / CONTINUE_TO_GATE2)
+
+# Gate 1: Micro-Pilot
+O_10 = measure_overhead(H, n_micro)
+O_pred = k × O_10
+if O_pred > 1.1 × T:
+    return STOP  # High confidence non-viable
+if O_pred < 0.9 × T:
+    return CONTINUE  # High confidence viable
+return CONTINUE_TO_GATE2  # Borderline case
+
+# Gate 2: Bayesian Update (if reached)
+O_100 = measure_overhead(H, n_mid=100)
+μ_prior, σ²_prior = k × O_10, estimate_variance(history)
+μ_likelihood, σ²_likelihood = k × O_100, measurement_noise
+μ_post, σ²_post = bayesian_update(μ_prior, σ²_prior,
+                                   μ_likelihood, σ²_likelihood)
+if μ_post > T:
+    return STOP
+return CONTINUE  # Proceed to Gate 3 (full implementation)
+\end{verbatim}
+
+This methodology provides a systematic protocol for early viability assessment, addressing the gap identified in Section 2 where ablation studies test variations but lack formalized early-stop criteria. The framework's empirical foundation (M1 scaling measurement) captures constant factors missed by Big-O analysis, while Bayesian refinement (M2) quantifies prediction uncertainty and enables incremental decision-making.

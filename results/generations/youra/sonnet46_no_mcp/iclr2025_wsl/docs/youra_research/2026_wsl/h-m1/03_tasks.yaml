@@ -1,0 +1,537 @@
+version: "1.1"
+
+metadata:
+  hypothesis_id: "h-m1"
+  hypothesis_id_upper: "H-M1"
+  tier: "FULL"
+  total_budget: 30
+  generated_at: "2026-05-05T11:00:00Z"
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+tasks:
+  - id: "task-001"
+    epic: "Data Preparation"
+    title: "Download dataset_mnist_hyp_rand.pt from Zenodo"
+    description: |
+      Download the Schurholt ModelZooDataset MNIST-CNN (hyperparameter-random variant) from Zenodo.
+      Source: https://zenodo.org/record/6632087/files/dataset_mnist_hyp_rand.pt
+      Place in: docs/youra_research/20260505_wsl/.data_cache/datasets/mnist_hyp_rand/dataset_mnist_hyp_rand.pt
+      Load with: torch.load("dataset_mnist_hyp_rand.pt", weights_only=False)
+      Expected: ~4,100 final-epoch checkpoints, Conv(32)-Conv(64)-FC(128)-FC(10) architecture, BN-free.
+      NOTE: Use dataset_mnist_hyp_rand.pt (NOT dataset_mnist_seed.pt used in h-e1).
+    feature_tag: "data-preparation"
+    priority: 100
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Data download tasks do not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+  - id: "task-002"
+    epic: "Environment Setup"
+    title: "Setup development environment"
+    description: |
+      Install required Python packages:
+        torch>=2.0.0
+        torchvision
+        numpy
+        scipy
+        scikit-learn
+        matplotlib
+        seaborn
+        pyyaml
+        tqdm
+
+      External repositories for reference (do NOT install; reference only):
+        - AvivNavon/equivariant-weight-space-networks (Navon et al. 2023 official repo)
+        - ModelZoos/ModelZooDataset (Schurholt dataset loading code)
+
+      Verify h-e1 code is accessible at: docs/youra_research/20260505_wsl/h-e1/code/
+      (flatten_weights, stratified_pair_sample, load_zoo_checkpoints will be imported via sys.path)
+    feature_tag: "setup"
+    priority: 99
+    source_document: "03_prd.md"
+    complexity: null
+    test_requirements: "Environment setup does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+  - id: "task-003"
+    epic: "A-1: Config & Project Setup"
+    title: "Implement ExperimentConfig dataclass and project scaffold"
+    description: |
+      Create h-m1/code/config.py with ExperimentConfig dataclass.
+      Create directory structure: h-m1/code/, h-m1/figures/, h-m1/results/.
+      Implement set_seed utility (torch, numpy, python random).
+
+      Key config fields:
+        data_dir: ../../.data_cache/datasets/mnist_hyp_rand
+        he1_code_dir: ../../h-e1/code
+        seed: 42, epochs: 150, batch_size: 32
+        lr: 1e-3, weight_decay: 1e-4, betas: (0.9, 0.999)
+        t_max: 150, eta_min: 1e-6
+        embed_dim: 128, dropout: 0.1
+        target_params_min: 475_000, target_params_max: 525_000
+        hidden_dims_candidates: [[9],[10],[8,256],[8,512],[16,128],[16,256]]
+        n_pairs: 500, min_pairs: 50
+        sensitivity_gate: 0.3, spearman_target: 0.5
+    feature_tag: "experiment"
+    priority: 98
+    source_document: "03_architecture.md"
+    complexity: 6
+    test_requirements: |
+      Create tests/test_config.py.
+      - test_config_defaults: Verify all default values are correct
+      - test_config_post_init: Verify Path fields are Path objects
+      - test_set_seed_reproducibility: Verify same seed produces same random values
+    reference_files:
+      architecture: "03_architecture.md#A-1"
+      logic: null
+      config: "03_config.md#A-1"
+
+  - id: "task-004"
+    epic: "A-2: Data Loading & Normalization"
+    title: "Implement WeightDataset with z-score normalization"
+    description: |
+      Implement WeightDataset (torch.utils.data.Dataset) in h-m1/code/data_loader.py.
+      Handle _flat_weights pre-vectorized format from Zenodo dataset.
+      Apply z-score normalization: (flat_w - mean) / (std + 1e-8), computed from training set only.
+      Input: list of checkpoints with state_dict + test_accuracy.
+      Output __getitem__: (normalized_flat_weight [N_params], accuracy_scalar).
+      Compute input_dim dynamically from first loaded checkpoint (~53,002 for Conv32-Conv64-FC128-FC10).
+    feature_tag: "data-pipeline"
+    priority: 97
+    source_document: "03_architecture.md"
+    complexity: 13
+    test_requirements: |
+      Create tests/test_data_loader.py.
+      - test_weight_dataset_shape: Verify output tensor shapes match input_dim
+      - test_z_score_normalization: Verify train set mean≈0, std≈1 after normalization
+      - test_dataset_len: Verify __len__ returns correct count
+    reference_files:
+      architecture: "03_architecture.md#A-2"
+      logic: null
+      config: "03_config.md#A-2"
+
+  - id: "task-005"
+    epic: "A-2: Data Loading & Normalization"
+    title: "Implement Schurholt train/val/test splits and DataLoader builders"
+    description: |
+      Implement load_and_split_dataset() in h-m1/code/data_loader.py.
+      Use Schurholt standard train/val/test splits from dataset metadata.
+      Import load_zoo_checkpoints from h-e1 via sys.path:
+        sys.path.insert(0, str(HE1_CODE)); from data_loader import load_zoo_checkpoints
+      Extract final-epoch checkpoints (training_iteration=50).
+      Return: (train_ds, val_ds, test_ds, train_mean, train_std, all_checkpoints).
+      Build DataLoaders with batch_size=32, shuffle=True for train only.
+    feature_tag: "data-pipeline"
+    priority: 96
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_split_sizes: Verify train/val/test non-empty and non-overlapping
+      - test_dataloader_batch: Verify DataLoader batch shape (B, input_dim)
+    reference_files:
+      architecture: "03_architecture.md#A-2"
+      logic: null
+      config: "03_config.md#A-2"
+
+  - id: "task-006"
+    epic: "A-3: FlatMLPEncoder + Grid Search"
+    title: "Implement FlatMLPEncoder and FlatMLPWithHead"
+    description: |
+      Implement FlatMLPEncoder in h-m1/code/models.py:
+        - Input: (B, input_dim) → Output: (B, embed_dim=128)
+        - Hidden layers: Linear + ReLU + Dropout(0.1) stack
+        - Final: Linear(last_hidden, embed_dim)
+
+      Implement FlatMLPWithHead:
+        - Wraps FlatMLPEncoder + Linear(embed_dim=128, 1) prediction head
+        - forward() returns (embedding [B, embed_dim], prediction [B, 1])
+
+      Implement count_params(model) -> int.
+    feature_tag: "model"
+    priority: 95
+    source_document: "03_architecture.md"
+    complexity: 10
+    test_requirements: |
+      Create tests/test_models.py.
+      - test_encoder_output_shape: Verify (B, 128) output for arbitrary input_dim
+      - test_with_head_output: Verify (B, 128) embedding and (B, 1) prediction
+      - test_count_params: Verify count_params returns positive integer
+    reference_files:
+      architecture: "03_architecture.md#A-3"
+      logic: null
+      config: "03_config.md#A-3"
+
+  - id: "task-007"
+    epic: "A-3: FlatMLPEncoder + Grid Search"
+    title: "Implement grid_search_architecture for 500K param budget"
+    description: |
+      Implement grid_search_architecture() in h-m1/code/models.py.
+      Iterate hidden_dims_candidates: [[9],[10],[8,256],[8,512],[16,128],[16,256]].
+      For each candidate, construct FlatMLPEncoder and count params.
+      Return first encoder with total_params in [475K, 525K].
+      If no candidate fits, raise ValueError with param counts for each tried.
+      Report exact parameter count in log: [H-M1] Selected hidden_dims={dims}, params={count}.
+    feature_tag: "model"
+    priority: 94
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_grid_search_finds_valid: Verify returned encoder params in [475K, 525K]
+      - test_grid_search_logs: Verify [H-M1] log message emitted
+    reference_files:
+      architecture: "03_architecture.md#A-3"
+      logic: null
+      config: "03_config.md#A-3"
+
+  - id: "task-008"
+    epic: "A-4: Training Loop"
+    title: "Implement optimizer setup: Adam + CosineAnnealingLR"
+    description: |
+      Implement optimizer and scheduler setup in h-m1/code/train.py.
+      Adam: lr=1e-3, weight_decay=1e-4, betas=(0.9, 0.999).
+      CosineAnnealingLR: T_max=150, eta_min=1e-6.
+      Implement TrainHistory dataclass (train_loss, val_loss, train_spearman, val_spearman).
+      Implement set_seed(seed) for torch, numpy, python random.
+    feature_tag: "training"
+    priority: 93
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_optimizer_lr: Verify initial lr matches config
+      - test_scheduler_decay: Verify lr decreases over T_max steps
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4"
+      config: "03_config.md"
+
+  - id: "task-009"
+    epic: "A-4: Training Loop"
+    title: "Implement full training epoch loop with per-epoch Spearman logging"
+    description: |
+      Implement train_encoder() in h-m1/code/train.py.
+      Epoch loop: forward FlatMLPWithHead, MSE loss, backward, optimizer step, scheduler step.
+      Per-epoch: compute Spearman ρ on train and val sets.
+      Track best-val-loss model checkpoint (save state_dict, restore at end).
+      Log per epoch: [H-M1] Epoch {e}/{total}: train_loss={:.4f}, val_loss={:.4f}, val_ρ={:.4f}
+      Return: (best_model, TrainHistory).
+    feature_tag: "training"
+    priority: 92
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_train_encoder_runs: Verify train_encoder completes 2 epochs without error
+      - test_history_populated: Verify TrainHistory lists have length == epochs
+      - test_best_model_restored: Verify returned model has lowest val loss
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#A-4"
+      config: "03_config.md"
+
+  - id: "task-010"
+    epic: "A-5: Permutation Generation"
+    title: "Implement get_mnist_cnn_layer_order and permutation helper functions"
+    description: |
+      Implement in h-m1/code/probe.py:
+
+      get_mnist_cnn_layer_order() -> LayerOrder:
+        Returns permutation spec for Conv(32)-Conv(64)-FC(128)-FC(10):
+        [('conv1.weight', 'conv2.weight', 32),
+         ('conv2.weight', 'fc1.weight',  64),
+         ('fc1.weight',   'fc2.weight',  128)]
+        Biases follow outgoing layer permutation.
+
+      Helper functions:
+        _permute_conv_out(weight, perm): permute dim-0 of [C_out, C_in, kH, kW]
+        _permute_conv_in(weight, perm): permute dim-1 of [C_out, C_in, kH, kW]
+        _permute_fc_out(weight, perm): permute rows of [N_out, N_in]
+        _permute_fc_in(weight, perm): permute cols of [N_out, N_in]
+    feature_tag: "experiment"
+    priority: 91
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      Create tests/test_probe.py.
+      - test_layer_order_keys: Verify layer_order contains 3 tuples with correct keys
+      - test_permute_helpers_shape: Verify output shapes unchanged after permutation
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5"
+      config: null
+
+  - id: "task-011"
+    epic: "A-5: Permutation Generation"
+    title: "Implement generate_permuted_weights with conv→fc spatial reshape"
+    description: |
+      Implement generate_permuted_weights(state_dict, layer_order, seed=None) in h-m1/code/probe.py.
+      For each (out_key, in_key, n_neurons) in layer_order:
+        1. perm = torch.randperm(n_neurons, generator=rng)
+        2. Permute new_sd[out_key] dim-0 AND corresponding bias (out_key.replace('weight','bias'))
+        3. For in_key: if FC (dim==2), handle conv->fc boundary with spatial reshape:
+             w_in = w_in.view(w_out_size, n, spatial)[:, perm, :].view(w_out_size, -1)
+           If conv (dim==4): permute dim-1
+      Returns new state_dict with same keys and shapes (functionally equivalent).
+      CRITICAL: Functional equivalence preserved — permuted network computes same function.
+    feature_tag: "experiment"
+    priority: 90
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_permuted_same_keys: Verify permuted state_dict has same keys and shapes
+      - test_functional_equivalence: Load permuted weights into actual MNIST-CNN, verify same output on same input
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#A-5"
+      config: null
+
+  - id: "task-012"
+    epic: "A-6: Sensitivity Probing"
+    title: "Implement _embed_state_dict helper"
+    description: |
+      Implement _embed_state_dict(encoder, state_dict, mean, std, device) in h-m1/code/probe.py.
+      Pipeline: flatten_weights(state_dict) -> [N_params] -> normalize -> unsqueeze -> encoder -> [embed_dim] on CPU.
+      Use h-e1 flatten_weights (imported via sys.path).
+      Normalization: (flat_w - mean) / (std + 1e-8), then move to device.
+      Encoder in eval mode; torch.no_grad() context.
+      Returns: [embed_dim] tensor on CPU.
+    feature_tag: "experiment"
+    priority: 89
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_embed_output_shape: Verify returns [embed_dim=128] tensor
+      - test_embed_device: Verify output on CPU regardless of encoder device
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: "03_logic.md#A-6"
+      config: null
+
+  - id: "task-013"
+    epic: "A-6: Sensitivity Probing"
+    title: "Implement equiv and random L2 distance computation loops"
+    description: |
+      Implement compute_permutation_sensitivity() equiv pairs loop in h-m1/code/probe.py.
+      Get pairs via stratified_pair_sample(checkpoints, n_per_decile=50, acc_threshold=0.01, seed=42).
+      For each (ckpt_i, ckpt_j, decile):
+        e_orig = _embed_state_dict(encoder, ckpt_i['state_dict'], ...)
+        perm_sd = generate_permuted_weights(ckpt_i['state_dict'], layer_order, seed=cfg.seed)
+        e_perm = _embed_state_dict(encoder, perm_sd, ...)
+        equiv_dists.append(torch.norm(e_orig - e_perm).item())
+        e_j = _embed_state_dict(encoder, ckpt_j['state_dict'], ...)
+        random_dists.append(torch.norm(e_orig - e_j).item())
+      Assert len(pairs) >= cfg.min_pairs (50) before loop.
+    feature_tag: "experiment"
+    priority: 88
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_equiv_random_lists_length: Verify equiv_dists and random_dists have same length >= 50
+      - test_positive_distances: Verify all L2 distances > 0
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: "03_logic.md#A-6"
+      config: null
+
+  - id: "task-014"
+    epic: "A-6: Sensitivity Probing"
+    title: "Implement sensitivity score aggregation and result dict"
+    description: |
+      Complete compute_permutation_sensitivity() in h-m1/code/probe.py.
+      Compute:
+        mean_equiv = float(np.mean(equiv_dists))
+        mean_random = float(np.mean(random_dists))
+        sensitivity_score = mean_equiv / (mean_random + 1e-8)
+      Return dict:
+        sensitivity_score, mean_equiv_L2, mean_random_L2, n_pairs,
+        equiv_dists (List[float]), random_dists (List[float])
+      Log: [H-M1] Encoder trained. Spearman ρ = {rho:.4f}. Running permutation sensitivity
+           probing on {n_pairs} pairs...
+      Log result: [H-M1] sensitivity_score={:.4f}, mean_equiv_L2={:.4f}, mean_random_L2={:.4f}
+    feature_tag: "experiment"
+    priority: 87
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_sensitivity_score_positive: Verify score > 0
+      - test_result_dict_keys: Verify all required keys present in result dict
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: "03_logic.md#A-6"
+      config: null
+
+  - id: "task-015"
+    epic: "A-7: Evaluation & Gate Check"
+    title: "Implement compute_spearman on test set"
+    description: |
+      Implement compute_spearman(model, loader, device) in h-m1/code/evaluate.py.
+      Collect all predictions and labels from DataLoader (model in eval mode, no_grad).
+      Use scipy.stats.spearmanr(y_pred, y_true).statistic.
+      Must handle full test set (>=100 samples per NFR-7 in PRD).
+      Returns float Spearman ρ.
+    feature_tag: "evaluation"
+    priority: 86
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      Create tests/test_evaluate.py.
+      - test_spearman_range: Verify returned value in [-1, 1]
+      - test_spearman_perfect: Verify ρ=1.0 for perfect predictions
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#A-7"
+      config: "03_config.md#A-7"
+
+  - id: "task-016"
+    epic: "A-7: Evaluation & Gate Check"
+    title: "Implement run_gate_check and save_results"
+    description: |
+      Implement run_gate_check(sensitivity_score, spearman_rho, param_count, n_pairs, cfg) in evaluate.py.
+      Check: sensitivity_score > cfg.sensitivity_gate (0.3) → gate_pass = True/False
+      Check: param_count in [cfg.target_params_min, cfg.target_params_max]
+      Check: n_pairs >= cfg.min_pairs
+      Log: [H-M1] Gate {'PASS' if gate_pass else 'FAIL'}: sensitivity_score={:.4f} (threshold=0.3)
+      Returns dict: gate_pass, sensitivity_score, spearman_rho, param_count, n_pairs,
+                    param_in_range, pairs_sufficient.
+
+      Implement save_results(results, cfg): save JSON to cfg.results_dir/h-m1_results.json.
+    feature_tag: "evaluation"
+    priority: 85
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_gate_pass_above_threshold: Verify gate_pass=True when score=0.5
+      - test_gate_fail_below_threshold: Verify gate_pass=False when score=0.2
+      - test_save_results_json: Verify JSON file created with all keys
+    reference_files:
+      architecture: "03_architecture.md#A-7"
+      logic: "03_logic.md#A-7"
+      config: "03_config.md#A-7"
+
+  - id: "task-017"
+    epic: "A-8: Visualization"
+    title: "Implement all 5 required figures"
+    description: |
+      Implement in h-m1/code/visualize.py (VisualizationConfig: figure_size=(10,6), dpi=150, colormap='tab10'):
+
+      1. plot_gate_metrics(sensitivity_score, spearman_rho, cfg):
+         Bar chart: sensitivity_score vs 0.3 threshold, Spearman ρ vs 0.5 target.
+         Save: figures/gate_metrics.png
+
+      2. plot_l2_distribution(equiv_dists, random_dists, cfg):
+         Histogram: equiv-pair L2 vs random-pair L2 overlaid.
+         Save: figures/l2_distance_distribution.png
+
+      3. plot_training_curve(history, cfg):
+         Line chart: train/val loss + Spearman ρ over 150 epochs.
+         Save: figures/training_curve.png
+
+      4. plot_sensitivity_by_decile(decile_scores, cfg):
+         Bar chart: mean equiv L2 per accuracy decile (10 bars).
+         Save: figures/sensitivity_by_decile.png
+
+      5. plot_embedding_scatter(embeddings, accuracies, equiv_pair_indices, cfg, method='pca'):
+         2D PCA scatter colored by accuracy; lines connecting equiv pairs.
+         Save: figures/embedding_scatter.png
+    feature_tag: "experiment"
+    priority: 84
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      Create tests/test_visualize.py.
+      - test_gate_metrics_creates_file: Verify figures/gate_metrics.png created
+      - test_l2_distribution_creates_file: Verify figures/l2_distance_distribution.png created
+      - test_training_curve_creates_file: Verify figures/training_curve.png created
+    reference_files:
+      architecture: "03_architecture.md#A-8"
+      logic: "03_logic.md#A-8"
+      config: "03_config.md#A-8"
+
+  - id: "task-018"
+    epic: "A-9: Integration & End-to-End Run"
+    title: "Implement sys.path wiring, CUDA setup, and argparse"
+    description: |
+      Implement in h-m1/code/run_experiment.py:
+
+      sys.path wiring for h-e1 imports:
+        HE1_CODE = Path(__file__).parent.parent.parent / "h-e1" / "code"
+        sys.path.insert(0, str(HE1_CODE))
+
+      parse_args(): --data-dir, --results-dir, --device, --epochs CLI args.
+      setup_device(device_str="auto"): return cuda if available else cpu; log selection.
+      CUDA_VISIBLE_DEVICES setup instructions in docstring.
+    feature_tag: "experiment"
+    priority: 83
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_setup_device_cpu: Verify returns torch.device when cuda unavailable
+      - test_parse_args_defaults: Verify defaults match ExperimentConfig
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: "03_logic.md#A-9"
+      config: null
+
+  - id: "task-019"
+    epic: "A-9: Integration & End-to-End Run"
+    title: "Implement main() pipeline orchestration and smoke test"
+    description: |
+      Implement main() in h-m1/code/run_experiment.py:
+        1. parse_args() + set_seed(42)
+        2. load_and_split_dataset() -> train/val/test + mean/std + all_checkpoints
+        3. grid_search_architecture() -> FlatMLPEncoder + hidden_dims + param_count
+        4. FlatMLPWithHead(encoder) -> train_encoder() -> model + history
+        5. compute_spearman(model, test_loader, device)
+        6. compute_permutation_sensitivity() -> sensitivity_dict
+        7. run_gate_check() -> gate_dict; log [H-M1] PASS/FAIL
+        8. save_results(gate_dict + sensitivity_dict + spearman)
+        9. Generate all 5 figures
+
+      Smoke test: Run 2 epochs on 100-sample subset; verify no errors; assert gate_dict keys present.
+      Entry point: if __name__ == "__main__": main()
+    feature_tag: "experiment"
+    priority: 82
+    source_document: "03_logic.md"
+    complexity: null
+    test_requirements: |
+      - test_main_smoke: Run main() with 2 epochs, 100 samples; verify completes without error
+      - test_gate_dict_keys: Verify gate_dict has gate_pass, sensitivity_score, spearman_rho
+    reference_files:
+      architecture: "03_architecture.md#A-9"
+      logic: "03_logic.md#A-9"
+      config: null
+
+  - id: "task-020"
+    epic: "Pipeline Management"
+    title: "Pipeline Continuation Checkpoint"
+    description: "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK"
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "system"
+    complexity: null
+    test_requirements: "Failsafe task does not require tests."
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+budget_summary:
+  data_preparation: 1
+  environment_setup: 1
+  epic_tasks: 9
+  subtasks: 8
+  failsafe: 1
+  total: 20

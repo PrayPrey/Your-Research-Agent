@@ -1,0 +1,8 @@
+# Title
+Modality-Agnostic Discrete Latent Spaces for Cross-Modal Structured Data Learning
+
+# Motivation
+Probabilistic methods struggle with highly structured, heterogeneous data (molecular graphs, chemical text, time series) due to modality-specific architectures and poor uncertainty quantification. Current approaches either use separate models per modality or rely on continuous embeddings that lack interpretability. This research addresses the critical gap of unified representation learning across structured modalities while providing reliable uncertainty estimates—essential for scientific applications like drug discovery where cross-modal queries (e.g., text-to-molecular-graph retrieval) and calibrated predictions are paramount.
+
+# Main Idea
+We propose a Vector-Quantized VAE with a **shared discrete codebook** (K=1024 codes) that unifies molecular graphs, SMILES text, and binding affinity time series into a single latent space. The core innovation combines discrete representation learning with cross-modal contrastive alignment: modality-specific encoders (GNN for graphs, Transformers for text/time series) map inputs to shared discrete codes, trained jointly with reconstruction and InfoNCE contrastive losses. This discretization forces modality-agnostic abstraction, while contrastive learning aligns codes from the same molecule across modalities, enabling zero-shot cross-modal transfer. We test on QM9 dataset (133k molecules), predicting ≥70% text→graph retrieval accuracy and ECE≤0.10 via Conformal Prediction—outperforming modality-specific baselines while maintaining reconstruction quality. Success demonstrates that discrete codes can unify heterogeneous structured data with distribution-free uncertainty guarantees.

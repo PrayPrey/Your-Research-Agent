@@ -1,0 +1,1 @@
+When finishing work here: verify which hypothesis folder and artifact path are authoritative, distinguish real vs mock/dry-run outputs, parse JSON/Markdown outputs rather than assuming success from file presence, and cite exact file/line evidence when summarizing experiment integrity.

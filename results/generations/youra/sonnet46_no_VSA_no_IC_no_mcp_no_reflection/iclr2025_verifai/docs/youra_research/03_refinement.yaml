@@ -1,0 +1,312 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-31T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Self-Contained Tikitaka Loop"
+  schema_version: "10.0.0"
+  gap_id: "gap-2"
+  gap_title: "No Overhead-Normalized Cross-Category Comparison of Formal Feedback Methods"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 8
+  convergence_reason: "All 6 personas participated; all convergence criteria met (SPECIFIC, MECHANISM, PREDICTIONS, NOVELTY, FEASIBILITY, OBJECTIONS addressed)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Execution monitoring feedback (Generate→Verify→Repair with test-suite oracle) improves LLM code correctness on HumanEval/MBPP"
+      status: "BUILD_ON"
+      evidence: "Self-Repair (Olausson et al., 2023); Reflexion (Shinn et al., 2023); CodeT (Bei Chen et al., 2022)"
+    - claim: "Static analysis tools (Pyright, mypy) produce structured JSON error output suitable for LLM prompt injection"
+      status: "BUILD_ON"
+      evidence: "microsoft/pyright public API; widely used in LLM code pipelines per training knowledge"
+    - claim: "Z3 SMT solver has a Python API that can check pre/post-conditions and produce counterexamples"
+      status: "BUILD_ON"
+      evidence: "Z3Prover/z3 GitHub ~10k stars; established Python API"
+    - claim: "HumanEval and MBPP benchmarks with ground-truth test suites exist and are publicly accessible"
+      status: "BUILD_ON"
+      evidence: "openai/human-eval; google-research/mbpp"
+    - claim: "No controlled cross-category comparison of formal feedback methods on the same LLM backbone and benchmarks exists"
+      status: "PROVE_NEW"
+      evidence: "Gap confirmed by literature review — Self-Repair, Reflexion, CodeT all single-category"
+    - claim: "Different formal feedback categories catch different bug types (type errors vs runtime errors vs logic errors)"
+      status: "PROVE_NEW"
+      evidence: "Mechanistic prediction from specificity analysis — not empirically demonstrated for LLM code"
+  scope_reduction_percentage: 67
+  phase2b_4_instructions: |
+    BUILD_ON claims (4/6) do not require re-verification — use as experimental infrastructure.
+    PROVE_NEW claims (2/6) are the core experimental contribution: the cross-category comparison
+    and the bug-type coverage profile. Phase 2B experiments must directly test these two claims.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-FormalFeedbackComparison-v1"
+  confidence_level: 0.72
+  core_hypothesis_statement: |
+    Under LLM code generation on HumanEval and MBPP benchmarks with a fixed backbone (GPT-4o-mini)
+    and fixed repair budget (3 iterations), if the post-generation verifier type is varied across
+    four formal feedback categories (execution monitoring, static analysis, type checking, SMT solving),
+    then correctness-per-overhead efficiency and bug-type coverage profiles will differ systematically
+    across categories, because feedback signal specificity trades off with computational overhead
+    and matches the dominant error types in these benchmarks.
+  alternative_hypothesis_h0: |
+    There is no significant difference in pass@1 improvement per unit wall-clock overhead
+    between formal feedback categories when applied to the same LLM backbone on HumanEval/MBPP.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Formal Feedback Category"
+      type: "categorical"
+      operationalization: "Which verifier sits in the Generate→Verify→Repair loop"
+      levels:
+        - "Execution monitoring (generated-test oracle, CodeT-style)"
+        - "Static analysis (Pyright JSON error injection)"
+        - "Type checking (mypy error injection)"
+        - "SMT solving (Z3 auto-extracted constraints, feasible subset only)"
+  dependent:
+    - name: "Correctness-per-Overhead Efficiency Ratio"
+      type: "continuous"
+      operationalization: "Δpass@1 (vs. no-feedback baseline) divided by mean wall-clock seconds per problem"
+      primary: true
+    - name: "pass@1 Improvement"
+      type: "continuous"
+      operationalization: "Pass@1 after repair loop minus pass@1 of vanilla generation (0 iterations), percentage points"
+      primary: false
+    - name: "Mean Wall-Clock Overhead"
+      type: "continuous"
+      operationalization: "Mean seconds from problem submission to final answer, averaged across 538 problems"
+      primary: false
+    - name: "Bug-Type Coverage Rate"
+      type: "continuous"
+      operationalization: "Fraction of problems in each bug-type stratum (type/runtime/logic error) where feedback category produced ≥1 successful repair"
+      primary: false
+  controlled:
+    - name: "LLM backbone"
+      operationalization: "GPT-4o-mini, fixed temperature 0.2 for generation, 0.0 for repair"
+    - name: "Repair iteration budget"
+      operationalization: "Maximum 3 repair attempts per problem; terminate on first pass"
+    - name: "Benchmark problems"
+      operationalization: "HumanEval 164 problems + MBPP 374 problems = 538 total; same set for all categories"
+    - name: "Feedback injection format"
+      operationalization: "Standardized prompt template: 'The verifier reported: [feedback]. Fix the following code:'"
+    - name: "Execution oracle"
+      operationalization: "CodeT-style generated tests (not evaluation test suite) to avoid circularity"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 4
+  steps:
+    - step: 1
+      description: "LLM generates initial code solution with errors distributed across bug types (type errors, runtime errors, logic errors)"
+      evidence: "HumanEval/MBPP error distribution from Self-Repair (Olausson 2023) shows mix of error types"
+      falsifier: "If initial generations have near-zero errors, no repair signal exists and the comparison is moot"
+    - step: 2
+      description: "Formal verifier produces feedback signal with specificity proportional to its formalism level: execution (pass/fail + trace) < static analysis (structured type errors) < SMT (exact counterexample)"
+      evidence: "Geng et al. 2023 (grammar overhead); Pyright/Z3 known overhead characteristics from practice"
+      falsifier: "If all feedback signals are equally informative to the LLM (no specificity gradient), efficiency differences would not follow specificity ordering"
+    - step: 3
+      description: "LLM repair quality correlates with feedback specificity — more precise signals enable more targeted edits, reducing tokens wasted on incorrect repair attempts"
+      evidence: "Self-Repair (Olausson 2023): 'verbosity of feedback matters: error trace > pass/fail only'"
+      falsifier: "If LLM repair quality is uncorrelated with feedback specificity (e.g., LLM ignores counterexample detail), the mechanism is broken"
+    - step: 4
+      description: "Overhead cost of producing the feedback signal determines the efficiency denominator — execution is O(ms), static analysis is O(100ms), SMT is O(1-10s) — creating differential efficiency ratios"
+      evidence: "Pyright: ~100-300ms/call; Z3: 1-10s/call (problem-dependent); subprocess execution: <100ms for typical HumanEval solutions"
+      falsifier: "If overhead costs are similar across categories (e.g., Z3 consistently times out at budget ceiling), efficiency differences collapse to correctness differences only"
+  key_tension: "SMT's higher specificity may reduce repair iterations needed (faster convergence) while increasing per-iteration overhead — net effect on efficiency ratio is an open empirical question"
+  evidence_summary: |
+    The causal chain is supported by: (1) Olausson 2023 showing feedback quality matters for repair;
+    (2) known overhead profiles of Pyright/Z3/subprocess; (3) theoretical specificity ordering.
+    The key unresolved empirical question is Step 4: whether SMT's faster convergence (fewer iterations)
+    offsets its higher per-iteration overhead.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "Auto-extracted Z3 constraints from HumanEval docstrings are sound enough to produce useful counterexamples (~40% problem coverage)"
+    supporting_evidence: "HumanEval docstrings contain type annotations and example I/O; LLM-generated Z3 from these is feasible per training knowledge"
+    consequence_if_violated: "SMT category cannot be fairly evaluated; comparison reduces to 3 categories"
+  - id: "A2"
+    assumption: "Bug-type classification from error traces (type error / runtime error / logic error) is reliable enough for stratified analysis"
+    supporting_evidence: "Pyright errors are typed (e.g., 'Cannot assign to member...'); runtime errors have exception types; logic errors defined as 'passes static analysis and execution runs without exception but fails tests'"
+    consequence_if_violated: "P2 (bug-type routing prediction) cannot be tested; only P1 and P3 remain"
+  - id: "A3"
+    assumption: "GPT-4o-mini is representative enough of current capable LLMs that findings generalize to GPT-4-class models"
+    supporting_evidence: "GPT-4o-mini achieves ~75-80% pass@1 on HumanEval (training knowledge); similar architecture to GPT-4o"
+    consequence_if_violated: "Results are GPT-4o-mini specific; generalization claim must be weakened"
+  - id: "A4"
+    assumption: "3 repair iterations are sufficient to observe differential effects across categories (no category requires more iterations to show benefit)"
+    supporting_evidence: "Self-Repair (Olausson 2023): 'diminishing returns after 2-3 iterations'; most gains in first 1-2 iterations"
+    consequence_if_violated: "SMT may need more iterations due to higher specificity signal processing; 3-iteration budget may favor execution monitoring artificially"
+  - id: "A5"
+    assumption: "HumanEval + MBPP problem distribution is representative enough to generalize findings to LLM code generation broadly"
+    supporting_evidence: "Both benchmarks are standard evaluation suites used by majority of LLM code generation papers"
+    consequence_if_violated: "Findings are benchmark-specific; SWE-bench or CodeContests may show different ordering"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    Post-generation formal feedback loops for Python code generation tasks.
+    Standard competitive-programming-style benchmarks (HumanEval, MBPP).
+    GPT-4-class LLM backbones.
+    Function-level code generation (not repository-level).
+  does_not_apply_to: |
+    Repository-level tasks (SWE-bench) — formal feedback at function level doesn't map cleanly.
+    Code generation in languages other than Python (SMT encoding and static analysis tooling differ).
+    Pre-generation constrained decoding approaches (Grammar-constrained decoding — different paradigm).
+    Human-in-the-loop annotation approaches.
+  known_limitations: |
+    SMT comparison restricted to ~40% of HumanEval problems (auto-extractable properties only).
+    Bug-type classification is automated heuristic (not ground-truth annotated).
+    Results are specific to GPT-4o-mini backbone — may not generalize to all LLM families.
+    Wall-clock overhead includes API latency which varies; standardize by running all conditions
+    on identical infrastructure in same time window.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Execution monitoring will achieve the highest correctness-per-overhead efficiency ratio among the four formal feedback categories on HumanEval + MBPP"
+    test_method: "Compute Δpass@1 / mean-wall-clock-seconds for each category on all 538 problems; compare ratios"
+    success_criterion: "Execution monitoring ratio ≥ 1.5× the next-best category's ratio (p < 0.05 by bootstrap confidence interval)"
+    falsification: "If any other category achieves ratio within 1.5× of execution monitoring, P1 is not confirmed"
+  - id: "P2"
+    primary: false
+    statement: "Formal feedback categories show differential bug-type coverage: static analysis improves type-error problems most, execution monitoring improves runtime-error problems most, SMT improves logic-error problems most (on annotatable subset)"
+    test_method: "Stratify 538 problems by failure type (type/runtime/logic); compute per-category repair success rate within each stratum; chi-squared test for category × stratum interaction"
+    success_criterion: "Chi-squared test significant (p < 0.05); each category shows highest coverage in its predicted stratum"
+    falsification: "If interaction is not significant or categories show uniform coverage across strata, P2 is not confirmed"
+  - id: "P3"
+    primary: false
+    statement: "Harder problems (baseline LLM pass@1 < 30%) show larger absolute pass@1 gains from formal feedback than easier problems, but the efficiency ordering (P1) is preserved within difficulty strata"
+    test_method: "Stratify problems by baseline pass@1 into easy (≥70%), medium (30-70%), hard (<30%); compute efficiency ratios per stratum; ANOVA for difficulty × category interaction"
+    success_criterion: "Hard problems show larger absolute Δpass@1 than easy (F-test p < 0.05); efficiency ordering preserved in all three strata"
+    falsification: "If hard problems show no larger gains, or efficiency ordering reverses in any stratum, P3 is not confirmed"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "HumanEval + MBPP"
+    type: "standard"
+    source: "openai/human-eval (GitHub); google-research/mbpp (GitHub)"
+    path: "Download from public GitHub repos"
+    hypothesis_fit: "Standard LLM code generation benchmarks with ground-truth test suites; used by all prior formal feedback papers enabling comparison"
+  model:
+    name: "GPT-4o-mini"
+    type: "API-based LLM (OpenAI)"
+    source: "OpenAI API"
+    hypothesis_fit: "Cost-effective capable model; ~75-80% baseline pass@1 on HumanEval leaves room for improvement; widely accessible for reproducibility"
+  baselines:
+    - name: "No feedback (vanilla generation)"
+      method: "Single-shot generation, pass@1 measured without any repair loop"
+    - name: "Execution monitoring (Self-Repair replication)"
+      method: "Replicate Olausson et al. 2023 setup: real test suite execution trace injection, 3 iterations"
+    - name: "Static analysis (Pyright)"
+      method: "pyright --outputjson; inject structured JSON errors into repair prompt"
+    - name: "Type checking (mypy)"
+      method: "mypy --show-error-codes; inject error output into repair prompt"
+    - name: "SMT solving (Z3 auto-extracted)"
+      method: "LLM-generated Z3 constraints from docstrings; Z3 counterexample injection; feasible subset only"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First controlled cross-category comparison of formal feedback methods for LLM code generation with overhead normalization and bug-type coverage profiling"
+  key_innovation: "Bug-type diagnostic routing recommendation: match formal feedback method to dominant error type in task distribution"
+  differentiation:
+    - prior_work: "Self-Repair (Olausson et al., 2023)"
+      difference: "Single category (execution feedback only); no overhead measurement; no cross-category comparison"
+    - prior_work: "Reflexion (Shinn et al., 2023)"
+      difference: "Verbal feedback (not formal methods); no overhead measurement; single category"
+    - prior_work: "CodeT (Bei Chen et al., 2022)"
+      difference: "Selection-based (not repair-based); execution oracle only; no formal category comparison"
+    - prior_work: "Grammar-Constrained Decoding (Geng et al., 2023)"
+      difference: "Generation-time constraint (not post-generation repair); single category; different paradigm"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "Self-Repair (Olausson et al., 2023)"
+      performance: "~5-10% pass@1 improvement on HumanEval/MBPP with execution feedback (GPT-4)"
+      dataset: "HumanEval, MBPP"
+      why_insufficient: "Single feedback category; no overhead measurement; no cross-category comparison"
+    - method: "Reflexion (Shinn et al., 2023)"
+      performance: "HumanEval pass@1 ~80% → ~91% with GPT-4 + verbal reflection"
+      dataset: "HumanEval"
+      why_insufficient: "Verbal feedback not formal methods; single category; no overhead normalization"
+    - method: "CodeT (Bei Chen et al., 2022)"
+      performance: "HumanEval pass@1 improvement via test-based code selection"
+      dataset: "HumanEval"
+      why_insufficient: "Selection not repair; single category; no formal method comparison"
+  best_baseline_performance: "Reflexion with GPT-4: ~91% pass@1 on HumanEval (verbal feedback)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "The four feedback categories must produce measurably different signals when applied to LLM-generated code with errors (i.e., each category must fire on some fraction of problems)"
+  sh2_mechanism: "Test the feedback-specificity-overhead trade-off mechanism: does higher specificity feedback (SMT > static analysis > execution) correlate with better per-iteration repair quality but at higher overhead cost?"
+  sh3_comparison: "Compare final efficiency ratios across all four categories on HumanEval + MBPP; secondary comparison on SMT-feasible subset only (deferred to analysis)"
+  open_questions:
+    - "What fraction of HumanEval/MBPP problems have auto-extractable Z3 properties? (Pilot needed)"
+    - "Does bug-type classification accuracy meet reliability threshold for P2 test?"
+    - "Does GPT-4o-mini respond differently to Pyright JSON vs Z3 counterexample format, confounding P2?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "8 exchanges; all 6 personas participated; all convergence criteria met"
+  clarity_verified: true
+  remaining_objections:
+    - "SMT auto-extraction soundness must be piloted (20-problem pilot recommended before full run)"
+    - "Bug-type classification reliability needs inter-rater check (automated classifier agreement)"
+
+discussion_context:
+  total_exchanges: 8
+  agent_participation:
+    dr_nova: 2
+    prof_vera: 2
+    dr_sage: 1
+    prof_pax: 1
+    dr_ally: 1
+    prof_rex: 1
+  paper_citations: 7
+  convergence_type: "qualitative"

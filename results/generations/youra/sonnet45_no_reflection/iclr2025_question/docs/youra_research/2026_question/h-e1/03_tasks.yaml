@@ -1,0 +1,395 @@
+# Phase 3 Implementation Tasks
+# Generated from Phase 3 documents for hypothesis h-e1
+# Schema version: 1.1
+
+version: "1.1"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+metadata:
+  hypothesis_id: "h-e1"
+  hypothesis_id_upper: "H-E1"
+  tier: "LIGHT"
+  total_budget: 15
+  generated_at: "2026-05-12T01:40:00Z"
+
+  source_documents:
+    - "03_prd.md"
+    - "03_architecture.md"
+    - "03_logic.md"
+    - "03_config.md"
+
+  budget_rebalancing:
+    applied: false
+    excluded_count: 0
+    excluded_ids: []
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASKS
+# All implementation tasks in priority order (highest first)
+# ═══════════════════════════════════════════════════════════════════════════════
+tasks:
+  - id: "task-001"
+    epic: "Environment Setup"
+    title: "Install dependencies and verify GPU access"
+    description: |
+      Install required Python packages and verify GPU availability.
+
+      Dependencies (from PRD Section 7):
+      - torch>=2.0.0
+      - transformers>=4.30.0
+      - datasets
+      - scipy
+      - numpy
+      - matplotlib
+      - seaborn
+
+      Verification:
+      - Run nvidia-smi to confirm GPU access
+      - Test model loading with Llama-3-8B-Instruct
+      - Verify CUDA_VISIBLE_DEVICES can be set
+    feature_tag: "setup"
+    priority: 94
+    source_document: "03_prd.md"
+    complexity: 5
+    test_requirements: |
+      - Verify all packages importable
+      - Confirm GPU device available via torch.cuda.is_available()
+      - Test model initialization without errors
+    reference_files:
+      architecture: "03_architecture.md#A-1"
+      logic: null
+      config: "03_config.md"
+
+  - id: "task-002"
+    epic: "Data Pipeline"
+    title: "Load TruthfulQA dataset and implement 70/30 split"
+    description: |
+      Load TruthfulQA dataset from HuggingFace and split into train/test sets.
+
+      Requirements (from PRD FR-1.1):
+      - Load truthful_qa/generation dataset
+      - 817 total questions expected
+      - Split: 70/30 train/test (572 train, 245 test)
+      - Tokenize with Llama-3 tokenizer
+      - Verify data quality (no corrupted entries)
+
+      Implementation (from Architecture):
+      - Create data/loader.py module
+      - Implement TruthfulQALoader class
+      - Methods: load_dataset(), split_data(), tokenize()
+    feature_tag: "data-preparation"
+    priority: 93
+    source_document: "03_prd.md"
+    complexity: 6
+    test_requirements: |
+      - Verify 817 total questions loaded
+      - Confirm 572/245 train/test split
+      - Validate all questions tokenizable
+      - Check final token position identifiable
+    reference_files:
+      architecture: "03_architecture.md#A-2"
+      logic: "03_logic.md#TruthfulQALoader"
+      config: "03_config.md"
+
+  - id: "task-003"
+    epic: "Model Infrastructure"
+    title: "Implement hidden state extraction from layers 24-31"
+    description: |
+      Extract hidden states from Llama-3-8B-Instruct layers 24-31 at final token position.
+
+      Requirements (from PRD FR-2):
+      - Load model with output_hidden_states=True
+      - Extract layers 24-31 hidden states
+      - Position: Final token before generation
+      - Shape per layer: [N, 4096] where N = batch size
+
+      Implementation (from Logic):
+      - Create models/extractor.py module
+      - Implement HiddenStateExtractor class
+      - Methods: load_model(), extract_hidden_states(), get_final_token_states()
+      - Handle batching for memory efficiency
+    feature_tag: "model"
+    priority: 92
+    source_document: "03_prd.md"
+    complexity: 9
+    test_requirements: |
+      - Verify 8 layers extracted (indices 24-31)
+      - Confirm shape [N, 4096] per layer
+      - Validate final token position correct
+      - Test batching works without OOM
+    reference_files:
+      architecture: "03_architecture.md#A-3"
+      logic: "03_logic.md#HiddenStateExtractor"
+      config: "03_config.md"
+
+  - id: "task-004"
+    epic: "Geometric Features"
+    title: "Implement covariance and eigenvalue computation"
+    description: |
+      Compute covariance matrix and eigenvalues from hidden states.
+
+      Requirements (from PRD FR-3.4):
+      - Concatenate hidden states across 8 layers: [N×8, 4096]
+      - Mean-center: X_centered = X - mean(X, dim=0)
+      - Compute: C = (X_centered^T @ X_centered) / (N×8 - 1)
+      - Use torch.linalg.eigvalsh for symmetric matrix
+
+      Implementation:
+      - Create metrics/geometric.py module
+      - Implement GeometricFeatureComputer class
+      - Methods: compute_covariance(), compute_eigenvalues()
+      - Add numerical stability (epsilon=1e-12)
+    feature_tag: "model"
+    priority: 91
+    source_document: "03_prd.md"
+    complexity: 12
+    test_requirements: |
+      - Verify covariance matrix is symmetric
+      - Confirm eigenvalues sum equals trace
+      - Test numerical stability with edge cases
+      - Validate shape consistency
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#GeometricFeatureComputer"
+      config: "03_config.md"
+
+  - id: "task-005"
+    epic: "Geometric Features"
+    title: "Implement PR, eigenvalue decay, and condition number metrics"
+    description: |
+      Compute three geometric features: Participation Ratio, eigenvalue decay rate, condition number.
+
+      Requirements (from PRD FR-3.1 to FR-3.3):
+      - PR = (Σλᵢ)² / (Σλᵢ²), range [1, D] where D=4096
+      - α (decay rate) = slope of log(λᵢ) vs. index via linear regression
+      - κ (condition number) = λ_max / λ_min with ε=1e-12 for stability
+
+      Implementation:
+      - Add methods to GeometricFeatureComputer
+      - compute_participation_ratio()
+      - compute_eigenvalue_decay()
+      - compute_condition_number()
+      - compute_all_features() aggregator
+    feature_tag: "evaluation"
+    priority: 90
+    source_document: "03_prd.md"
+    complexity: 12
+    test_requirements: |
+      - Verify PR in valid range [1, 4096]
+      - Check decay rate computation correct
+      - Test condition number stability
+      - Validate against known eigenvalue distributions
+    reference_files:
+      architecture: "03_architecture.md#A-4"
+      logic: "03_logic.md#GeometricFeatureComputer"
+      config: "03_config.md"
+
+  - id: "task-006"
+    epic: "Semantic Entropy"
+    title: "Implement K=10 sampling and generation"
+    description: |
+      Generate K=10 samples per question with temperature sampling.
+
+      Requirements (from PRD FR-4.1):
+      - Generate K=10 samples per question
+      - Temperature T=0.7
+      - Use nucleus/top-p sampling
+      - Store generation likelihoods
+
+      Implementation:
+      - Create metrics/semantic_entropy.py module
+      - Implement SemanticEntropyComputer class
+      - Method: generate_samples(questions, k, temperature)
+      - Handle batch generation for efficiency
+    feature_tag: "model"
+    priority: 89
+    source_document: "03_prd.md"
+    complexity: 14
+    test_requirements: |
+      - Verify K=10 samples generated per question
+      - Confirm temperature T=0.7 applied
+      - Test generation diversity
+      - Validate likelihoods stored correctly
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#SemanticEntropyComputer"
+      config: "03_config.md"
+
+  - id: "task-007"
+    epic: "Semantic Entropy"
+    title: "Implement NLI clustering and semantic entropy computation"
+    description: |
+      Cluster semantically equivalent generations using NLI model and compute semantic entropy.
+
+      Requirements (from PRD FR-4.2 to FR-4.3):
+      - Model: DeBERTa-v3-base-mnli-fever-anli
+      - Cluster semantically equivalent generations
+      - Compute SE = -Σ p_i log(p_i) where p_i = cluster_count_i / K
+      - Range: [0, log(K)] ≈ [0, 2.3] bits
+
+      Implementation:
+      - Add methods: cluster_generations(), compute_entropy()
+      - Use jlko/semantic_uncertainty repository pattern
+      - Aggregate: compute_all_entropies()
+    feature_tag: "evaluation"
+    priority: 88
+    source_document: "03_prd.md"
+    complexity: 14
+    test_requirements: |
+      - Verify NLI model loads correctly
+      - Test clustering on sample generations
+      - Validate entropy in range [0, 2.3]
+      - Check edge cases (all same/all different)
+    reference_files:
+      architecture: "03_architecture.md#A-5"
+      logic: "03_logic.md#SemanticEntropyComputer"
+      config: "03_config.md"
+
+  - id: "task-008"
+    epic: "Correlation Analysis"
+    title: "Implement Spearman correlation and bootstrap CI"
+    description: |
+      Compute Spearman correlation between geometric features and semantic entropy with bootstrap validation.
+
+      Requirements (from PRD FR-5.1 to FR-5.2):
+      - Spearman correlation for each feature (PR, α, κ) vs SE
+      - Test set only (N=245)
+      - p-value < 0.001 threshold
+      - Bootstrap 95% CI (1000 resamples)
+      - Verify CI excludes 0.3
+
+      Implementation:
+      - Create analysis/correlation.py module
+      - Implement CorrelationAnalyzer class
+      - Methods: compute_spearman(), bootstrap_ci()
+    feature_tag: "evaluation"
+    priority: 87
+    source_document: "03_prd.md"
+    complexity: 10
+    test_requirements: |
+      - Verify scipy.stats.spearmanr used correctly
+      - Test bootstrap produces valid CI
+      - Validate p-value computation
+      - Check CI exclusion logic
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: "03_logic.md#CorrelationAnalyzer"
+      config: "03_config.md"
+
+  - id: "task-009"
+    epic: "Correlation Analysis"
+    title: "Implement visualization and gate evaluation"
+    description: |
+      Generate correlation plots and evaluate MUST_WORK gate criteria.
+
+      Requirements (from PRD FR-5.3):
+      - Scatter plots: Each feature vs SE with regression line
+      - Distribution plots: Feature distributions for high/low SE
+      - Correlation heatmap
+      - Bootstrap CI plot
+
+      Gate Evaluation:
+      - Check |ρ| > 0.4 for at least one feature
+      - Verify p < 0.001
+      - Confirm 95% CI excludes 0.3
+
+      Implementation:
+      - Add methods: plot_scatter(), plot_distributions(), plot_correlation_heatmap()
+      - evaluate_gate() function in main.py
+    feature_tag: "evaluation"
+    priority: 86
+    source_document: "03_prd.md"
+    complexity: 10
+    test_requirements: |
+      - Verify all plots generated
+      - Test gate evaluation logic
+      - Validate output format
+      - Check edge case handling
+    reference_files:
+      architecture: "03_architecture.md#A-6"
+      logic: "03_logic.md#CorrelationAnalyzer"
+      config: "03_config.md"
+
+  - id: "task-010"
+    epic: "Experiment Runner"
+    title: "Implement main experiment orchestration"
+    description: |
+      Create main experiment script that orchestrates all components and generates validation report.
+
+      Requirements:
+      - Integrate all modules (data, model, metrics, analysis)
+      - Run full pipeline: data → extraction → features → entropy → correlation
+      - Evaluate MUST_WORK gate
+      - Generate 04_validation.md report
+      - Save results (features.csv, entropies.csv, correlation_results.json)
+
+      Implementation:
+      - Create main.py module
+      - Implement run_experiment() function
+      - Add argparse for configuration
+      - Include logging for progress tracking
+    feature_tag: "experiment"
+    priority: 85
+    source_document: "03_architecture.md"
+    complexity: 8
+    test_requirements: |
+      - Test end-to-end pipeline execution
+      - Verify all outputs generated
+      - Validate gate evaluation
+      - Check error handling
+    reference_files:
+      architecture: "03_architecture.md#MainExperiment"
+      logic: "03_logic.md#MainExperiment"
+      config: "03_config.md"
+
+  - id: "task-011"
+    epic: "Pipeline Continuation"
+    title: "Failsafe - Pipeline continuation checkpoint"
+    description: |
+      Automatic checkpoint task ensuring hypothesis loop can continue after Phase 4.
+
+      This task verifies:
+      - All implementation tasks completed
+      - 04_validation.md exists
+      - verification_state.yaml updated with validation results
+      - Gate evaluation recorded
+
+      If this task is reached, Phase 4 is considered complete and the pipeline
+      can proceed to Phase 5 (baseline comparison) or next hypothesis.
+    feature_tag: "pipeline-continue"
+    priority: 1
+    source_document: "workflow"
+    complexity: 0
+    test_requirements: |
+      - Verify 04_validation.md exists
+      - Check verification_state.yaml updated
+      - Confirm gate result recorded
+    reference_files:
+      architecture: null
+      logic: null
+      config: null
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUDGET SUMMARY
+# Task counts by category
+# ═══════════════════════════════════════════════════════════════════════════════
+budget_summary:
+  data_preparation: 1     # task-002: TruthfulQA dataset loading
+  environment_setup: 1    # task-001: Dependencies and GPU setup
+  epic_tasks: 8           # task-003 to task-010: Implementation tasks
+  subtasks: 0             # No subtasks for LIGHT tier
+  failsafe: 1             # task-011: Pipeline continuation
+  total: 11               # Within LIGHT budget (≤15)
+
+# Task extraction notes:
+# - Extracted 6 Epic tasks from 03_architecture.md (A-1 to A-6)
+# - Split A-4 (Geometric Features, complexity 12) into 2 tasks: covariance+eigenvalues, metrics
+# - Split A-5 (Semantic Entropy, complexity 14) into 2 tasks: sampling, clustering+entropy
+# - Split A-6 (Correlation Analysis, complexity 10) into 2 tasks: statistics, visualization+gate
+# - Added environment setup from PRD dependencies
+# - Added data preparation from PRD data specification
+# - Added main experiment orchestration
+# - Added failsafe task for pipeline continuation
+# - Total: 11 tasks (within LIGHT budget of 15)

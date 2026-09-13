@@ -1,0 +1,267 @@
+version: "1.0"
+
+metadata:
+  hypothesis_id: h-e1
+  hypothesis_type: EXISTENCE
+  tier: LIGHT
+  total_budget: 15
+  epic_range: [4, 8]
+  created_at: "2026-08-05"
+  phase3_documents:
+    prd: docs/youra_research/h-e1/03_prd.md
+    architecture: docs/youra_research/h-e1/03_architecture.md
+    logic: docs/youra_research/h-e1/03_logic.md
+    config: docs/youra_research/h-e1/03_config.md
+
+tasks:
+  # ─── Data Preparation (priority 100-95) ───────────────────────────────────
+
+  - id: D-1
+    type: data-preparation
+    title: "Download and cache SANE MultiZoo (MLP+CNN)"
+    description: |
+      Clone HSG-AIML/MultiZoo-SANE and run data/download.py to download ~30k MLP+CNN
+      model checkpoints. Cache to DATA_ROOT/multizoo/. Verify download integrity.
+      Command: git clone https://github.com/HSG-AIML/MultiZoo-SANE && python data/download.py
+    priority: 100
+    reference_files:
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "4.1 Training Dataset"
+    acceptance_criteria:
+      - "DATA_ROOT/multizoo/ contains MLP and CNN checkpoint files"
+      - "At least 25000 checkpoint files present"
+
+  - id: D-2
+    type: data-preparation
+    title: "Download and cache ViT Model Zoo (250 models)"
+    description: |
+      Clone ModelZoos/ModelZooDownloader and download all 250 ViT models with accuracy labels.
+      Cache to DATA_ROOT/vit/. This is the held-out test set — ZERO training data from here.
+      Command: git clone https://github.com/ModelZoos/ModelZooDownloader && python download.py --zoo vit
+    priority: 99
+    reference_files:
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "4.2 Test Dataset"
+    acceptance_criteria:
+      - "DATA_ROOT/vit/ contains 250 ViT model checkpoint files"
+      - "Accuracy labels file present (labels.csv or equivalent)"
+
+  # ─── Environment Setup (priority 94) ──────────────────────────────────────
+
+  - id: S-1
+    type: setup
+    title: "Set up environment and clone external repositories"
+    description: |
+      Install Python packages (torch, torch_geometric, numpy, scikit-learn, matplotlib,
+      seaborn, pyyaml, tqdm). Clone and set up: jkalogero/scalegmn,
+      odyboufalaki/Symmetry-Aware-Graph-Metanetwork-Autoencoders, HSG-AIML/SANE,
+      yiftachbeer/mmd_loss_pytorch. Create h-e1/code/ directory structure per architecture doc.
+    priority: 94
+    reference_files:
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "7. Dependencies"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "External Dependencies"
+    acceptance_criteria:
+      - "import torch_geometric succeeds"
+      - "jkalogero/scalegmn repo cloned and importable via sys.path"
+      - "h-e1/code/ directory structure created"
+
+  # ─── Epic Implementation Tasks (priority 93-50) ───────────────────────────
+
+  - id: E-1
+    type: data-pipeline
+    title: "Graph Data Pipeline: checkpoint-to-graph conversion + augmentations"
+    description: |
+      Implement MultiZooGraphDataset and ViTZooGraphDataset converting PyTorch state_dicts
+      to PyG Data objects with uniform schema (node=bias, edge=weight, structure=dict).
+      Implement scale_augment, perm_augment, make_positive_pair for contrastive pairs.
+      Must handle MLP, CNN, and ViT checkpoint formats with same graph schema.
+    priority: 93
+    complexity: 14
+    files:
+      - h-e1/code/data/multizoo_graph_dataset.py
+      - h-e1/code/data/vitzoo_graph_dataset.py
+      - h-e1/code/data/augmentations.py
+    reference_files:
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "E-1: Graph Data Pipeline"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "E-1"
+    acceptance_criteria:
+      - "checkpoint_to_graph(state_dict) returns Data with x:(N,1), edge_attr:(E,1), edge_index:(2,E)"
+      - "Same function works for MLP, CNN, and ViT checkpoints"
+      - "make_positive_pair returns two functionally equivalent augmented views"
+      - "DataLoader with batch_size=64 produces batched Data objects"
+
+  - id: E-2
+    type: model
+    title: "EquiSSL Encoder: ScaleGMN wrapper with monomial symmetry"
+    description: |
+      Implement EquiSSLEncoder wrapping jkalogero/scalegmn with symmetry='monomial'.
+      Add projection head (Linear→ReLU→Linear) to latent_dim=128. Output must be
+      L2-normalized. Verify ScaleGMN constructor args from actual repo source.
+    priority: 88
+    complexity: 15
+    files:
+      - h-e1/code/models/equissl_encoder.py
+    reference_files:
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "E-2: EquiSSL Encoder Wrapper"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "E-2"
+    acceptance_criteria:
+      - "EquiSSLEncoder(scalegmn_path=...) instantiates without error"
+      - "forward(Data) returns (B, 128) L2-normalized tensor"
+      - "Two augmented views of same graph produce nearby latent codes"
+
+  - id: E-3
+    type: model
+    title: "Graph Decoder + EquiSSL Objective (NT-Xent + MSE)"
+    description: |
+      Implement GraphDecoder (z + structure → reconstructed edge_attr).
+      Implement nt_xent_loss (SimCLR-style, temperature=0.07).
+      Implement EquiSSLObjective combining both losses: total = NT-Xent + lam * MSE.
+      EquiSSLObjective.forward returns (total_loss, z_a.detach()).
+    priority: 83
+    complexity: 13
+    files:
+      - h-e1/code/models/graph_decoder.py
+      - h-e1/code/models/equissl_objective.py
+    reference_files:
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "L-E2-3"
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "L-E2-4"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "E-3"
+    acceptance_criteria:
+      - "nt_xent_loss(z_a, z_b) returns scalar tensor, differentiable"
+      - "EquiSSLObjective.forward returns (scalar_loss, (B,128) tensor)"
+      - "GraphDecoder output shape matches graph_a.edge_attr shape"
+
+  - id: E-4
+    type: model
+    title: "SANE Baseline Wrapper: training and latent extraction"
+    description: |
+      Implement train_sane() wrapping HSG-AIML/SANE training pipeline.
+      Implement extract_sane_latents() to encode all MultiZoo + ViT models.
+      Must use same 5 seeds as EquiSSL. Save checkpoint per seed.
+    priority: 78
+    complexity: 10
+    files:
+      - h-e1/code/training/train_sane_baseline.py
+    reference_files:
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "E-4"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "FR-3"
+    acceptance_criteria:
+      - "train_sane(seed=0, data_root=...) completes without error"
+      - "extract_sane_latents returns (N_models, latent_dim) tensor"
+      - "Checkpoint saved to checkpoint_dir/sane/seed_{seed}/"
+
+  - id: E-5
+    type: training
+    title: "EquiSSL SSL Training Loop: λ sweep + best-λ selection"
+    description: |
+      Implement train_equissl() with Adam + CosineAnnealingLR, 100 epochs, batch_size=64.
+      Implement run_lambda_sweep() training all 4 λ values {0.01, 0.1, 1.0, 10.0}.
+      Implement select_best_lambda() picking best λ by validation reconstruction MSE.
+      Save best checkpoint per seed. Log NT-Xent + recon loss per epoch to CSV.
+    priority: 73
+    complexity: 12
+    files:
+      - h-e1/code/training/train_equissl.py
+      - h-e1/code/config.py
+    reference_files:
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "E-5"
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "1. config.py"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "FR-4"
+    acceptance_criteria:
+      - "run_lambda_sweep(seed=0) completes all 4 λ values"
+      - "select_best_lambda returns (float, str) — best λ and checkpoint path"
+      - "CSV log written with columns: epoch, ntxent_loss, recon_loss, val_recon_loss"
+      - "Checkpoint saved for best epoch per (λ, seed)"
+
+  - id: E-6
+    type: evaluation
+    title: "MMD Evaluation: compute ratio and gate check"
+    description: |
+      Implement compute_mmd() using yiftachbeer/mmd_loss_pytorch RBF kernel (median heuristic).
+      Implement compute_mmd_ratio() for both SANE and EquiSSL latents vs ViT latents.
+      Implement gate_check() returning PASS/WARN/STOP. Save results.json per-seed and summary.
+      Run over all 5 seeds, report mean±std ratio.
+    priority: 68
+    complexity: 11
+    files:
+      - h-e1/code/evaluation/mmd_eval.py
+      - h-e1/code/run_experiment.py
+    reference_files:
+      - file: docs/youra_research/h-e1/03_logic.md
+        section: "MMD Evaluation Logic"
+      - file: docs/youra_research/h-e1/03_config.md
+        section: "3. results.json Schema"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "FR-5"
+    acceptance_criteria:
+      - "compute_mmd(z_train, z_vit) returns finite positive float"
+      - "compute_mmd_ratio returns dict with mmd_sane, mmd_equi, ratio, gate keys"
+      - "results.json written with all 5 seeds + summary"
+      - "gate_result is 'PASS', 'WARN', or 'STOP'"
+
+  - id: E-7
+    type: evaluation
+    title: "Visualization + Reporting: figures and 04_validation.md"
+    description: |
+      Implement t-SNE 2D plot of train_z and vit_z for both encoders (2x2 panel).
+      Implement MMD bar chart (SANE vs EquiSSL with ratio annotation).
+      Implement L2 distance histogram and training curves for λ sweep.
+      Write 04_validation.md with gate result, MMD values, and pass/fail summary.
+    priority: 55
+    complexity: 8
+    files:
+      - h-e1/code/evaluation/visualize.py
+      - h-e1/figures/
+    reference_files:
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "FR-6"
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "FR-7"
+      - file: docs/youra_research/h-e1/03_architecture.md
+        section: "E-7"
+    acceptance_criteria:
+      - "figures/mmd_comparison.png exists after run"
+      - "figures/tsne_comparison.png exists after run"
+      - "04_validation.md written with gate_result and ratio values"
+
+  # ─── Failsafe Checkpoint (priority 1) ────────────────────────────────────
+
+  - id: F-1
+    type: checkpoint
+    title: "Pipeline continuation checkpoint"
+    description: |
+      Verify gate result from results.json. If gate_result == 'PASS', mark h-e1 complete
+      and signal readiness for H-M1. If 'STOP', record failure in verification_state.yaml
+      and halt hypothesis chain. If 'WARN', continue with limitation noted.
+    priority: 1
+    reference_files:
+      - file: docs/youra_research/h-e1/03_prd.md
+        section: "8. Success Criteria"
+    acceptance_criteria:
+      - "verification_state.yaml updated with validation.status"
+      - "gate_result logged and acted upon"
+
+budget_summary:
+  data_preparation: 2
+  setup: 1
+  epic_tasks: 7
+  subtasks: 0
+  checkpoint: 1
+  total: 11
+  budget: 15
+  within_budget: true
+  note: "11/15 tasks used; 4 slots reserved for contingency. LIGHT tier EXISTENCE PoC."

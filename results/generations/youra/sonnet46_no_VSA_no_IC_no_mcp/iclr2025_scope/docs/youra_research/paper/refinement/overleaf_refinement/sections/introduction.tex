@@ -1,0 +1,25 @@
+
+The memory cost of the KV cache during long-context autoregressive inference scales linearly with sequence length. For a 7--8B parameter model at float16 precision with a 32K context, this cost can reach tens of gigabytes, limiting practical throughput. KV cache eviction methods address this by selectively retaining only the highest-importance key-value entries [Zhang et al., 2023; Li et al., 2024; Liu et al., 2023]. However, all major eviction methods were developed under Multi-Head Attention (MHA), where each query head has a private KV head. Modern open-weight models --- LLaMA-3, Mistral, Phi-3 --- use Grouped Query Attention (GQA) \citep{Ainslie2023GQA}, where G query heads share one KV head.
+
+This architectural change introduces an aggregation problem that existing methods have not formally addressed. When computing per-KV-head eviction importance scores, methods such as H2O \citep{Zhang2023H2O} and SnapKV \citep{Li2024SnapKV} implicitly reduce per-query-head scores via mean-pooling before making eviction decisions at the KV-head level. Mean aggregation applies a 1/G weighting to each query head's signal. For G=4 (the case in LLaMA-3-8B, which has 32 query heads and 8 KV heads), any query head that attends intensely to a specific KV position contributes only 25\% of the GroupMean score for that position. If the other three query heads in the group do not attend to the same position, the score may fall below the eviction threshold despite a minority head's strong signal.
+
+Max-aggregation (GQA-GroupMax) selects the maximum attention weight across the G query heads sharing each KV head. This preserves the full signal from the most attentive query head and avoids the 1/G dilution effect. The GQA-GroupMax approach is a distinct but practically available alternative: KVCache-Factory [Cai et al., 2024b] already exposes \texttt{--gqa\textbackslash \_score\textbackslash \_agg mean|max|sum} as a configuration parameter, confirming the aggregation choice is an open engineering decision in production-scale systems.
+
+This paper reports two diagnostic experiments designed to characterize whether the GroupMax/GroupMean distinction produces meaningfully different eviction decisions:
+
+\begin{itemize}
+\item \textbf{H-E1} tests whether within-group query-head attention diversity is sufficient to make GroupMax and GroupMean diverge (existence prerequisite).
+\item \textbf{H-M1} measures the Spearman rank correlation between GroupMax and GroupMean eviction score vectors (mechanism test).
+\end{itemize}
+
+Both gates were not met on the primary model LLaMA-3-8B. We report the results, diagnose the confounds, and document the infrastructure built, which is reusable for downstream performance comparison experiments.
+
+\subsubsection{Contributions}
+
+\begin{enumerate}
+\item A formal treatment of the aggregation function as an explicit design variable for GQA-native KV cache eviction, distinguishing GroupMax and GroupMean as distinct and testable alternatives.
+\item Empirical measurements of within-group query-head attention cosine similarity across LLaMA-3-8B, Mistral-7B, and Phi-3-mini on LongBench retrieval tasks.
+\item Empirical measurement of GroupMax/GroupMean Spearman rank correlation on LLaMA-3-8B, with identification of a sequence-length confound that attenuates divergence at the tested 2048-token truncation length.
+\item Validated, reusable measurement infrastructure (AttentionDiversityMeter, GQAEvictionScoreHook, Spearman evaluation pipeline) for follow-on experiments.
+\end{enumerate}
+

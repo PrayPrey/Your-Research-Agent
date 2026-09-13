@@ -1,0 +1,118 @@
+
+Our methodology follows a controlled experimental design to isolate and measure the relationship between data quality metrics Q(D) and information density.
+
+\subsubsection{Data Quality Metric Q(D)}
+
+We define data quality as a composite of four components, each capturing a distinct aspect of information content:
+
+\textbf{Deduplication Ratio} measures redundancy removal. Duplicate or near-duplicate documents carry zero marginal information. We compute the deduplication ratio as:
+
+$$
+\text{dedup\_ratio} = 1 - \frac{\text{tokens in duplicates}}{\text{total tokens}}
+$$
+
+where duplicates are identified via MinHash LSH with Jaccard similarity threshold 0.9. A corpus with 40\% duplicate content has dedup\_ratio = 0.6. Higher values indicate less redundancy.
+
+\textbf{Domain Diversity} measures concept coverage breadth. A corpus drawn from only one domain has narrower information content than one spanning multiple domains. We compute diversity via Shannon entropy over domain distributions:
+
+$$
+\text{diversity} = -\sum_{i=1}^{N} p_i \log p_i
+$$
+
+where $p_i$ is the fraction of tokens from domain $i$. We use 8 C4 source domains. Uniform distribution maximizes diversity.
+
+\textbf{Perplexity Score} measures signal-to-noise ratio. High-perplexity text is harder for a reference language model to predict, indicating either noise or unusual information. We score documents using GPT-2 small (125M parameters) and normalize:
+
+$$
+\text{perplexity\_score} = 1 - \frac{\log(\text{ppl}) - \log(\text{ppl}_{\min})}{\log(\text{ppl}_{\max}) - \log(\text{ppl}_{\min})}
+$$
+
+where lower perplexity (more predictable) scores higher.
+
+\textbf{Token Efficiency} measures signal density within documents. Documents with excessive whitespace or boilerplate carry less information per token. We compute:
+
+$$
+\text{efficiency} = \frac{\text{content tokens}}{\text{total tokens}}
+$$
+
+where content tokens exclude punctuation-only sequences, whitespace runs, and repetitive boilerplate patterns.
+
+\textbf{Composite Q(D):} We combine components via weighted average:
+
+$$
+Q(D) = w_1 \cdot \text{dedup\_ratio} + w_2 \cdot \text{diversity} + w_3 \cdot \text{perplexity\_score} + w_4 \cdot \text{efficiency}
+$$
+
+where weights $w_i$ are learned via linear regression against information density.
+
+\subsubsection{Information Density Measurement}
+
+Information density quantifies how much learning content each token provides. We measure it through three complementary proxies:
+
+\textbf{Token Entropy} measures average information content per token via Shannon entropy over the unigram distribution:
+
+$$
+H_{\text{token}} = -\sum_{t \in V} \frac{c(t)}{N} \log\_2 \frac{c(t)}{N}
+$$
+
+Higher entropy indicates more uniform token distribution, implying richer vocabulary usage. We normalize by $log_{2}|V|$ to get density $\in$ [0,1].
+
+\textbf{N-gram Redundancy} measures repetitive structure via 3-gram and 5-gram overlap statistics:
+
+$$
+\text{redundancy}_n = \frac{\text{repeated n-grams}}{\text{total n-grams}}
+$$
+
+and invert to get diversity\_n = 1 - redundancy\_n. High redundancy indicates formulaic, repetitive text.
+
+\textbf{Semantic Diversity} measures concept coverage via embedding-based analysis. We encode sentences using SentenceTransformer, compute pairwise cosine similarities, and measure average distance:
+
+$$
+\text{semantic\_diversity} = 1 - \frac{1}{N(N-1)} \sum_{i \neq j} \text{sim}(e\_i, e\_j)
+$$
+
+\textbf{Combined Density:} We average the three proxies (after normalization to [0,1]):
+
+$$
+\text{info\_density} = \frac{1}{3}(H_{\text{norm}} + \text{diversity}_{\text{ngram}} + \text{semantic\_diversity})
+$$
+
+\subsubsection{Controlled Experimental Design}
+
+To isolate each quality dimension's effect, we create 12 C4 subsets (10GB each, 120GB total) with systematic quality variations:
+
+\begin{itemize}
+\item 3 deduplication levels: None (baseline, ~40\% duplicates), Medium (~20\% duplicates), High (<5\% duplicates)
+\item 3 diversity levels: Low (single domain), Medium (4 domains), High (8 domains)
+\item 3 perplexity levels: Low (bottom 33\% GPT-2 perplexity), Medium (middle 33\%), High (top 33\%)
+\item 3 efficiency levels: Low (<50th percentile), Medium (50-75th), High (>75th)
+\end{itemize}
+
+We use a fractional factorial design to cover all dimensions without requiring 81 subsets. We sample 12 combinations that maximize orthogonality between factors.
+
+Each subset is created by:
+\begin{enumerate}
+\item Sampling from C4 (allenai/c4, en split) to select 10GB matching the target quality profile
+\item Computing Q(D) metrics via MinHash LSH deduplication detection, domain classification, GPT-2 perplexity scoring, and efficiency analysis
+\item Computing information density via token entropy, n-gram redundancy, and semantic diversity
+\item Correlation analysis: Pearson and Spearman correlations with p-value testing at $\alpha$ = 0.01
+\end{enumerate}
+
+\textbf{Success criterion:} All four Q(D) components achieve r > 0.5 and p < 0.01.
+
+\subsubsection{Reproducibility Testing}
+
+We independently resample three additional C4 subsets at the ''Medium'' quality level and compute coefficient of variation (CV = $\sigma /\mu )$ across the four instances.
+
+\textbf{Success criterion:} CV < 10\% for all components.
+
+\subsubsection{Implementation Details}
+
+All experiments use:
+\begin{itemize}
+\item Dataset: C4 (allenai/c4, en split)
+\item Deduplication: MinHash LSH with 128 hash functions, Jaccard threshold 0.9
+\item Perplexity model: GPT-2 small (125M params)
+\item Embedding model: SentenceTransformer all-MiniLM-L6-v2
+\item Computation: V100 GPUs (32GB), 9.2 GPU-hours total
+\end{itemize}

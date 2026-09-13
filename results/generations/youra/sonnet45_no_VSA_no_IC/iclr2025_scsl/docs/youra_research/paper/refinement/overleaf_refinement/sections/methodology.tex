@@ -1,0 +1,80 @@
+
+\subsubsection{3.1 Gradient Abnormality Detection Pipeline}
+
+We extend GAIA from out-of-distribution detection to minority group detection within in-distribution data. The pipeline operates in three stages:
+
+\textbf{Stage 1: GradCAM Extraction.} For test sample $x_i$ with predicted class $c$, compute gradient of class score $S_c$ with respect to final convolutional layer activations $A^k$ (channel $k$):
+
+$$\alpha_c^k = \frac{1}{Z} \sum_{i,j} \frac{\partial S_c}{\partial A_{i,j}^k}$$
+
+where $Z$ is the spatial dimension. Gradient-weighted activation map:
+
+$$L_{\text{GradCAM}} = \text{ReLU}\left(\sum_k \alpha_c^k A^k\right)$$
+
+\textbf{Stage 2: GAIA-Z Computation.} Measure gradient sparsity via near-zero element ratio:
+
+$$\text{GAIA-Z}(x) = \frac{|\{g_{ij} : |g_{ij}| < \epsilon\}|}{|G|}$$
+
+where $G = \nabla_A S_c$ is the gradient tensor, $\epsilon = 10^{-5}$ is the near-zero threshold. Higher GAIA-Z indicates denser gradients (more abnormal). Minority samples expected to have lower GAIA-Z (fewer near-zero gradients) due to gradient scattering.
+
+\textbf{Stage 3: Statistical Testing.} Split test samples by group membership: $\mathcal{M}$ (minority), $\mathcal{J}$ (majority). Compute divergence $\Delta = |\text{mean}(\text{GAIA-Z}_\mathcal{M}) - \text{mean}(\text{GAIA-Z}_\mathcal{J})|$, perform Welch's t-test ($H_0: \mu_\mathcal{M} = \mu_\mathcal{J}$), and calculate Cohen's d effect size.
+
+Detection criterion: Divergence $\geq 0.2$, p<0.01, Cohen's $d\geq 0.8$ (large effect).
+
+\subsubsection{3.2 Causal Mechanism: 4-Step Chain}
+
+The hypothesis proposes gradient abnormality arises causally from spurious conflict:
+
+\textbf{Step 1:} Model learns spurious shortcut (90\% background-class correlation in training).  
+\textbf{Step 2:} Minority samples create conflict --- spurious feature (waterbird on land) contradicts expected shortcut (waterbird on water).  
+\textbf{Step 3:} Conflict manifests as gradient scattering --- attribution attempts to explain prediction using both spurious region (background) and core region (bird), producing dense, noisy gradients.  
+\textbf{Step 4:} Higher GAIA-Z score detects scattering, enabling minority group identification.
+
+Falsifiable prediction (Step 2 validation): If spurious mismatch causes abnormality, then background swap (minority $\rightarrow$ majority background) should reduce GAIA-Z by $\geq 30$\%.
+
+\subsubsection{3.3 Background Augmentation Causality Test}
+
+To validate Step 2 (conflict $\rightarrow$ scattering), we perform intervention:
+
+\begin{enumerate}
+\item Select minority samples with mismatched backgrounds
+\item Apply background swap: replace minority background with majority-group background using semantic segmentation
+\item Compute GAIA-Z before and after augmentation
+\item Paired t-test: $H_0: \text{mean}(z - \tilde{z}) = 0$
+\end{enumerate}
+
+Success criterion: Mean reduction $\geq 30$\%, p<0.05, Cohen's $d\geq 0.5$ (medium effect).
+
+Rationale: Causal intervention removes spurious conflict $\rightarrow$ gradient scattering should decrease. Non-causal explanation (sample complexity) would not change after background swap.
+
+\subsubsection{3.4 Spatial Gradient Regularization}
+
+We propose training-time regularization that penalizes gradients in spurious regions identified via GradCAM difference maps.
+
+\textbf{Algorithm:}
+
+\textbf{Step 1: GradCAM Difference Map.} Compute per-class GradCAM maps $M_c = \text{GradCAM}(x, c)$ for all classes. Difference map highlights spurious regions: $M_{\text{diff}} = |M_{\hat{y}} - M_{y}|$ where $\hat{y}$ is predicted class, $y$ is true label. High values indicate regions where predicted class attribution differs from true class.
+
+\textbf{Step 2: Percentile Thresholding.} Binary mask isolates top-$p$ spurious pixels:  
+$$\mathcal{S} = \{(i,j) : M_{\text{diff}}(i,j) \geq \text{percentile}(M_{\text{diff}}, p)\}$$  
+Default: $p = 75$ (top 25\% most spurious).
+
+\textbf{Step 3: Gradient Variance Penalty.} Measure gradient variance in spurious region:  
+$$L_{\text{spatial}} = \text{Var}\left(\nabla_x f_\theta(x) \odot \mathbb{1}_\mathcal{S}\right)$$  
+where $\odot$ is element-wise product, $\mathbb{1}_\mathcal{S}$ is the binary mask.
+
+\textbf{Step 4: Adaptive Lambda Scaling.} Adjust penalty strength based on worst-group accuracy on validation set:  
+$$\lambda_{t+1} = \begin{cases}
+\lambda\_t \cdot 1.2 \& \text{if WGA}_{\text{val}} < \text{target} \\
+\lambda\_t \cdot 0.8 \& \text{if WGA}_{\text{val}} > \text{target} + 5\\% \\
+\lambda\_t \& \text{otherwise}
+\end{cases}$$  
+Initial: $\lambda_0 = 0.01$. Prevents under/over-regularization.
+
+Total loss: $L = L_{\text{CE}} + \lambda \cdot L_{\text{spatial}}$
+
+\textbf{Assumptions:}  
+A1 (GradCAM Validity): Minority samples correctly classified $\geq 60$\%.  
+A2 (Percentile Normalization): 75th percentile avoids majority bias.  
+A3 (Causal Attribution): Gradient scattering caused by spurious conflict, not sample complexity (validated via background swap test).  
+A4 (Regularization Mechanism): Spatial penalty reduces spurious reliance, not just smooths gradients (validated via worst-group accuracy improvement in proof-of-concept).

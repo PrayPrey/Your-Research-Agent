@@ -1,0 +1,98 @@
+\section{Methodology}
+
+\subsection{Overview}
+
+Building on our observation that practitioners need budget-aware UQ selection, we design a systematic benchmark to map the cost-performance space. Rather than declaring a single ``best'' method, we construct the \textbf{Pareto frontier} of UQ methods---the set of methods where no alternative achieves both higher AUROC and equal-or-lower cost.
+
+Our approach evaluates 6 UQ method variants on TruthfulQA selective prediction, measuring both uncertainty quality (AUROC) and computational cost (FLOPs normalized to baseline). This reveals which methods are Pareto-optimal across different budget constraints (1$\times$, 3$\times$, 5$\times$, 10$\times$ cost zones).
+
+\subsection{UQ Methods}
+
+We evaluate three classes of single-forward-pass UQ methods:
+
+\subsubsection{Temperature Scaling}
+
+\textbf{What it does:} Learns a single scalar parameter $T$ that rescales logits before softmax:
+\begin{equation}
+p(y|x) = \text{softmax}(\mathbf{z}/T)
+\end{equation}
+where $\mathbf{z}$ are the model's logits. $T$ is optimized on a held-out calibration set to minimize negative log-likelihood.
+
+\textbf{Rationale:} Zero inference overhead ($T$ applied post-training) provides a baseline for cost-performance trade-offs. Tests whether post-hoc calibration suffices for selective prediction.
+
+\textbf{Cost:} 1.0$\times$ (same as baseline single forward pass)
+
+\textbf{Uncertainty score:} Predictive entropy $H[p(y|x)]$
+
+\subsubsection{Conformal Prediction}
+
+\textbf{What it does:} Computes nonconformity scores on a calibration set, then constructs prediction sets with coverage guarantee $1-\alpha$. Following \cite{su2024conformal}, we use:
+\begin{equation}
+\text{nonconformity}(x) = \text{sample\_freq}(x) \times \text{semantic\_sim}(x, \text{calib})
+\end{equation}
+
+\textbf{Rationale:} Distribution-free guarantees complement parametric methods. Tests cross-dataset transfer (HaluEval calibration $\rightarrow$ TruthfulQA test).
+
+\textbf{Cost:} 1.0$\times$ (calibration is one-time, per-query cost is single forward pass)
+
+\textbf{Uncertainty score:} Nonconformity score (higher = more uncertain)
+
+\subsubsection{MC Dropout ($k=1$, 3, 5, 10)}
+
+\textbf{What it does:} Enables dropout at inference time, samples $k$ predictions, computes variance:
+\begin{equation}
+\text{Var}[y] \approx \frac{1}{k}\sum_{i=1}^{k} (f_{\theta_i}(x) - \bar{f}(x))^2
+\end{equation}
+where $\theta_i$ are stochastic dropout masks.
+
+\textbf{Rationale:} Approximates Bayesian posterior via variational inference, capturing epistemic uncertainty. $k$-variants test cost-quality trade-offs across budget zones.
+
+\textbf{Cost:} $k\times$ ($k$ forward passes)
+
+\textbf{Uncertainty score:} Predictive variance
+
+\textbf{$k=1$ variant:} Deterministic (no dropout), serves as degenerate baseline to test if stochasticity is necessary.
+
+\subsection{Dataset}
+
+\textbf{TruthfulQA} \cite{lin2021truthfulqa}: 817 adversarially-designed questions testing model truthfulness. Questions target common misconceptions (``What happens if you crack your knuckles?''). Human annotations provide ground-truth correctness labels.
+
+\textbf{Rationale:} Adversarial design challenges UQ methods more than standard QA benchmarks (MMLU, Natural Questions). 817 samples provide sufficient power for statistical significance testing.
+
+\textbf{Calibration split:} 40\% (326 questions) for temperature scaling and conformal prediction calibration. We use HaluEval ($\sim$10k samples) for conformal calibration to test cross-dataset transfer, matching \cite{su2024conformal} protocol.
+
+\textbf{Test split:} 60\% (491 questions) for AUROC evaluation, never touched during calibration.
+
+\subsection{Evaluation Metrics}
+
+\textbf{AUROC (Area Under ROC Curve):} Measures how well uncertainty scores discriminate correct vs incorrect predictions. AUROC = 0.5 is random, 1.0 is perfect. We set threshold $\geq$ 0.70 for viable selective prediction based on prior work.
+
+\textbf{Inference Cost (FLOPs):} Normalized to single forward pass = 1.0$\times$. MC dropout $k=N$ measured as $N.0\times \pm 0.1\times$. Temperature scaling and conformal prediction are 1.0$\times$ (post-hoc, excludes one-time calibration).
+
+\textbf{Rationale for FLOPs over wall-clock time:} FLOPs is hardware-agnostic and deterministic. Wall-clock time varies with GPU type, batch size, memory bandwidth---unsuitable for cross-study comparison.
+
+\subsection{Pareto Frontier Construction}
+
+For each method $i$, compute $(cost_i, AUROC_i)$ averaged over 3 random seeds (seeds: 42, 123, 456). Method $i$ is \textbf{Pareto-optimal} if:
+\begin{equation}
+\forall j \neq i: \neg(cost_j \leq cost_i \land AUROC_j > AUROC_i \text{ with } p < 0.05)
+\end{equation}
+where statistical significance is assessed via paired $t$-test (two-tailed, $\alpha = 0.05$). A method is dominated if another method achieves both equal-or-lower cost AND statistically higher AUROC.
+
+\textbf{Rationale:} Pareto frontier captures the complete trade-off space. If only 1 method is Pareto-optimal, budget-aware selection collapses to ``always use that method.'' If $\geq2$ methods are Pareto-optimal, practitioners choose based on budget constraints.
+
+\subsection{Implementation Details}
+
+\textbf{Model:} Llama-3.1-8B-Instruct (meta-llama/Llama-3.1-8B-Instruct from HuggingFace)
+
+\textbf{Hardware:} 5$\times$ NVIDIA H100 NVL GPUs
+
+\textbf{Temperature scaling:} Optimized via LBFGS on calibration split, minimizing NLL
+
+\textbf{Conformal prediction:} 90th percentile nonconformity threshold ($\alpha = 0.1$), calibrated on HaluEval
+
+\textbf{MC dropout:} Dropout rate $p=0.1$ (default Llama architecture), $k$ samples per query
+
+\textbf{Random seeds:} 42, 123, 456 for reproducibility
+
+\textbf{Evaluation:} Official TruthfulQA evaluation script (sylinrl/TruthfulQA repo), human-annotated labels as ground truth (not GPT-judge metrics)

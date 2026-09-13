@@ -1,0 +1,354 @@
+# 03_refinement.yaml - Phase 2A Output
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This file is the PRIMARY input for Phase 2B step-01-init-parsing.
+# Section numbers (0, 0.5, 1.1-1.6, 2, 4, 5) match Phase 2B parsing expectations.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+metadata:
+  generated_at: "2026-08-27T00:00:00Z"
+  workflow: "phase2a-dialogue"
+  architecture: "Independent-Controller Self-Play (Claude plays all personas)"
+  schema_version: "10.0.0"
+  gap_id: "gap-1"
+  gap_title: "No Systematic Benchmark Comparison of Query-Aware Token Importance Metrics"
+  execution_mode: "UNATTENDED"
+  discussion_exchanges: 8
+  convergence_reason: "All 6 convergence criteria met at Exchange 8 — SPECIFIC, MECHANISM, PREDICTIONS, NOVELTY, FEASIBILITY, OBJECTIONS all satisfied"
+  previous_hypothesis: "h-m2"
+  previous_hypothesis_status: "SUPERSEDED"
+  redesign_constraints_applied:
+    - "Instruct model (LLaMA-2-7B-chat) — not base model"
+    - "50% KV retention (not 80% eviction)"
+    - "No LoRA interaction as primary variable (Gap 2 domain)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 0: Established Facts & Claim Scope
+# ═══════════════════════════════════════════════════════════════
+
+established_facts:
+  claims:
+    - claim: "Cumulative attention score (H2O) outperforms static sliding window (StreamingLLM) on WikiText-2 perplexity at 20% KV retention"
+      status: "BUILD_ON"
+      evidence: "Zhang et al. 2023 (H2O, arXiv 2306.14048) — reported <1 PPL degradation vs. 3-5 PPL for StreamingLLM"
+    - claim: "SnapKV prefill-observation scoring outperforms H2O on LongBench at 40% KV retention (instruct models)"
+      status: "BUILD_ON"
+      evidence: "Li et al. 2024 (SnapKV, arXiv 2404.14469) — reported on LLaMA-2/3-chat; BUT evaluation is confounded by model type (instruct vs. base)"
+    - claim: "Attention patterns exhibit persistence — importance at step K correlates with importance at step K+20 (Spearman r>0.85)"
+      status: "BUILD_ON"
+      evidence: "Liu et al. 2023 (ScissorHands, arXiv 2305.17118) — warm-up of 32 steps sufficient on OPT-6.7B"
+    - claim: "No controlled ablation exists comparing cumulative attention vs. prefill observation vs. warm-up attention vs. entropy under identical conditions"
+      status: "PROVE_NEW"
+      evidence: "Gap analysis from Phase 1 — confirmed absence of cross-method controlled comparison"
+    - claim: "Prefill-observation importance scoring achieves higher F1 than cumulative-attention scoring on QA tasks (task-conditional advantage)"
+      status: "PROVE_NEW"
+      evidence: "Novel claim — not tested in any existing paper; to be verified in Phase 4"
+  scope_reduction_percentage: 50
+  phase2b_4_instructions: |
+    Steps 1-2 (literature verification): BUILD_ON claims are established — skip re-verification.
+    Focus verification effort on PROVE_NEW claims (task-conditional metric advantage).
+    The timing-confound ablation (H2O-at-prefill vs. H2O-at-decode) is the primary mechanistic test.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.1: Core Statement
+# ═══════════════════════════════════════════════════════════════
+
+core_statement:
+  hypothesis_id: "H-PrefixObs-v1"
+  confidence_level: 0.75
+  core_hypothesis_statement: |
+    Under long-context QA inference using LLaMA-2-7B-chat at 50% KV retention on LongBench
+    (NarrativeQA, HotpotQA, 2WikiMQA, MuSiQue as QA tasks; GovReport and QMSum as summarization
+    contrast), if we apply prefill-observation importance scoring (SnapKV-style query-conditioned
+    window over the last W=16 query tokens) versus cumulative-attention scoring (H2O-style, both
+    implemented with matched prefill-timing eviction) at matched KV retention budgets (50%),
+    then prefill-observation achieves ≥2.0 F1 points higher macro-average than cumulative-attention
+    on the 4-task QA subset, with a larger performance gap on QA than on summarization
+    (delta_F1(QA) > delta_F1(Summ)), because query-conditioned observation windows selectively
+    retain KV entries that are semantically aligned with the specific tokens of the question being
+    answered, whereas cumulative attention retains globally-attended structural tokens (initial
+    positions, sentence boundaries) that are less discriminative for specific query answering.
+  alternative_hypothesis_h0: |
+    There is no significant difference in LongBench macro-average F1 between prefill-observation
+    scoring and cumulative-attention scoring at 50% KV retention on LLaMA-2-7B-chat (i.e.,
+    the 95% bootstrap confidence intervals overlap on the 4-task QA subset).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.2: Variables Table
+# ═══════════════════════════════════════════════════════════════
+
+variables:
+  independent:
+    - name: "Importance metric type"
+      type: "categorical"
+      operationalization: "Which score_fn is applied to attention weights to compute per-token importance"
+      levels:
+        - "prefill-observation (SnapKV-style: mean attention from last W=16 query tokens at prefill)"
+        - "cumulative-attention-at-prefill (H2O-style metric, applied at prefill timing)"
+        - "cumulative-attention-at-decode (H2O-style metric, applied per decode step — original H2O)"
+        - "warm-up-attention (ScissorHands-style: attention during first 32 decode steps)"
+        - "attention-entropy (H(i) = -sum_h sum_t alpha_{h,t,i} * log(alpha_{h,t,i} + eps), averaged across heads)"
+        - "static-window (StreamingLLM: attention sinks + sliding window — no scoring)"
+    - name: "Eviction timing"
+      type: "categorical"
+      operationalization: "When KV eviction is applied relative to generation phases"
+      levels:
+        - "prefill-phase (evict once before generation starts)"
+        - "decode-phase (evict per decode step)"
+    - name: "KV retention budget"
+      type: "continuous"
+      operationalization: "Fraction of KV cache entries retained (1.0 = no eviction)"
+      levels: [0.40, 0.50, 0.60]
+  dependent:
+    - name: "LongBench macro-average F1 (QA subset)"
+      type: "continuous"
+      operationalization: "Mean F1 across NarrativeQA, HotpotQA, 2WikiMQA, MuSiQue at 100 examples per task"
+      primary: true
+    - name: "LongBench macro-average ROUGE-L (summarization subset)"
+      type: "continuous"
+      operationalization: "Mean ROUGE-L across GovReport, QMSum at 100 examples per task"
+      primary: false
+    - name: "delta_F1(QA) vs delta_F1(Summ)"
+      type: "continuous"
+      operationalization: "F1_prefixobs(QA) - F1_cumulative(QA) minus F1_prefixobs(Summ) - F1_cumulative(Summ)"
+      primary: false
+  controlled:
+    - name: "Model"
+      operationalization: "Fixed: LLaMA-2-7B-chat-hf (instruction-tuned, not base)"
+    - name: "Implementation codebase"
+      operationalization: "Single unified HuggingFace codebase with pluggable score_fn — eliminates implementation confounds"
+    - name: "Hardware"
+      operationalization: "Single A100 40GB GPU, FP16 precision"
+    - name: "Sequence length cap"
+      operationalization: "4096 tokens max (LLaMA-2 native context window)"
+    - name: "Random seed"
+      operationalization: "Fixed seed=42 for all runs"
+    - name: "Evaluation examples"
+      operationalization: "100 examples per task, sampled uniformly from LongBench test set"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.3: Causal Mechanism (DYNAMIC)
+# ═══════════════════════════════════════════════════════════════
+
+causal_mechanism:
+  causal_chain_count: 3
+  steps:
+    - step: 1
+      description: "Query-conditioned observation window identifies semantically query-aligned tokens during prefill"
+      evidence: "SnapKV (Li et al. 2024): the last W query tokens in the prompt attend preferentially to tokens relevant to the question being asked, before any generation begins. This aligns with the 'persistence' finding of ScissorHands — prefill attention patterns are predictive of decode-time attention."
+      falsifier: "If attention patterns during prefill do not correlate with decode-time relevance for QA tasks, prefill-observation should not outperform decode-timed cumulative attention. Testable: compare H2O-at-prefill vs. H2O-at-decode (the timing ablation in P3)."
+    - step: 2
+      description: "Query-aligned KV retention increases probability that the answer-relevant context is preserved in the compressed cache"
+      evidence: "Extractive QA (NarrativeQA, HotpotQA) requires retrieving specific spans from long context. If the KV cache retains tokens that the model attends to when generating the answer, F1 should be higher than if structural tokens (initial positions) are retained instead."
+      falsifier: "If QA accuracy does not depend on which specific tokens are retained (e.g., because the model recomputes importance from retained tokens), then the metric type should not matter. Testable: if all query-aware metrics converge to the same QA F1, the mechanism fails."
+    - step: 3
+      description: "Summarization tasks have diffuse query signals, reducing the advantage of query-conditioned retention over globally-salient retention"
+      evidence: "In summarization, there is no single query span — the entire input is the 'query'. Cumulative attention may be equally or more informative because globally high-attention tokens (topic sentences, discourse markers) are systematically important regardless of query-conditioning."
+      falsifier: "If prefill-observation also outperforms cumulative attention on summarization at the same margin as QA, the task-conditional mechanism is wrong (the advantage is general, not query-specific)."
+  key_tension: "The timing confound (prefill vs. decode eviction) and the metric confound (query-conditioned vs. cumulative) are entangled in all prior papers. The 2×2 design (metric × timing) is required to disentangle them, but adding conditions risks statistical power."
+  evidence_summary: |
+    Step 1 is supported by SnapKV's prefill-observation design and ScissorHands' persistence property.
+    Step 2 is the novel causal claim — no prior paper tests it directly.
+    Step 3 generates the task-conditional prediction (delta_F1(QA) > delta_F1(Summ)).
+    All three steps are falsifiable with the proposed experimental design.
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.4: Key Assumptions (A1-A5)
+# ═══════════════════════════════════════════════════════════════
+
+key_assumptions:
+  - id: "A1"
+    assumption: "LLaMA-2-7B-chat attention patterns during prefill are predictive of decode-time token relevance for QA tasks"
+    supporting_evidence: "ScissorHands persistence hypothesis (Spearman r>0.85 at OPT-6.7B); SnapKV's prefill-observation design relies on this property"
+    consequence_if_violated: "Prefill-observation metric would not outperform decode-timed metrics; H2O-at-prefill would equal H2O-at-decode"
+  - id: "A2"
+    assumption: "LLaMA-2-7B-chat does not catastrophically degrade at 50% KV retention (unlike h-m2's 80% eviction failure)"
+    supporting_evidence: "SnapKV paper reports ~1-2% F1 degradation at 40-60% retention on LLaMA-2-chat; StreamingLLM stable at 50% retention"
+    consequence_if_violated: "All methods produce near-zero F1 at 50% retention — making metric comparison invalid (same failure mode as h-m2)"
+  - id: "A3"
+    assumption: "LongBench QA tasks (NarrativeQA, HotpotQA, 2WikiMQA, MuSiQue) have sufficient answer-relevant context within the 4096-token window for metric differences to manifest"
+    supporting_evidence: "LongBench tasks are designed for long-context evaluation; average lengths are 8-32K tokens but LLaMA-2 is tested at 4K truncation, which is standard practice"
+    consequence_if_violated: "If answers are uniformly distributed throughout the context, positional eviction may be as good as query-aware eviction"
+  - id: "A4"
+    assumption: "Unified codebase implementation of all metrics is equivalent to original paper implementations in terms of accuracy"
+    supporting_evidence: "Each metric reduces to a score_fn over attention weights — no architectural changes; HuggingFace past_key_values API is the common interface"
+    consequence_if_violated: "Metric differences reflect implementation quality, not metric quality — results would not generalize"
+  - id: "A5"
+    assumption: "100 examples per task provides sufficient statistical power to detect 2.0 F1 point differences at 95% confidence"
+    supporting_evidence: "LongBench NarrativeQA has ~2613 test examples; F1 variance is typically ~5-10 F1 points — 100 examples gives SE ~0.5-1.0 F1, sufficient for 2.0 F1 effect size"
+    consequence_if_violated: "Confidence intervals overlap even when true effect is 2.0 F1 — requires more examples (200+)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.5: Scope & Boundaries
+# ═══════════════════════════════════════════════════════════════
+
+scope:
+  applies_to: |
+    Long-context autoregressive generation with transformer models using scaled dot-product attention.
+    Specifically: decoder-only models with GQA or MHA attention (LLaMA-2/3, Mistral families).
+    Tasks where context length exceeds KV cache budget and selective eviction is required.
+    Standard instruction-following models (chat/instruct variants) — NOT base pretrained models.
+    KV retention budgets in the 40-60% range (not extreme compression ≤20%).
+  does_not_apply_to: |
+    Base (non-instruct) models — h-m2 failure demonstrates instability at moderate eviction ratios.
+    KV retention <30% — both query-aware and cumulative metrics may degenerate at extreme compression.
+    Models with sliding window attention natively (Mistral 7B uses SW attention in some configs) — eviction policies interact differently.
+    Tasks requiring retrieval beyond 4096 tokens on LLaMA-2-7B (model context limit).
+    LoRA-adapted models — LoRA shifts attention patterns and is a separate research question (Gap 2 / h-m2 domain).
+  known_limitations: |
+    Results are on a 5-task LongBench subset (4 QA + 2 summarization) — generalization to all 21 tasks is an assumption.
+    The attention entropy metric definition (averaged across heads) may not be the optimal formulation.
+    Phase 2B should consider whether H2O-at-prefill is a fair comparison (the original H2O design is decode-time — modifying it changes the method, not just the metric).
+    Cross-architecture generalization is not tested in this hypothesis (Gap 3 domain).
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 1.6: Testable Predictions
+# ═══════════════════════════════════════════════════════════════
+
+predictions:
+  - id: "P1"
+    primary: true
+    statement: "Prefill-observation (SnapKV-style) achieves ≥2.0 macro-average F1 higher than cumulative-attention-at-prefill (H2O-at-prefill) on 4-task LongBench QA subset at 50% KV retention with LLaMA-2-7B-chat"
+    test_method: "Run both metrics on NarrativeQA, HotpotQA, 2WikiMQA, MuSiQue (100 examples each) at 50% KV retention, same codebase, same model. Compute macro-average F1. Bootstrap 95% CI (1000 resamples)."
+    success_criterion: "prefixobs_F1_QA - cumulative_at_prefill_F1_QA >= 2.0 AND 95% CI lower bound > 0"
+    falsification: "If prefixobs_F1_QA - cumulative_at_prefill_F1_QA < 2.0 OR 95% CI overlaps zero, query-conditioning mechanism is not supported"
+  - id: "P2"
+    primary: false
+    statement: "The metric advantage of prefill-observation over cumulative-attention is larger on QA tasks than on summarization tasks: delta_F1(QA) > delta_F1(Summ)"
+    test_method: "Compute delta_F1(QA) = prefixobs_F1(4 QA tasks) - cumulative_F1(4 QA tasks). Compute delta_F1(Summ) = prefixobs_ROUGE-L(GovReport+QMSum) - cumulative_ROUGE-L(GovReport+QMSum). Compare."
+    success_criterion: "delta_F1(QA) > delta_F1(Summ) by at least 1.0 percentage point"
+    falsification: "If delta_F1(QA) <= delta_F1(Summ), the task-conditional mechanism is not supported — the metric advantage is general, not query-specific"
+  - id: "P3"
+    primary: false
+    statement: "H2O-at-prefill (cumulative attention applied at prefill timing) outperforms H2O-at-decode (original H2O with per-step eviction) on QA F1, demonstrating a timing effect independent of metric type"
+    test_method: "Run H2O-at-prefill vs. H2O-at-decode on 4 QA tasks at 50% KV retention. Compute macro-average F1 difference."
+    success_criterion: "H2O_at_prefill_F1 > H2O_at_decode_F1 by at least 0.5 F1 points"
+    falsification: "If H2O-at-prefill ≈ H2O-at-decode, the timing of eviction does not independently contribute to accuracy — the metric type is the only relevant variable"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 2: Experimental Setup Selection
+# ═══════════════════════════════════════════════════════════════
+
+experimental_setup:
+  dataset:
+    name: "LongBench v1"
+    type: "standard"
+    source: "THUDM/LongBench on HuggingFace Hub"
+    path: "HuggingFace: THUDM/LongBench"
+    hypothesis_fit: "LongBench contains diverse long-context tasks including extractive QA (NarrativeQA, HotpotQA, 2WikiMQA, MuSiQue) and summarization (GovReport, QMSum), enabling the task-conditional comparison central to this hypothesis. Standard automated metrics (F1, ROUGE-L) — no human evaluation required."
+    tasks:
+      qa: ["narrativeqa", "hotpotqa", "2wikimqa", "musique"]
+      summarization: ["gov_report", "qmsum"]
+    examples_per_task: 100
+  model:
+    name: "LLaMA-2-7B-chat-hf"
+    type: "decoder-only, instruction-tuned"
+    source: "meta-llama/Llama-2-7b-chat-hf on HuggingFace Hub"
+    hypothesis_fit: "Instruction-tuned variant avoids h-m2 base-model collapse. 7B size fits on single A100 40GB at FP16. SnapKV's results suggest stable performance at 40-60% KV retention on this model."
+  baselines:
+    - name: "StreamingLLM (static)"
+      method: "Attention sinks (first 4 tokens) + sliding window of recent tokens; no importance scoring"
+    - name: "Full KV cache"
+      method: "No eviction — all KV entries retained; upper bound reference"
+  metric_conditions:
+    - id: "M1"
+      name: "Prefill-Observation (SnapKV-style)"
+      timing: "prefill"
+      score_fn: "mean attention weight from last W=16 query tokens at end of prefill"
+    - id: "M2"
+      name: "Cumulative-Attention-at-Prefill (H2O-at-prefill)"
+      timing: "prefill"
+      score_fn: "cumulative sum of attention weights over all prefill steps, applied once at prefill end"
+    - id: "M3"
+      name: "Cumulative-Attention-at-Decode (H2O original)"
+      timing: "decode"
+      score_fn: "cumulative sum of attention weights, updated and evicted at each decode step"
+    - id: "M4"
+      name: "Warm-Up Attention (ScissorHands-style)"
+      timing: "decode"
+      score_fn: "attention scores during first 32 decode steps; static schedule thereafter"
+    - id: "M5"
+      name: "Attention Entropy"
+      timing: "prefill"
+      score_fn: "H(i) = -sum_h sum_t alpha_{h,t,i} * log(alpha_{h,t,i} + 1e-9), averaged across heads"
+    - id: "M6"
+      name: "StreamingLLM (static baseline)"
+      timing: "N/A"
+      score_fn: "No scoring — positional heuristic only"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 3: Novelty & Innovation
+# ═══════════════════════════════════════════════════════════════
+
+novelty:
+  preserved_novelty: "First controlled ablation of token importance metric families for KV eviction under identical experimental conditions (same model, same benchmark, same eviction ratio)"
+  key_innovation: "2×2 design (metric type × eviction timing) that disentangles the causal contributions of WHAT to score vs. WHEN to evict — a confound present in all prior KV eviction comparisons. Plus the task-conditional prediction (delta_F1(QA) > delta_F1(Summ)) as a mechanistic test of query-awareness."
+  differentiation:
+    - prior_work: "H2O (Zhang et al. 2023)"
+      difference: "H2O proposes cumulative attention but does not compare it to other metric families. We implement H2O-at-prefill to isolate the metric from the timing confound."
+    - prior_work: "SnapKV (Li et al. 2024)"
+      difference: "SnapKV claims superiority over H2O but conflates metric type, eviction timing, and model type (instruct vs. base). We control all three."
+    - prior_work: "ScissorHands (Liu et al. 2023)"
+      difference: "ScissorHands focuses on the persistence property but does not benchmark warm-up attention against other query-aware metrics on LongBench QA tasks."
+    - prior_work: "StreamingLLM (Xiao et al. 2023)"
+      difference: "StreamingLLM evaluates static eviction on multiple architectures but does not test any query-aware metric. We use it as the lower-bound baseline."
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 4: Key Related Work
+# ═══════════════════════════════════════════════════════════════
+
+related_work:
+  baselines:
+    - method: "H2O (cumulative attention, decode-timed)"
+      performance: "~1 PPL degradation at 20% KV budget on WikiText-2 (base LLaMA-7B)"
+      dataset: "WikiText-2, MT-Bench (base models)"
+      why_insufficient: "Evaluated on base models; decode-timed eviction; no cross-comparison with other metric families; no LongBench QA evaluation"
+    - method: "SnapKV (prefill observation)"
+      performance: "~1-2% F1 degradation at 40% KV retention on LongBench (instruct LLaMA-2/3)"
+      dataset: "LongBench, RULER (instruct models)"
+      why_insufficient: "Instruct models only; conflates metric and timing; no comparison to cumulative-at-prefill condition; no ScissorHands or entropy comparison"
+    - method: "StreamingLLM (static)"
+      performance: "Stable PPL over long sequences; poor on extractive QA tasks requiring distant context"
+      dataset: "WikiText-2, PassKey (base models)"
+      why_insufficient: "No importance scoring — purely positional; cannot distinguish relevant from irrelevant long-range tokens"
+  best_baseline_performance: "SnapKV on LLaMA-2-7B-chat at 40% KV retention: approximately 18-22 F1 on NarrativeQA (from paper Table 1, estimated)"
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 5: Phase 2B Readiness
+# ═══════════════════════════════════════════════════════════════
+
+phase2b_readiness:
+  status: "READY"
+  sh1_existence: "Query-conditioned observation windows produce higher-F1 KV retention than cumulative attention on extractive QA tasks at 50% KV budget with instruct LLaMA-2-7B"
+  sh2_mechanism: "Test P1 (prefixobs vs cumulative-at-prefill on QA F1), P3 (cumulative-at-prefill vs cumulative-at-decode — timing effect), and P2 (task-conditional delta_F1(QA) > delta_F1(Summ))"
+  sh3_comparison: "Compare all 5 metric conditions vs. StreamingLLM baseline and Full KV upper bound — deferred to Phase 5 cross-architecture generalization"
+  open_questions:
+    - "What is the optimal observation window size W for prefill-observation? (W=16 is SnapKV default — needs sensitivity analysis)"
+    - "Does the timing effect (P3) generalize to other model sizes (13B, 70B)?"
+    - "Is attention entropy a meaningful metric or does it collapse to identifying attention sinks?"
+    - "Does the task-conditional advantage (P2) hold on SCROLLS and QASPER beyond LongBench?"
+
+# ═══════════════════════════════════════════════════════════════
+# DECISION & DISCUSSION CONTEXT
+# ═══════════════════════════════════════════════════════════════
+
+decision:
+  overall_status: "VALIDATED"
+  discussion_convergence: "All 6 convergence criteria met at Exchange 8 after 8 exchanges across 6 personas"
+  clarity_verified: true
+  remaining_objections:
+    - "Attention entropy definition needs code-level precision (formula specified in variables section)"
+    - "2.0 F1 gate needs bootstrap CI criterion (specified: 95% CI non-overlapping)"
+    - "ScissorHands should be included as M4 condition (included in metric_conditions)"
+
+discussion_context:
+  total_exchanges: 8
+  agent_participation:
+    dr_nova: 2
+    prof_vera: 2
+    dr_sage: 1
+    prof_pax: 1
+    dr_ally: 1
+    prof_rex: 1
+  paper_citations: 8
+  convergence_type: "qualitative"
+  convergence_exchange: 8
