@@ -22,15 +22,21 @@ The evaluator reads `OPENROUTER_API_KEY` from `.env`, so no separate shell
 Use the unified runner for overall quality and hallucination/factuality review:
 
 ```bash
+# Re-score one bundled YouRA run (run from the repository root)
 python -m mlrbench.evals.run_eval \
     --system youra \
-    --exp-dir TEST_scsl \
-    --task-file path/to/task.md \
-    --paper-file path/to/paper.md \
+    --exp-dir results/generations/youra/sonnet45/iclr2025_scsl \
+    --task-file YOURA/tasks_youra/iclr2025_scsl.md \
+    --paper-file results/generations/youra/sonnet45/iclr2025_scsl/docs/youra_research/2026_scsl/paper/refinement/06_paper_refinement.md \
     --evaluator google/gemini-3.1-pro-preview \
-    --lane sonnet45 \
-    --task-name scsl
+    --lane sonnet45
 ```
+
+`--task-name` defaults to the basename of `--exp-dir` (here `iclr2025_scsl`),
+which is the task folder name the analysis scripts expect. An existing
+`<exp-dir>/experiments/` folder (every bundled run has one) is used as-is;
+pass `--rebuild` to regenerate it from the `h-*/code` trace, or `--no-build`
+to skip the build step entirely.
 
 Supported systems are:
 
@@ -40,12 +46,17 @@ ai_scientist_v2
 mlragent
 ```
 
-Unless `--output-dir` is provided, outputs are written under:
+Unless `--output-dir` is provided, outputs are written in the bundled layout
+(relative to the current working directory, so run from the repository root):
 
 ```text
-results/evaluations/mlrbench_overall_score/
-results/evaluations/mlrbench_hallucination/
+results/evaluations/mlrbench_overall_score/<system>/<lane>/reviews_<judge>_<system>_<lane>_with_code/<task>/review_<judge>.json
+results/evaluations/mlrbench_hallucination/<system>/<lane>/reviews_<judge>_<system>_<lane>_with_code/<task>/review_hallucination_<judge>.json
 ```
+
+YouRA ablation lanes (any `--lane` containing `_no_`, e.g. `sonnet45_no_mcp`)
+are placed under `youra_ablation_study/` instead of `youra/`, matching the
+bundle, so the aggregation scripts under `analysis/` pick the new reviews up.
 
 See [`../results/README.md`](../results/README.md) for the layout of these
 output folders and of the bundled evaluation results.

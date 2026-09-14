@@ -65,6 +65,8 @@ YouRA's lifecycle proceeds left to right under the VSA. The independent controll
 - Claude Code CLI must be logged in and backed by an active **Claude subscription** or **API-backed account** before running YouRA.
 - Codex CLI must be installed, logged in, and backed by an active **subscription** or **API key** before running Codex-backed evaluation scripts.
 - `OPENROUTER_API_KEY` in `.env` for the GPT-5.2-based auto-responder/controller
+- A TeX toolchain providing `xelatex` and `bibtex` (used by Phase 6.5.1 and `--enable-refine` to compile the PDF). `python setup_tex.py` inside the agent folder installs TinyTeX plus the required packages; make sure its `bin` directory is on `PATH` afterwards.
+- `conda` (miniforge3/miniconda): Phase 4 creates a conda environment for each experiment and stops if `conda` is not found.
 - MCP services: [Serena](https://github.com/oraios/serena) (strongly recommended) and [Archon](https://github.com/coleam00/Archon/tree/archive/v1-task-management-rag) (recommended but not required). Other optional MCP services can be found in the [Smithery server directory](https://smithery.ai/servers).
 
 ### Setup

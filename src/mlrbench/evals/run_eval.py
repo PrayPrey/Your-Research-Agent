@@ -47,11 +47,26 @@ def run_build(system: str, exp_dir: Path, *, write: bool = True,
 
 
 def default_output_dir(system: str, kind: str, lane: str | None,
-                       task_name: str) -> Path:
+                       task_name: str, evaluator_folder: str | None = None,
+                       with_code: bool = True) -> Path:
+    """Mirror the bundled layout under results/evaluations/:
+
+        <root>/<system>/<lane>/reviews_<judge>_<system>_<lane>_with_code/<task>/
+
+    YouRA ablation lanes (lane names containing ``_no_``) live under
+    ``youra_ablation_study/`` instead of ``youra/``, as in the bundle.
+    Without --lane the batch folder is omitted (legacy flat layout).
+    """
     root = OVERALL_ROOT if kind == "overall" else HALLUC_ROOT
-    parts = [root, system]
+    system_dir = system
+    if system == "youra" and lane and "_no_" in lane:
+        system_dir = "youra_ablation_study"
+    parts = [root, system_dir]
     if lane:
         parts.append(lane)
+        if evaluator_folder:
+            suffix = "with_code" if with_code else "no_code"
+            parts.append(f"reviews_{evaluator_folder}_{system}_{lane}_{suffix}")
     parts.append(task_name)
     return Path(*parts)
 
@@ -126,8 +141,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--evaluator", required=True,
                    help="Judge/evaluator model id (passed to create_lmm_client).")
     p.add_argument("--output-dir", type=Path, default=None,
-                   help="If given, write outputs under this dir directly. "
-                        "If omitted, derive results/evaluations/mlrbench_{overall_score,hallucination}/<system>/[<lane>/]<task>/.")
+                   help="If given, write outputs under this dir directly. If omitted, derive "
+                        "results/evaluations/mlrbench_{overall_score,hallucination}/<system>/<lane>/"
+                        "reviews_<judge>_<system>_<lane>_with_code/<task>/ (the bundled layout; "
+                        "YouRA lanes containing '_no_' go under youra_ablation_study/).")
     p.add_argument("--lane", default=None,
                    help="Backbone/writer lane label used only for the default output path "
                         "(e.g. sonnet45, opus45). Ignored when --output-dir is set.")
@@ -138,6 +155,9 @@ def parse_args() -> argparse.Namespace:
                         "Defaults to <exp-dir>/experiments after build.")
     p.add_argument("--no-build", action="store_true",
                    help="Skip the build_*_experiments_dirs step.")
+    p.add_argument("--rebuild", action="store_true",
+                   help="Run the build step even if <exp-dir>/experiments already exists "
+                        "(by default an existing experiments/ folder, e.g. a bundled run, is used as-is).")
     p.add_argument("--no-code", action="store_true",
                    help="Run review without any code context.")
     p.add_argument("--skip-overall", action="store_true",
@@ -161,11 +181,13 @@ def main() -> int:
             print(f"[FATAL] --{label} does not exist: {path}", file=sys.stderr)
             return 2
 
-    if not args.no_build:
+    if args.no_build:
+        print("[BUILD] skipped (--no-build)")
+    elif (exp_dir / "experiments").is_dir() and not args.rebuild:
+        print(f"[BUILD] skipped: {exp_dir / 'experiments'} already exists (pass --rebuild to regenerate)")
+    else:
         print(f"[BUILD] system={args.system} on {exp_dir}")
         run_build(args.system, exp_dir, write=True, clean=False)
-    else:
-        print("[BUILD] skipped (--no-build)")
 
     if args.code_dir is not None:
         code_dir: Path | None = args.code_dir.resolve()
@@ -188,13 +210,15 @@ def main() -> int:
     overall_out = (
         out_root / f"review_{evaluator_folder}.json"
         if out_root else
-        default_output_dir(args.system, "overall", args.lane, task_name)
+        default_output_dir(args.system, "overall", args.lane, task_name,
+                           evaluator_folder, with_code=code_dir is not None)
             / f"review_{evaluator_folder}.json"
     )
     halluc_out = (
         out_root / f"review_hallucination_{evaluator_folder}.json"
         if out_root else
-        default_output_dir(args.system, "hallucination", args.lane, task_name)
+        default_output_dir(args.system, "hallucination", args.lane, task_name,
+                           evaluator_folder, with_code=code_dir is not None)
             / f"review_hallucination_{evaluator_folder}.json"
     )
 

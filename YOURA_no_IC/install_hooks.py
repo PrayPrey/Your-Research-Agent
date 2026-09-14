@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import importlib
 import json
 import os
 import re
@@ -39,7 +38,19 @@ def repo_root_from_script() -> Path:
     return Path(__file__).resolve().parent
 
 
+def active_virtualenv_prefix() -> Path | None:
+    virtual_env = os.environ.get("VIRTUAL_ENV")
+    if not virtual_env:
+        return None
+    prefix = Path(virtual_env).expanduser().absolute()
+    if (prefix / "bin" / "python").exists():
+        return prefix
+    return None
+
+
 def is_virtual_environment() -> bool:
+    if active_virtualenv_prefix() is not None:
+        return True
     if os.environ.get("CONDA_PREFIX"):
         return True
     if (Path(sys.prefix) / "conda-meta").is_dir():
@@ -50,25 +61,35 @@ def is_virtual_environment() -> bool:
 
 
 def current_environment_prefix() -> Path:
+    virtualenv_prefix = active_virtualenv_prefix()
+    if virtualenv_prefix is not None:
+        return virtualenv_prefix
+    if (Path(sys.prefix) / "pyvenv.cfg").exists() or sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+        return Path(sys.prefix).expanduser().absolute()
     conda_prefix = os.environ.get("CONDA_PREFIX")
     if conda_prefix:
-        return Path(conda_prefix).expanduser().resolve()
-    return Path(sys.prefix).expanduser().resolve()
+        return Path(conda_prefix).expanduser().absolute()
+    return Path(sys.prefix).expanduser().absolute()
+
+
+def absolute_without_resolving_symlinks(path: Path) -> Path:
+    expanded = path.expanduser()
+    return Path(os.path.abspath(str(expanded)))
 
 
 def detect_environment_python(override: Path | None = None) -> Path:
     if override is not None:
-        return override.expanduser().resolve()
+        return absolute_without_resolving_symlinks(override)
 
     env_prefix = current_environment_prefix()
     candidates = [
-        Path(sys.executable),
         env_prefix / "bin" / "python",
         env_prefix / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}",
+        absolute_without_resolving_symlinks(Path(sys.executable)),
     ]
     for candidate in candidates:
         if candidate.exists() and os.access(candidate, os.X_OK):
-            return candidate.resolve()
+            return absolute_without_resolving_symlinks(candidate)
 
     raise InstallError(f"No executable Python found for environment: {env_prefix}")
 
@@ -79,16 +100,17 @@ def run_command(cmd: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=True)
 
 
-def install_dependencies(requirements_path: Path) -> None:
+def install_dependencies(requirements_path: Path, python_exe: Path) -> None:
     if not requirements_path.exists():
         raise InstallError(f"requirements.txt not found: {requirements_path}")
-    run_command([sys.executable, "-m", "pip", "install", "-r", str(requirements_path)])
+    run_command([str(python_exe), "-m", "pip", "install", "-r", str(requirements_path)])
 
 
-def check_python_environment(require_venv: bool) -> None:
+def check_python_environment(require_venv: bool, python_exe: Path) -> None:
     print(f"Python: {sys.executable}")
     print(f"Prefix: {sys.prefix}")
     print(f"Environment: {current_environment_prefix()}")
+    print(f"Settings Python: {python_exe}")
     if require_venv and not is_virtual_environment():
         raise InstallError(
             "This script must be run inside the virtualenv/conda environment "
@@ -97,16 +119,24 @@ def check_python_environment(require_venv: bool) -> None:
         )
 
 
-def check_modules(include_tests: bool) -> None:
+def check_modules(include_tests: bool, python_exe: Path) -> None:
     required = list(REQUIRED_RUNTIME_MODULES)
     if include_tests:
         required.extend(REQUIRED_TEST_MODULES)
 
     missing: list[str] = []
     for module_name in required:
-        try:
-            importlib.import_module(module_name)
-        except Exception:
+        result = subprocess.run(
+            [
+                str(python_exe),
+                "-c",
+                f"import importlib; importlib.import_module({module_name!r})",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if result.returncode != 0:
             missing.append(module_name)
 
     if missing:
@@ -353,10 +383,10 @@ def main() -> int:
     python_exe = detect_environment_python(args.python_exe)
 
     try:
-        check_python_environment(require_venv=not args.allow_system_python)
+        check_python_environment(require_venv=not args.allow_system_python, python_exe=python_exe)
         if args.install_deps:
-            install_dependencies(requirements_path)
-        check_modules(include_tests=not args.skip_test_deps)
+            install_dependencies(requirements_path, python_exe)
+        check_modules(include_tests=not args.skip_test_deps, python_exe=python_exe)
         if not args.skip_claude_check:
             check_claude(args.claude_bin)
 
