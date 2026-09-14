@@ -1,4 +1,4 @@
-# Anonymous Pipeline Resume Reference (Auto-Responder + Independent Artifact Verifier)
+# Pipeline Resume Reference (Auto-Responder + Independent Artifact Verifier)
 
 ---
 

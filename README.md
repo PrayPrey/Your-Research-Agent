@@ -1,6 +1,6 @@
 # YouRA: A Persistent-State Architecture for Evidence-Traceable Autonomous Research Agents
 
-> ARR May 2026 Submission | Anonymous Repository
+> AACL-IJCNLP 2026
 
 ## Abstract
 
@@ -138,7 +138,7 @@ specific phase directly and proceed interactively with the AI. See
 `YOURA/README.md` for the detailed YouRA workflow layout and phase-command
 summary.
 
-### Quick Start: Full Anonymous Pipeline
+### Quick Start: Full Unattended Pipeline
 
 Run the pipeline from the `YOURA/` subdirectory. If you are at the repository
 root, enter it first. Include `--enable-refine` so Phase 6.5.1 is followed by
@@ -428,12 +428,11 @@ anonymization notes.
 ## Citation
 
 ```bibtex
-@inproceedings{anonymous2026youra,
+@inproceedings{woo2026youra,
   title={YouRA: A Persistent-State Architecture for Evidence-Traceable Autonomous Research Agents},
-  author={Anonymous},
-  booktitle={ARR May 2026},
-  year={2026},
-  note={Under review}
+  author={Woo, Yoonkyu and Lee, Woojin and Huang, Jin-xia},
+  booktitle={Proceedings of AACL-IJCNLP 2026},
+  year={2026}
 }
 ```
 
