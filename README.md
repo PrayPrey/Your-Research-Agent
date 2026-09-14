@@ -432,7 +432,8 @@ anonymization notes.
   title={YouRA: A Persistent-State Architecture for Evidence-Traceable Autonomous Research Agents},
   author={Woo, Yoonkyu and Lee, Woojin and Huang, Jin-xia},
   booktitle={Proceedings of AACL-IJCNLP 2026},
-  year={2026}
+  year={2026},
+  note={Yoonkyu Woo and Woojin Lee contributed equally}
 }
 ```
 
