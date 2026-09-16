@@ -75,7 +75,7 @@ step-03-get-ready.md → Get READY hypotheses queue
 
 | Caller | execution_source | After All Done |
 |--------|------------------|----------------|
-| `/full-pipeline-unattended` | `full-pipeline` | EXIT → Step 7.5 (Phase 5 invoked automatically) |
+| `full-pipeline-unattended` workflow | `full-pipeline` | EXIT → Step 7.5 (Phase 5 invoked automatically) |
 | `/hypothesis-loop` (direct) | `standalone` | step-11 → summary (run the `phase5-baseline-repo-comparison` workflow separately) |
 
 **Note:** Phase 5 is no longer part of hypothesis-loop workflow.

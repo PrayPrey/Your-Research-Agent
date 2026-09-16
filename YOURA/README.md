@@ -114,7 +114,7 @@ python .claude/hooks/run_total_youra.py dummy \
 
 ## Slash Commands
 
-Claude Code exposes 16 slash commands from `.claude/commands/`. The per-phase
+Claude Code exposes 15 slash commands from `.claude/commands/`. The per-phase
 command files are thin BMAD workflow loaders: they load
 `_bmad/core/tasks/workflow.xml` and pass a per-phase `workflow.yaml` under
 `bmad-custom-src/custom/modules/youra-research/workflows/<phase>/` as the
@@ -123,15 +123,10 @@ configuration. `/hypothesis-loop` loads the step files under
 `/hypothesis-next` / `/hypothesis-status` are self-contained instructions
 that read and write `verification_state.yaml` themselves.
 
-The commands fall into three groups: **end-to-end driver**, **per-phase
-commands** (run a single phase interactively), and **hypothesis-loop control**
-(used between Phase 2B and Phase 4.5 to walk sub-hypotheses).
-
-### End-to-end driver
-
-| Command | What it does |
-|---------|--------------|
-| `/full-pipeline-unattended` | Full automated UNATTENDED pipeline: Phase 0 → 1 → 2A → 2B → (2C → 3 → 4) × N → 4.5 → \[5] → 6 → 6.5. Takes a research idea file and runs the entire pipeline through paper generation. Phase 5 is optional (skipped when `skip_baseline_comparison=true` in `module.yaml`). |
+The commands fall into two groups: **per-phase commands** (run a single phase
+interactively) and **hypothesis-loop control** (used between Phase 2B and
+Phase 4.5 to walk sub-hypotheses). Hands-off end-to-end runs use the Python
+launcher `python .claude/hooks/run_total_youra.py`, not a slash command.
 
 ### Per-phase commands
 
@@ -166,8 +161,7 @@ separate Phase 5 slash command.
 
 ### When to use which
 
-- Use `/full-pipeline-unattended` for hands-off end-to-end runs (equivalent to
-  `python .claude/hooks/run_total_youra.py`).
+- Use `python .claude/hooks/run_total_youra.py` for hands-off end-to-end runs.
 - Use the per-phase commands when you want to inspect or steer individual
   phases interactively.
 - Use the hypothesis-loop commands when iterating through sub-hypotheses —

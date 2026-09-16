@@ -203,7 +203,7 @@ failsafe_task = {
     "id": f"task-{current_id:03d}",
     "epic": "Pipeline Management",
     "title": "Pipeline Continuation Checkpoint",
-    "description": "/full-pipeline-unattended - FAILSAFE CONTINUATION TASK",
+    "description": "full-pipeline-unattended - FAILSAFE CONTINUATION TASK",
     "feature_tag": "pipeline-continue",
     "priority": 1,
     "source_document": "system",

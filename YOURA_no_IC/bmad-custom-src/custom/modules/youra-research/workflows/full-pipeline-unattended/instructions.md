@@ -135,12 +135,11 @@ ELSE:
 
 No existing pipeline found and no input file provided.
 
-Usage:
-  /full-pipeline-unattended path/to/research_idea.md
+Usage (unattended Python launcher):
+  python .claude/hooks/run_total_youra.py path/to/research_idea.md --enable-refine
 
-Or resume existing pipeline by running:
-  /full-pipeline-unattended
-  (if pipeline exists in docs/youra_research/)
+Or resume an existing pipeline:
+  python .claude/hooks/run_total_youra.py dummy --resume-from <phase> --research-folder docs/youra_research/<run>
 """
 
     <action>Validate input file exists</action>

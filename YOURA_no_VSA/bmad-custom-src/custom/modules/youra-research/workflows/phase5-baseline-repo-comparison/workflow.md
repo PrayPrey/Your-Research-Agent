@@ -401,8 +401,7 @@ phase5-baseline-repo-comparison/
 # Run baseline comparison for a specific hypothesis
 /hypothesis-next   # runs Phase 5 for the next READY hypothesis when skip_baseline_comparison is false
 
-# Or as part of full pipeline
-/full-pipeline-unattended "research_idea.md"
+# Or as part of the full-pipeline-unattended workflow (skip_baseline_comparison: false in module.yaml)
 ```
 
 ---

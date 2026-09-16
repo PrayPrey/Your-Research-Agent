@@ -64,9 +64,6 @@ async function install(options) {
   logger.log('');
   logger.log('📌 Primary skill commands:');
   logger.log('');
-  logger.log('  [Full pipeline]');
-  logger.log('    /full-pipeline-unattended   Unattended full run');
-  logger.log('');
   logger.log('  [Individual phases]');
   logger.log('    /phase0-brainstorm          Research question discovery');
   logger.log('    /phase1-targeted            Targeted research collection');
