@@ -30,7 +30,10 @@ YOURA/
 |       +-- phase651-overleaf/
 +-- tasks_youra/    # Example task/topic inputs
 +-- docs/           # Runtime outputs are written under docs/youra_research/
-+-- install_hooks.py
++-- install_hooks.py  # Hook dependency installer; writes .claude/settings.local.json
++-- setup_tex.py      # TinyTeX + LaTeX package installer for PDF generation
++-- requirements.txt  # Hook runtime dependencies
++-- .env.example      # Copy of the root .env template (hooks read YOURA/.env, then ../.env)
 ```
 
 ## Setup Pointer
@@ -41,11 +44,20 @@ Use the root `README.md` setup flow:
 2. Run `pip install -e .` from the repository root.
 3. Create `.env` at the repository root with `OPENROUTER_API_KEY` and, if
    needed, `OPENAI_API_KEY`.
-4. Run `python install_hooks.py --install-deps` from `YOURA/`.
+4. Make sure the Claude Code CLI is logged in and reachable at
+   `~/.local/bin/claude` (the launchers hard-code this path; symlink it there
+   if the CLI is installed elsewhere).
+5. Run `python install_hooks.py --install-deps` from `YOURA/`.
+6. Run `python setup_tex.py` from `YOURA/` (or use an existing TeX Live) and
+   put its `bin` directory on `PATH`, so that `pdflatex`, `xelatex`, and
+   `bibtex` resolve. Needed only for the PDF outputs of Phase 6.5.1 and
+   `--enable-refine`.
+7. Have `conda` on `PATH`; Phase 4 creates one conda environment per
+   experiment and stops if it is missing.
 
 `install_hooks.py` writes absolute paths into
 `YOURA/.claude/settings.local.json`. Re-run it after moving or recloning the
-repository.
+repository. The unattended launchers run on Linux (WSL on Windows).
 
 ## Running YouRA
 
@@ -67,6 +79,11 @@ If PDF generation succeeds, the compiled PDF is written to:
 ```text
 docs/youra_research/<run>/paper/refinement/overleaf_refinement/main.pdf
 ```
+
+PDF compilation needs `xelatex` and `bibtex` on `PATH` (step 6 of the Setup
+Pointer). Without them the Markdown manuscript and the `.tex` project are
+still written, but `run_phase_refine.py` aborts at the compile step and the
+refine phase is reported as failed.
 
 ## Short Topics
 
@@ -97,17 +114,18 @@ python .claude/hooks/run_total_youra.py dummy \
 
 ## Slash Commands
 
-Claude Code exposes 18 slash commands from `.claude/commands/`. Each command
-file is a thin BMAD workflow loader: it loads `_bmad/core/tasks/workflow.xml`
-and passes a per-phase `workflow.yaml` under
+Claude Code exposes 16 slash commands from `.claude/commands/`. The per-phase
+command files are thin BMAD workflow loaders: they load
+`_bmad/core/tasks/workflow.xml` and pass a per-phase `workflow.yaml` under
 `bmad-custom-src/custom/modules/youra-research/workflows/<phase>/` as the
-configuration. The `hypothesis-*` commands directly read/write
-`verification_state.yaml` instead of going through BMAD.
+configuration. `/hypothesis-loop` loads the step files under
+`workflows/hypothesis-loop/` directly (no `workflow.xml`), and
+`/hypothesis-next` / `/hypothesis-status` are self-contained instructions
+that read and write `verification_state.yaml` themselves.
 
-The commands fall into four groups: **end-to-end driver**, **per-phase
-commands** (run a single phase interactively), **hypothesis-loop control**
-(used between Phase 2C and Phase 5 to walk sub-hypotheses), and **utility /
-monitoring**.
+The commands fall into three groups: **end-to-end driver**, **per-phase
+commands** (run a single phase interactively), and **hypothesis-loop control**
+(used between Phase 2B and Phase 4.5 to walk sub-hypotheses).
 
 ### End-to-end driver
 
@@ -122,8 +140,7 @@ monitoring**.
 | `/phase0-brainstorm` | 0 | Interactive research-question brainstorming session. Helps the user discover, refine, and articulate research questions through adaptive facilitation. Outputs Phase 1-compatible inputs (`research_question`, `detailed_question`, `reference_papers`). |
 | `/phase1-research` | 1 | Systematic data collection for deep-learning research topics. Gathers academic papers, past cases, and implementations to identify research gaps. Produces research data ready for Phase 2A hypothesis generation. |
 | `/phase1-targeted` | 1 (targeted) | Targeted research scoped by specific research questions and optional reference papers. Outputs Phase 1-compatible data for hypothesis generation in Phase 2A. |
-| `/phase2a-dialogue` | 2A | Hypothesis generation via 4-Perspective Round Table (Novelty, Falsifiability, Significance, Plausibility) with convergence-based discussion, followed by Synthesis and Advocate–Critic refinement dialogue (3–8 rounds). Produces a validated hypothesis ready for Phase 2A Extended clarification. |
-| `/phase2a-extended` | 2A (extended) | Narrows the broad project from Phase 2A to a specific testable hypothesis aligned with the user intent from Phase 0, then clarifies it with scientific rigor. Produces a focused hypothesis ready for Phase 2B. |
+| `/phase2a-dialogue` | 2A | Hypothesis generation via 4-Perspective Round Table (Novelty, Falsifiability, Significance, Plausibility) with convergence-based discussion, followed by Synthesis and Advocate–Critic refinement dialogue (3–8 rounds). Produces a validated hypothesis ready for Phase 2B. |
 | `/phase2b-planning` | 2B | Decomposes main hypotheses into detailed sub-hypotheses and establishes verification plans. Produces a verification roadmap with prioritized experiments and success criteria. |
 | `/phase2c-experiment-design` | 2C | Generates detailed, research-backed experiment specifications from Phase 2B verification protocols using MCP-powered implementation search and code analysis. Produces a Level-1.5 experiment brief ready for Phase 3. |
 | `/phase3-implementation-planning` | 3 | Orchestrates PRD / Architecture generation, complexity assessment, PRP creation, and Archon project initialization for hypothesis implementation. Produces an implementation-ready package (PRD, Architecture, PRP, Archon tasks) for Phase 4. |
@@ -133,10 +150,13 @@ monitoring**.
 | `/phase65-adversarial-review` | 6.5 | Multi-round adversarial review for the paper. Devil's-Advocate review with role separation to identify and fix issues before submission. |
 | `/phase651-overleaf` | 6.5.1 | Converts the final reviewed paper to an Overleaf-compilable LaTeX project and compiles to PDF. |
 
-### Hypothesis-loop control (Phase 2C → 3 → 4 → 5)
+### Hypothesis-loop control (Phase 2C → 3 → 4)
 
-These commands are designed to be called repeatedly between Phase 2C and
-Phase 5. They read/write `verification_state.yaml` directly.
+These commands are designed to be called repeatedly between Phase 2B and
+Phase 4.5. They read/write `verification_state.yaml` directly. The Phase 5
+(baseline comparison) step inside them is skipped while
+`skip_baseline_comparison: true` in `module.yaml` (the default); there is no
+separate Phase 5 slash command.
 
 | Command | What it does |
 |---------|--------------|

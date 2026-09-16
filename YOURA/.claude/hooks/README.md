@@ -496,10 +496,13 @@ Phase stdout formats:
 
 ## Prerequisites
 
-- Claude CLI (`~/.local/bin/claude`)
+- Linux (the launchers use POSIX `select()` on pipes and `/proc` for hang detection; use WSL on Windows)
+- Claude CLI at exactly `~/.local/bin/claude` (hard-coded as `CLAUDE_CLI` in every `run_phase*.py`)
 - Python 3.10+
-- `PyYAML`, `requests`, `python-dotenv`
-- `OPENROUTER_API_KEY` set in `.env`
+- `PyYAML`, `requests`, `python-dotenv`, `openai` (from `../../requirements.txt`; `install_hooks.py --install-deps` installs them)
+- `OPENROUTER_API_KEY` set in `.env` (`YOURA/.env` is read first, then the repository-root `.env`)
+- `conda` on `PATH` for the Phase 4 experiment environments
+- `pdflatex`, `xelatex`, and `bibtex` on `PATH` for the Phase 6.5.1 and `run_phase_refine.py` PDF outputs (`../../setup_tex.py` installs TinyTeX)
 
 ## Logs
 

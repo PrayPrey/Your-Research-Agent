@@ -42,11 +42,16 @@ with 4 judges × 10 tasks = 40 review JSONs. Each condition below has an
 |:--|:--|
 | `*_no_VSA` | Persistence-versus-context control: no durable verification-state files; equivalent state passed through prompt-visible context. |
 | `*_no_IC` | Independent-controller control: the GPT-5.2 controller route is disabled; controller-owned lifecycle/recovery decisions and debate/review moderation run from predefined static prompts. |
-| `*_no_mcp` | MCP tool stack removed. |
-| `*_no_reflection` | Reflection routing disabled. |
+| `*_no_mcp` | MCP tool stack removed: no tool-grounded execution and no structured access to memory or external artifacts. |
+| `*_no_reflection` | Reflection-guided redesign/reset routing disabled (reflection budget set to 0, i.e. `--max-reflections 0`). |
 | `*_no_VSA_no_IC` | Combined control: no-VSA and controller-off applied together (`YOURA_no_VSA_no_IC/`). |
 | `*_no_VSA_no_IC_no_mcp` | Combined control: no-VSA, controller-off, and no-MCP applied together. |
-| `*_no_VSA_no_IC_no_mcp_no_reflection` | Combined control: all four substitutions applied together (`YOURA_no_VSA_no_IC_no_MCP_no_Reflection/`). |
+| `*_no_VSA_no_IC_no_mcp_no_reflection` | Combined control: all four substitutions applied together. |
+
+Agent folders are bundled for the full system (`YOURA/`), `*_no_VSA`
+(`YOURA_no_VSA/`), `*_no_IC` (`YOURA_no_IC/`), and `*_no_VSA_no_IC`
+(`YOURA_no_VSA_no_IC/`); the root README explains how to run each. The other
+lanes ship their generated artifacts and scores only.
 
 Per-lane mean/SD statistics can be regenerated with
 [`../analysis/README.md`](../analysis/README.md#ablation-study-score-statistics)
@@ -113,10 +118,10 @@ results/generations/youra/sonnet45/iclr2025_buildingtrust/docs/youra_research/20
 | Lane | Condition |
 |:--|:--|
 | `sonnet45`, `opus45`, `sonnet46` | Full system per backbone (main-table runs). |
-| `sonnet45_no_VSA` | Persistence-versus-context control: the task model neither reads nor writes durable verification-state files; equivalent state is supplied as prompt-visible context, while harness-side shadow files (`.ablation_shadow/`) preserve identical stage transitions. |
-| `sonnet45_no_IC` | Independent-controller control: the GPT-5.2 controller route is disabled; controller-owned lifecycle and recovery decisions, plus debate and review moderation, run from predefined static prompts, while debate itself is conducted by the execution model. |
-| `*_no_mcp` | MCP tool stack removed. |
-| `*_no_reflection` | Reflection routing disabled. |
+| `*_no_VSA` | Persistence-versus-context control: the task model neither reads nor writes durable verification-state files; equivalent state is supplied as prompt-visible context, while harness-side shadow files (`.ablation_shadow/`) preserve identical stage transitions. |
+| `*_no_IC` | Independent-controller control: the GPT-5.2 controller route is disabled; controller-owned lifecycle and recovery decisions, plus debate and review moderation, run from predefined static prompts, while debate itself is conducted by the execution model. |
+| `*_no_mcp` | MCP tool stack removed: no tool-grounded execution and no structured access to memory or external artifacts. |
+| `*_no_reflection` | Reflection-guided redesign/reset routing disabled (reflection budget set to 0, i.e. `--max-reflections 0`). |
 | `*_no_VSA_no_IC` | Combined control: both the no-VSA and the controller-off substitutions applied in one run. |
 | `*_no_VSA_no_IC_no_mcp` | Combined control: no-VSA, controller-off, and no-MCP in one run. |
 | `*_no_VSA_no_IC_no_mcp_no_reflection` | Combined control: all four substitutions in one run. |

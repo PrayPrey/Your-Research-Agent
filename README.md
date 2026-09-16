@@ -60,16 +60,32 @@ YouRA's lifecycle proceeds left to right under the VSA. The independent controll
 
 ### Prerequisites
 
+- A Linux environment for the unattended launchers (`run_phase*.py` stream the Claude CLI through POSIX `select()` on pipes and use `/proc` for hang detection). On Windows, run the pipeline under WSL.
 - Python 3.10+
-- Claude Code CLI available as `~/.local/bin/claude`
+- Claude Code CLI at exactly `~/.local/bin/claude`. Every launcher hard-codes this path (`CLAUDE_CLI` in `YOURA/.claude/hooks/run_phase*.py`); if the CLI is installed elsewhere, symlink it there (see [Claude Hook Setup](#claude-hook-setup)).
 - Claude Code CLI must be logged in and backed by an active **Claude subscription** or **API-backed account** before running YouRA.
 - Codex CLI must be installed, logged in, and backed by an active **subscription** or **API key** before running Codex-backed evaluation scripts.
 - `OPENROUTER_API_KEY` in `.env` for the GPT-5.2-based auto-responder/controller
-- A TeX toolchain providing `xelatex` and `bibtex` (used by Phase 6.5.1 and `--enable-refine` to compile the PDF). `python setup_tex.py` inside the agent folder installs TinyTeX plus the required packages; make sure its `bin` directory is on `PATH` afterwards.
+- A TeX toolchain providing `pdflatex`, `xelatex`, and `bibtex`. Phase 6.5.1 compiles the Overleaf project with `pdflatex` + `bibtex`; the `--enable-refine` pass compiles the refined manuscript with `xelatex` + `bibtex`. `YOURA/setup_tex.py` installs TinyTeX plus the required packages (see [TeX Toolchain Setup](#tex-toolchain-setup)). Without a TeX toolchain, Phase 6.5.1 still writes the `.tex` project (its verifier treats `output.pdf` as optional), and the refine pass writes `06_paper_refinement.md` and the `.tex` sources before `run_phase_refine.py` aborts on the missing `xelatex` binary, so the run ends without a PDF and with the refine step reported as failed.
 - `conda` (miniforge3/miniconda): Phase 4 creates a conda environment for each experiment and stops if `conda` is not found.
-- MCP services: [Serena](https://github.com/oraios/serena) (strongly recommended) and [Archon](https://github.com/coleam00/Archon/tree/archive/v1-task-management-rag) (recommended but not required). Other optional MCP services can be found in the [Smithery server directory](https://smithery.ai/servers).
+- MCP services: [Serena](https://github.com/oraios/serena) (strongly recommended) and [Archon](https://github.com/coleam00/Archon/tree/archive/v1-task-management-rag) (recommended). The phase workflows declare both as required tool servers and the prompts instruct the model to use them for Reflective Memory, task tracking, and knowledge-base search; the Python launchers do not check for them, and runs complete without them with reduced tool grounding (the `*_no_mcp` ablation lanes ran with no MCP servers). Other optional MCP services can be found in the [Smithery server directory](https://smithery.ai/servers).
 
 ### Setup
+
+Install in this order; each step is detailed below.
+
+1. Python virtual environment, then `pip install -e .` at the repository root
+   (installs the `mlrbench-youra` evaluation/analysis package).
+2. `.env` at the repository root with `OPENROUTER_API_KEY`.
+3. `cd YOURA && python install_hooks.py --install-deps` — installs the hook
+   runtime dependencies from `YOURA/requirements.txt` into the same virtual
+   environment and writes `.claude/settings.local.json`
+   ([Claude Hook Setup](#claude-hook-setup)).
+4. `cd YOURA && python setup_tex.py`, then add the TinyTeX `bin` directory to
+   `PATH` ([TeX Toolchain Setup](#tex-toolchain-setup)). Standard library
+   only, so it does not depend on the virtual environment; needed only for
+   PDF output.
+5. `conda` on `PATH` for the Phase 4 experiment environments.
 
 ```bash
 # Clone repository
@@ -90,15 +106,20 @@ cp .env.example .env
 # OPENAI_API_KEY is optional; needed only for direct OpenAI/Codex API calls
 ```
 
-This repository has two Python setup layers:
+This repository has two Python setup layers plus one non-Python step:
 
 - `pyproject.toml` installs the root evaluation/analysis package under `src/mlrbench`.
 - `YOURA/install_hooks.py` installs the small Claude Code hook runtime dependencies
-  and writes repository-specific absolute paths into `YOURA/.claude/settings.local.json`.
+  (`requests`, `PyYAML`, `python-dotenv`, `openai`, `pytest`) and writes
+  repository-specific absolute paths into `YOURA/.claude/settings.local.json`.
+- `YOURA/setup_tex.py` installs the TeX toolchain used for PDF generation
+  (see [TeX Toolchain Setup](#tex-toolchain-setup)).
 
-Run both steps in the same virtual environment. Do not manually edit
+Run both Python steps in the same virtual environment. Do not manually edit
 `YOURA/.claude/settings.local.json`; regenerate it with `install_hooks.py` after
-moving or recloning the repository.
+moving or recloning the repository. The hooks read `.env` from `YOURA/` first
+and then from the repository root, so a single `.env` at the root is enough
+(`YOURA/.env.example` is a copy of the root template).
 
 `ANTHROPIC_API_KEY` is not required for the default YouRA workflow when Claude Code
 CLI is already logged in. It is only needed if you run the MLR-Bench evaluators
@@ -116,19 +137,48 @@ cd YOURA
 python install_hooks.py --install-deps
 ```
 
-If Claude CLI is installed somewhere other than `~/.local/bin/claude`, pass it explicitly:
+`--claude-bin` only tells the installer which binary to version-check; the
+path is not written to any config. The launchers themselves always call
+`~/.local/bin/claude`, so if the CLI is installed elsewhere, put a symlink at
+that path before running the pipeline:
 
 ```bash
-python install_hooks.py --install-deps --claude-bin /path/to/claude
+mkdir -p ~/.local/bin
+ln -s "$(command -v claude)" ~/.local/bin/claude
+python install_hooks.py --install-deps
 ```
 
-**On Windows**, the Claude CLI is typically `claude.EXE` and the default path check fails. Pass the absolute path explicitly:
-
-```powershell
-python install_hooks.py --install-deps --claude-bin "C:\Users\<you>\.local\bin\claude.EXE"
-```
+**On Windows**, the unattended launchers do not run natively (see
+Prerequisites); use WSL and the Linux instructions above. The installer alone
+can still be run on Windows to check a `claude.EXE` install by passing its
+absolute path with `--claude-bin "C:\Users\<you>\.local\bin\claude.EXE"`.
 
 To skip the Claude CLI check entirely (e.g., when only configuring on a machine where Claude Code will be installed later), add `--skip-claude-check`.
+
+### TeX Toolchain Setup
+
+Phase 6.5.1 compiles the Overleaf project with `pdflatex` + `bibtex`, and the
+`--enable-refine` pass compiles the refined manuscript with `xelatex` +
+`bibtex`. If an existing TeX Live installation already provides these
+binaries, nothing else is needed. Otherwise install TinyTeX plus the required
+packages with the bundled script (each agent folder ships an identical copy):
+
+```bash
+cd YOURA
+python setup_tex.py                                    # TinyTeX under ~/.TinyTeX, then tlmgr packages
+export PATH="$HOME/.TinyTeX/bin/x86_64-linux:$PATH"   # add to ~/.bashrc; aarch64-linux / universal-darwin on other platforms
+pdflatex --version && xelatex --version && bibtex --version
+```
+
+The script prints a verification block at the end; every entry must resolve to
+a path (the script exits 0 even when something is `NOT FOUND`, so check the
+block). Useful options:
+
+- `--dry-run` prints the commands without running them.
+- `--skip-install-tinytex` reuses an existing `tlmgr` and installs only the packages.
+- `--packages ...` overrides the package list. The default list includes CJK
+  support (`kotex`, `cjk`, `xecjk`) and the large `collection-latexextra`
+  bundle; English-only manuscripts can drop the CJK entries.
 
 ## Usage
 
@@ -212,6 +262,7 @@ Default run behavior can be edited in `YOURA/.claude/hooks/auto_responder_config
 |:--------|:----------|:--------|
 | Claude Code model | `claude_model` | Selects the Claude CLI execution model used by `run_phase*.py`, for example `claude-sonnet-4-6`, `claude-opus-4-6`, or `claude-haiku-4-5-20251001`. Empty/null uses the Claude CLI default. |
 | Claude effort | `claude_effort` | Controls Claude extended thinking level: `low`, `medium`, `high`, or `max`. |
+| Claude thinking switch | `claude_thinking` | `false` sets `MAX_THINKING_TOKENS=0` for every Claude CLI subprocess, disabling extended thinking regardless of `claude_effort`; `true` (or absent) lets `claude_effort` / the CLI default apply. The shipped config uses `claude_model: claude-sonnet-4-6`, `claude_effort: low`, `claude_thinking: false`. |
 | Reflection budget | `pipeline_reflection.max_reflections` | Default maximum number of reflection reroutes after `MUST_WORK` failures. `-1` means unlimited; `0` disables reflection. CLI `--max-reflections` can be used per run. |
 | Auto-responder model | `openrouter.model` | Model used by the OpenRouter-based auto-responder/controller when OpenRouter analysis is enabled. |
 
@@ -239,7 +290,7 @@ Supported `--resume-from` values:
 ### Running the no-VSA Ablation Variant (`YOURA_no_VSA/`)
 
 `YOURA_no_VSA/` is a self-contained copy of the agent used for the
-persistence-versus-context ablation (the `sonnet45_no_VSA` lane in
+persistence-versus-context ablation (the `*_no_VSA` lanes in
 [`results/README.md`](results/README.md)). It shares the full pipeline,
 launchers, and phase commands with `YOURA/`; the differences are:
 
@@ -260,9 +311,10 @@ cd YOURA_no_VSA
 python install_hooks.py --install-deps
 ```
 
-**Always pass `--state-mode shadow`.** The flag defaults to `normal`
-(equivalently set `YOURA_STATE_MODE=shadow`); a run launched without it
-behaves like the full system and cannot be used as an ablation arm.
+**Always pass `--state-mode shadow`.** The flag defaults to `normal` (the
+environment variable `YOURA_STATE_MODE=shadow` changes that default); a run
+launched in normal mode behaves like the full system and cannot be used as an
+ablation arm.
 
 ```bash
 cd YOURA_no_VSA
@@ -276,23 +328,27 @@ All other launcher options (`--resume-from`, `--max-reflections`, the runtime
 configuration in `.claude/hooks/auto_responder_config.yaml`) work exactly as
 described above for `YOURA/`; keep `--state-mode shadow` on resumed commands
 too. The artifacts generated by this variant for the paper are bundled under
-`results/generations/youra/sonnet45_no_VSA/`.
+`results/generations/youra/<backbone>_no_VSA/`.
 
 ### Running the Controller-off Ablation Variant (`YOURA_no_IC/`)
 
 `YOURA_no_IC/` is a self-contained copy of the agent used for the
-independent-controller ablation (the `sonnet45_no_IC` lane in
+independent-controller ablation (the `*_no_IC` lanes in
 [`results/README.md`](results/README.md)). The independent GPT-5.2 controller
 route is disabled: controller-owned lifecycle and recovery decisions, plus
-debate and review moderation, run from predefined static prompts inside the
-modified hooks (`hook_router.py`, `phase_auto_responder.py`,
-`run_hypothesis_loop.py`, and related launchers), while debate itself is
-conducted by the execution model. The persistent VSA, MCP tools, Reflective
-Memory, and stage graph are unchanged.
+debate and review moderation, run from predefined static prompts. Concretely,
+`phase_auto_responder.py` gains a `responder_mode: "fixed"` path (enabled in
+`.claude/hooks/auto_responder_config.yaml`) that replaces the GPT-5.2 stop-hook
+decision with the deterministic `phase_output_verifier.py` checks plus a fixed
+resume prompt, and `run_phase2a.py` runs the hypothesis debate as a self-play
+loop inside the execution session instead of through the external
+`orchestrate_exchange.py` moderator, so debate itself is conducted by the
+execution model. The persistent VSA, MCP tools, Reflective Memory, and stage
+graph are unchanged.
 
 Setup and launch are identical to `YOURA/` — no extra flag is needed; the
-substitution lives in the hook code itself. The artifacts generated by this
-variant are bundled under `results/generations/youra/sonnet45_no_IC/`.
+substitution lives in the hook code and config. The artifacts generated by
+this variant are bundled under `results/generations/youra/<backbone>_no_IC/`.
 
 ### Running the Combined no-VSA + Controller-off Variant (`YOURA_no_VSA_no_IC/`)
 
@@ -304,11 +360,11 @@ and `opus45_no_VSA_no_IC` lanes in [`results/README.md`](results/README.md)):
   `ablation_state_manager.py`, `ablation_audit.py`) block the task model from
   the durable VSA files and supply the equivalent state as prompt-visible
   context.
-- The controller-off substitution from `YOURA_no_IC/` (`hook_router.py`,
-  `phase_auto_responder.py`, `run_hypothesis_loop.py`, and
-  `responder_mode: "fixed"` in `.claude/hooks/auto_responder_config.yaml`)
-  replaces the GPT-5.2 controller route with predefined static prompts; the
-  external LLM is additionally hard-disabled in the phase configs.
+- The controller-off substitution from `YOURA_no_IC/` (`phase_auto_responder.py`
+  with `responder_mode: "fixed"` in `.claude/hooks/auto_responder_config.yaml`,
+  and the self-play debate in `run_phase2a.py`) replaces the GPT-5.2 controller
+  route with predefined static prompts; the external LLM is additionally
+  hard-disabled in the phase configs.
 
 Setup mirrors `YOURA_no_VSA/`, and **`--state-mode shadow` is required** for
 the same reason as there:
@@ -325,14 +381,20 @@ python .claude/hooks/run_total_youra.py tasks_youra/iclr2025_scsl.md \
 The artifacts generated by this variant are bundled under
 `results/generations/youra/<backbone>_no_VSA_no_IC/`.
 
+These four agent folders (`YOURA/`, `YOURA_no_VSA/`, `YOURA_no_IC/`,
+`YOURA_no_VSA_no_IC/`) are the only ones bundled. The `*_no_mcp`,
+`*_no_reflection`, and the three- and four-way combined lanes under
+`results/` ship their generated artifacts and scores only; see
+[`results/README.md`](results/README.md) for their definitions.
+
 ### MCP Tool Stack
 
-Claude Code is the execution host and hook surface. Serena and Archon are the main recommended MCP-backed memory/tool layers; the remaining MCP services are optional and can be found in the [Smithery server directory](https://smithery.ai/servers).
+Claude Code is the execution host and hook surface. Serena and Archon are the main recommended MCP-backed memory/tool layers; the remaining MCP services are optional and can be found in the [Smithery server directory](https://smithery.ai/servers). The per-phase server requirements are listed in `YOURA/bmad-custom-src/custom/modules/youra-research/mcp-phase-config.yaml`; they are enforced by the workflow prompts, not by the Python launchers, so a missing server degrades tool grounding rather than aborting a run.
 
 | Tool | Status | Usage in YouRA |
 |:-----|:-------|:---------------|
-| [Serena](https://github.com/oraios/serena) | Strongly recommended | Code-aware symbol navigation/editing and Reflective Memory failure-context recording. |
-| [Archon](https://github.com/coleam00/Archon/tree/archive/v1-task-management-rag) | Recommended (not required) | Sequential Memory, RAG-backed knowledge base, implementation-pattern storage, and task lifecycle management. |
+| [Serena](https://github.com/oraios/serena) | Strongly recommended (declared required by the phase workflows) | Code-aware symbol navigation/editing and Reflective Memory failure-context recording. |
+| [Archon](https://github.com/coleam00/Archon/tree/archive/v1-task-management-rag) | Recommended (declared required by the phase workflows) | Sequential Memory, RAG-backed knowledge base, implementation-pattern storage, and task lifecycle management. |
 | Clear Thought, Exa, Semantic Scholar | Optional | Available through the [Smithery server directory](https://smithery.ai/servers) if you want structured reasoning, web evidence search, or literature search integrations. |
 
 ## Modified MLR-Bench Evaluation Utilities
@@ -380,6 +442,7 @@ YouRA/
 +-- pyproject.toml                    # Root evaluation package metadata
 +-- YOURA/                            # The YouRA agent itself (see YOURA/README.md)
 |   +-- install_hooks.py              # Claude Code hook installer
+|   +-- setup_tex.py                  # TinyTeX + LaTeX package installer (PDF generation)
 |   +-- requirements.txt              # Hook runtime dependencies
 |   +-- tasks_youra/                  # Research task prompts
 |   +-- .claude/
@@ -404,7 +467,7 @@ Each top-level folder has its own README with the full details:
 |:--|:--|:--|
 | `YOURA/` | [`YOURA/README.md`](YOURA/README.md) | YouRA workflow layout, phase commands, and hook runtime. |
 | `analysis/` | [`analysis/README.md`](analysis/README.md) | Scripts that reproduce every table and figure in the paper, incl. the ablation-study score statistics. |
-| `results/` | [`results/README.md`](results/README.md) | Layout of the bundled evaluation scores (incl. `youra_ablation_study`) and generated research artifacts (incl. the `sonnet45_no_VSA` and `sonnet45_no_IC` control lanes). |
+| `results/` | [`results/README.md`](results/README.md) | Layout of the bundled evaluation scores (incl. `youra_ablation_study`) and generated research artifacts (incl. the ablation control lanes). |
 | `src/` | [`src/README.md`](src/README.md) | The `mlrbench-youra` evaluation package and its CLI runners. |
 
 ## Results Format
