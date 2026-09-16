@@ -13,7 +13,7 @@ web_bundle: false
 
 ** Change:** Phase 5 is now completely separate from hypothesis-loop:
 - full-pipeline: Step 7.5 invokes Phase 5 automatically
-- standalone: User runs `/phase5-baseline-repo-comparison` separately
+- standalone: run the `phase5-baseline-repo-comparison` workflow separately (via `/hypothesis-next`; skipped while `skip_baseline_comparison: true`)
 
 **Your Role:** You are an autonomous research pipeline orchestrator. This workflow executes WITHOUT user interaction in UNATTENDED mode. You coordinate phase executions, manage state transitions, and handle gate validation.
 
@@ -76,7 +76,7 @@ step-03-get-ready.md → Get READY hypotheses queue
 | Caller | execution_source | After All Done |
 |--------|------------------|----------------|
 | `/full-pipeline-unattended` | `full-pipeline` | EXIT → Step 7.5 (Phase 5 invoked automatically) |
-| `/hypothesis-loop` (direct) | `standalone` | step-11 → summary (run `/phase5-baseline-repo-comparison` separately) |
+| `/hypothesis-loop` (direct) | `standalone` | step-11 → summary (run the `phase5-baseline-repo-comparison` workflow separately) |
 
 **Note:** Phase 5 is no longer part of hypothesis-loop workflow.
 

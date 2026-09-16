@@ -114,7 +114,7 @@
 > Phase 5 is invoked separately by the caller (e.g., full-pipeline-unattended Step 8)
 > after hypothesis-loop completes and returns control.
 >
-> See: `/phase5-baseline-repo-comparison` for standalone execution.
+> See: the `phase5-baseline-repo-comparison` workflow (via `/hypothesis-next`) for standalone execution.
 
 ---
 

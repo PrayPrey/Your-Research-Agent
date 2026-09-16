@@ -126,7 +126,7 @@ When encountering `<invoke-workflow>` tag:
 - DO NOT spawn invoke-workflow as a Task agent
 - invoke-workflow is NOT delegating to a sub-agent
 - Task tool is ONLY for explicitly marked agents (architecture-agent, validator-agent, etc.)
-- Phase 0, Phase 1, Phase 2A-Ext, Phase 2B, Phase 2C, Phase 6 all run INLINE via invoke-workflow
+- Phase 0, Phase 1, Phase 2A, Phase 2B, Phase 2C, Phase 6 all run INLINE via invoke-workflow
 
 ### Output Validation (MANDATORY):
 After Phase 3 agent execution, verify each output contains:

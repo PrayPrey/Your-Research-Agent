@@ -84,7 +84,7 @@ All implementation is in `steps/*.md`. Execute in order:
 | 09 | `step-09-loop-continue.md` | Mode-specific actions, loop control |
 | 11 | `step-11-complete.md` | Complete workflow, update Archon tasks |
 
-> See: `full-pipeline-unattended/instructions.md` Step 8 or `/phase5-baseline-repo-comparison` for standalone execution.
+> See: `full-pipeline-unattended/instructions.md` Step 8 or the `phase5-baseline-repo-comparison` workflow (via `/hypothesis-next`) for standalone execution.
 
 ---
 

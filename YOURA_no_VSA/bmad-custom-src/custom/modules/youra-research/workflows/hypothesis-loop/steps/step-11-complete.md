@@ -47,7 +47,7 @@ Phase 5 can ONLY be executed when **ALL sub-hypotheses have completed Phase 4**.
 
 Phase 5 is invoked separately:
 - full-pipeline: Step 7.5 invokes Phase 5 automatically
-- standalone: User should run `/phase5-baseline-repo-comparison` separately
+- standalone: run the `phase5-baseline-repo-comparison` workflow separately (via `/hypothesis-next`)
 </critical>
 
 ---
@@ -138,7 +138,7 @@ Phase 2C → 3 → 4 completed successfully for ALL sub-hypotheses.
 - Ready for baseline comparison
 
 **Next Steps:**
-1. Execute `/phase5-baseline-repo-comparison` to compare against baseline
+1. Run the `phase5-baseline-repo-comparison` workflow (via `/hypothesis-next`) to compare against baseline
 2. After Phase 5 PASS: Execute `/phase6-paper-writing` for paper generation
 3. Review with `/phase65-adversarial-review`
 
@@ -163,7 +163,7 @@ Failed: {failed_count}
 1. Run `/hypothesis-status` to see failed hypotheses
 2. Check 04_validation.md for failure details
 3. Consider running Phase 5 if MUST_WORK hypotheses passed
-   - `/phase5-baseline-repo-comparison`
+   - the `phase5-baseline-repo-comparison` workflow (via `/hypothesis-next`)
 
 **Note:** SHOULD_WORK failures don't block Phase 5.
 ```

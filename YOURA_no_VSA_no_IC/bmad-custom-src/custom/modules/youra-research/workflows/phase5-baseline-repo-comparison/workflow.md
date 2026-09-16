@@ -299,7 +299,7 @@ From Phase 4 step-05:
 
 This workflow can be triggered:
 1. After Phase 4 completion (any hypothesis)
-2. Manually via `/phase5-baseline-repo-comparison`
+2. Manually via `/hypothesis-next` (runs this workflow for the next hypothesis when `skip_baseline_comparison` is false)
 3. As part of full pipeline in UNATTENDED mode
 
 ### verification_state.yaml Updates
@@ -399,7 +399,7 @@ phase5-baseline-repo-comparison/
 
 ```bash
 # Run baseline comparison for a specific hypothesis
-/phase5-baseline-repo-comparison --hypothesis H-E1
+/hypothesis-next   # runs Phase 5 for the next READY hypothesis when skip_baseline_comparison is false
 
 # Or as part of full pipeline
 /full-pipeline-unattended "research_idea.md"

@@ -184,7 +184,7 @@ def get_next_action(workflow, hypotheses):
         h = in_progress[0]
         phase = detect_current_phase(h)
         if phase == "4→5":
-            return f"Continue {h.id}: /phase5-baseline-repo-comparison"
+            return f"Continue {h.id}: Phase 5 baseline comparison via /hypothesis-next (skipped while skip_baseline_comparison: true)"
         return f"Continue {h.id}: /phase{phase}"
 
     # Find READY hypothesis (by dependency order)

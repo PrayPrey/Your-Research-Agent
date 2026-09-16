@@ -82,8 +82,8 @@ docs/youra_research/<run>/paper/refinement/overleaf_refinement/main.pdf
 
 PDF compilation needs `xelatex` and `bibtex` on `PATH` (step 6 of the Setup
 Pointer). Without them the Markdown manuscript and the `.tex` project are
-still written, but `run_phase_refine.py` aborts at the compile step and the
-refine phase is reported as failed.
+still written; the compile step is skipped with a warning and no PDF is
+produced.
 
 ## Short Topics
 

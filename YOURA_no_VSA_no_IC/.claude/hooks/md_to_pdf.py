@@ -1433,6 +1433,12 @@ def compile_pdf(output_dir, max_retries=3, claude_repair=True):
         print(f"  ERROR: main.tex not found in {output_dir}")
         return False
 
+    missing = [exe for exe in ('xelatex', 'bibtex') if shutil.which(exe) is None]
+    if missing:
+        print(f"  ERROR: {', '.join(missing)} not found on PATH; skipping PDF compilation. "
+              f"LaTeX sources are in {output_dir}. See README 'TeX Toolchain Setup'.")
+        return False
+
     for stale in ('main.pdf', 'main.aux', 'main.bbl', 'main.blg',
                   'main.log', 'main.out', 'main.toc'):
         p = os.path.join(output_dir, stale)

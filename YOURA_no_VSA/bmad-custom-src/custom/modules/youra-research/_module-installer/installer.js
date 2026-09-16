@@ -60,7 +60,7 @@ async function install(options) {
   logger.log('═══════════════════════════════════════════════════════════════');
   logger.log('');
   logger.log('📌 Pipeline structure:');
-  logger.log('   Phase 0 → 1 → 2A → 2A-Ext → 2B → (2C → 3 → 4) × N → 5 → 6 → 6.5');
+  logger.log('   Phase 0 → 1 → 2A → 2B → (2C → 3 → 4) × N → 4.5 → 6 → 6.5 → 6.5.1');
   logger.log('');
   logger.log('📌 Primary skill commands:');
   logger.log('');
@@ -71,15 +71,16 @@ async function install(options) {
   logger.log('    /phase0-brainstorm          Research question discovery');
   logger.log('    /phase1-targeted            Targeted research collection');
   logger.log('    /phase2a-dialogue           Two-agent hypothesis discussion');
-  logger.log('    /phase2a-extended           Scientific hypothesis clarification');
   logger.log('    /phase2b-planning           Validation roadmap generation');
   logger.log('');
   logger.log('  [Hypothesis loop]');
   logger.log('    /hypothesis-loop            Automated hypothesis verification loop');
   logger.log('');
   logger.log('  [Paper writing]');
+  logger.log('    /phase45-hypothesis-synthesis Evidence-grounded hypothesis synthesis');
   logger.log('    /phase6-paper-writing       Generate ICML-format paper');
   logger.log('    /phase65-adversarial-review Multi-round review');
+  logger.log('    /phase651-overleaf          Overleaf LaTeX project + PDF');
   logger.log('');
   logger.log('═══════════════════════════════════════════════════════════════');
   logger.log('');

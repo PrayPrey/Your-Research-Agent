@@ -167,10 +167,12 @@ IF hypothesis.validation.status != "COMPLETED":
         route_to_phase2a()
         EXIT
 
-# Phase 5: Baseline Comparison
-IF hypothesis.baseline_comparison.status != "COMPLETED":
+# Phase 5: Baseline Comparison (optional)
+# Skipped while module.yaml pipeline_options.skip_baseline_comparison is true (the default).
+IF NOT skip_baseline_comparison AND hypothesis.baseline_comparison.status != "COMPLETED":
     display: f"▶️ Phase 5: Baseline Comparison starting..."
-    execute("/phase5-baseline-repo-comparison", hypothesis_id=hypothesis.id)
+    invoke_workflow("bmad-custom-src/custom/modules/youra-research/workflows/phase5-baseline-repo-comparison/workflow.yaml",
+                    hypothesis_id=hypothesis.id)
 
     # Phase 5 Gate Processing (DETERMINES_SUCCESS)
     result = read_baseline_result()
