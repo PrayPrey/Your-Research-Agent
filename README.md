@@ -1,6 +1,6 @@
 # YouRA: A Persistent-State Architecture for Evidence-Traceable Autonomous Research Agents
 
-> AACL-IJCNLP 2026
+> AACL-IJCNLP 2026 (Main)
 
 ## Abstract
 
