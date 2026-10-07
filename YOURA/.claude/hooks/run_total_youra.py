@@ -316,7 +316,7 @@ Examples:
         choices=ALL_RESUME_POINTS,
         help="Resume from a specific phase. Requires --research-folder for anything "
              "other than phase0. Part 1 phases: phase0, phase1, phase2a, phase2b, "
-             "hypothesis-loop. Part 2 phases: phase45, phase5, phase6, phase65, phase651.",
+             "hypothesis-loop. Part 2 phases: phase45, phase5, phase6, phase65, phase651, refine.",
     )
 
     # Reflection control (Part 1)

@@ -391,7 +391,7 @@ Examples:
     parser.add_argument(
         "--resume-from", type=str, default=None,
         choices=POST_EXP_RESUME_POINTS,
-        help="Resume from a specific phase. Choices: phase45, phase5, phase6, phase65, phase651",
+        help="Resume from a specific phase. Choices: phase45, phase5, phase6, phase65, phase651, refine",
     )
     parser.add_argument(
         "--enable-phase5", action="store_true", default=False,
@@ -460,7 +460,7 @@ def main():
 
     resume_from = args.resume_from  # None or one of POST_EXP_RESUME_POINTS
     resume_idx = POST_EXP_RESUME_POINTS.index(resume_from) if resume_from else 0
-    # 0=phase45, 1=phase5, 2=phase6, 3=phase65
+    # 0=phase45, 1=phase5, 2=phase6, 3=phase65, 4=phase651, 5=refine
 
     # Determine pipeline phases
     all_phases = ["Phase 4.5", "Phase 6", "Phase 6.5", "Phase 6.5.1"]
@@ -628,31 +628,33 @@ def main():
     # ================================================================
     # Phase 6.5.1 — Overleaf LaTeX + PDF
     # ================================================================
-    # Phase 6.5.1 always runs (it's the last phase)
-    print_banner("Phase 6.5.1 — Overleaf LaTeX + PDF")
+    if resume_idx <= 4:  # phase651 or earlier
+        print_banner("Phase 6.5.1 — Overleaf LaTeX + PDF")
 
-    if not check_phase651_prereqs(research_folder):
-        log("Phase 6.5.1 prerequisites not met — aborting")
-        sys.exit(1)
+        if not check_phase651_prereqs(research_folder):
+            log("Phase 6.5.1 prerequisites not met — aborting")
+            sys.exit(1)
 
-    exit_code = run_script(
-        script=RUN_PHASE651,
-        extra_args=[
-            "--research-folder", research_folder,
-            "--timeout", str(args.timeout_phase651),
-            "--state-mode", args.state_mode,
-        ],
-        phase_name="Phase 6.5.1",
-        hard_timeout=args.timeout_phase651 + 60,
-        output_log_name="post_exp_phase651.log",
-    )
+        exit_code = run_script(
+            script=RUN_PHASE651,
+            extra_args=[
+                "--research-folder", research_folder,
+                "--timeout", str(args.timeout_phase651),
+                "--state-mode", args.state_mode,
+            ],
+            phase_name="Phase 6.5.1",
+            hard_timeout=args.timeout_phase651 + 60,
+            output_log_name="post_exp_phase651.log",
+        )
 
-    if exit_code != 0:
-        log(f"Phase 6.5.1 FAILED (exit code {exit_code}) — aborting")
-        sys.exit(1)
+        if exit_code != 0:
+            log(f"Phase 6.5.1 FAILED (exit code {exit_code}) — aborting")
+            sys.exit(1)
 
-    log("Phase 6.5.1 COMPLETE")
-    phases_completed.append("Phase 6.5.1")
+        log("Phase 6.5.1 COMPLETE")
+        phases_completed.append("Phase 6.5.1")
+    else:
+        log("Phase 6.5.1 SKIPPED (resuming from later phase)")
 
     # ================================================================
     # Refine — Paper Refinement (OPTIONAL)

@@ -1,4 +1,4 @@
-# YouRA — Your Research Assistant
+# YouRA — Your Research Agent
 
 This directory contains the executable YouRA workflow: Claude Code slash
 commands, Python launchers, hooks, BMAD workflows, prompts, and phase-specific
@@ -21,10 +21,15 @@ YOURA/
 +-- bmad-custom-src/
 |   +-- custom/modules/youra-research/workflows/
 |       +-- phase0-brainstorm/
+|       +-- phase1-research/
 |       +-- phase1-targeted-research/
 |       +-- phase2a-dialogue/
 |       +-- phase2b-planning/
+|       +-- phase2c-experiment-design/
+|       +-- phase3-implementation-planning/
+|       +-- phase4-coding/
 |       +-- hypothesis-loop/
+|       +-- phase45-hypothesis-synthesis/
 |       +-- phase6-paper-writing/
 |       +-- phase65-adversarial-review/
 |       +-- phase651-overleaf/
@@ -155,8 +160,8 @@ separate Phase 5 slash command.
 
 | Command | What it does |
 |---------|--------------|
-| `/hypothesis-loop` | Execute the hypothesis verification loop. Automatically runs Phase 2C → 3 → 4 → 5 for each `READY` hypothesis in dependency order with gate validation. |
-| `/hypothesis-next` | Lightweight single-hypothesis executor — runs only the next `READY` hypothesis through Phase 2C → 3 → 4 → 5 with gate validation. Use this when you want to step through hypotheses one at a time. |
+| `/hypothesis-loop` | Execute the hypothesis verification loop. Automatically runs Phase 2C → 3 → 4 (→ 5 when baseline comparison is enabled) for each `READY` hypothesis in dependency order with gate validation. |
+| `/hypothesis-next` | Lightweight single-hypothesis executor — runs only the next `READY` hypothesis through Phase 2C → 3 → 4 (→ 5 when enabled) with gate validation. Use this when you want to step through hypotheses one at a time. |
 | `/hypothesis-status` | Display a visual hypothesis verification progress dashboard. Reads `verification_state.yaml` and renders the status of every hypothesis with progress indicators. Read-only — does not mutate state. |
 
 ### When to use which
@@ -188,6 +193,7 @@ docs/youra_research/<run>/
 |   +-- 03_architecture.md
 |   +-- 03_logic.md
 |   +-- 03_config.md
+|   +-- 03_tasks.yaml
 |   +-- 04_validation.md
 |   +-- 04_checkpoint.yaml
 +-- 045_validated_hypothesis.md
