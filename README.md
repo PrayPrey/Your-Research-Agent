@@ -1,6 +1,6 @@
 # YouRA: A Persistent-State Architecture for Evidence-Traceable Autonomous Research Agents
 
-> AACL-IJCNLP 2026 (Main)
+> AACL-IJCNLP 2026 (Main) · [arXiv:2610.01097](https://arxiv.org/abs/2610.01097)
 
 ## Abstract
 
@@ -498,6 +498,10 @@ anonymization notes.
   author={Woo, Yoonkyu and Lee, Woojin and Huang, Jin-xia},
   booktitle={Proceedings of AACL-IJCNLP 2026},
   year={2026},
+  eprint={2610.01097},
+  archivePrefix={arXiv},
+  primaryClass={cs.AI},
+  url={https://arxiv.org/abs/2610.01097},
   note={Yoonkyu Woo and Woojin Lee contributed equally}
 }
 ```
