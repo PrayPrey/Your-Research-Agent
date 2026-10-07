@@ -284,8 +284,12 @@ Supported `--resume-from` values:
 |:------|:--------|
 | `phase0`, `phase1`, `phase2a`, `phase2b` | Restart the early pipeline at the selected phase. |
 | `hypothesis-loop` | Skip early phases and resume Phase 2C -> 3 -> 4. |
-| `phase45`, `phase5`, `phase6`, `phase65`, `phase651` | Resume the post-experiment manuscript pipeline. |
-| `refine` | Run refinement after Phase 6.5.1 with `--enable-refine`. |
+| `phase45`, `phase6`, `phase65`, `phase651` | Resume the post-experiment manuscript pipeline. |
+| `refine` | Run only the refinement pass on an existing Phase 6.5.1 output; requires `--enable-refine`. |
+
+`phase5` is also accepted, but Phase 5 (baseline comparison) is not shipped:
+`run_phase5.py` does not exist and `--enable-phase5` aborts, so without that
+flag `--resume-from phase5` behaves the same as `phase6`.
 
 ### Running the no-VSA Ablation Variant (`YOURA_no_VSA/`)
 
@@ -436,7 +440,7 @@ evaluation outputs.
 ## Project Structure
 
 ```text
-YouRA/
+Your-Research-Agent/
 +-- README.md                         # Repository-level overview (this file)
 +-- overview.png                      # Main lifecycle overview figure
 +-- pyproject.toml                    # Root evaluation package metadata

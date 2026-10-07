@@ -101,7 +101,7 @@ Supported `--resume-from` values:
 | `phase2b` | Phase 0, 1, 2A | O, starting at Phase 2B | O |
 | `hypothesis-loop` | Phase 0, 1, 2A, 2B | O, loop only | O |
 | `phase45` | all of Part 1 | X | O |
-| `phase5` | Part 1 + Phase 4.5 | X | O, starting at Phase 5 |
+| `phase5` | Part 1 + Phase 4.5 | X | O, starting at Phase 5 (Phase 5 is not shipped, so this is equivalent to `phase6` unless `run_phase5.py` exists) |
 | `phase6` | Part 1 + Phase 4.5/5 | X | O, starting at Phase 6 |
 | `phase65` | Part 1 + Phase 4.5/5/6 | X | O, starting at Phase 6.5 |
 | `phase651` | Part 1 + Phase 4.5/5/6/6.5 | X | O, Phase 6.5.1 only |
@@ -208,7 +208,7 @@ python .claude/hooks/run_post_experiment.py --research-folder <path> --resume-fr
 python .claude/hooks/run_post_experiment.py --research-folder <path> --resume-from refine --enable-refine
 ```
 
-Part 2 `--resume-from` options: `phase45`, `phase5`, `phase6`, `phase65`, `phase651`.
+Part 2 `--resume-from` options: `phase45`, `phase5`, `phase6`, `phase65`, `phase651`, `refine`.
 
 Prerequisites: `verification_state.yaml` and at least one `h-*/04_validation.md`.
 
